@@ -494,6 +494,11 @@ export async function extendGrant({ grantId, expiresAt, actor, req }) {
   const pedido = new Date(expiresAt);
 
   const row = await tx(async (trx) => {
+    const identity = await trx.oneOrNone(Q.GET_GRANT, [grantId]);
+    if (!identity) throw new NotFoundError('Grant');
+    // The deadline check must see the previous extension/pruning after it commits.
+    // Otherwise two valid extensions can finish in reverse order and shorten access.
+    await trx.one(Q.LOCK_RESOURCE_GRANTS, [identity.resource_type, identity.resource_id]);
     const alvo = await trx.oneOrNone(Q.GET_GRANT, [grantId]);
     if (!alvo) throw new NotFoundError('Grant');
     if (alvo.revoked_at !== null) {
@@ -584,7 +589,7 @@ export async function extendGrant({ grantId, expiresAt, actor, req }) {
  */
 export async function grantResource({
   type, resourceId, granteeId = null, granteeGroupId = null, grantLevel,
-  expiresAt = null, actor, hasGlobalAccess, producesResource = false, req,
+  expiresAt = null, actor, req,
 }) {
   const t = assertResourceType(type);
   // O `xor` do Joi já garante que exatamente um chegou, e o CHECK da tabela garante de
@@ -593,68 +598,78 @@ export async function grantResource({
   if ((granteeId === null) === (granteeGroupId === null)) {
     throw new Error('grantResource: informe granteeId OU granteeGroupId, nunca os dois');
   }
-  const paraGrupo = granteeGroupId !== null;
-
-  const fatos = await fatosDoRecurso(t, resourceId);
-  if (fatos.accessLevel === null) throw new NotFoundError('Resource');
-
-  // O BENEFICIÁRIO PRECISA EXISTIR E ESTAR VIVO nos dois ramos, e "vivo" quer dizer
-  // coisas diferentes: pessoa ATIVA (`is_active`) e grupo NÃO APAGADO (`deleted_at`).
-  // Os dois predicados são os mesmos que a resolução usa, então uma concessão aceita
-  // aqui é uma concessão que o predicado de leitura vai honrar — sem isto ela nasceria
-  // morta, com 201 na resposta e acesso nenhum na prática.
-  //
-  // NO RAMO COLETIVO A PERGUNTA É MAIOR desde 2026-08-20: o grupo precisa ser
-  // ENDEREÇÁVEL por este ator (`fn_can_administer_group`), porque conceder a um
-  // coletivo que outra pessoa compõe delega a ela o poder de acrescentar beneficiários
-  // ao seu recurso. O 404 é o mesmo para "não existe" e para "não é seu", pela escada
-  // da casa.
-  const grantee = paraGrupo
-    ? await oneOrNone(Q.GET_ADDRESSABLE_LIVE_GROUP, [granteeGroupId, actor.id])
-    : await oneOrNone(Q.GET_ACTIVE_USER, [granteeId]);
-  if (!grantee) throw new NotFoundError(paraGrupo ? 'Access group' : 'User');
-  if (!paraGrupo && granteeId === actor.id) {
-    throw new ConflictError('Não é possível conceder acesso a si mesmo.');
-  }
-
-  // QUEM CONCEDE DE RAIZ, e a lista tem DOIS titulares desde 2026-08-20. O papel global
-  // é fato do ATOR; a produção é fato do PAR (ator, recurso), calculado pelo gate com o
-  // MESMO `:type/:id` que esta função usa. Os dois têm a mesma consequência estrutural:
-  // não há concessão de onde derivar, então `parent_grant_id` fica NULL e revogar essa
-  // linha não é derrubar um pai — é o caso que `revokeGrant` já cobre.
-  const raiz = hasGlobalAccess === true || producesResource === true;
-
-  let parentGrantId = null;
-  let parentExpiresAt = null;
-  if (!raiz) {
-    const mine = await liveGrantsOfActor(actor.id, t, resourceId);
-    const sharer = mine.find((g) => g.grant_level === 'view_share');
-    if (!sharer) {
-      throw new ForbiddenError('É preciso ter acesso com permissão de compartilhar para conceder este recurso.');
-    }
-    // O CASO DEGENERADO: conceder AO MESMO grupo de onde a própria autoridade veio.
-    // Ele é o análogo coletivo de "conceder a si mesmo" e não é pego pela checagem de
-    // duplicata (que compara `granted_by`, e o pai foi concedido por OUTRA pessoa). A
-    // linha nasceria pendurada na irmã, cairia junto com ela na poda e não daria a
-    // ninguém um acesso que o grupo já não tivesse — ou seja, custo sem efeito, e mais
-    // uma aresta na árvore que a tela de revogação tem de explicar.
-    if (paraGrupo && String(sharer.grantee_group_id ?? '') === String(granteeGroupId)) {
-      throw new ConflictError('Este grupo já é a origem do seu próprio acesso a este recurso.');
-    }
-    parentGrantId = sharer.id;
-    parentExpiresAt = sharer.expires_at ?? null;
-  }
-
-  const jaDei = paraGrupo
-    ? await oneOrNone(Q.LIVE_GRANT_FROM_ACTOR_TO_GROUP, [actor.id, granteeGroupId, t, resourceId])
-    : await oneOrNone(Q.LIVE_GRANT_FROM_ACTOR_TO_GRANTEE, [actor.id, granteeId, t, resourceId]);
-  if (jaDei) {
-    throw new ConflictError(paraGrupo
-      ? 'Este grupo já recebeu acesso a este recurso de você.'
-      : 'Este usuário já recebeu acesso a este recurso de você.');
-  }
-
   return tx(async (trx) => {
+    // Membership removal takes NO KEY UPDATE on this same account before finding
+    // delegated children. Hold SHARE until creation commits so that scan cannot
+    // miss a child whose authority came from the membership being removed.
+    await trx.oneOrNone('SELECT id FROM users WHERE id = $1 FOR SHARE', [actor.id]);
+    // Creation and pruning must share this lock. Re-read authority and duplicates
+    // AFTER acquiring it; otherwise a child can be born after its source was revoked.
+    await trx.one(Q.LOCK_RESOURCE_GRANTS, [t, resourceId]);
+    const paraGrupo = granteeGroupId !== null;
+
+    const fatos = await fatosDoRecurso(t, resourceId, trx);
+    if (fatos.accessLevel === null) throw new NotFoundError('Resource');
+
+    // O BENEFICIÁRIO PRECISA EXISTIR E ESTAR VIVO nos dois ramos, e "vivo" quer dizer
+    // coisas diferentes: pessoa ATIVA (`is_active`) e grupo NÃO APAGADO (`deleted_at`).
+    // Os dois predicados são os mesmos que a resolução usa, então uma concessão aceita
+    // aqui é uma concessão que o predicado de leitura vai honrar — sem isto ela nasceria
+    // morta, com 201 na resposta e acesso nenhum na prática.
+    //
+    // NO RAMO COLETIVO A PERGUNTA É MAIOR desde 2026-08-20: o grupo precisa ser
+    // ENDEREÇÁVEL por este ator (`fn_can_administer_group`), porque conceder a um
+    // coletivo que outra pessoa compõe delega a ela o poder de acrescentar beneficiários
+    // ao seu recurso. O 404 é o mesmo para "não existe" e para "não é seu", pela escada
+    // da casa.
+    const grantee = paraGrupo
+      ? await trx.oneOrNone(Q.GET_ADDRESSABLE_LIVE_GROUP, [granteeGroupId, actor.id])
+      : await trx.oneOrNone(Q.GET_ACTIVE_USER, [granteeId]);
+    if (!grantee) throw new NotFoundError(paraGrupo ? 'Access group' : 'User');
+    if (!paraGrupo && granteeId === actor.id) {
+      throw new ConflictError('Não é possível conceder acesso a si mesmo.');
+    }
+
+    // QUEM CONCEDE DE RAIZ, e a lista tem DOIS titulares desde 2026-08-20. O papel global
+    // é fato do ATOR; a produção é fato do PAR (ator, recurso), relido dentro do bloqueio
+    // que serializa concessão e revogação. Os dois têm a mesma consequência estrutural:
+    // não há concessão de onde derivar, então `parent_grant_id` fica NULL e revogar essa
+    // linha não é derrubar um pai — é o caso que `revokeGrant` já cobre.
+    const authority = await trx.one(`SELECT fn_principal_vivo($1::uuid) AS alive,
+        (fn_has_global_data_access($1::uuid) OR fn_can_produce_resource($1::uuid, $2, $3)) AS root`,
+      [actor.id, t, resourceId]);
+    if (!authority.alive) throw new ForbiddenError('A conta perdeu autoridade para conceder acesso.');
+    const raiz = authority.root === true;
+
+    let parentGrantId = null;
+    let parentExpiresAt = null;
+    if (!raiz) {
+      const mine = await trx.any(Q.LIVE_GRANTS_OF_ACTOR, [actor.id, t, resourceId]);
+      const sharer = mine.find((g) => g.grant_level === 'view_share');
+      if (!sharer) {
+        throw new ForbiddenError('É preciso ter acesso com permissão de compartilhar para conceder este recurso.');
+      }
+      // O CASO DEGENERADO: conceder AO MESMO grupo de onde a própria autoridade veio.
+      // Ele é o análogo coletivo de "conceder a si mesmo" e não é pego pela checagem de
+      // duplicata (que compara `granted_by`, e o pai foi concedido por OUTRA pessoa). A
+      // linha nasceria pendurada na irmã, cairia junto com ela na poda e não daria a
+      // ninguém um acesso que o grupo já não tivesse — ou seja, custo sem efeito, e mais
+      // uma aresta na árvore que a tela de revogação tem de explicar.
+      if (paraGrupo && String(sharer.grantee_group_id ?? '') === String(granteeGroupId)) {
+        throw new ConflictError('Este grupo já é a origem do seu próprio acesso a este recurso.');
+      }
+      parentGrantId = sharer.id;
+      parentExpiresAt = sharer.expires_at ?? null;
+    }
+
+    const jaDei = paraGrupo
+      ? await trx.oneOrNone(Q.LIVE_GRANT_FROM_ACTOR_TO_GROUP, [actor.id, granteeGroupId, t, resourceId])
+      : await trx.oneOrNone(Q.LIVE_GRANT_FROM_ACTOR_TO_GRANTEE, [actor.id, granteeId, t, resourceId]);
+    if (jaDei) {
+      throw new ConflictError(paraGrupo
+        ? 'Este grupo já recebeu acesso a este recurso de você.'
+        : 'Este usuário já recebeu acesso a este recurso de você.');
+    }
     const row = await trx.one(Q.INSERT_GRANT, [
       t, resourceId, granteeId, grantLevel, actor.id, parentGrantId,
       expiresAt ?? null, parentExpiresAt, granteeGroupId,

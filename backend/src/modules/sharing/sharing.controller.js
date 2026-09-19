@@ -4,6 +4,8 @@ import { principalUserId } from '../../utils/principal.js';
 import * as sharingService from './sharing.service.js';
 import { broadcastToRoom, getRoomUsers } from '../collab/collab.rooms.js';
 import { toFrontendRole } from '../../utils/roles.js';
+import { marcarEscopoJson } from '../../utils/cache-scope.js';
+import { reconcileAtlasConnections } from '../collab/collab.gateway.js';
 
 // Who may receive a `sharing_updated` frame that NAMES a member.
 //
@@ -67,10 +69,12 @@ async function broadcastEffectiveForUser(atlasId, userId, acao) {
     minPermission: MEMBER_FRAME_GATE,
     alsoUserIds: [userId],
   });
+  await reconcileAtlasConnections(atlasId);
 }
 
 export const getSharingConfig = asyncHandler(async (req, res) => {
   const config = await sharingService.getSharingConfig(req.atlasId);
+  marcarEscopoJson(req, res);
   res.json({ data: config });
 });
 
@@ -83,6 +87,7 @@ export const enablePublicSharing = asyncHandler(async (req, res) => {
 export const disablePublicSharing = asyncHandler(async (req, res) => {
   await sharingService.disablePublicSharing(req.atlasId, req.user?.id ?? null, req);
   broadcastToRoom(req.atlasId, { type: 'sharing_updated', action: 'public_disabled' });
+  await reconcileAtlasConnections(req.atlasId);
   res.status(204).send();
 });
 
@@ -129,8 +134,8 @@ export const removeUserShare = asyncHandler(async (req, res) => {
  * A FRAME É A MESMA DA REMOÇÃO POR TERCEIRO, e de propósito: `broadcastEffectiveForUser` com
  * `user_updated`, que vira `user_removed` sozinho quando não sobra caminho nenhum. Inventar um
  * `user_left` obrigaria o cliente a tratar dois caminhos para o mesmo estado final, e o estado
- * final é o que ele re-gateia. A sessão de collab ao vivo cai pelo MESMO lugar de sempre: o sweep
- * de `reconcileAuthorization` (~30 s) reconcilia a autorização e fecha com 4003 quando ela some.
+ * final é o que ele re-gateia. A sessão de collab ao vivo é reconciliada antes da resposta,
+ * e fecha com 4003 quando nenhum caminho de acesso sobra.
  *
  * SÓ EMITE QUANDO ALGO MUDOU: uma frame por chamada idempotente anunciaria uma remoção que não
  * aconteceu a todo gestor conectado.
@@ -195,6 +200,7 @@ async function broadcastEffectiveForMembers(atlasId, memberIds) {
       alsoUserIds: [userId],
     });
   }
+  await reconcileAtlasConnections(atlasId);
 }
 
 export const addGroupShare = asyncHandler(async (req, res) => {

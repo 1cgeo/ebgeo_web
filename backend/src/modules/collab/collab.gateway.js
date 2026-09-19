@@ -200,7 +200,27 @@ const AUTHZ_SWEEP_CONCURRENCY = 4;
  * sustained inability to verify authorization closes the socket.
  * @param {import('ws').WebSocket} ws - a connected socket (ws.atlasId/userId/permission/...).
  */
-export async function reconcileAuthorization(ws) {
+export function reconcileAuthorization(ws, options = {}) {
+  // A heartbeat started before revocation must not restore an obsolete role later.
+  const checked = (ws._authorizationChain || Promise.resolve())
+    .then(() => reconcileAuthorizationNow(ws, options));
+  ws._authorizationChain = checked;
+  return checked;
+}
+
+/** Finish revocation on the server before acknowledging the sharing mutation. */
+export async function reconcileAtlasConnections(atlasId, { notify = false } = {}) {
+  await Promise.all([...getRoomClients(atlasId)].map(ws =>
+    reconcileAuthorization(ws, { failClosed: true, notify })));
+}
+
+/** Group membership changes alter every atlas shared through that group. */
+export async function reconcileGroupConnections(groupId) {
+  const { rows } = await query('SELECT atlas_id FROM atlas_shares WHERE group_id = $1', [groupId]);
+  for (const row of rows) await reconcileAtlasConnections(row.atlas_id, { notify: true });
+}
+
+async function reconcileAuthorizationNow(ws, { failClosed = false, notify = false } = {}) {
   try {
     // A conta em si (não só a org). O gate P1 vivia apenas no `auth` estrito do
     // HTTP, então um socket JÁ ABERTO sobrevivia à desativação do usuário
@@ -216,6 +236,10 @@ export async function reconcileAuthorization(ws) {
         }
         if (!live.orgIsActive) {
           ws.close(4003, 'organization deactivated');
+          return;
+        }
+        if (tokenPredatesSessionCut(ws.tokenIssuedAt, live.sessionsValidFrom)) {
+          ws.close(4003, 'session revoked');
           return;
         }
         // Adota o papel VIVO antes de resolver a permissão.
@@ -241,6 +265,10 @@ export async function reconcileAuthorization(ws) {
         'WS permission re-resolved on heartbeat'
       );
       ws.permission = current;
+      if (notify && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'sharing_updated', action: 'user_updated',
+          userId: ws.userId, permission: current, role: toFrontendRole(current, ws.userRole) }));
+      }
     }
     // Verified: the socket's cached permission is known-good again.
     ws.authzFailures = 0;
@@ -250,7 +278,7 @@ export async function reconcileAuthorization(ws) {
       { err, userId: ws.userId, atlasId: ws.atlasId, failures: ws.authzFailures },
       'WS authorization re-resolution failed'
     );
-    if (ws.authzFailures >= AUTHZ_MAX_CONSECUTIVE_FAILURES) {
+    if (failClosed || ws.authzFailures >= AUTHZ_MAX_CONSECUTIVE_FAILURES) {
       logger.warn(
         { userId: ws.userId, atlasId: ws.atlasId, failures: ws.authzFailures },
         'WS closed: authorization unverifiable for too many consecutive heartbeats'
@@ -448,12 +476,7 @@ export function attachWebSocket(server) {
           // deslizante, e deixar o handshake de fora daria ao token morto exatamente
           // a porta que sobrou. O `iat` já está no payload, e o `live` já foi lido.
           //
-          // ESCOPO, explicitamente: isto barra a ABERTURA de socket novo. Um socket
-          // JÁ ABERTO não cai por causa do corte — `reconcileAuthorization` não o
-          // avalia, de propósito, porque o ciclo de vida do socket é client-driven
-          // por contrato e o sweep reconcilia AUTORIZAÇÃO (share, publicação, org),
-          // não sessão. O socket vivo continua limitado pelo que sempre o limitou:
-          // o cliente fechá-lo, ou o sweep achar outro motivo.
+          // The same cutoff is also checked on live sockets during reconciliation.
           if (tokenPredatesSessionCut(payload.iat, live.sessionsValidFrom)) {
             reject('403 Forbidden');
             return;
@@ -509,6 +532,7 @@ export function attachWebSocket(server) {
           role: isPublicUser ? 'user' : (liveRole || 'user'),
           organization_id: isPublicUser ? null : (payload.organization_id ?? null),
           isPublic: isPublicUser,
+          tokenIssuedAt: payload.iat ?? null,
         }, atlasId, permission, clientId);
       });
     } catch (err) {
@@ -586,6 +610,7 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
   // Consecutive failed authorization reconciliations (see reconcileAuthorization).
   ws.authzFailures = 0;
   ws.isPublic = user.isPublic || false;
+  ws.tokenIssuedAt = user.tokenIssuedAt ?? null;
   ws.organizationId = user.organization_id || null;
   ws.cursorPosition = null;
   ws.currentMapId = null;
@@ -665,7 +690,10 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
       return;
     }
     ws._messageChain = (ws._messageChain || Promise.resolve())
-      .then(() => handleMessage(ws, data))
+      .then(async () => {
+        await ws._authorizationChain;
+        if (ws.readyState === WebSocket.OPEN) await handleMessage(ws, data);
+      })
       .catch((err) => {
         logger.error({ err, userId: ws.userId, type: data?.type }, 'WebSocket message handler failed');
       });

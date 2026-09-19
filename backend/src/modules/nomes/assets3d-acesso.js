@@ -19,9 +19,9 @@
 // ones, which is the cost this design exists to avoid.
 //
 // WHAT THE MEMO COSTS, said out loud: a revocation is honoured up to `TTL_MS` late. That is
-// the same shape of lag the product already carries in two places — a JWT keeps a demoted
-// role for up to 15 minutes, and the collab heartbeat reconciles authorization every ~30 s —
-// and this window is the smaller of the two. It is also cleared eagerly by
+// the same shape of lag as the collab heartbeat (~30 s). This includes session cuts on
+// private assets; ordinary JSON requests reconcile live authority on each request.
+// The memo is also cleared eagerly by
 // `invalidarAcessoDeAssets3d()`, hung on the same catalog/visibility write that drops the
 // regime index, so the flip that matters most (public -> private) is not subject to it.
 //
@@ -35,6 +35,7 @@ import { principalUserId, atlasScopeId } from '../../utils/principal.js';
 import { AppError, NotFoundError, ServiceUnavailableError } from '../../utils/errors.js';
 import * as Q from '../resource-access/resource-access.queries.js';
 import { regimeDoCaminho } from './assets3d-regime.js';
+import { getLiveAuthState, tokenPredatesSessionCut } from '../../utils/org-status.js';
 
 /** Revocation lag ceiling. Below the collab heartbeat's ~30 s and far below the JWT's 15 min. */
 const TTL_MS = 30_000;
@@ -91,7 +92,8 @@ function alcancaAtlas(req, atlasId) {
  */
 function impressaoDoPrincipal(user) {
   const id = principalUserId(user);
-  if (id) return id;
+  // A fresh session must never warm the cache for a token cut before it was issued.
+  if (id) return `${id}:${user.tokenIssuedAt ?? 'api-key'}`;
   if (user?.isPublic) return `publico:${user.publicAtlasId ?? ''}`;
   return 'anonimo';
 }
@@ -114,6 +116,13 @@ function impressaoDoPrincipal(user) {
  * @returns {Promise<boolean>}
  */
 async function decidir(req, userId, atlasId, alvo) {
+  if (req.deferAssetAuth && userId) {
+    const live = await getLiveAuthState(userId);
+    if (!live || !live.userIsActive || !live.orgIsActive
+      || tokenPredatesSessionCut(req.user.tokenIssuedAt, live.sessionsValidFrom)) return false;
+    req.user.role = live.role;
+    req.user.producer_org_id = live.producerOrgId;
+  }
   if (atlasId && !(await alcancaAtlas(req, atlasId))) return false;
   const linha = await one(Q.CAN_SEE_RESOURCE, [userId, atlasId, alvo.tipo, alvo.resourceId, 'private']);
   return linha.ok === true;

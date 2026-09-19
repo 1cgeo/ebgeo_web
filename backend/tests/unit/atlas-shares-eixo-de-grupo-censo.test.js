@@ -96,6 +96,12 @@ const CENSO = [
 
   // ---- leitura que NÃO resolve acesso ----------------------------------------------
   naoResolve(
+    'src/modules/collab/collab.gateway.js',
+    "const { rows } = await query('SELECT atlas_id FROM atlas_shares WHERE group_id = $1'",
+    'Localiza salas afetadas pela composição do grupo. A permissão de cada socket é '
+    + 'recalculada por reconcileAuthorization usando fn_user_atlas_shares, nunca por esta lista.'
+  ),
+  naoResolve(
     'src/modules/atlas/atlas.service.js',
     '`SELECT s.user_id FROM atlas_shares s',
     'transferOwnership: pergunta se o alvo tem share DIRETO, porque posse e nominal por '

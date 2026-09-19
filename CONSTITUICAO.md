@@ -596,9 +596,11 @@ privada uma linha cujo endereço aponte para servidor de terceiro.
 espera que revogar de um concedente corte todo mundo vai se surpreender: quem tem dois caminhos mantém o
 acesso por um deles.
 
-**10.3** **A revogação não é empurrada em tempo real** para todo mundo. Quem perde acesso descobre no próximo
-carregamento. Não é vazamento (o servidor recusa os bytes na hora), mas a tela pode mostrar camada quebrada
-em vez de camada ausente até lá.
+**10.3** A revogação não recolhe dados já entregues. Mudanças de compartilhamento de atlas e de grupos
+reconciliam os sockets do processo antes da resposta HTTP; outros processos e alterações administrativas
+dependem do heartbeat. Recursos privados continuam sujeitos ao memo de autorização dos assets (até 30 s)
+e ao cache dos bytes no navegador. A tela pode conservar conteúdo já carregado até uma nova leitura.
+Limites e provas: `docs/auditoria-compartilhamento-privacidade-2026-09-19.md`.
 
 **10.4** **A desativação de uma conta propaga por predicado, não por varredura**, e isso significa que ela
 é imediata na leitura seguinte, mas não deixa rastro de "quando" na trilha. Quem quiser saber a data em que

@@ -10,11 +10,9 @@
 // significaria só "o handshake rejeitou alguma coisa", que é verdade para qualquer
 // bug de conexão.
 //
-// ESCOPO, afirmado como teste e não só como comentário: um socket JÁ ABERTO NÃO cai
-// por causa do corte. O sweep (`reconcileAuthorization`) reconcilia AUTORIZAÇÃO
-// (share, publicação, org, conta), não sessão, e o ciclo de vida do socket é
-// client-driven por contrato (backend/CLAUDE.md). O último teste prende isso, para
-// que quem mudar de ideia mude o teste junto e não por acidente.
+// O corte em massa também alcança sockets já abertos na reconciliação. Logout
+// individual e expiração natural continuam com lifecycle client-driven; o corte
+// explícito de todas as sessões precisa impedir que um socket roubado sobreviva.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -105,7 +103,7 @@ describe('WS — corte de sessão no handshake (achado 35)', () => {
     r.ws.close();
   });
 
-  it('ESCOPO: socket JÁ ABERTO sobrevive ao corte (o sweep reconcilia autorização, não sessão)', async () => {
+  it('socket já aberto é encerrado quando a reconciliação encontra corte de sessão', async () => {
     await cut(user.id, new Date(Date.now() - 60_000));
     const token = await loginUser(app, user.username, user.password);
 
@@ -121,11 +119,8 @@ describe('WS — corte de sessão no handshake (achado 35)', () => {
     assert.ok(sockets.length > 0, 'guarda: o sweep precisa ter em quem rodar');
     for (const ws of sockets) await gw.reconcileAuthorization(ws);
 
-    assert.equal(
-      r.ws.readyState, WebSocket.OPEN,
-      'limite declarado: o corte barra ABERTURA, não derruba socket vivo — se isto '
-      + 'mudar, mude também backend/CLAUDE.md e docs/wiki/refresh-token-rotacao.md'
-    );
+    assert.ok(sockets.every(ws => ws.readyState !== WebSocket.OPEN),
+      'revoked sessions must stop receiving data on existing sockets');
     r.ws.close();
   });
 });

@@ -281,6 +281,12 @@ const CENSO_CONSULTA = [
       + 'de projeto e de tile injetam; uma segunda cópia dele é a dívida que o schema `ng` já paga.',
   },
   {
+    arquivo: 'src/modules/resource-access/resource-access.service.js', unidade: 'grantResource', n: 1,
+    classe: ESCRITA, predicado: 'fn_can_produce_resource',
+    motivo: 'Reconfere a autoridade de raiz dentro do bloqueio transacional; sem papel global '
+      + 'nem produção, exige uma concessão view_share viva. Não entrega conteúdo de recurso.',
+  },
+  {
     arquivo: 'src/modules/resource-access/resource-access.queries.js', unidade: 'setCatalogAccessLevel',
     n: 1, classe: ESCRITA, predicado: P_PRODUCAO,
     motivo: 'A ESCRITA DE VISIBILIDADE do catálogo (público/privado), que desde 2026-08-20 é do '

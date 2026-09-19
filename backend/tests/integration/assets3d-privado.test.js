@@ -62,6 +62,9 @@ import {
   makeAtlasPublic, getPublicToken,
 } from '../helpers/fixtures.js';
 import { invalidateAppConfigCache } from '../../src/modules/config/config.cache.js';
+import { invalidarAcessoDeAssets3d } from '../../src/modules/nomes/assets3d-acesso.js';
+import jwt from 'jsonwebtoken';
+import config from '../../src/config.js';
 import {
   openWritable, putAsset, closeStore, getAssetMeta,
 } from '../../src/modules/nomes/assets3d.store.js';
@@ -961,7 +964,35 @@ describe('F11 — os bytes do /assets3d seguem o recurso', () => {
     assert.match(autorizado.headers.vary ?? '', /Cookie/i);
   });
 
-  it('NENHUMA consulta ao banco por requisição de asset, público ou privado', async () => {
+  it('private assets reject a cut session even when a newer session warmed the memo', async () => {
+    const oldClaims = jwt.decode(tokenBeneficiario);
+    const cut = Math.floor(Date.now() / 1000);
+    const newer = jwt.sign({ ...oldClaims, iat: cut + 2 }, config.jwt.secret);
+    await db.query('UPDATE users SET sessions_valid_from = to_timestamp($2) WHERE id = $1', [beneficiario.id, cut]);
+    invalidarAcessoDeAssets3d();
+    try {
+      await supertest(app).get(URL_PRIV).set('Authorization', `Bearer ${newer}`).expect(200);
+      await supertest(app).get(URL_PRIV).set('Authorization', `Bearer ${tokenBeneficiario}`).expect(404);
+      await supertest(app).get(URL_PUB).set('Authorization', `Bearer ${tokenBeneficiario}`).expect(200);
+    } finally {
+      await db.query('UPDATE users SET sessions_valid_from = NULL WHERE id = $1', [beneficiario.id]);
+      invalidarAcessoDeAssets3d();
+    }
+  });
+
+  it('a cold asset decision does not trust a demoted admin claim to reach a private atlas', async () => {
+    await db.query("UPDATE users SET role = 'user' WHERE id = $1", [admin.id]);
+    invalidarAcessoDeAssets3d();
+    try {
+      await supertest(app).get(`${URL_PRIV}?atlasId=${atlasPrivadoComEmprestimo.id}`)
+        .set('Authorization', `Bearer ${tokenAdmin}`).expect(404);
+    } finally {
+      await db.query("UPDATE users SET role = 'admin' WHERE id = $1", [admin.id]);
+      invalidarAcessoDeAssets3d();
+    }
+  });
+
+  it('NENHUMA consulta ao banco por requisição de asset, público ou privado, após aquecimento', async () => {
     // A propriedade que decide se o desenho presta. Medida com o contador de POOL, que
     // conta tudo o que a requisição toca, middleware incluído.
     await supertest(app).get(URL_PUB).expect(200); // aquece o índice
@@ -986,7 +1017,7 @@ describe('F11 — os bytes do /assets3d seguem o recurso', () => {
         `20 requisições privadas do MESMO chamador custaram ${contador.state.count} consultas: ${contador.state.statements.join(' | ')}`,
       );
 
-      // O positivo do par: um chamador NOVO paga a decisão dele uma vez, e uma só. Sem
+      // Um chamador NOVO paga a sessão viva e a decisão do recurso uma vez. Sem
       // esta metade, "zero consultas" também seria verdade num gate que não consultasse
       // nada nunca — que é precisamente o estado anterior a esta fase.
       contador.reset();
@@ -994,8 +1025,8 @@ describe('F11 — os bytes do /assets3d seguem o recurso', () => {
         await supertest(app).get(URL_PRIV).set('Authorization', `Bearer ${tokenDono}`);
       }
       assert.equal(
-        contador.state.count, 1,
-        `o primeiro acesso de um chamador novo custa UMA consulta, medi ${contador.state.count}`,
+        contador.state.count, 2,
+        `o primeiro acesso consulta sessão e recurso, medi ${contador.state.count}`,
       );
     } finally {
       contador.restore();

@@ -1,5 +1,6 @@
 // Path: src/modules/access-groups/access-groups.controller.js
 import { asyncHandler } from '../../utils/async-handler.js';
+import { marcarEscopoJson } from '../../utils/cache-scope.js';
 import { principalUserId } from '../../utils/principal.js';
 import * as svc from './access-groups.service.js';
 
@@ -11,6 +12,7 @@ import * as svc from './access-groups.service.js';
  * ramo curinga de `fn_can_administer_group`.
  */
 export const listGroups = asyncHandler(async (req, res) => {
+  marcarEscopoJson(req, res);
   res.json({ data: await svc.listGroups(principalUserId(req.user)) });
 });
 
@@ -26,6 +28,7 @@ export const listGroups = asyncHandler(async (req, res) => {
  * administra o grupo.
  */
 export const listGroupsParticipating = asyncHandler(async (req, res) => {
+  marcarEscopoJson(req, res);
   res.json({ data: await svc.listGroupsOfMember(principalUserId(req.user)) });
 });
 
@@ -77,6 +80,7 @@ export const deleteGroup = asyncHandler(async (req, res) => {
 });
 
 export const listMembers = asyncHandler(async (req, res) => {
+  marcarEscopoJson(req, res);
   res.json({ data: await svc.listMembers(req.params.groupId) });
 });
 

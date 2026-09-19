@@ -530,6 +530,8 @@ const CENSO_ENVIO_WS = [
   { arquivo: 'src/modules/collab/collab.handlers.js', texto: "ws.send(JSON.stringify({ type: 'error', code: error.code, message: error.message,", n: 1, classe: W_EMBRULHADO,
     motivo: 'Recusa de protocolo enviada somente ao socket de origem já autenticado na sala; contém mensagem fixa e IDs recebidos do próprio cliente.' },
   { arquivo: 'src/modules/collab/collab.gateway.js', texto: 'ws.send(JSON.stringify({', n: 1, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
+  { arquivo: 'src/modules/collab/collab.gateway.js', texto: "ws.send(JSON.stringify({ type: 'sharing_updated', action: 'user_updated',", n: 1, classe: W_EMBRULHADO,
+    motivo: `${SOCKET_DA_SALA} Notifica somente o próprio usuário da permissão efetiva após mudança de grupo.` },
 
   { arquivo: 'src/modules/collab/collab.handlers.js', texto: 'ws.send(JSON.stringify({', n: 8, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
   // Os dois sitios de ERRO sairam do literal inline e passaram a montar o frame em

@@ -101,12 +101,11 @@ export async function flexibleAuth(req, res, next) {
     // o principal que chegou por cookie, porque um cookie é ambiente do navegador e
     // portanto postável cross-site por formulário, enquanto um cabeçalho não é.
     //
-    // O COOKIE VEM ANTES DO BEARER, e sem fallback: se ele existe e não verifica, o
-    // pedido segue ANÔNIMO em vez de tentar o cabeçalho. Isso é caracterizado em
-    // `tests/integration/flexible-auth-precedence.test.js` e não muda aqui.
+    // An explicit bearer identifies this request. An ambient cookie from another
+    // account must never replace it, including when the explicit token is invalid.
     const tokenDeCookie = req.cookies?.token;
     const tokenDeCabecalho = extractBearerToken(req);
-    const token = tokenDeCookie || tokenDeCabecalho;
+    const token = tokenDeCabecalho || tokenDeCookie;
     if (!token) return next();
 
     // A PRESENÇA DO CABEÇALHO É REGISTRADA À PARTE de quem RESOLVEU, e a distinção é o que
@@ -131,7 +130,7 @@ export async function flexibleAuth(req, res, next) {
     }
 
     req.user = mapPayload(payload);
-    req.authVia = tokenDeCookie ? 'cookie' : 'bearer';
+    req.authVia = tokenDeCabecalho ? 'bearer' : 'cookie';
 
     // Sliding session: renew if close to expiry.
     //
@@ -151,7 +150,14 @@ export async function flexibleAuth(req, res, next) {
     // here indefinitely, one request every <15 min, for as long as the account lived.
     // The alarm fired and turned nothing off. Now the cut-off refuses the renewal and
     // drops the cookie, and the strict `auth` middleware refuses the token itself.
-    if (msUntilExpiry(payload) < SLIDING_THRESHOLD_MS && UUID_RE.test(payload.sub || '')) {
+    if (UUID_RE.test(payload.sub || '') && payload.isPublic !== true) {
+      // Tiles fan out into hundreds of requests. Their private-resource gate checks
+      // live authority inside its bounded memo; public bytes need no account at all.
+      if (['GET', 'HEAD'].includes(req.method) && /^\/api\/v1\/assets3d(?:\/|$)/i.test(req.path)
+        && msUntilExpiry(payload) >= SLIDING_THRESHOLD_MS) {
+        req.deferAssetAuth = true;
+        return next();
+      }
       const live = await getLiveAuthState(payload.sub);
 
       // A missing row is not a revocation (users are only soft-deleted — see the
@@ -198,6 +204,7 @@ export async function flexibleAuth(req, res, next) {
       // posting promoted from the DB, which is exactly what auth-05 forbids. An unknown claim
       // is ignored; reacting to one is the defect.
       if (live) {
+        req.liveAuthState = live;
         req.user.role = live.role;
         if (payload.organization_id !== undefined) {
           req.user.organization_id = live.organizationId;
@@ -207,10 +214,15 @@ export async function flexibleAuth(req, res, next) {
         // exactly the defect of the OM axis described above.
         req.user.producer_org_id = live.producerOrgId;
       }
-      res.cookie('token', issueAccessToken(req.user), env.cookieOptions());
+      if (msUntilExpiry(payload) < SLIDING_THRESHOLD_MS) {
+        res.cookie('token', issueAccessToken(req.user), env.cookieOptions());
+      }
     }
     return next();
   } catch {
+    // Failure to check current authority cannot retain privileges from the JWT.
+    req.user = undefined;
+    req.authVia = undefined;
     return next(); // never block
   }
 }

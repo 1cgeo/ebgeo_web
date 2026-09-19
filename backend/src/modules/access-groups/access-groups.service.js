@@ -35,6 +35,7 @@ import { podarPorRaizes } from '../resource-access/resource-access.service.js';
 import { avisarAtlasQueEmprestam } from '../resource-access/resource-access.notify.js';
 import * as RA from '../resource-access/resource-access.queries.js';
 import * as Q from './access-groups.queries.js';
+import { reconcileGroupConnections } from '../collab/collab.gateway.js';
 
 /** O `audit_trail.target_type` de todo ato de grupo (declarado em `002_auditoria.sql`). */
 const ALVO = 'ACCESS_GROUP';
@@ -267,6 +268,7 @@ export async function deleteGroup({ groupId, actor, req }) {
   });
 
   await avisarAtlasQueEmprestam(revogadas);
+  await reconcileGroupConnections(groupId);
   return resultado;
 }
 
@@ -301,7 +303,7 @@ export async function addMember({ groupId, userId, actor, req }) {
   const usuario = await oneOrNone(Q.GET_ACTIVE_USER, [userId]);
   if (!usuario) throw new NotFoundError('User');
 
-  return tx(async (trx) => {
+  const result = await tx(async (trx) => {
     const row = await trx.oneOrNone(Q.INSERT_MEMBER, [groupId, userId, actor.id]);
     if (row) {
       await createAudit(req, {
@@ -319,6 +321,8 @@ export async function addMember({ groupId, userId, actor, req }) {
     }
     return { groupId, userId, added: row !== null };
   });
+  await reconcileGroupConnections(groupId);
+  return result;
 }
 
 /**
@@ -404,6 +408,9 @@ async function retirarMembro({ grupo, userId, actor, req, self }) {
   const usuario = await oneOrNone(Q.GET_ACTIVE_USER, [userId]);
 
   const { resultado, revogadas } = await tx(async (trx) => {
+    // Serialize with grants being created by this member before discovering roots.
+    // Lock the account before any resource, matching grantResource's lock order.
+    await trx.oneOrNone('SELECT id FROM users WHERE id = $1 FOR NO KEY UPDATE', [userId]);
     const raizes = await trx.any(RA.GRANT_IDS_FED_BY_MEMBER_VIA_GROUP, [userId, groupId]);
 
     const row = await trx.oneOrNone(Q.DELETE_MEMBER, [groupId, userId]);
@@ -440,6 +447,7 @@ async function retirarMembro({ grupo, userId, actor, req, self }) {
   });
 
   await avisarAtlasQueEmprestam(revogadas);
+  await reconcileGroupConnections(groupId);
   return resultado;
 }
 

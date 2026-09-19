@@ -73,6 +73,15 @@ export function nomeDoRecurso(recurso) {
  * @returns {{titulo: string, nomes: string[], restantes: number, corpo: string}|null}
  */
 export function avisoDeExposicao(recursos) {
+    if (!Array.isArray(recursos)) {
+        return {
+            titulo: 'Lista de itens privados ainda não confirmada',
+            nomes: [],
+            restantes: 0,
+            corpo: 'Este link também pode dar acesso a itens privados emprestados ao atlas, '
+                + 'sem exigir login. Reabra o compartilhamento para conferir a lista antes de publicar.',
+        };
+    }
     const privados = recursosPrivados(recursos);
     if (privados.length === 0) return null;
 

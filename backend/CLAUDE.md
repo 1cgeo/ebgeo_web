@@ -419,8 +419,8 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   garantia. O censo de papel global já classifica este sítio; a frase é que dizia o contrário, e
   proibição absoluta com exceção não escrita é o que faz a próxima sessão "consertar" o código certo.
 
-  `flexibleAuth` é global e **não-bloqueante** (chave de API, cookie e Bearer, nessa precedência e
-  sem fallback do cookie para o cabeçalho; preserva anônimo); rotas de escrita usam o middleware
+  `flexibleAuth` é global e **não-bloqueante** (chave de API válida, Bearer explícito e cookie,
+  nessa precedência; Bearer inválido não herda a conta do cookie; preserva anônimo). Rotas de escrita usam o middleware
   `auth` **estrito** (401 sem token). Ele faz **sliding session**: renova o cookie `token` quando
   faltam <5 min p/ expirar.
 
@@ -433,14 +433,16 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   amarra fica do lado estrito: `authVia` deixou de carimbar `'jwt'` nos dois ramos e hoje diz
   `'cookie'` ou `'bearer'`, e o `auth` recusa com 401 o principal vindo de cookie nos métodos que
   ESCREVEM. A condição olha TAMBÉM `temBearer`, a PRESENÇA do cabeçalho à parte de quem RESOLVEU, e
-  essa segunda metade não é refinamento: o cliente logado manda Bearer **e** carrega o cookie (mesma
-  origem, o navegador o envia sozinho), o cookie tem precedência de resolução, então uma amarra que
-  olhasse só `authVia` recusaria toda escrita de todo usuário. Foi medido: a primeira versão dela
-  derrubou a criação de atlas na captura de UI.
+  essa segunda metade preserva o cliente que manda as duas credenciais. Desde 2026-09-19 o Bearer
+  explícito vence o cookie: um cabeçalho de outra conta jamais autoriza escrita como a conta do cookie.
+  As claims vivas e o corte de sessão são conferidos também nas leituras só-flexíveis. Nos assets 3D,
+  essa conferência fica dentro do memo de autorização privada (teto de 30 s), evitando SQL por fragmento.
 - **Lifecycle de socket de colaboração é CLIENT-DRIVEN** (contrato p/ o frontend): `auth.logout` só revoga o
   refresh token, e **não** fecha sockets de `collab` nem limpa presença. Um socket só cai (a) quando o cliente
-  fecha a conexão / envia `leave`, ou (b) quando o sweep de heartbeat (~30s, `reconcileAuthorization`)
-  reconcilia **autorização** (share revogado / atlas despublicado / org desativada), e ele **não** reage à
+  fecha a conexão / envia `leave`, ou (b) quando a reconciliação encontra perda de autorização ou
+  **corte explícito de todas as sessões** (`sessions_valid_from`). Compartilhamento, publicação e
+  composição de grupos reconciliam sockets do processo antes da resposta HTTP; o sweep de heartbeat
+  (~30s, `reconcileAuthorization`) cobre as demais mudanças. Ele **não** reage à
   revogação do refresh token **nem à expiração do access token** (decisão D11 de 2026-09-14): a varredura não
   chama `jwt.verify` nem olha `exp`, porque a expiração não muda o que a pessoa pode fazer, e a queda por
   autorização já é imposta. A assimetria com o HANDSHAKE é deliberada: lá o token expirado é 401, porque ali

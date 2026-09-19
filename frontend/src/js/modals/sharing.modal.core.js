@@ -837,20 +837,20 @@ export class SharingModal extends ModalBase {
      * A cláusula 6.3 diz que o empréstimo alcança o visitante do link, e a 6.6 exige que a
      * tela nomeie o que está sendo exposto: um empréstimo é invisível para quem publica.
      *
-     * FALHA CALADO, de propósito. Se esta rota cair, o aviso não aparece, e a alternativa
-     * (uma caixa de erro) diria ao dono que algo está errado com o compartilhamento, que
-     * não está. O custo dessa escolha está dito: o consentimento fica sem informação
-     * quando a rota falha.
+     * Falha mantém o estado desconhecido visível: não confirmar os empréstimos não
+     * significa que publicar deixará de expor recursos privados.
      * @returns {Promise<void>}
      */
     async _loadEmprestimos() {
         try {
             const recursos = await apiClient.listAtlasResources(this._atlasId);
             if (!this.getBody()) return;
-            this._emprestimos = Array.isArray(recursos) ? recursos : [];
+            this._emprestimos = Array.isArray(recursos) ? recursos : null;
             this._renderBody();
         } catch {
-            // Silêncio: o aviso some, o resto do modal continua.
+            if (!this.getBody()) return;
+            this._emprestimos = null;
+            this._renderBody();
         }
     }
 
@@ -1115,8 +1115,8 @@ export class SharingModal extends ModalBase {
      * @returns {string}
      */
     _avisoDeExposicao() {
-        // `null` é "ainda não carregou": o aviso não se desenha, e nem por isso a seção
-        // some. Vazio é "não há o que avisar", e dá o mesmo resultado por outra razão.
+        // `null` exige aviso de lista desconhecida; apenas uma lista confirmada vazia
+        // permite concluir que nenhum recurso privado foi encontrado.
         const aviso = avisoDeExposicao(this._emprestimos);
         if (!aviso) return '';
 

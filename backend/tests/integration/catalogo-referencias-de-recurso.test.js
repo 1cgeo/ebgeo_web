@@ -202,10 +202,10 @@ describe('quantos atlas referenciam um recurso de catálogo', () => {
     const res = await contar('tilesets', ts, tokens.admin).expect(200);
 
     // Chave ausente e chave zerada são indistinguíveis para quem consome, e só uma delas é
-    // verdade. As quatro do tipo `tileset` nascem presentes.
+    // verdade. Inclui a referência de modelo 3D em comentário.
     assert.deepEqual(
       Object.keys(res.body.data.bySurface).sort(),
-      ['briefing.slide.modelId', 'cesium3d', 'mapa.catalogLayers', 'settings.available_3d_models'],
+      ['briefing.slide.modelId', 'cesium3d', 'comments.modelo3d', 'mapa.catalogLayers', 'settings.available_3d_models'],
     );
     assert.equal(res.body.data.atlasCount, 1, 'o atlas C, três superfícies, um atlas');
     assert.equal(res.body.data.bySurface.cesium3d, 1);

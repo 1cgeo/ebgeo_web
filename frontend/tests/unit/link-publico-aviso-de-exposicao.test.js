@@ -67,7 +67,15 @@ describe('o aviso', () => {
         // Aviso que aparece sempre é aviso que ninguém lê.
         expect(avisoDeExposicao([])).toBeNull();
         expect(avisoDeExposicao([publico('Hidrografia'), orfao()])).toBeNull();
-        expect(avisoDeExposicao(null)).toBeNull();
+    });
+
+    it('lista indisponível avisa sobre exposição possível, sem inventar nomes', () => {
+        for (const value of [null, undefined, {}, 'invalid']) {
+            const aviso = avisoDeExposicao(value);
+            expect(aviso.titulo).toContain('não confirmada');
+            expect(aviso.corpo).toContain('sem exigir login');
+            expect(aviso.nomes).toEqual([]);
+        }
     });
 
     it('NOMEIA os itens, em vez de contá-los', () => {

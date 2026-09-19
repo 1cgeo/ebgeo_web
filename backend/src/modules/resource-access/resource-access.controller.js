@@ -44,6 +44,7 @@ export const setVisibility = asyncHandler(async (req, res) => {
 
 export const listGrants = asyncHandler(async (req, res) => {
   const data = await svc.listGrantsForResource(req.params.type, req.params.id);
+  marcarEscopoJson(req, res);
   res.json({ data });
 });
 
@@ -130,14 +131,6 @@ export const createGrant = asyncHandler(async (req, res) => {
     // no INSERT, não aqui.
     expiresAt: req.body.expiresAt ?? null,
     actor: req.user,
-    // Calculado por `requireResourceShare`, que acabou de rodar. Reconsultar aqui
-    // seria uma segunda leitura do mesmo fato, e é assim que uma requisição passa
-    // a ter duas respostas para a mesma pergunta.
-    hasGlobalAccess: req.hasGlobalDataAccess === true,
-    // O MESMO raciocínio, para o outro titular da concessão de RAIZ. A diferença é
-    // que este é fato do PAR (ator, recurso), e o gate o calculou com o MESMO
-    // `:type/:id` que o serviço vai usar — não há segundo alvo a reconciliar.
-    producesResource: req.producesResource === true,
     req,
   });
   res.status(201).json({ data });

@@ -42,8 +42,8 @@
 //        "Caracterização" documenta um comportamento; não o torna correto, e o preço de
 //        deixá-la no lugar é que a correção passa a parecer regressão. Hoje elas afirmam o
 //        contrário: chave inválida é uma TENTATIVA fracassada, e o cookie/Bearer é lido
-//        em seguida. A metade do COOKIE segue caracterizada (o caso `token=lixo` abaixo),
-//        fora do escopo deste conserto e explicitamente marcada como tal.
+//        em seguida. Desde a auditoria de privacidade de 2026-09-19, o Bearer explícito
+//        também precede o cookie, inclusive quando pertence a outra conta.
 //
 //   86 — o mesmo `req.user` do flexível, agora pelo outro lado: o principal sintético
 //        `public-<uuid>` do visitante de link público chegava ao cast `$5::uuid` da BUSCA e
@@ -244,13 +244,10 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
       assert.equal(await vePrivado({ Cookie: `token=${zoneTok}` }), true);
     });
 
-    it('AINDA CARACTERIZAÇÃO (metade do cookie, fora do escopo do achado 85): cookie LIXO + Bearer válido -> anônima', async () => {
-      // `req.cookies?.token || extractBearerToken(req)` escolhe o cookie e, no catch do
-      // verify, faz `return next()` sem fallback. Diferente do api key, este ramo NÃO é
-      // acionável por link (cookie não viaja na query string), e o conserto é de outro lote.
+    it('a valid explicit bearer survives an invalid ambient cookie', async () => {
       assert.equal(
         await vePrivado({ Cookie: 'token=lixo.jwt.valor', Authorization: `Bearer ${zoneTok}` }),
-        false
+        true
       );
     });
 

@@ -140,7 +140,7 @@ export async function auth(req, res, next) {
       return next();
     }
 
-    const live = await getLiveAuthState(req.user.id);
+    const live = req.liveAuthState ?? await getLiveAuthState(req.user.id);
 
     // A MISSING row is not a revocation. Users are only ever soft-deleted in this
     // system (`is_active = false`; see CLAUDE.md "Soft-delete sempre"), so an absent
