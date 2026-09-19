@@ -287,6 +287,39 @@ beforeEach(() => {
     operationQueueMock.forScope.mockImplementation(() => operationQueueMock);
 });
 
+describe('respostas de configuração atrasadas após sair do atlas', () => {
+    it('não conclui connect depois de disconnect enquanto os recursos carregam', async () => {
+        let entered;
+        let release;
+        const waiting = new Promise(resolve => { entered = resolve; });
+        const gate = new Promise(resolve => { release = resolve; });
+        h.refreshVisibleResourcesMock.mockImplementationOnce(async () => { entered(); await gate; return true; });
+        const connecting = syncEngine.connect('old-atlas').then(() => null, error => error);
+        await waiting;
+        syncEngine.disconnect({ forgetAtlas: true });
+        release();
+        expect((await connecting)?.name).toBe('AbortError');
+        expect(syncEngine.atlasId).toBeNull();
+    });
+
+    it('não aplica configurações recebidas após disconnect', async () => {
+        let entered;
+        let release;
+        const waiting = new Promise(resolve => { entered = resolve; });
+        const gate = new Promise(resolve => { release = resolve; });
+        apiClientMock.getAtlasSettings = vi.fn(async () => { entered(); await gate; return { staleAtlas: true }; });
+        try {
+            const connecting = syncEngine.connect('old-atlas').then(() => null, error => error);
+            await waiting;
+            syncEngine.disconnect({ forgetAtlas: true });
+            eventBusMock.emit.mockClear();
+            release();
+            expect((await connecting)?.name).toBe('AbortError');
+            expect(eventBusMock.emit).not.toHaveBeenCalledWith(EventTypes.ATLAS_SETTINGS_CHANGED, { settings: { staleAtlas: true } });
+        } finally { delete apiClientMock.getAtlasSettings; }
+    });
+});
+
 // ============================================================================
 // Tests
 // ============================================================================

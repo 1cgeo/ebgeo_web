@@ -323,10 +323,10 @@ export async function enterCoordinatedWrite(scope) {
 /**
  * ASKS whether the barrier is taken, without taking or waiting for anything.
  *
- * For a writer that has nothing to hold across an await (the auto-flush loop, which pushes what is
- * already on disk). An `exclusive ifAvailable` probe answers "is anybody here", and here the asker
- * is never one of the holders: a writer's own share is released before the loop gets to ask, and
- * the tab whose dialog is open SHOULD read its own barrier as taken.
+ * For the auto-flush loop, which pushes what is already on disk. A shared probe is compatible
+ * with edits and other probes, but refused by a held or pending exclusive logout lock. An
+ * exclusive probe would itself briefly refuse real edits and misreport concurrent writers as
+ * a logout, even when there is only one tab.
  *
  * @param {{kind?: string, dbSuffix?: string}|null} scope - Scope about to be written.
  * @returns {Promise<boolean>} True when a logout dialog owns it. False whenever there is no fact
@@ -339,7 +339,7 @@ export async function logoutBarrierBlocks(scope) {
     try {
         return await manager.request(
             name,
-            { mode: 'exclusive', ifAvailable: true },
+            { mode: 'shared', ifAvailable: true },
             lock => lock === null
         );
     } catch {

@@ -146,24 +146,15 @@ describeOrSkip('aparência atravessa as trocas de atlas', () => {
         // ---------- DESLOGAR ----------
         await page.goto(PROJETOS);
         await page.locator('[data-testid="app-bar-logout"]').click();
-        // SAIR PERGUNTA, e este caso nao respondia. `confirmLogoutWithPendingWork` conta a fila de
-        // saida antes de encerrar a sessao e, com operacao pendente, abre "Sair com alterações
-        // pendentes?": medido em 2026-09-13, com 2 operacoes na fila, e a espera pelo mapa queimava
-        // os 30 s atras do dialogo. A pergunta e do produto e esta certa; o que faltava era o caso
-        // responder.
-        //
-        // A RESPOSTA E "DESCARTAR", coerente com o que este caso afirma logo abaixo: o que se mede
-        // aqui e a preferencia do atlas LOCAL sobrevivendo a saida, e o descarte alcanca so as
-        // pendencias dos atlas de SERVIDOR. "Continuar no EBGeo" nao sairia da conta, que e o
-        // gesto sob medida.
-        // A ESPERA E `waitFor`, NUNCA `isVisible`: `isVisible()` responde sobre o INSTANTE, sem
-        // auto-espera, entao ele devolvia falso antes de o dialogo ser desenhado e o caso seguia
-        // direto para a espera pelo mapa, atras do dialogo ainda aberto.
+        // Logout asks only when work is pending. A completed flush can leave no dialog;
+        // wait for either observable outcome before choosing, never sample visibility early.
         const descartarPendencias = page.getByRole('button', {
             name: 'Sair e descartar pendências', exact: true,
         });
-        await descartarPendencias.waitFor({ state: 'visible', timeout: 15000 });
-        await descartarPendencias.click();
+        const loggedOut = page.getByTestId('account-login-btn');
+        await expect(descartarPendencias.or(loggedOut).filter({ visible: true })).toBeVisible({ timeout: 30000 });
+        if (await descartarPendencias.isVisible()) await descartarPendencias.click();
+        await expect(loggedOut).toBeVisible({ timeout: 30000 });
         await esperarMapa(page);
         const deslogado = await lerAparencia(page);
         expect(deslogado.globoNoDisco, 'sair da conta apagou a preferência do atlas local').toBe(false);

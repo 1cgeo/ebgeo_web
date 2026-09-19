@@ -311,7 +311,7 @@ export async function loadLayersToMemory(mapName) {
  * @returns {Promise<void>}
  */
 export async function flushPendingLayerWrites() {
-    return deps.layerManager.flushPendingWrites();
+    return deps.layerManager?.flushPendingWrites();
 }
 
 // ===== IMPORT OPERATIONS =====

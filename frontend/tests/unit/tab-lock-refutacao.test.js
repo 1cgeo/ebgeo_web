@@ -738,7 +738,7 @@ describe('ATAQUE 2 - a regra do dono, caso a caso', () => {
     it('2.4 CONFIRMADO (decisao): o wipe do open remoto roda ANTES de markStoreRemote, logo '
         + 'esvazia o escopo ATUAL e nunca o namespace do atlas de destino', () => {
         const svc = read('account/open-atlas.service.js');
-        const fn = functionText(svc, 'export async function openRemoteAtlas');
+        const fn = functionText(svc, 'async function openRemoteAtlasNow');
         const iWipe = fn.indexOf('await clearAllDataStore(');
         const iMark = fn.indexOf('await markStoreRemote(atlasId);');
         expect(iWipe).toBeGreaterThan(-1);
@@ -756,7 +756,7 @@ describe('ATAQUE 3 - a ordem contra o clearAllDataStore', () => {
         // pre-voo do boot), e tanto um `indexOf` no arquivo inteiro quanto um recorte que segue ate
         // o fim do arquivo podem acabar medindo aquele.
         const svc = read('account/open-atlas.service.js');
-        const fn = functionText(svc, 'export async function openRemoteAtlas');
+        const fn = functionText(svc, 'async function openRemoteAtlasNow');
         const iClaim = fn.indexOf('if (!await claimRemoteAtlas(atlasId))');
         const iWipe = fn.indexOf('await clearAllDataStore(');
         expect(iClaim).toBeGreaterThan(-1);

@@ -400,7 +400,7 @@ const CENSO_DE_WIPE = Object.freeze({
     // o endereço perguntado é o que ESTA aba montou.
     'src/js/account/open-atlas.service.js :: clearMountedAtlasIfGranted': ARBITRAGEM.PRE_FLIGHT,
     // Reivindica por `claimRemoteAtlas`, que é quem monta a testemunha.
-    'src/js/account/open-atlas.service.js :: openRemoteAtlas': ARBITRAGEM.PRE_FLIGHT,
+    'src/js/account/open-atlas.service.js :: openRemoteAtlasNow': ARBITRAGEM.PRE_FLIGHT,
     // Link público: o quarto sítio destrutivo, ligado em 2026-08-16.
     'src/js/index.js :: openPublicAtlasFromUrl': ARBITRAGEM.PRE_FLIGHT,
 
@@ -417,7 +417,7 @@ const CENSO_DE_WIPE = Object.freeze({
     // O slot nasceu na linha anterior (`createLocalAtlas`), com UUID e bancos novos, e é MONTADO
     // antes do wipe: o alvo é um namespace que nenhum par pode segurar. O próprio arquivo diz isso
     // por extenso ("THE CLAIM MOVES WITHOUT ARBITRATION, on purpose").
-    'src/js/account/open-atlas.service.js :: switchToNewLocalAtlas': ARBITRAGEM.SEM_ALVO_VIVO,
+    'src/js/account/open-atlas.service.js :: switchToNewLocalAtlasNow': ARBITRAGEM.SEM_ALVO_VIVO,
     // Importar `.ebgeo` não-aditivo. Este ramo só roda quando NÃO se está num atlas de servidor
     // (o ramo de servidor sai por `switchToNewLocalAtlas`), e é gesto humano: escolher o arquivo
     // num diálogo. Uma aba que perdeu a ordem está atrás da sobreposição e não alcança o botão.

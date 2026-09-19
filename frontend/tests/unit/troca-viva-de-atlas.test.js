@@ -124,6 +124,8 @@ beforeEach(async () => {
     await resetIndexedDB();
     globalThis.localStorage.clear();
     engine.atlasId = null;
+    const { connectionState } = await import('@store/sync/connection-state.js');
+    vi.spyOn(connectionState, 'isOnline').mockReturnValue(true);
     trava.estado = { key: null, blocked: false };
     trava.acquire.mockImplementation(
         async () => ({ granted: true, blockedBy: null, degraded: false, deniedBy: null })
@@ -182,6 +184,99 @@ async function voltasDoLaco(voltas = 30) {
         await new Promise(resolve => { globalThis.setImmediate(resolve); });
     }
 }
+
+function deferred() {
+    let resolve;
+    const promise = new Promise(done => { resolve = done; });
+    return { promise, resolve };
+}
+
+describe('interrupções e sobreposição durante a troca', () => {
+    it('serializa duas trocas locais até terminar a preparação visual', async () => {
+        await localApi.initLocalAtlases();
+        const a = ns.getActiveScope();
+        const b = (await localApi.createLocalAtlas('B')).atlas;
+        const entered = deferred();
+        const release = deferred();
+        const { reapplyAtlasAppearance } = await import('@store/atlas-appearance.service.js');
+        reapplyAtlasAppearance.mockImplementationOnce(async () => { entered.resolve(); await release.promise; });
+        const first = servico.switchAtlas({ kind: 'local', atlasId: b.id });
+        await entered.promise;
+        const second = servico.switchAtlas({ kind: 'local', atlasId: a.atlasId });
+        await voltasDoLaco();
+        const during = ns.getActiveScope().atlasId;
+        release.resolve();
+        await Promise.all([first, second]);
+        expect(during).toBe(b.id);
+        expect(ns.getActiveScope().atlasId).toBe(a.atlasId);
+    });
+
+    it('uma falha remota tardia não desconecta nem remonta o atlas local pedido depois', async () => {
+        await localApi.initLocalAtlases();
+        const local = ns.getActiveScope();
+        const entered = deferred();
+        const release = deferred();
+        engine.connect.mockImplementationOnce(async () => {
+            entered.resolve(); await release.promise; throw new Error('pull interrompido');
+        });
+        const first = servico.openRemoteAtlas(Y).catch(error => error.message);
+        await entered.promise;
+        let completed = false;
+        const second = servico.switchAtlas({ kind: 'local', atlasId: local.atlasId }).then(result => { completed = true; return result; });
+        await voltasDoLaco();
+        const overlapped = completed;
+        release.resolve();
+        expect(await first).toBe('pull interrompido');
+        expect((await second).ok).toBe(true);
+        expect(overlapped).toBe(false);
+        expect(ns.getActiveScope().atlasId).toBe(local.atlasId);
+        expect(origem.isRemoteStoreSync()).toBe(false);
+    });
+
+    it('recusa da montagem não transforma o remoto atual em local nem anuncia sucesso', async () => {
+        const { slot } = await abaEmAtlasDeServidorComSlotLocal();
+        const before = ns.getActiveScope();
+        vi.spyOn(localApi, 'mountLocalAtlas').mockResolvedValueOnce({ ok: false, error: 'not-found' });
+        const result = await servico.switchAtlas({ kind: 'local', atlasId: slot.id });
+        expect(result.ok).toBe(false);
+        expect(ns.getActiveScope()).toBe(before);
+        expect(origem.isRemoteStoreSync()).toBe(true);
+    });
+
+    it('repete a preparação do mesmo atlas após uma falha parcial, em vez de retornar no-op', async () => {
+        const { slot } = await abaEmAtlasDeServidorComSlotLocal();
+        const maps = await import('@store/map.operations.js');
+        const prepare = vi.spyOn(maps, 'adoptMountedLocalAtlas');
+        prepare.mockRejectedValueOnce(new Error('leitura interrompida'));
+        await expect(servico.switchAtlas({ kind: 'local', atlasId: slot.id })).rejects.toThrow('leitura interrompida');
+        expect((await servico.switchAtlas({ kind: 'local', atlasId: slot.id })).changed).toBe(true);
+        expect(prepare).toHaveBeenCalledTimes(2);
+    });
+
+    it('espera a gravação já iniciada antes de mudar seu destino', async () => {
+        await localApi.initLocalAtlases();
+        const a = ns.getActiveScope();
+        const b = (await localApi.createLocalAtlas('B')).atlas;
+        const entered = deferred();
+        const release = deferred();
+        const { runTransaction } = await import('@store/store-transaction.js');
+        const edit = runTransaction(async () => async () => {
+            entered.resolve(); await release.promise;
+            await ns.getStore(ns.StoreName.SETTINGS).setItem('author-edit', { saved: true });
+        }).catch(error => error);
+        await entered.promise;
+        const switching = servico.switchAtlas({ kind: 'local', atlasId: b.id });
+        await voltasDoLaco();
+        const during = ns.getActiveScope().atlasId;
+        release.resolve();
+        const outcome = await edit;
+        await switching;
+        expect(during).toBe(a.atlasId);
+        expect(outcome).toBeUndefined();
+        expect(await ns.getStoreFor(ns.StoreName.SETTINGS, a).getItem('author-edit')).toEqual({ saved: true });
+        expect(await ns.getStore(ns.StoreName.SETTINGS).getItem('author-edit')).toBeNull();
+    });
+});
 
 /** @param {string} suffix @returns {string} O nome absoluto do banco de mapas de um sufixo. */
 const mapsDb = suffix => (suffix ? `ebgeo_maps__${suffix}` : 'ebgeo_maps');
@@ -381,6 +476,15 @@ describe('a troca ao vivo para um atlas local que ja existe', () => {
 // =====================================================================================
 
 describe('a guarda de no-op', () => {
+    it('reconecta o mesmo atlas quando o socket está offline', async () => {
+        await abaEmAtlasDeServidorComSlotLocal();
+        const { connectionState } = await import('@store/sync/connection-state.js');
+        connectionState.isOnline.mockReturnValue(false);
+        vi.spyOn(await import('@store/store.js'), 'activateAtlasInitialMap').mockResolvedValueOnce();
+        const result = await servico.switchAtlas({ kind: 'remote', atlasId: X });
+        expect(result.changed).toBe(true);
+        expect(engine.connect).toHaveBeenCalledWith(X, { initialPull: true });
+    });
     it('trocar para o atlas de SERVIDOR ja conectado nao toca em nada', async () => {
         await abaEmAtlasDeServidorComSlotLocal();
 
@@ -459,7 +563,7 @@ describe('o ramo remoto nao ganha um pipeline proprio', () => {
 
         // CONTROLE POSITIVO DO RECORTE: sem ele, um `indexOf` que casasse um trecho vazio faria
         // todo `not.toMatch` abaixo passar provando nada.
-        expect(corpo).toMatch(/(^|[^\w.])openRemoteAtlas\s*\(/m);
+        expect(corpo).toMatch(/(^|[^\w.])openRemoteAtlasNow\s*\(/m);
 
         // E nenhum dos passos que ela ja da: repeti-los aqui seria a quarta copia.
         for (const passo of ['clearAllDataStore', 'markStoreRemote', 'activateRemoteAtlas',

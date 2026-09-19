@@ -135,6 +135,7 @@ describe('o diálogo de logout contra a escrita de outra aba', () => {
 
         // ENQUANTO ISSO, a próxima escrita de qualquer aba já é recusada, sem mensagem nenhuma.
         expect((await enterCoordinatedWrite(remoteScope(ATLAS))).blocked).toBe(true);
+        expect(await logoutBarrierBlocks(remoteScope(ATLAS))).toBe(true);
 
         await soltarIrma();
         const barreira = await pedido;
@@ -159,6 +160,21 @@ describe('o diálogo de logout contra a escrita de outra aba', () => {
 });
 
 describe('o ENVIO também consulta a barreira', () => {
+    it('a sondagem simultanea ao inicio da escrita nao simula um logout', async () => {
+        const scope = remoteScope(ATLAS);
+        const [blocked, writer] = await Promise.all([
+            logoutBarrierBlocks(scope),
+            enterCoordinatedWrite(scope),
+        ]);
+        try {
+            expect(blocked).toBe(false);
+            expect(writer.blocked).toBe(false);
+            expect(await logoutBarrierBlocks(scope)).toBe(false);
+        } finally {
+            writer.release();
+        }
+    });
+
     it('a sondagem do auto-flush responde sim enquanto o diálogo está aberto', async () => {
         const { autoFlushBarredByLogout } = await import('../../src/js/store/sync/auto-flush-pause.js');
         expect(await autoFlushBarredByLogout()).toBe(false);

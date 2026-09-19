@@ -95,6 +95,7 @@ vi.mock('@store', () => ({ getControl: vi.fn(() => null), getEventBus: vi.fn(() 
 // `atlas-namespace` acima quebra o carregamento do modulo sob teste. Nenhum caso deste arquivo
 // entra em atlas local: o que se mede aqui e a DECISAO de reivindicar um atlas de servidor.
 vi.mock('@store/map.operations.js', () => ({ adoptMountedLocalAtlas: vi.fn(async () => 'Principal') }));
+vi.mock('@store/layer.operations.js', () => ({ flushPendingLayerWrites: vi.fn(async () => {}) }));
 vi.mock('@store/sync/sync-flush.js', () => ({ startAutoFlush: vi.fn(), stopAutoFlush: vi.fn() }));
 vi.mock('@store/local-atlas.api.js', () => ({
     createLocalAtlas: vi.fn(),

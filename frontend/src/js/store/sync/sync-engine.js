@@ -469,7 +469,8 @@ class SyncEngine {
         }
 
         // Apply the per-atlas config overlay from the snapshot's settings (no extra round-trip).
-        await this._applyAtlasSettingsOverlay(atlasId, snapshot?.atlas?.settings);
+        await this._applyAtlasSettingsOverlay(atlasId, snapshot?.atlas?.settings, session);
+        session.assertActive();
         return payload;
     }
 
@@ -627,7 +628,8 @@ class SyncEngine {
         sessionContext.setVisitorSession();
 
         // The per-atlas config overlay still applies — a visitor respects 3D/360/basemap availability.
-        await this._applyAtlasSettingsOverlay(atlasId, snapshot?.atlas?.settings);
+        await this._applyAtlasSettingsOverlay(atlasId, snapshot?.atlas?.settings, session);
+        session.assertActive();
         return payload;
     }
 
@@ -638,19 +640,25 @@ class SyncEngine {
      * fetch only when they aren't present. Best-effort: a failure leaves the deploy config intact.
      * @param {string} atlasId
      * @param {Object} [snapshotSettings] - atlas.settings from the pulled snapshot, if any.
+     * @param {SyncSession} session - Opening session; late responses must not outlive it.
      */
-    async _applyAtlasSettingsOverlay(atlasId, snapshotSettings) {
+    async _applyAtlasSettingsOverlay(atlasId, snapshotSettings, session) {
         // D1 — SOMAR PRIMEIRO, INTERSECTAR DEPOIS, e a ordem esta aqui de proposito.
         // O baseline passa a ser publico(deploy) uniao concedido(pessoal) uniao
         // emprestado(atlas), e so entao a allowlist do atlas intersecta por cima. A
         // ordem inversa faria o recurso EMPRESTADO escapar da restricao que o
         // Gestor configurou no mesmo atlas.
+        session.assertActive();
         await refreshVisibleResources(atlasId);
+        session.assertActive();
         try {
             const settings = snapshotSettings ?? await apiClient.getAtlasSettings(atlasId);
+            session.assertActive();
             applyAtlasSettings(settings);
             getEventBus().emit(EventTypes.ATLAS_SETTINGS_CHANGED, { settings });
         } catch {
+            // Network/settings failure is optional; cancellation is not success.
+            session.assertActive();
             // No settings reachable / no UI bus — non-fatal.
         }
     }

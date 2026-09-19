@@ -3,8 +3,9 @@
 /**
  * @fileoverview Shared "open a remote atlas" flow. Opening (or switching to) a server atlas mounts
  * that atlas's own namespace and connects: close any previous socket, ACTIVATE the atlas namespace
- * (registering it first), wipe it, mark the origin REMOTE (durable intent before the snapshot
- * pull), connect + initial-pull, activate the atlas map, and resume auto-flush.
+ * (registering it first), reset the view while preserving cached data, mark the origin REMOTE,
+ * connect + initial-pull, activate the atlas map, and resume auto-flush. Only an explicitly
+ * confirmed discard of rescued work wipes the destination's data on opening.
  *
  * OPENING A SERVER PROJECT DOES NOT TOUCH THE LOCAL ATLAS, and the flow no longer claims it does.
  * Until 2026-08-16 the first thing this function did was ask a three-way question titled "Você tem
@@ -54,6 +55,7 @@
  */
 
 import { syncEngine } from '@store/sync/sync-engine.js';
+import { connectionState } from '@store/sync/connection-state.js';
 import { getControl, getEventBus, getStateManager } from '@store';
 import { startAutoFlush, stopAutoFlush } from '@store/sync/sync-flush.js';
 import {
@@ -67,6 +69,8 @@ import {
 // PELO ARQUIVO, e nao pelo barril `@store`: `adoptMountedLocalAtlas` e a entrada em atlas LOCAL
 // ao vivo, e a fachada da store re-exporta uma lista fixa de nomes de `map.operations.js`.
 import { adoptMountedLocalAtlas } from '@store/map.operations.js';
+import { pauseStoreWrites } from '@store/write-coordinator.js';
+import { flushPendingLayerWrites } from '@store/layer.operations.js';
 import {
     createLocalAtlas,
     getLocalAtlas,
@@ -117,6 +121,34 @@ import { EventoDeUso, PropDeUso } from '@js/session/eventos-de-uso.js';
  * @type {(() => Promise<unknown>)|null}
  */
 let _deferredOpen = null;
+
+// One complete transition at a time, including rendering. Check no-op only when
+// the request reaches the front: the preceding request may change its destination.
+let transitionTail = null;
+let incompleteScope = null;
+function serializeAtlasTransition(work) {
+    const run = async () => {
+        const pause = pauseStoreWrites(getActiveScope());
+        try {
+            await pause.settled;
+            await flushPendingLayerWrites();
+            const result = await work();
+            if (result !== false && result?.ok !== false) incompleteScope = null;
+            return result;
+        } catch (error) {
+            incompleteScope = getActiveScope();
+            syncAtlasLockKey();
+            throw error;
+        } finally {
+            pause.resume();
+        }
+    };
+    const result = transitionTail ? transitionTail.then(run) : run();
+    const tail = result.then(() => {}, () => {});
+    transitionTail = tail;
+    tail.then(() => { if (transitionTail === tail) transitionTail = null; });
+    return result;
+}
 
 /**
  * Remembers an open to retry once this tab wins the claim.
@@ -558,9 +590,13 @@ async function confirmDiscardingRescuedWork(rescued) {
  *   discard a rescued slot, or when another tab already holds a server atlas (in which case this
  *   tab is left BLOCKED, with the open remembered for the takeover — see `isTabLockBlocked`).
  * @throws Propagates a connect/permission error (e.g. 403/404) so callers can message the user; on
- *   such a failure the durable origin is reverted to LOCAL so a reload does not retry the dead atlas.
+ *   such a failure the server provenance and cached data remain recoverable for another attempt.
  */
 export async function openRemoteAtlas(atlasId, { mapId = null } = {}) {
+    return serializeAtlasTransition(() => openRemoteAtlasNow(atlasId, { mapId }));
+}
+
+async function openRemoteAtlasNow(atlasId, { mapId = null } = {}) {
     // PRE-FLIGHT, and it has to come FIRST. `clearAllDataStore()` below empties the databases this
     // tab has mounted, which is another tab's LIVE data whenever the two hold the same atlas:
     // asking after the wipe is asking after the damage. It also has to precede the rescue question,
@@ -720,6 +756,12 @@ export async function openRemoteAtlas(atlasId, { mapId = null } = {}) {
  *   `openRemoteAtlas` faz, para o chamador poder falar com o usuario.
  */
 export async function switchAtlas(destination, { mapId = null } = {}) {
+    // Capture caller arguments too: mutating a queued request cannot redirect it.
+    const target = { ...destination };
+    return serializeAtlasTransition(() => switchAtlasNow(target, { mapId }));
+}
+
+async function switchAtlasNow(destination, { mapId = null } = {}) {
     const kind = destination?.kind;
     const atlasId = destination?.atlasId;
     if (typeof atlasId !== 'string' || atlasId.length === 0) {
@@ -734,7 +776,7 @@ export async function switchAtlas(destination, { mapId = null } = {}) {
         // a pergunta do resgate, a troca de escopo, o wipe, a marcacao REMOTE, a conexao com
         // pull inicial, o mapa inicial, o `switchMap` e a aparencia. Sair de um atlas remoto
         // para outro e o caso que ela ja cobre (o atalho de claim so vale para o MESMO atlas).
-        const opened = await openRemoteAtlas(atlasId, { mapId: targetMapId });
+        const opened = await openRemoteAtlasNow(atlasId, { mapId: targetMapId });
         if (opened) announceAtlasSwitch(kind, atlasId, targetMapId);
         return { ok: opened, changed: opened, reason: opened ? undefined : 'refused' };
     }
@@ -760,7 +802,8 @@ export async function switchAtlas(destination, { mapId = null } = {}) {
  * @returns {boolean}
  */
 function isMountedAtlas(kind, atlasId) {
-    if (kind === 'remote') return syncEngine.atlasId === atlasId;
+    if (incompleteScope && incompleteScope === getActiveScope()) return false;
+    if (kind === 'remote') return syncEngine.atlasId === atlasId && connectionState.isOnline();
     if (kind !== 'local') return false;
     if (syncEngine.atlasId) return false;
     const scope = getActiveScope();
@@ -858,7 +901,7 @@ async function switchToExistingLocalAtlas(atlasId, mapId) {
     if (!granted) {
         // Fica reivindicando e BLOQUEADA, com a troca guardada: a sobreposicao e a resposta ao
         // usuario, e o "Usar aqui" dela termina esta mesma troca.
-        deferAtlasOpen(() => switchToExistingLocalAtlas(atlasId, mapId));
+        deferAtlasOpen(() => switchAtlas({ kind: 'local', atlasId }, { mapId }));
         if (deniedBy === 'witness') showError(OCCUPIED_MESSAGE);
         return { ok: false, changed: false, reason: deniedBy ?? 'refused' };
     }
@@ -868,7 +911,11 @@ async function switchToExistingLocalAtlas(atlasId, mapId) {
         syncEngine.disconnect({ forgetAtlas: true });
     }
 
-    await mountLocalAtlas(entry.id);
+    const mounted = await mountLocalAtlas(entry.id);
+    if (!mounted.ok) {
+        syncAtlasLockKey();
+        return { ok: false, changed: false, reason: mounted.error || 'not-found' };
+    }
     syncAtlasLockKey();
     // THE SAME RELATIVE POINT AS THE OTHER THREE ATLAS ENTRIES: right after the destination
     // namespace is mounted and before anything touches its content. This was the only entry that
@@ -942,6 +989,10 @@ async function switchToExistingLocalAtlas(atlasId, mapId) {
  * @throws {Error} Propagates a persistence failure from the mount or the wipe.
  */
 export async function switchToNewLocalAtlas(name) {
+    return serializeAtlasTransition(() => switchToNewLocalAtlasNow(name));
+}
+
+async function switchToNewLocalAtlasNow(name) {
     const created = await createLocalAtlas(name);
     if (!created.ok) return created;
 
@@ -955,7 +1006,11 @@ export async function switchToNewLocalAtlas(name) {
         syncEngine.disconnect({ forgetAtlas: true });
     }
 
-    await mountLocalAtlas(created.atlas.id);
+    const mounted = await mountLocalAtlas(created.atlas.id);
+    if (!mounted.ok) {
+        syncAtlasLockKey();
+        return mounted;
+    }
     syncAtlasLockKey();
     // `clearQueue: false` is SPELLED OUT rather than left to follow `markLocal`, because this
     // caller breaks the coupling that default encodes. `markLocal: true` means "this wipe ends in
