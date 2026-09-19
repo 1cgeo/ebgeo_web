@@ -1332,12 +1332,12 @@ function operationDenialReason(op, permission) {
   if (op.type === 'delete' && PERMISSION_LEVELS[permission] < PERMISSION_LEVELS.manage) {
     return 'Apenas o dono ou um co-Gestor do atlas pode excluir um mapa';
   }
-  if (op.type === 'update' && !op._subType) {
+  if ((op.type === 'update' || op.type === 'create') && !op._subType) {
     const merged = { ...op.changes, ...op.data };
-    // Lock/unlock stays owner-only (deliberately narrower than delete): it is a
-    // coordination override, not a management action.
-    if (merged.locked !== undefined && permission !== 'owner') {
-      return 'Apenas o dono do atlas pode bloquear ou desbloquear um mapa';
+    // Editors may create an unlocked map, but cannot set a lock through either door.
+    const changesLock = op.type === 'create' ? merged.locked === true : merged.locked !== undefined;
+    if (changesLock && !(PERMISSION_LEVELS[permission] >= PERMISSION_LEVELS.manage)) {
+      return 'Apenas o dono ou um gestor do atlas pode bloquear ou desbloquear um mapa';
     }
   }
   return null;

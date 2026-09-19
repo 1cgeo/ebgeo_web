@@ -29,9 +29,6 @@
  * Capability -> the sentence shown to the person, in the vocabulary of the ladder they see on
  * screen (Leitor, Comentarista, Editor, Gestor, Dono).
  *
- * `canLockMaps` says DONO and not Gestor on purpose: the server keeps lock/unlock strictly
- * owner-only (`operationDenialReason`, `backend/src/modules/sync/sync.service.js`), deliberately
- * narrower than delete, because it is a coordination override rather than a management action.
  * @type {Object<string, string>}
  */
 const CAPABILITY_DENIAL = Object.freeze({
@@ -39,7 +36,7 @@ const CAPABILITY_DENIAL = Object.freeze({
     canDelete: 'Seu nível neste atlas não permite apagar itens.',
     canDeleteMap: 'Apagar ou combinar mapas exige o nível Gestor neste atlas.',
     canComment: 'Seu nível neste atlas não permite comentar.',
-    canLockMaps: 'Travar e destravar o mapa é exclusivo do dono do atlas.',
+    canLockMaps: 'Travar e destravar o mapa exige o nível Gestor neste atlas.',
     canManageUsers: 'Gerenciar participantes exige o nível Gestor neste atlas.'
 });
 

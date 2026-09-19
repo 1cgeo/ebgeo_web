@@ -126,25 +126,11 @@ describe('Online — Manager (co-Gestor)', () => {
         expect(checkPermission('MANAGE_USERS')).toEqual({ allowed: true });
     });
 
-    it('REFUSES LOCK_MAP: travar é exclusivo do dono, e o Gestor não é o dono', () => {
-        // ESTE CASO JÁ AFIRMOU O CONTRÁRIO, e afirmava uma divergência com o servidor. O bloco
-        // inteiro nasceu para dar cobertura ao `manager`, que não tinha nenhuma, e o modo de
-        // escrevê-lo foi fixar o comportamento observado; ninguém foi conferir o comportamento
-        // contra o servidor, então o guarda passou a proteger o defeito.
-        //
-        // O servidor é `permission !== 'owner'` para toda escrita que mexa em `locked`
-        // (`operationDenialReason`, `backend/src/modules/sync/sync.service.js`), deliberadamente
-        // MAIS estreito que o de apagar, porque travar é sobreposição de coordenação e não ato
-        // de gestão. O cliente dava `canLockMaps` ao Gestor, ou seja, a última linha de defesa
-        // era mais frouxa que aquilo que ela defende.
-        const perm = checkPermission('LOCK_MAP');
-        expect(perm.allowed).toBe(false);
-        expect(perm.required).toBe('canLockMaps');
+    it('allows LOCK_MAP for managers', () => {
+        expect(checkPermission('LOCK_MAP')).toEqual({ allowed: true });
     });
 
     it('CONTROLE: o Gestor continua alcançando o degrau de gestão que É dele', () => {
-        // Sem este par, estreitar `canLockMaps` passaria idêntico se alguém tivesse estreitado o
-        // Gestor inteiro por engano, que é o erro oposto e igualmente calado.
         expect(checkPermission('DELETE_MAP').allowed).toBe(true);
         expect(checkPermission('MANAGE_USERS').allowed).toBe(true);
     });

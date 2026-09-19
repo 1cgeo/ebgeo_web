@@ -2,7 +2,7 @@
 
 /**
  * MAP LOCK — TWO real browsers + real backend, on the full-chain harness. A map lock makes a map
- * read-only for EVERYONE on it (toggling it is owner/admin-only). This pins toggleMapLock's
+ * read-only for EVERYONE on it (toggling it is management-only). This pins toggleMapLock's
  * observable contract, with the cross-client propagation parts verified end-to-end:
  *
  *   - an editor cannot lock (permission-denied → null);
@@ -35,6 +35,47 @@
  */
 
 import { collabTest, expect, readFeatures, drawLineUI } from './helpers/collab.fixtures.js';
+import { setSharePermission } from './helpers/collab-helpers.js';
+
+collabTest.describe('Map lock management button', () => {
+    collabTest.use({ collabOptions: { peers: 1, permission: 'manage', mapName: 'Mapa Tático' } });
+
+    collabTest('manager toggles through the button; live lower roles hide it and refuse writes', async ({ collab }, testInfo) => {
+        collabTest.setTimeout(120000);
+        const owner = collab.author;
+        const manager = collab.peers[0];
+        for (const page of [owner, manager]) {
+            await page.locator('.sidebar-nav-btn[data-tab="mapas"]').click();
+            await expect(page.locator('[data-testid="map-lock-toggle"]')).toBeVisible();
+        }
+        const button = manager.locator('[data-testid="map-lock-toggle"]');
+        await button.click();
+        await expect.poll(async () => (await lockStateOf(owner)).travado).toBe(true);
+        await expect(button).toHaveAttribute('data-locked', 'true');
+        await manager.screenshot({ path: testInfo.outputPath('manager-lock-visible.png') });
+        await button.click();
+        await expect.poll(async () => (await lockStateOf(owner)).travado).toBe(false);
+
+        for (const permission of ['write', 'comment', 'read']) {
+            const status = await setSharePermission(owner, collab.baseUrl, collab.userA, collab.atlasId, collab.userB.id, permission);
+            expect(status).toBeLessThan(300);
+            await expect.poll(() => manager.evaluate(async () => {
+                const { sessionContext } = await import('/src/js/store/sync/session-context.js');
+                return sessionContext.role;
+            })).toBe({ write: 'editor', comment: 'commenter', read: 'viewer' }[permission]);
+            await expect(button).toBeHidden();
+            expect(await applyStoreOp(manager, 'toggleMapLock', [])).toBeNull();
+            expect(await toggleLockViaController(manager)).toBe(false);
+            expect((await lockStateOf(owner)).travado).toBe(false);
+            await manager.screenshot({ path: testInfo.outputPath(`${permission}-lock-hidden.png`) });
+        }
+
+        const status = await setSharePermission(owner, collab.baseUrl, collab.userA, collab.atlasId, collab.userB.id, 'manage');
+        expect(status).toBeLessThan(300);
+        await expect(button).toBeVisible();
+        await expect(button).toBeEnabled();
+    });
+});
 
 /** Drives a store op (toggleMapLock has no single-gesture collab UI; its return value is the contract). */
 function applyStoreOp(page, opName, args) {
@@ -78,7 +119,7 @@ function lockStateOf(page) {
 
 const lineCoords = () => [[-43.2, -22.9], [-43.15, -22.85], [-43.1, -22.8]];
 
-collabTest.describe('Map lock — owner-only toggle, read-only on BOTH sides, collaboration stays consistent', () => {
+collabTest.describe('Map lock — management toggle, read-only on BOTH sides, collaboration stays consistent', () => {
     // ESTE CASO PEDIA "editor keeps editing" ENQUANTO O DONO SEGURAVA A TRAVA, e desde
     // `957a9567` isso deixou de ser o produto. A op de trava passou a NASCER dentro da transacao
     // da op de store, entao travar pela op crua tambem VIAJA: o Editor le' o mapa travado, a barra
@@ -110,7 +151,7 @@ collabTest.describe('Map lock — owner-only toggle, read-only on BOTH sides, co
         expect(antes.linhas, 'premissa: o Editor ve a linha que acabou de desenhar')
             .toBeGreaterThanOrEqual(1);
 
-        // The editor B is NOT allowed to lock (canLockMaps is owner/admin-only). O POSTO, e ele
+        // The editor B is NOT allowed to lock (canLockMaps is management-only). O POSTO, e ele
         // continua sendo a metade que nenhum outro caso deste arquivo mede.
         const editorTry = await applyStoreOp(B, 'toggleMapLock', [mapName]);
         expect(editorTry, 'editor cannot lock (permission denied → null)').toBeNull();

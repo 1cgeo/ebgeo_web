@@ -174,14 +174,6 @@ const CENSO = [
       + 'continua valendo: contando repetição, esta seria o falso positivo que faz alguém desligar '
       + 'o censo.',
   },
-  {
-    arquivo: 'src/modules/sync/sync.service.js', trecho: "permission !== 'owner'", n: 1,
-    classe: DEGRAU_EXATO,
-    motivo: 'Virar `locked` num mapa exige `owner` ESTRITO, e é o único gate deste servidor que '
-      + 'pede o topo da escada numa operação de sync. Degrau exato de propósito: nem o Gestor '
-      + 'promovido tranca um mapa. É o gate que a constituição nomeia ao dizer que dos quatro '
-      + 'campos chamados `locked` só `maps.locked` tem dono.',
-  },
 
   // ---------------- tradução de vocabulário ---------------------------------
   {

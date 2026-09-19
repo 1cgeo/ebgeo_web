@@ -2656,3 +2656,7 @@ The feature gear offers polygon-to-line and polygon-to-boundary conversion throu
 Visual verification exposed a boundary renderer defect: point-based Turf slicing confused a closed ring's final vertex with its start, duplicating earlier edges and omitting the closing edge. Distance-based slicing preserves traversal order. A real-Turf regression checks perimeter minus the symbol gap and coverage of the closing edge; it fails on the previous implementation. Browser checks cover conversion through the gear, arrival at a second client and undo.
 
 The physical Backquote key (left of 1, apostrophe on ABNT2) cycles the current enabled basemaps through the selector's existing change handler, wrapping at the end. Text focus, modifiers, composition, key repeat, changes in progress and the existing map-edit gate suppress the shortcut.
+
+### 2026-09-19: map locks require atlas management
+
+At the user's request, managers and owners can lock and unlock remote maps. This replaces the previous owner-only exception with the existing management hierarchy, in the controller, store capability and server sync authorization. Lower roles never see the padlock button; session changes refresh its visibility. Local maps remain fully controlled by their user. Editor map creation cannot smuggle a locked state. If the store refuses a toggle after an asynchronous permission change, the controller keeps the previous state instead of reporting a fabricated success.

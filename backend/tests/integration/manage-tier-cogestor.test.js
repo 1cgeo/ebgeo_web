@@ -220,14 +220,14 @@ describe('manage tier (co-Gestor)', () => {
       assert.equal(s[0].deleted_at, null, 'and the map really survives');
     });
 
-    it('does NOT lock a map: lock/unlock stays owner-only', async () => {
+    it('locks a map at the management tier', async () => {
       const res = await push(managerTok, [
         opEnvelope('map', 'update', map.id, { mapId: map.id, data: { locked: true } }),
       ]).expect(200);
-      assert.equal(res.body.data.results[0].success, false, 'the co-Gestor lock op is refused');
+      assert.equal(res.body.data.results[0].success, true, 'the co-Gestor lock op is applied');
 
       const { rows } = await db.query('SELECT locked FROM maps WHERE id = $1', [map.id]);
-      assert.equal(rows[0].locked, false, 'the map is not locked');
+      assert.equal(rows[0].locked, true, 'the map is locked');
     });
   });
 

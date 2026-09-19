@@ -1,14 +1,13 @@
 // Path: tests/e2e/authz-map-lock.e2e.test.js
 
 /**
- * @fileoverview E2E (§1.5): map lock is owner-only.
+ * @fileoverview E2E (§1.5): map lock is management-only.
  *
  * An owner creates an atlas + map and grants a SECOND user `write` access via
  * `POST /atlas/:id/sharing/users`. We then drive the real backend through the
  * public ApiClient + createOperation and assert observable state:
  *  - a write-share user pushing a `map` update `{ locked: true }` is REFUSED —
- *    lock/unlock stays reserved for the atlas owner (strict equality, not the
- *    hierarchy: it is a coordination override, not a management action);
+ *    lock/unlock requires the management tier (owner or manager, by hierarchy);
  *  - the refusal is PER-OPERATION, not a thrown 403: since `aec63f8`
  *    (2026-07-24) a policy denial answers HTTP 200 with
  *    `results[i] = { success: false, rejected: true, reason }`, so one refused op
@@ -47,7 +46,7 @@ async function fetchMap(api, atlasId, mapId) {
     return result.snapshot.maps.find((m) => m.id === mapId);
 }
 
-describe.skipIf(E2E_SKIP)('e2e: authz — map lock is owner-only (§1.5)', () => {
+describe.skipIf(E2E_SKIP)('e2e: authz — map lock is management-only (§1.5)', () => {
     /** @type {import('../../src/js/store/sync/api-client.js').ApiClient} */
     let ownerApi;
     /** @type {import('../../src/js/store/sync/api-client.js').ApiClient} */
@@ -96,7 +95,7 @@ describe.skipIf(E2E_SKIP)('e2e: authz — map lock is owner-only (§1.5)', () =>
         expect(res.results).toHaveLength(2);
         expect(res.results[0].success).toBe(false);
         expect(res.results[0].rejected).toBe(true);
-        expect(res.results[0].reason).toMatch(/dono do atlas/i);
+        expect(res.results[0].reason).toMatch(/dono ou um gestor do atlas/i);
         expect(res.results[1].success).toBe(true);
         expect(res.results[1].rejected).toBeUndefined();
 

@@ -690,7 +690,7 @@ export class MapsTab {
                         0 feições - 1 camada
                     </div>
                 </div>
-                <button class="current-map-lock-btn" id="current-map-lock-btn" title="Bloquear mapa" data-locked="false" data-testid="map-lock-toggle">
+                <button class="current-map-lock-btn" id="current-map-lock-btn" title="Bloquear mapa" data-locked="false" data-testid="map-lock-toggle" hidden>
                     ${MAPS_ICONS.lockOpen}
                 </button>
                 <button class="current-map-temporal-btn" id="current-map-temporal-btn" title="Habilitar controle temporal" data-temporal="false">
@@ -730,9 +730,9 @@ export class MapsTab {
      * Handles toggling map lock.
      *
      * Routes through {@link mapLockController} (not the bare store op) so the
-     * role gate applies (only OWNER/ADMIN online; offline = full local control)
+     * role gate applies (management tier for remote maps; local = full control)
      * and the change is logged for sync as a `map` update. The controller shows
-     * its own pt-BR error when a non-owner attempts the toggle, in which case
+     * its own pt-BR error when a lower role attempts the toggle, in which case
      * the returned state is unchanged and we emit nothing further.
      * @private
      */
@@ -740,7 +740,7 @@ export class MapsTab {
         if (!this._currentMapName) return;
 
         if (!mapLockController.canToggleLock()) {
-            showWarning('Apenas o dono pode bloquear o mapa');
+            showWarning('Apenas o dono ou um gestor pode bloquear ou desbloquear o mapa');
             return;
         }
 
@@ -951,16 +951,16 @@ export class MapsTab {
         const notesBtn = this._currentMapCard.querySelector('#current-map-notes-btn');
 
         if (lockBtn) {
-            // Only OWNER/ADMIN (or any offline user) may toggle the lock; the backend also enforces
-            // OWNER, so a write user is blocked there too. A read-only session can never toggle it.
+            // Map locking is a management action; other atlas roles do not see its button.
             const canToggle = !readOnly && mapLockController.canToggleLock();
+            lockBtn.hidden = !canToggle;
             lockBtn.dataset.locked = locked.toString();
             lockBtn.innerHTML = locked ? MAPS_ICONS.lock : MAPS_ICONS.lockOpen;
             lockBtn.disabled = !canToggle;
             lockBtn.title = readOnly
                 ? 'Somente leitura'
                 : !canToggle
-                    ? 'Apenas o dono pode bloquear'
+                    ? 'Apenas o dono ou um gestor pode bloquear'
                     : locked
                         ? 'Desbloquear mapa'
                         : 'Bloquear mapa';

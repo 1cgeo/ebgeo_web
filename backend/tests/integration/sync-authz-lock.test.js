@@ -2,7 +2,7 @@
 // Per-operation authorization + map-lock enforcement on the sync push (multiuser
 // spec §1.4/§1.5/§1.9/§2.5/§17.8). Since 2026-07-19 map-delete is gated by HIERARCHY
 // at manage and above (owner + co-Gestor), not by equality against 'owner', which had
-// been excluding the co-Gestor in silence; lock/unlock stays owner-only on purpose.
+// been excluding the co-Gestor in silence; lock/unlock also requires management.
 // A locked map must still block writes to its child entities.
 // Every access filter gets a NEGATIVE (no-permission) test per CLAUDE.md.
 
@@ -48,7 +48,20 @@ describe('Sync authorization + map-lock enforcement', () => {
 
   const mapRow = async () => (await db.query('SELECT locked, deleted_at FROM maps WHERE id = $1', [map.id])).rows[0];
 
-  // ---- Authorization: map-delete is owner-only ----
+  it('an editor cannot create a locked map, but can create an unlocked map', async () => {
+    for (const locked of [true, false]) {
+      const id = randomUUID();
+      const res = await push(editorTok, op('map', 'create', id, {
+        data: { id, name: `Editor map ${locked}`, locked },
+      }), 200);
+      assert.equal(res.body.data.results[0].success, !locked);
+      const { rows } = await db.query('SELECT locked FROM maps WHERE id = $1', [id]);
+      assert.equal(rows.length, locked ? 0 : 1);
+      if (!locked) assert.equal(rows[0].locked, false);
+    }
+  });
+
+  // ---- Authorization: map-delete requires management ----
 
   it('OWNER can delete a map', async () => {
     const m2 = await createMap(db, atlas.id);
@@ -87,7 +100,7 @@ describe('Sync authorization + map-lock enforcement', () => {
     assert.ok(rows[0].deleted_at, 'the map is soft-deleted by the co-Gestor');
   });
 
-  // ---- Authorization: map lock/unlock is owner-only ----
+  // ---- Authorization: map lock/unlock requires management ----
 
   it('a WRITE user CANNOT lock a map (refused per-op, locked unchanged) — negative', async () => {
     const res = await push(editorTok, op('map', 'update', map.id, { data: { locked: true } }), 200);
@@ -97,6 +110,12 @@ describe('Sync authorization + map-lock enforcement', () => {
 
   it('OWNER can lock a map', async () => {
     await push(ownerTok, op('map', 'update', map.id, { data: { locked: true } }), 200);
+    assert.equal((await mapRow()).locked, true);
+  });
+
+  it('an editor cannot unlock a map', async () => {
+    const res = await push(editorTok, op('map', 'update', map.id, { changes: { locked: false } }), 200);
+    assert.equal(res.body.data.results[0].success, false);
     assert.equal((await mapRow()).locked, true);
   });
 

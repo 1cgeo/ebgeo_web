@@ -309,6 +309,12 @@ administrador ou dono do atlas. A hierarquia continua regendo a moderação (res
 **[vigente]** Preso por `backend/tests/integration/comments-manage-tier.test.js` e
 `frontend/tests/unit/collaboration-fp.test.js`.
 
+Bloquear ou desbloquear mapas remotos exige gestão ou nível superior (gestor e dono). O cadeado fica
+oculto para níveis inferiores, inclusive após mudança de permissão com o atlas aberto. O servidor
+também rejeita a criação de mapas já bloqueados por editores. Mapas locais permanecem sob controle
+integral do usuário. **[vigente]** Preso por `backend/tests/integration/sync-authz-lock.test.js`,
+`backend/tests/integration/sync-manage-tier.test.js` e `frontend/tests/e2e-ui/browser-collab-lock.spec.js`.
+
 **5.3** O compartilhamento por grupo alcança os **quatro níveis concedíveis**, gestão inclusive. Dono não é
 concedível por caminho nenhum. Duas salvaguardas são parte da regra, não detalhe de implementação: só se
 compartilha atlas com **grupo próprio**, e a lista de quem tem acesso **nomeia o dono do grupo**, para que o

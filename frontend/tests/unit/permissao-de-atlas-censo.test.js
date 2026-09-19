@@ -221,9 +221,13 @@ const CENSO = [
         trecho: "atlasRoleHasAtLeast(sessionContext.role, 'write')", n: 1, classe: ESCADA,
         motivo: '`isReadOnly()`, escrito como a AUSÊNCIA de `write`. Era `role === UserRole.VIEWER '
             + '|| role === UserRole.COMMENTER`, uma lista fechada do FUNDO, que falhava ABERTO: um '
-            + 'papel desconhecido não era nenhum dos dois e destrancava o cadeado. O gêmeo deste '
-            + 'arquivo, `canToggleLock`, virou `serverTreatsAsAtlasOwner` e saiu da varredura por '
-            + 'não citar literal nenhum, que é o destino certo de um predicado nomeado.',
+            + 'papel desconhecido não era nenhum dos dois e destrancava o cadeado.',
+    },
+    {
+        arquivo: 'src/js/locking/map-lock.controller.js',
+        trecho: "atlasRoleHasAtLeast(sessionContext.role, 'manage')", n: 1, classe: ESCADA,
+        motivo: 'Bloquear e desbloquear mapas exige gestão ou nível superior, por solicitação '
+            + 'do usuário. O controlador espelha a capacidade da store e a autorização do servidor.',
     },
     {
         arquivo: 'src/js/projects/atlas-drive.js', trecho: 'hasAtLeast(permission, ', n: 3,

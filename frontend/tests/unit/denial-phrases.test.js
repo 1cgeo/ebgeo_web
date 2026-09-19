@@ -50,8 +50,8 @@ describe('denialNotice', () => {
         expect(frase).toMatch(/Gestor/);
     });
 
-    it('travar o mapa aponta o DONO, não o Gestor, porque o servidor é owner estrito', () => {
-        expect(denialNotice(PermissionAction.LOCK_MAPS)).toMatch(/dono/i);
+    it('travar o mapa exige Gestor', () => {
+        expect(denialNotice(PermissionAction.LOCK_MAPS)).toMatch(/Gestor/i);
     });
 
     it('o ramo padrão não afirma limitação nenhuma', () => {

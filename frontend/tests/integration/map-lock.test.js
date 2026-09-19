@@ -4,7 +4,7 @@
  * @fileoverview Unit tests for the map-lock controller (Slice 3 UX).
  *
  * Pins the permission gate (canToggleLock by role / offline), the toggle path
- * (flips via the store op, logs the sync `map` update, blocks non-owner online),
+ * (flips via the store op, logs the sync `map` update, requires remote management),
  * isMapLocked reading the store, and the MAP_MODIFIED -> MAP_LOCK_CHANGED
  * re-emit on start (idempotent start/stop).
  */
@@ -37,7 +37,8 @@ const {
             if (handlers[event]) handlers[event](payload);
         }),
     };
-    const roles = { OWNER: 'owner', ADMIN: 'admin', EDITOR: 'editor', COMMENTER: 'commenter', VIEWER: 'viewer' };
+    const roles = { OWNER: 'owner',
+    MANAGER: 'manager', ADMIN: 'admin', EDITOR: 'editor', COMMENTER: 'commenter', VIEWER: 'viewer' };
     const session = {
         _offline: true,
         _role: null,
@@ -151,6 +152,15 @@ describe('map-lock.controller', () => {
     });
 
     describe('canToggleLock', () => {
+        it.each([
+            [UserRoleMock.MANAGER, true],
+            [UserRoleMock.COMMENTER, false],
+            [undefined, false],
+        ])('checks remote management authority for %s', (role, allowed) => {
+            storeOriginMock.isRemoteStoreSync.mockReturnValue(true);
+            setOnline(role);
+            expect(controller.canToggleLock()).toBe(allowed);
+        });
         // The gate is the STORE, not the session. These two cases used to assert
         // `false` for an online EDITOR/VIEWER while isRemoteStoreSync() was false
         // — the local store — which froze the defect as expected behavior: a
@@ -276,14 +286,14 @@ describe('map-lock.controller', () => {
             expect(storeMock.toggleMapLock).toHaveBeenCalledWith();
         });
 
-        it('falls back to the computed next state when the store op returns null', async () => {
+        it('keeps the prior state when the store op refuses the change', async () => {
             sessionMock._offline = true;
             storeMock.isCurrentMapLockedSync.mockReturnValue(false);
             storeMock.toggleMapLock.mockResolvedValue(null);
 
             const next = await controller.toggleMapLock();
 
-            expect(next).toBe(true);
+            expect(next).toBe(false);
             expect(logMapOperationMock).not.toHaveBeenCalled();
             expect(eventBusMock.emit).toHaveBeenCalledWith('map:modified', { mapId: 'map-1' });
         });
@@ -291,7 +301,7 @@ describe('map-lock.controller', () => {
         // The block is scoped to a connected REMOTE atlas. These two used to set
         // only the session, leaving the store local, so they asserted the block
         // on a map the user is entitled to lock.
-        it('blocks a non-owner on a REMOTE atlas: shows error, no store op, returns current state', async () => {
+        it('blocks an editor on a REMOTE atlas: shows error, no store op, returns current state', async () => {
             storeOriginMock.isRemoteStoreSync.mockReturnValue(true);
             setOnline(UserRoleMock.EDITOR);
             storeMock.isCurrentMapLockedSync.mockReturnValue(false);
@@ -299,7 +309,7 @@ describe('map-lock.controller', () => {
             const next = await controller.toggleMapLock();
 
             expect(next).toBe(false);
-            expect(showErrorMock).toHaveBeenCalledWith('Apenas o dono pode bloquear o mapa');
+            expect(showErrorMock).toHaveBeenCalledWith('Apenas o dono ou um gestor pode bloquear ou desbloquear o mapa');
             expect(storeMock.toggleMapLock).not.toHaveBeenCalled();
             expect(logMapOperationMock).not.toHaveBeenCalled();
             expect(eventBusMock.emit).not.toHaveBeenCalled();
@@ -320,7 +330,7 @@ describe('map-lock.controller', () => {
             storeOriginMock.isRemoteStoreSync.mockReturnValue(false);
             setOnline(UserRoleMock.EDITOR);
             storeMock.isCurrentMapLockedSync.mockReturnValue(false);
-            storeMock.toggleMapLock.mockResolvedValue(null);
+            storeMock.toggleMapLock.mockResolvedValue(true);
 
             const next = await controller.toggleMapLock();
 

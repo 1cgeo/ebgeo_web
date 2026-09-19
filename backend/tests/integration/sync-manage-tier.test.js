@@ -128,22 +128,19 @@ describe('sync com share `manage` (co-Gestor)', () => {
     assert.equal(rows[0].deleted_at, null, 'o mapa continua vivo');
   });
 
-  it('trancar mapa segue owner-only: manage é recusado por operação e maps.locked não muda', async () => {
+  it('manage can lock and unlock maps using changes or data payloads', async () => {
     const { atlas, map } = await cenario();
-
-    const res = await push(atlas.id, gestorTok, [{ protocolVersion: 2,
-      id: randomUUID(), entityType: 'map', operationType: 'update', entityId: map.id, mapId: map.id,
-      changes: { locked: true },
-      timestamp: Date.now(), clientId: 'mgt-client',
-    }]).expect(200);
-
-    const r = res.body.data.results[0];
-    assert.equal(r.success, false);
-    assert.equal(r.rejected, true);
-    assert.match(r.reason, /dono do atlas/, 'lock é override de coordenação, deliberadamente mais estreito');
-
-    const { rows } = await db.query('SELECT locked FROM maps WHERE id = $1', [map.id]);
-    assert.equal(rows[0].locked, false);
+    for (const payloadKey of ['changes', 'data']) {
+      for (const locked of [true, false]) {
+        const res = await push(atlas.id, gestorTok, [{ protocolVersion: 2,
+          id: randomUUID(), entityType: 'map', operationType: 'update', entityId: map.id, mapId: map.id,
+          [payloadKey]: { locked }, timestamp: Date.now(), clientId: 'mgt-client',
+        }]).expect(200);
+        assert.equal(res.body.data.results[0].success, true);
+        const { rows } = await db.query('SELECT locked FROM maps WHERE id = $1', [map.id]);
+        assert.equal(rows[0].locked, locked);
+      }
+    }
   });
 
   it('manage cannot edit another author comment', async () => {

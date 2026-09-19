@@ -7,11 +7,11 @@
  *  1. The owner creates an atlas + TWO maps and grants a SECOND user `write` access
  *     via `POST /atlas/:id/sharing/users`.
  *  2. The owner pushes a map update `{ locked: true }` on the first map (lock/unlock
- *     is owner-only).
+ *     is management-only).
  *  3. The write-share user's feature create on that locked map is REFUSED, and a
  *     NEGATIVE assertion confirms the feature never reached the snapshot.
  *  4. As an edge control, the write-share user also CANNOT flip the lock itself
- *     (lock/unlock is owner-only), proving the gate is authorization, not luck.
+ *     (lock/unlock is management-only), proving the gate is authorization, not luck.
  *  5. The owner unlocks `{ locked: false }`; the same user's feature write now
  *     succeeds (200) and appears in the pullSync snapshot's points bucket.
  *
@@ -55,7 +55,7 @@ function pointCreateOp(featureId, mapId, coordinates) {
 }
 
 /**
- * Pushes a map `locked` toggle (owner-only) and returns the push result.
+ * Pushes a map `locked` toggle (management-only) and returns the push result.
  * @param {import('../../src/js/store/sync/api-client.js').ApiClient} api
  * @param {string} atlasId
  * @param {string} mapId
@@ -172,7 +172,7 @@ describe.skipIf(E2E_SKIP)('e2e: map-lock enforcement (write share)', () => {
         expect(openMap.features.points.some((f) => f.properties.id === siblingFeatureId)).toBe(true);
     });
 
-    it('also refuses the write-share user unlocking the map (owner-only), leaving it locked', async () => {
+    it('also refuses the write-share user unlocking the map (management-only), leaving it locked', async () => {
         // Edge: lock/unlock is an authorization gate, distinct from the locked-map
         // gate above, but since `aec63f8` both answer in the same per-op shape.
         const res = await setMapLocked(writerApi, atlasId, mapId, false);
@@ -180,7 +180,7 @@ describe.skipIf(E2E_SKIP)('e2e: map-lock enforcement (write share)', () => {
         expect(res.results).toHaveLength(1);
         expect(res.results[0].success).toBe(false);
         expect(res.results[0].rejected).toBe(true);
-        expect(res.results[0].reason).toMatch(/dono do atlas/i);
+        expect(res.results[0].reason).toMatch(/dono ou um gestor do atlas/i);
 
         const map = await pullMap(ownerApi, atlasId, mapId);
         expect(map.locked).toBe(true);

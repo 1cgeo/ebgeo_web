@@ -937,6 +937,10 @@
 }
 
 /* Lock button on current map card */
+.current-map-lock-btn[hidden] {
+    display: none;
+}
+
 .current-map-lock-btn {
     width: 36px;
     height: 36px;
