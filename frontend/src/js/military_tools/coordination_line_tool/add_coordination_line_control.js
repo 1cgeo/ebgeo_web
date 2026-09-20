@@ -14,7 +14,7 @@ import { BaseControl } from '@tools';
 import { createPreviewScheduler } from '@tools/helpers/preview-scheduler.js';
 import { DrawingFinishButton } from '@js/draw_tools/drawing-touch-helpers';
 import { getSnappingService } from '@js/snapping/snapping.service.js';
-import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
+import { queryFeaturesAtPoint, handleHitBox } from '@tools/helpers/feature-hit-test.helpers.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import {
     anchorFor,
@@ -1048,7 +1048,7 @@ class AddCoordinationLineControl extends BaseControl {
         const canvas = this.map.getCanvasContainer();
         const point = getPointerPosition(e, canvas);
 
-        const handleFeatures = this.map.queryRenderedFeatures([point.x, point.y], {
+        const handleFeatures = this.map.queryRenderedFeatures(handleHitBox(point), {
             layers: ['coordination-line-edit-handles-layer'],
         });
         if (handleFeatures.length === 0) return;
@@ -1235,7 +1235,7 @@ class AddCoordinationLineControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
-        const handleFeatures = this.map.queryRenderedFeatures([e.offsetX, e.offsetY], {
+        const handleFeatures = this.map.queryRenderedFeatures(handleHitBox({ x: e.offsetX, y: e.offsetY }), {
             layers: ['coordination-line-edit-handles-layer'],
         });
 

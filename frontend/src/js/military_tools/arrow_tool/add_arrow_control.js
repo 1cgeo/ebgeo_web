@@ -22,7 +22,7 @@ import {
     hideExtensionHandles,
     showExtensionHandles
 } from '@tools/helpers/line-extension.helpers.js';
-import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
+import { queryFeaturesAtPoint, handleHitBox } from '@tools/helpers/feature-hit-test.helpers.js';
 import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
 
 /**
@@ -879,7 +879,7 @@ class AddArrowControl extends BaseControl {
         const canvas = this.map.getCanvasContainer();
         const point = getPointerPosition(e, canvas);
 
-        const handleFeatures = this.map.queryRenderedFeatures([point.x, point.y], {
+        const handleFeatures = this.map.queryRenderedFeatures(handleHitBox(point), {
             layers: ['arrow-edit-handles-layer']
         });
 
@@ -1063,7 +1063,7 @@ class AddArrowControl extends BaseControl {
         const point = [e.offsetX, e.offsetY];
 
         // Query for vertex handles at click point
-        const handleFeatures = this.map.queryRenderedFeatures(point, {
+        const handleFeatures = this.map.queryRenderedFeatures(handleHitBox(point), {
             layers: ['arrow-edit-handles-layer']
         });
 

@@ -1,6 +1,6 @@
 // Path: js/analysis_tools/visibility_tool/add_visibility_control.js
 
-import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
+import { queryFeaturesAtPoint, handleHitBox } from '@tools/helpers/feature-hit-test.helpers.js';
 import { addFeature, removeFeature, getCurrentMapFeatures, batchUpdateVisibilityFeatures, getActiveLayerIdSync } from '@store';
 import { IDUtils } from '@utils';
 import { getPointerPosition } from '@utils/pointer-utils';
@@ -402,7 +402,7 @@ class AddVisibilityControl extends BaseControl {
         const canvas = this.map.getCanvasContainer();
         const point = getPointerPosition(e, canvas);
 
-        const handleFeatures = this.map.queryRenderedFeatures([point.x, point.y], {
+        const handleFeatures = this.map.queryRenderedFeatures(handleHitBox(point), {
             layers: ['visibility-edit-handles-layer']
         });
 

@@ -1,6 +1,6 @@
 // Path: js/analysis_tools/los_tool/add_los_control.js
 
-import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
+import { queryFeaturesAtPoint, handleHitBox } from '@tools/helpers/feature-hit-test.helpers.js';
 import { addFeature, updateFeature, removeFeature, getCurrentMapFeatures, batchUpdateLOSFeatures, getActiveLayerIdSync } from '@store';
 import { IDUtils } from '@utils';
 import { getPointerPosition } from '@utils/pointer-utils';
@@ -412,7 +412,7 @@ class AddLOSControl extends BaseControl {
         const canvas = this.map.getCanvasContainer();
         const point = getPointerPosition(e, canvas);
 
-        const handleFeatures = this.map.queryRenderedFeatures([point.x, point.y], {
+        const handleFeatures = this.map.queryRenderedFeatures(handleHitBox(point), {
             layers: ['los-edit-handles-layer']
         });
         if (handleFeatures.length === 0) return;

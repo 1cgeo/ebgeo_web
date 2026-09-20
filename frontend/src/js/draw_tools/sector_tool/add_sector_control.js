@@ -10,7 +10,7 @@ import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged, LABEL_ZOOM_PROPERTIES, recal
 import { getSnappingService } from '../../snapping/snapping.service.js';
 import { createPreviewScheduler } from '@tools/helpers/preview-scheduler.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
-import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
+import { queryFeaturesAtPoint, handleHitBox } from '@tools/helpers/feature-hit-test.helpers.js';
 import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
 
 /**
@@ -623,7 +623,7 @@ class AddSectorControl extends BaseControl {
         const canvas = this.map.getCanvasContainer();
         const point = getPointerPosition(e, canvas);
 
-        const handleFeatures = this.map.queryRenderedFeatures([point.x, point.y], {
+        const handleFeatures = this.map.queryRenderedFeatures(handleHitBox(point), {
             layers: ['sector-edit-handles-layer']
         });
 

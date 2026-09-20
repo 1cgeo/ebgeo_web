@@ -11,7 +11,7 @@ import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged, LABEL_ZOOM_PROPERTIES, recal
 import { getSnappingService } from '../../snapping/snapping.service.js';
 import { createPreviewScheduler } from '@tools/helpers/preview-scheduler.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
-import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
+import { queryFeaturesAtPoint, handleHitBox } from '@tools/helpers/feature-hit-test.helpers.js';
 import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
 
 /**
@@ -750,7 +750,7 @@ class AddPolygonControl extends BaseControl {
 
         const canvasContainer = this.map.getCanvasContainer();
         const posicao = getPointerPosition(e, canvasContainer);
-        const handleFeatures = this.map.queryRenderedFeatures([posicao.x, posicao.y], {
+        const handleFeatures = this.map.queryRenderedFeatures(handleHitBox(posicao), {
             layers: ['polygon-edit-handles-layer']
         });
 
@@ -917,7 +917,7 @@ class AddPolygonControl extends BaseControl {
         const point = [e.offsetX, e.offsetY];
 
         // Query for vertex handles at click point
-        const handleFeatures = this.map.queryRenderedFeatures(point, {
+        const handleFeatures = this.map.queryRenderedFeatures(handleHitBox(point), {
             layers: ['polygon-edit-handles-layer']
         });
 

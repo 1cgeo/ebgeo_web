@@ -10,7 +10,7 @@ import {
     applyZoomCorrections as applyZoomCorrectionsUtil,
     syncZoomCorrectedProperty,
 } from '../../tool_manager/helpers/zoom-correction.helpers.js';
-import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
+import { queryFeaturesAtPoint, handleHitBox } from '@tools/helpers/feature-hit-test.helpers.js';
 import { readGeoJSONSourceData } from '@utils/geojson-source.js';
 import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
 
@@ -1046,7 +1046,7 @@ class AddTextControl extends BaseControl {
         const canvas = this.map.getCanvasContainer();
         const point = getPointerPosition(e, canvas);
 
-        const handleFeatures = this.map.queryRenderedFeatures([point.x, point.y], {
+        const handleFeatures = this.map.queryRenderedFeatures(handleHitBox(point), {
             layers: ['text-edit-handles-layer']
         });
 

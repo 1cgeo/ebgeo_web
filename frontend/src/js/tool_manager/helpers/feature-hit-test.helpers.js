@@ -69,6 +69,42 @@ export function getClickTolerancePx() {
 }
 
 /**
+ * A CAIXA DE ACERTO DE UMA ALÇA DE EDIÇÃO, em pixels de tela.
+ *
+ * A ALÇA TEM 16px DE DIÂMETRO (`circle-radius: 8` nas folhas de estilo de linha, polígono e
+ * forma) e era consultada por UM PONTO, sem folga nenhuma. A ponta de um dedo cobre cerca de
+ * 34px, e alça de vértice e de ponto médio se alternam ao longo da geometria: o dedo cobre duas
+ * ou três ao mesmo tempo e o `queryRenderedFeatures` de um ponto só acerta se o toque cair
+ * dentro dos oito pixels de raio. A tolerância dobrada para toque já existia neste arquivo e
+ * era usada só na seleção de FEIÇÃO, nunca nas alças.
+ *
+ * A CAIXA É QUADRADA e não circular porque é o que o MapLibre aceita: ele recebe um par de
+ * cantos e devolve tudo o que intersecta o retângulo. Isso torna o canto da caixa ligeiramente
+ * mais generoso que a borda, o que não incomoda: a alça vizinha mais próxima está a mais de uma
+ * tolerância de distância, e quando não está, quem decide é a ORDEM que o MapLibre devolve, que
+ * já é a de cima para baixo no desenho.
+ *
+ * ELA NÃO DEPENDE DO ZOOM nem da projeção, de propósito: alça é desenho de tela, com raio fixo
+ * em pixels, então a folga também é de tela. Converter para metros faria a mesma alça ficar
+ * fácil de pegar em zoom alto e impossível em zoom baixo.
+ *
+ * @param {{x: number, y: number}|Array<number>} ponto - Posição em pixels de tela.
+ * @param {number} [tolerancia] - Folga em pixels; o padrão é a do ponteiro corrente.
+ * @returns {Array<Array<number>>} O par de cantos `[[x1, y1], [x2, y2]]` que o MapLibre espera.
+ */
+export function handleHitBox(ponto, tolerancia = getClickTolerancePx()) {
+    const x = Number(Array.isArray(ponto) ? ponto[0] : ponto?.x);
+    const y = Number(Array.isArray(ponto) ? ponto[1] : ponto?.y);
+    // NÃO FINITO VIRA CAIXA DEGENERADA NO ZERO, e não `NaN` espalhado: um `NaN` num canto faz o
+    // MapLibre devolver lista vazia em silêncio, que é indistinguível de "não há alça ali". Uma
+    // caixa no zero também não acha nada, mas é um número que se lê ao depurar.
+    const cx = Number.isFinite(x) ? x : 0;
+    const cy = Number.isFinite(y) ? y : 0;
+    const t = Number.isFinite(tolerancia) && tolerancia > 0 ? tolerancia : 0;
+    return [[cx - t, cy - t], [cx + t, cy + t]];
+}
+
+/**
  * Whether a row's hit is trustworthy enough to decide the winning class.
  * MapLibre verifies geometry layers itself (a line within its width, a circle
  * within its radius, a fill by containment) and the icon layers of

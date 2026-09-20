@@ -38,7 +38,7 @@ import {
 } from './line_measurement.js';
 import { calculateProfile } from './line_profile.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
-import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
+import { queryFeaturesAtPoint, handleHitBox } from '@tools/helpers/feature-hit-test.helpers.js';
 import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
 
 /**
@@ -1058,7 +1058,7 @@ class AddLineControl extends BaseControl {
 
         const canvasContainer = this.map.getCanvasContainer();
         const posicao = getPointerPosition(e, canvasContainer);
-        const handleFeatures = this.map.queryRenderedFeatures([posicao.x, posicao.y], {
+        const handleFeatures = this.map.queryRenderedFeatures(handleHitBox(posicao), {
             layers: ['line-edit-handles-layer']
         });
 
@@ -1246,7 +1246,7 @@ class AddLineControl extends BaseControl {
         const point = [e.offsetX, e.offsetY];
 
         // Query for vertex handles at click point
-        const handleFeatures = this.map.queryRenderedFeatures(point, {
+        const handleFeatures = this.map.queryRenderedFeatures(handleHitBox(point), {
             layers: ['line-edit-handles-layer']
         });
 
