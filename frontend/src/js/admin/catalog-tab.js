@@ -321,25 +321,25 @@ class CatalogTab {
             actions: [this._newBtn],
         }));
 
-        // A legenda dos três eixos fica NA TELA, e não só no código: eles se parecem o
-        // bastante para que "desativei e continua aparecendo para a OM" vire chamado.
-        const legenda = document.createElement('p');
-        legenda.className = 'admin-form__hint admin-catalog__legend';
-        legenda.textContent = sessionContext.isAdmin()
-            ? 'Três eixos independentes: Acesso (Público/Privado) diz QUEM VÊ; Status (Ativo/Inativo) '
-              + 'diz se o item aparece para alguém; OM dona diz QUEM MANTÉM. Um item pode ser Ativo e Privado.'
-            // NAO PROMETE MAIS O EIXO STATUS PARA AS QUATRO CATEGORIAS, porque ele nao existe
-            // ali: os schemas de escrita nao aceitam `active`, a listagem filtra `active = true`,
-            // e os UNICOS caminhos que escrevem a coluna sao `deleteCatalogItem` (para false) e o
-            // ramo de RESSURREICAO de `createCatalogItem` (para true). Ou seja, o eixo existe no
-            // banco e nao tem controle na tela: a legenda dizia que era dele algo que ele nao
-            // consegue mexer, e o operador ia procurar um botao que nunca existiu.
-            //
-            // Decisao do dono, 2026-08-24: a legenda muda, o eixo nao nasce. So o 360 o tem.
-            : 'Você mantém os recursos da sua OM: o Acesso (Público/Privado) e os metadados são '
-              + 'seus. A OM dona é definida na criação e só o administrador a muda. O eixo '
-              + 'Status (Ativo/Inativo) existe apenas nos projetos 360.';
-        c.appendChild(legenda);
+        // A LEGENDA É SÓ DO PRODUTOR desde 2026-09-20 (decisão do dono). A do administrador
+        // enunciava os três eixos (Acesso, Status, OM dona) antes de qualquer linha da tabela,
+        // e a tabela tem uma coluna para cada um deles: era prosa dizendo o que os cabeçalhos
+        // já dizem. A do produtor fica porque ela não descreve colunas, e sim o que ele PODE
+        // MEXER em cada uma, que é regra e não rótulo.
+        //
+        // O EIXO STATUS NÃO É PROMETIDO PARA AS QUATRO CATEGORIAS, porque ele não existe ali:
+        // os schemas de escrita não aceitam `active`, a listagem filtra `active = true`, e os
+        // únicos caminhos que escrevem a coluna são `deleteCatalogItem` (para false) e o ramo
+        // de RESSURREIÇÃO de `createCatalogItem` (para true). O eixo existe no banco e não tem
+        // controle na tela; prometê-lo mandava o operador procurar um botão que nunca existiu.
+        if (!sessionContext.isAdmin()) {
+            const legenda = document.createElement('p');
+            legenda.className = 'admin-form__hint admin-catalog__legend';
+            legenda.textContent = 'Você mantém os recursos da sua OM: o Acesso (Público/Privado) '
+                + 'e os metadados são seus. A OM dona é definida na criação e só o administrador '
+                + 'a muda. O eixo Status (Ativo/Inativo) existe apenas nos projetos 360.';
+            c.appendChild(legenda);
+        }
 
         const nav = document.createElement('nav');
         nav.className = 'admin-catalog__nav';

@@ -881,7 +881,12 @@ export function larguraDaBarra(total, maximo) {
     if (!numeroContavel(maximo) || maximo <= 0) return 0;
     const n = numeroOuZero(total);
     if (n <= 0) return 0;
-    return Math.max(PISO_DA_BARRA_PCT, arredondarPct((n / maximo) * 100));
+    // O TETO É TÃO OBRIGATÓRIO QUANTO O PISO, e faltava. As duas outras barras da aba
+    // normalizam pelo MÁXIMO da série, então nunca passam de 100; o funil normaliza pelo
+    // PRIMEIRO passo, e um dado de coorte em que um passo posterior supere o primeiro (conta
+    // criada fora da janela, contagem suja) produzia mais de 100%. A barra atravessava o
+    // trilho e ia ser cortada em quadrado na borda do cartão, o que se lê como render quebrado.
+    return Math.min(100, Math.max(PISO_DA_BARRA_PCT, arredondarPct((n / maximo) * 100)));
 }
 
 // ===== a série diária =====
@@ -1120,15 +1125,6 @@ export function janelaLabel() {
     return 'Período';
 }
 
-/**
- * A dica do seletor, e ela existe para dizer a coisa que a tela inteira pode ser lida ao contrário:
- * dois dos números NÃO são do período.
- * @returns {string}
- */
-export function janelaHint() {
-    return 'O período vale para tudo abaixo, menos "Contas ativas" e "Atlas existentes", que são o '
-        + 'que existe hoje. Cada número diz embaixo de si a qual dos dois ele pertence.';
-}
 
 /** @param {*} desde @param {{timeZone?: string}} [opts] @returns {string} */
 export function periodoLabel(desde, { timeZone } = {}) {

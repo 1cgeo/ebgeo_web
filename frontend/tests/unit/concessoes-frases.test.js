@@ -45,7 +45,6 @@ import {
     granteeGroupNotice,
     granteeLabel,
     grantorLabel,
-    grantsScopeNotice,
     isGroupGrant,
     isKnownGrantLevel,
     isKnownResourceType,
@@ -387,13 +386,6 @@ describe('grant-phrases — vazio, falha e escopo dizem coisas DIFERENTES', () =
         // E os dois lados não trocam de frase entre si.
         expect(issuedFailureNotice()).not.toBe(receivedFailureNotice());
         expect(issuedEmptyNotice()).not.toBe(receivedEmptyNotice());
-    });
-
-    it('a nota de escopo diz o que a aba NÃO mostra', () => {
-        const nota = grantsScopeNotice();
-        expect(nota).toMatch(/papel/);
-        expect(nota).toMatch(/público/);
-        expect(nota).toMatch(/atlas/);
     });
 
     it('a nota de prazo nomeia o silêncio, que é o fato do lado recebido', () => {

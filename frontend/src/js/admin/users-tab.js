@@ -126,6 +126,18 @@ class UsersTab {
 
     // ----- list -----
 
+    /**
+     * @private Uma linha de estado para a caixa de resultados da busca de pessoas.
+     * @param {string} texto
+     * @returns {HTMLElement}
+     */
+    _buscaStatus(texto) {
+        const p = document.createElement('p');
+        p.className = 'admin-users__status';
+        p.textContent = texto;
+        return p;
+    }
+
     /** @private */
     async _renderList() {
         const c = this._container;
@@ -164,6 +176,10 @@ class UsersTab {
         inactiveCb.addEventListener('change', () => {
             this._includeInactive = inactiveCb.checked;
             this._renderList();
+            // O FOCO VOLTA PARA A CAIXA RECRIADA. `_renderList` esvazia o container, e com ele
+            // a própria caixa que acabou de ser marcada: o foco caía no `<body>` e quem navega
+            // por teclado recomeçava a tabulação do topo a cada alternância.
+            this._container.querySelector('[data-testid="admin-users-include-inactive"]')?.focus();
         });
         inactiveLabel.appendChild(inactiveCb);
         inactiveLabel.appendChild(document.createTextNode('Mostrar inativos'));
@@ -183,14 +199,22 @@ class UsersTab {
         let users;
         try {
             users = await apiClient.listUsers({ includeInactive: this._includeInactive });
-        } catch (error) {
+        } catch {
             if (!this._alive) return;
             // A SAÍDA que faltava. Ver `failureState` em `admin-dom.js`: falha de carregamento era
             // beco sem saída nas seis abas, e o único caminho era recarregar a página.
-            loading.replaceChildren(failureState('Falha ao carregar usuários.', {
+            //
+            // O BLOCO SUBSTITUI O CARTÃO, e não o parágrafo de "Carregando…": ele traz um
+            // `<div>` e um `<button>`, que dentro de um `<p>` são aninhamento inválido, e o
+            // `padding` do parágrafo somava ao do próprio bloco, deixando a falha com respiro
+            // maior que o do estado vazio irmão, que é desenhado direto no cartão.
+            //
+            // E O TOAST SAIU. Ele dizia a mesma frase que o bloco, ao mesmo tempo, e sumia
+            // sozinho: quem olhasse tarde ficava sem saber que houve erro, e quem olhasse na
+            // hora lia duas vezes. A superfície que fica é a que oferece a saída.
+            tableWrap.replaceChildren(failureState('Falha ao carregar usuários.', {
                 onRetry: () => { if (this._alive) this._renderList(); },
             }));
-            showError(error?.message || 'Falha ao carregar usuários.');
             return;
         }
         if (!this._alive) return;
@@ -861,10 +885,22 @@ class UsersTab {
                 return;
             }
             this._searchTimer = setTimeout(async () => {
+                // CARREGANDO, e não o vão mudo de antes: entre o adiamento de 250 ms e a resposta
+                // não havia nada na tela.
+                results.replaceChildren(this._buscaStatus('Procurando…'));
                 let resposta;
                 try {
                     resposta = await apiClient.searchUsers(q);
                 } catch {
+                    if (!this._alive) return;
+                    // A FALHA ERA PIOR QUE AUSENTE: o `return` acontecia ANTES da limpeza, então a
+                    // lista da consulta anterior continuava desenhada, com candidatos que já não
+                    // correspondiam ao que estava digitado. Escolher um deles é escolher a partir
+                    // de uma consulta que falhou, e este é o fluxo em que não achar o novo dono
+                    // leva a desativar a conta sem transferir o atlas.
+                    results.replaceChildren(failureState('Falha ao buscar pessoas.', {
+                        onRetry: () => search.dispatchEvent(new Event('input')),
+                    }));
                     return;
                 }
                 if (!this._alive) return;
@@ -890,6 +926,11 @@ class UsersTab {
                 // pesa mais que nas outras telas: quem não achar o novo dono na lista cortada
                 // desativa a conta sem transferir, e a transferência é o que impede o atlas de
                 // ficar órfão.
+                // VAZIO COM PALAVRA. Sem isto, zero resultados sem corte esvaziava a caixa e não
+                // escrevia nada, que se lê como busca quebrada.
+                if (!results.firstChild && resposta?.truncated !== true) {
+                    results.appendChild(this._buscaStatus('Ninguém encontrado com esse termo.'));
+                }
                 if (resposta?.truncated === true) {
                     const corte = document.createElement('p');
                     corte.className = 'admin-users__status';

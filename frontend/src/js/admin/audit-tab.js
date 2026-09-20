@@ -72,14 +72,11 @@ import {
     clearScopedListeners,
     cleanup,
 } from '@utils/event-cleanup.js';
-import config from '@js/config.js';
 import { sectionHeader, card, avatar, emptyState, ICON_AUDIT, failureState } from './admin-dom.js';
-import { buildDomainOptions } from './org-options.js';
 import {
     acoesPorFamilia,
     agruparPorDia,
     alvoDoEvento,
-    contarFiltrosDeApuracao,
     datasDoAtalho,
     familiaDeAcao,
     fraseDoEvento,
@@ -90,7 +87,6 @@ import {
     linhasDoDePara,
     linhasTecnicas,
     nomeDaOm,
-    nomeDeOmNasLinhas,
     nomeDoAlvo,
     nomeDoAtor,
     resumoDaPagina,
@@ -164,7 +160,11 @@ class AuditTab {
     mount(container) {
         this._container = container;
         this._alive = true;
-        this._filtros = { action: '', targetType: '', targetId: '', targetOrgId: '', actorId: '' };
+        // TRÊS FILTROS SAÍRAM EM 2026-09-20 (decisão do dono): alvo por id, ator por id e OM
+        // do acervo, que viviam atrás do recolhimento "Apuração". Sobram os dois da consulta
+        // do dia a dia. O servidor continua aceitando os três (`listAuditSchema`), então a
+        // volta é de tela, não de contrato.
+        this._filtros = { action: '', targetType: '' };
         // O EIXO DE TEMPO É UM VALOR SÓ (o `value` do seletor), e não um par de estados que
         // pudessem discordar. Ver `PERIODOS`.
         this._periodo = '7';
@@ -184,9 +184,6 @@ class AuditTab {
         // `String(v).trim() !== ''`, e um `false` ali dentro vira a string "false", que é não
         // vazia. O botão "Limpar filtros" passaria a aparecer sobre uma barra sem filtro.
         this._incluirAcesso = false;
-        // O RECOLHIMENTO DA APURAÇÃO. Nasce fechado, e a primeira resposta pode abri-lo: com
-        // filtro de apuração ativo ele abre sozinho, para o recorte nunca ficar invisível.
-        this._apuracaoAberta = false;
         this._porPagina = POR_PAGINA;
         this._page = 1;
         // NASCE FECHADO: enquanto a primeira resposta não chega, a tela assume que NÃO
@@ -194,7 +191,6 @@ class AuditTab {
         // um produtor, por uma fração de segundo, e depois os tiraria.
         this._administra = false;
         this._escopoOrgId = null;
-        this._ultimasLinhas = [];
         // O CONTADOR DE GERAÇÃO, que é a proteção contra o clique duplo. Ver `_render`.
         this._geracao = 0;
         // Os controles da barra, para que uma busca em voo possa desligá-los. Ver `_ocupado`.
@@ -224,10 +220,6 @@ class AuditTab {
         const { from, to } = janelaDoPeriodo({ dias: this._diasDoPeriodo(), de: this._de, ate: this._ate });
         if (from) p.from = from;
         if (to) p.to = to;
-        // O filtro de OM é do administrador. Mandá-lo como produtor não faria mal (o
-        // servidor o ignora), mas a tela não deve pedir o que não pode: um parâmetro que
-        // o servidor descarta é uma afordância que mente.
-        if (!this._administra) delete p.targetOrgId;
         // SÓ VIAJA QUANDO VERDADEIRO. O schema tem `default(false)`, então a ausência já é o
         // recorte; mandar `false` explícito seria a mesma decisão escrita nos dois lados.
         if (this._incluirAcesso) p.includeAccess = true;
@@ -333,14 +325,6 @@ class AuditTab {
         // O RECORTE, guardado para a tela poder dize-lo (M9). Ate agora este campo chegava na
         // resposta e era descartado no cliente inteiro.
         this._escopoOrgId = resposta?.escopoOrgId ?? null;
-        // AS LINHAS FICAM GUARDADAS para o rótulo do filtro de OM poder achar o nome de uma OM
-        // que já saiu da lista de ativas. Ver `nomeDeOmNasLinhas`.
-        //
-        // O LEITOR DO ENVELOPE É UM SÓ (`linhasDaResposta`) e é assim desde 2026-08-25, porque
-        // aqui morava um `resposta?.items` que NÃO existe na resposta: o campo é `data`. A
-        // lista desenhava (ela lia `data` no outro sítio), então nada parecia quebrado, e o que
-        // se perdia era o nome da OM desativada no filtro, que voltava a sair como UUID cru.
-        this._ultimasLinhas = linhasDaResposta(resposta);
         // O ESCOPO SÓ SE DESCOBRE NA PRIMEIRA RESPOSTA, então a barra de filtros precisa
         // ser redesenhada UMA vez quando ele muda. Redesenhar sempre piscaria a tela a
         // cada busca; nunca redesenhar deixaria o administrador sem os filtros dele.
@@ -486,8 +470,6 @@ class AuditTab {
         tipo.control.value = this._filtros.targetType;
         linha.appendChild(tipo.wrap);
 
-        linha.appendChild(this._botaoDaApuracao());
-
         // --- limpar -----------------------------------------------------------
         // SÓ APARECE COM FILTRO APLICADO. Um botão de limpar numa tela sem filtro é ruído, e
         // pior: sugere que existe um recorte escondido. O período fica de fora da conta porque
@@ -499,9 +481,7 @@ class AuditTab {
             limpar.dataset.testid = 'admin-audit-limpar';
             limpar.textContent = 'Limpar filtros';
             addScopedDomListener(this, 'view', limpar, 'click', () => this._aplicar(() => {
-                this._filtros = {
-                    action: '', targetType: '', targetId: '', targetOrgId: '', actorId: '',
-                };
+                this._filtros = { action: '', targetType: '' };
                 // LIMPAR DEVOLVE A BARRA AO PADRÃO, e o padrão inclui esconder o acesso. A
                 // alternativa (preservar a caixa marcada) deixaria a tela num recorte que
                 // nenhum controle anuncia, já que o botão some junto com os filtros.
@@ -511,107 +491,12 @@ class AuditTab {
             linha.appendChild(limpar);
         }
 
-        linha.appendChild(this._nota());
-        barra.appendChild(this._painelDaApuracao());
+        // `null` PARA QUEM ADMINISTRA, e o guarda é aqui porque `appendChild(null)` lança.
+        const nota = this._nota();
+        if (nota) linha.appendChild(nota);
 
         this._barra = barra;
         return barra;
-    }
-
-    /**
-     * @private O botão que abre a apuração, com a CONTAGEM do que está ativo lá dentro.
-     *
-     * O SELO NÃO É ENFEITE, é a condição para o recolhimento ser legítimo: uma lista recortada
-     * por um id que ninguém vê lê-se como "não aconteceu", e numa trilha essa é a leitura mais
-     * cara que existe. Por isso o painel também ABRE SOZINHO quando há algum filtro ativo.
-     * @returns {HTMLElement}
-     */
-    _botaoDaApuracao() {
-        const ativos = contarFiltrosDeApuracao(this._filtros);
-        if (ativos > 0) this._apuracaoAberta = true;
-
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'admin-btn admin-btn--sm admin-btn--ghost admin-audit__apuracao-btn';
-        b.dataset.testid = 'admin-audit-apuracao';
-        b.setAttribute('aria-expanded', String(this._apuracaoAberta));
-        b.setAttribute('aria-controls', 'admin-audit-apuracao-painel');
-        b.appendChild(this._texto('Apuração', 'admin-audit__apuracao-rotulo'));
-        if (ativos > 0) {
-            const selo = document.createElement('span');
-            selo.className = 'admin-chip admin-audit__apuracao-selo';
-            selo.dataset.testid = 'admin-audit-apuracao-contagem';
-            selo.textContent = String(ativos);
-            // O NÚMERO SOZINHO NÃO SE LÊ EM VOZ ALTA. "2" ao lado de "Apuração" é claro para
-            // quem vê e é um dígito solto para quem ouve.
-            selo.setAttribute('aria-label', `${ativos} ${ativos === 1 ? 'filtro ativo' : 'filtros ativos'}`);
-            b.appendChild(selo);
-        }
-        addScopedDomListener(this, 'view', b, 'click', () => {
-            this._apuracaoAberta = !this._apuracaoAberta;
-            // SEM IDA AO SERVIDOR: abrir uma gaveta de filtros não muda a consulta. Um
-            // `_render()` aqui pagaria uma requisição e um "Carregando…" por clique de
-            // divulgação, e ainda faria a lista piscar sem ter mudado.
-            this._painel.hidden = !this._apuracaoAberta;
-            b.setAttribute('aria-expanded', String(this._apuracaoAberta));
-        });
-        this._controles.push(b);
-        return b;
-    }
-
-    /**
-     * @private A segunda fileira, com os três filtros de apuração.
-     *
-     * ALVO POR ID, ATOR POR ID E OM SÃO DE INVESTIGAÇÃO, e não da consulta do dia a dia. Eles
-     * eram a segunda fileira esfarrapada da barra antiga, e o que os prendia lá era só a ordem
-     * em que foram escritos.
-     *
-     * O ATOR VALE PARA AS DUAS AUDIÊNCIAS desde 2026-08-25, e o gate que o escondia do produtor
-     * era engano de leitura do servidor: `listAudit` repassa `actorId` nos DOIS ramos
-     * (`audit.service.js`), então o produtor sempre pôde perguntar "o que fulano fez no meu
-     * acervo". O gate por `administra` existe para o que o servidor IGNORA (a OM alvo).
-     * @returns {HTMLElement}
-     */
-    _painelDaApuracao() {
-        const painel = document.createElement('div');
-        painel.className = 'admin-audit__apuracao-painel';
-        painel.id = 'admin-audit-apuracao-painel';
-        painel.dataset.testid = 'admin-audit-apuracao-painel';
-        painel.hidden = !this._apuracaoAberta;
-
-        painel.appendChild(this._campo('admin-audit-alvo', 'Alvo (id exato)', this._filtros.targetId,
-            (v) => this._aplicar(() => { this._filtros.targetId = v; })));
-        painel.appendChild(this._campo('admin-audit-ator', 'Ator (id exato)', this._filtros.actorId,
-            (v) => this._aplicar(() => { this._filtros.actorId = v; })));
-
-        if (this._administra) {
-            const om = this._select('admin-audit-om', 'OM do acervo', (v) => this._aplicar(() => {
-                this._filtros.targetOrgId = v;
-            }));
-            // A RESOLUÇÃO id → nome MORA EM `org-options.js`, e não aqui: o `@fileoverview`
-            // daquele arquivo conta que ele nasceu porque a mesma resolução tinha ido parar
-            // em DUAS abas, já divergentes. O terceiro argumento é o que mantém LEGÍVEL a OM
-            // DESATIVADA, que `buildDomainOptions` preserva de propósito porque é justamente o
-            // estado que dispara investigação: sem ele, ela saía como UUID cru mais "(atual)".
-            //
-            // O nome vem das linhas JÁ CARREGADAS: a resposta da trilha traz a OM de cada
-            // evento, então quando o filtro aponta para uma OM que sumiu da lista de ativas, o
-            // nome dela costuma estar ali na página que está na tela.
-            const nomeDaOmFiltrada = nomeDeOmNasLinhas(this._ultimasLinhas, this._filtros.targetOrgId);
-            for (const opt of buildDomainOptions(
-                config.organizacoesMilitares,
-                this._filtros.targetOrgId,
-                nomeDaOmFiltrada,
-                'Todas as OM',
-            )) {
-                om.control.appendChild(this._option(opt.value, opt.label));
-            }
-            om.control.value = this._filtros.targetOrgId;
-            painel.appendChild(om.wrap);
-        }
-
-        this._painel = painel;
-        return painel;
     }
 
     /**
@@ -629,29 +514,25 @@ class AuditTab {
      * @returns {HTMLElement}
      */
     _nota() {
+        // O ADMINISTRADOR NÃO RECEBE NOTA DESDE 2026-09-20 (decisão do dono), e a assimetria
+        // é o ponto: a nota do produtor explica um RECORTE que a tela aplica (só a OM para a
+        // qual ele produz), e sem ela a ausência de uma linha se lê como "não aconteceu". A do
+        // administrador dizia o contrário, isto é, que recorte nenhum existe, mais a ressalva
+        // do backfill do eixo de OM. Anunciar a ausência de um recorte custa uma linha de
+        // prosa por abertura de tela para não mudar decisão nenhuma.
+        if (this._administra) return null;
+
         const nota = document.createElement('details');
         nota.className = 'admin-audit__nota';
         nota.dataset.testid = 'admin-audit-nota';
         const resumo = document.createElement('summary');
-        resumo.textContent = this._administra
-            ? 'Escopo: a trilha inteira do sistema'
-            : 'Escopo: só a OM para a qual você produz';
+        resumo.textContent = 'Escopo: só a OM para a qual você produz';
         const corpo = document.createElement('p');
         corpo.className = 'admin-audit__nota-corpo';
-        corpo.textContent = this._administra
-            // O ADMINISTRADOR TAMBÉM RECEBE FRASE, e até 2026-08-25 era o único que não recebia
-            // nenhuma. A nota do backfill saía só para ele e a nota do recorte saía só para quem
-            // NÃO administra, então a lista mais larga do produto era a única sem legenda dizendo
-            // qual era o recorte. Dizer "você vê tudo" é informação: sem ela, a ausência de uma
-            // linha esperada se lê como recorte, e não como ausência.
-            ? 'Você vê a trilha inteira do sistema, sem recorte por OM, porque administra o '
-              + 'sistema. A OM de cada linha é a OM dona do recurso na época do ato. '
-                + 'Para atos anteriores à criação deste eixo, ela foi deduzida da OM atual do '
-                + 'recurso, e o que já havia sido destruído ficou sem OM.'
-            // M9: O RECORTE, DITO. `escopoOrgId` chega na resposta desde que o eixo nasceu e não
-            // tinha leitor nenhum no cliente, então o produtor nunca soube de qual OM era a
-            // lista que estava lendo, nem que ela era recortada.
-            : escopoDaTrilhaNotice(this._escopoOrgId);
+        // M9: O RECORTE, DITO. `escopoOrgId` chega na resposta desde que o eixo nasceu e não
+        // tinha leitor nenhum no cliente, então o produtor nunca soube de qual OM era a lista
+        // que estava lendo, nem que ela era recortada.
+        corpo.textContent = escopoDaTrilhaNotice(this._escopoOrgId);
         nota.append(resumo, corpo);
         return nota;
     }
@@ -685,40 +566,6 @@ class AuditTab {
         this._controles.push(control);
         wrap.append(span, control);
         return { wrap, control };
-    }
-
-    /**
-     * @private Um campo de texto que aplica no Enter e ao sair do campo.
-     *
-     * O `change` ENTROU EM 2026-08-25 porque só-Enter é uma regra invisível: quem digitava um
-     * id e clicava fora ficava com o campo preenchido e a lista inalterada, o que se lê como
-     * "o filtro não achou nada". A guarda de igualdade é o que impede o Enter de disparar
-     * duas buscas (o `change` do navegador vem logo atrás dele).
-     */
-    _campo(testid, rotulo, valor, onAplicar) {
-        const wrap = document.createElement('label');
-        wrap.className = 'admin-audit__filtro';
-        const span = document.createElement('span');
-        span.className = 'admin-audit__filtro-rotulo';
-        span.textContent = rotulo;
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.className = 'admin-input admin-audit__controle';
-        input.dataset.testid = testid;
-        input.value = valor || '';
-        input.placeholder = 'Enter para filtrar';
-        const aplicar = () => {
-            const novo = input.value.trim();
-            if (novo === String(valor || '')) return;
-            onAplicar(novo);
-        };
-        addScopedDomListener(this, 'view', input, 'keydown', (e) => {
-            if (e.key === 'Enter') aplicar();
-        });
-        addScopedDomListener(this, 'view', input, 'change', aplicar);
-        this._controles.push(input);
-        wrap.append(span, input);
-        return wrap;
     }
 
     /** @private Uma das duas pontas da janela absoluta. */
@@ -882,12 +729,11 @@ class AuditTab {
         const ator = document.createElement('div');
         ator.className = 'admin-audit__ator';
         ator.appendChild(avatar(nomeDoAtor(linha), linha.actor_id || linha.actor_username));
-        // O NOME DO ATOR É UM BOTÃO quando há id, e é a substituta da busca em texto: chegar a
-        // "tudo que fulano fez" deixa de exigir que alguém copie um UUID de um tooltip.
-        ator.appendChild(linha.actor_id
-            ? this._botaoDeFiltro(nomeDoAtor(linha), `Filtrar pelos atos de ${nomeDoAtor(linha)}`,
-                () => this._aplicar(() => { this._filtros.actorId = String(linha.actor_id); }))
-            : this._texto(nomeDoAtor(linha), 'admin-audit__ator-nome'));
+        // O NOME DO ATOR DEIXOU DE SER BOTÃO EM 2026-09-20, junto com a apuração. Ele
+        // preenchia o filtro de ator por id, e um filtro sem controle na tela é pior que
+        // filtro nenhum: a lista encolhe e nada na barra diz por quê, que é a leitura mais
+        // cara que uma trilha admite.
+        ator.appendChild(this._texto(nomeDoAtor(linha), 'admin-audit__ator-nome'));
         tdAtor.appendChild(ator);
         tr.appendChild(tdAtor);
 
@@ -917,11 +763,8 @@ class AuditTab {
             const alvo = document.createElement('div');
             alvo.className = 'admin-audit__alvo';
             alvo.appendChild(this._texto(rotuloDeAlvo(linha.target_type), 'admin-audit__alvo-tipo'));
-            alvo.appendChild(linha.target_id
-                ? this._botaoDeFiltro(nomeDoAlvo(linha),
-                    `Filtrar por tudo que foi feito com ${nomeDoAlvo(linha)}`,
-                    () => this._aplicar(() => { this._filtros.targetId = String(linha.target_id); }))
-                : this._texto(nomeDoAlvo(linha), 'admin-audit__alvo-nome'));
+            // PELA MESMA RAZÃO DO ATOR: este botão preenchia o filtro de alvo por id.
+            alvo.appendChild(this._texto(nomeDoAlvo(linha), 'admin-audit__alvo-nome'));
             tdAlvo.appendChild(alvo);
         }
         tr.appendChild(tdAlvo);
@@ -994,27 +837,6 @@ class AuditTab {
         el.className = classe;
         el.textContent = texto;
         return el;
-    }
-
-    /**
-     * @private Um nome CLICÁVEL que preenche um filtro.
-     *
-     * É UM `<button>` DE VERDADE, e não um `<span role="button" tabindex="0">`. O desenho
-     * anterior era um controle INVISÍVEL: a classe que o marcava (`admin-audit__alvo--clicavel`)
-     * não tinha uma única regra em `frontend/src/css/`, então ele não tinha cursor, nem estado
-     * de passagem, nem foco visível; e como o `keydown` nunca foi ligado, o Enter e o espaço não
-     * o acionavam, apesar do `role="button"` prometer que sim. Um botão nativo resolve os
-     * quatro de graça, e a promessa deixa de ser feita à mão.
-     */
-    _botaoDeFiltro(rotulo, descricao, onClick) {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'admin-audit__filtro-rapido';
-        b.textContent = rotulo;
-        b.title = descricao;
-        b.setAttribute('aria-label', descricao);
-        addScopedDomListener(this, 'view', b, 'click', onClick);
-        return b;
     }
 
     /**

@@ -160,17 +160,13 @@ describeOrSkip('Painel — aba Auditoria (navegador real + backend real)', () =>
         await page.locator('[data-testid="admin-audit-limpar"]').click();
         await expect(rodape).toContainText(`de ${totalAntes} eventos`);
 
-        // ----- 4. O NOME CLICÁVEL PREENCHE O FILTRO DE ID --------------------------
-        // É a afordância que substitui a busca em texto: chegar a "tudo que foi feito com
-        // esta coisa" sem copiar um UUID de um tooltip. Era um `<span role="button">` sem
-        // uma regra de CSS, e por isso é um `<button>` agora.
-        const alvo = page.locator('.admin-audit__alvo .admin-audit__filtro-rapido').first();
-        const nomeDoAlvo = await alvo.textContent();
-        await alvo.click();
-        await expect(page.locator('[data-testid="admin-audit-alvo"]')).not.toHaveValue('');
-        await expect(page.locator('[data-testid="admin-audit-row"]').first())
-            .toContainText(nomeDoAlvo.trim());
-        await page.locator('[data-testid="admin-audit-limpar"]').click();
+        // ----- 4. O NOME DO ALVO É TEXTO, E NÃO CONTROLE ---------------------------
+        // Ele preenchia o filtro de alvo por id, que saiu da tela em 2026-09-20 junto com o
+        // recolhimento "Apuração". A asserção aqui é a do estado NOVO, e não a ausência da
+        // antiga: um botão que continuasse vivo escreveria num filtro sem controle na barra,
+        // isto é, encolheria a lista sem nada dizer por quê.
+        await expect(page.locator('.admin-audit__filtro-rapido')).toHaveCount(0);
+        await expect(page.locator('[data-testid="admin-audit-alvo"]')).toHaveCount(0);
 
         // ----- 5. A GAVETA ABRE E NÃO ESTOURA --------------------------------------
         const primeira = page.locator('[data-testid="admin-audit-row"]').first();
@@ -306,29 +302,21 @@ describeOrSkip('Painel — aba Auditoria (navegador real + backend real)', () =>
         expect(valores).toContain('DATA_LAYER');
         expect(valores).toContain('SV360_PROJECT');
 
-        // A APURAÇÃO NASCE RECOLHIDA, e o campo de ator vive lá dentro desde 2026-08-25: alvo
-        // por id, ator por id e OM são de investigação, não da consulta do dia a dia.
-        const painel = page.locator('[data-testid="admin-audit-apuracao-painel"]');
-        await expect(painel).toBeHidden();
-        // SEM SELO ENQUANTO NÃO HÁ NADA LÁ DENTRO. O selo é a condição do recolhimento ser
-        // legítimo, e um selo permanente não distinguiria os dois estados.
-        await expect(page.locator('[data-testid="admin-audit-apuracao-contagem"]')).toHaveCount(0);
-        await page.locator('[data-testid="admin-audit-apuracao"]').click();
-        await expect(painel).toBeVisible();
+        // A APURAÇÃO INTEIRA SAIU EM 2026-09-20 (decisão do dono): o botão, o recolhimento,
+        // o selo de contagem e os três campos de dentro (alvo por id, ator por id e OM do
+        // acervo). A asserção é de AUSÊNCIA dos quatro, e ela vale por um motivo que não é de
+        // arrumação: o campo de ator era o único controle daquele filtro, e uma volta parcial
+        // (o filtro sem o campo) é recorte invisível numa trilha.
+        for (const testid of [
+            'admin-audit-apuracao', 'admin-audit-apuracao-painel',
+            'admin-audit-apuracao-contagem', 'admin-audit-ator', 'admin-audit-om',
+        ]) {
+            await expect(page.locator(`[data-testid="${testid}"]`), testid).toHaveCount(0);
+        }
 
-        // O CAMPO DE ATOR EXISTE PARA ELE, e é o defeito que isto fecha: a rota sempre aceitou
-        // `actorId` e o serviço sempre o repassou, nos dois ramos; só a tela é que desenhava o
-        // campo apenas para quem administra.
-        await expect(page.locator('[data-testid="admin-audit-ator"]')).toBeVisible();
-        await page.locator('[data-testid="admin-audit-ator"]').fill(produtor.id);
-        await page.locator('[data-testid="admin-audit-ator"]').press('Enter');
-        await expect(page.locator('[data-testid="admin-audit-list"]'))
-            .toContainText(`Camada ${etiqueta}`);
-
-        // O SELO DIZ QUANTOS FILTROS ESTÃO ATIVOS LÁ DENTRO, e o painel continua ABERTO: um
-        // recolhimento mudo sobre um recorte ativo é filtro invisível, e uma lista curta que
-        // ninguém sabe que está recortada lê-se como "não aconteceu".
-        await expect(page.locator('[data-testid="admin-audit-apuracao-contagem"]')).toHaveText('1');
-        await expect(painel).toBeVisible();
+        // PISO: a barra continua com os dois filtros da consulta do dia a dia. Sem ele, as
+        // ausências acima passariam numa aba que não desenhou barra nenhuma.
+        await expect(page.locator('[data-testid="admin-audit-acao"]')).toBeVisible();
+        await expect(page.locator('[data-testid="admin-audit-tipo"]')).toBeVisible();
     });
 });

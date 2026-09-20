@@ -131,12 +131,15 @@
 .admin-empty__hint,
 .admin-catalog__legend,
 .admin-diag__nota,
-.admin-diag__hint,
 .admin-uso__nota,
-.admin-uso__hint,
-.admin-uso__aviso {
+.admin-uso__hint {
     max-width: 70ch;
 }
+
+/* `.admin-uso__aviso` FICOU DE FORA dessa lista, e `.admin-diag__hint` saiu com o elemento.
+   A tarja de aviso tem faixa colorida à esquerda e qualifica o cartão inteiro logo abaixo:
+   recortada em 70ch ela ficava visivelmente mais estreita do que aquilo sobre o que fala, o
+   que se lê como desalinho e não como medida de leitura. */
 
 /* ===== Section header ===== */
 
@@ -177,8 +180,23 @@
     overflow: hidden;
 }
 
+/* O RESPIRO DE BAIXO É MAIOR QUE O DOS LADOS, de propósito (pedido do dono, 2026-09-20). O
+   padding igual nos quatro lados deixa a última linha de texto encostada na borda inferior,
+   porque a caixa do glifo termina acima do que o olho lê como fim do parágrafo: a descida da
+   fonte e a entrelinha somam um vão óptico em cima que não existe embaixo. Compensar isso com
+   mais espaço embaixo é o ajuste que os manuais chamam de correção óptica. */
 .admin-card--padded {
     padding: var(--space-6);
+    padding-bottom: var(--space-8);
+}
+
+/* A MARGEM DO ÚLTIMO FILHO NÃO COLAPSA ATRAVÉS DO PADDING, então ela SOMA: um cartão cujo
+   último bloco é um parágrafo de nota (12px de margem) ficava com 44px de vazio embaixo, e
+   um cujo último bloco é um estado vazio (32px de padding próprio) com 64px. O respiro maior
+   embaixo foi pedido para o texto não encostar na borda, não para abrir um vão maior que o
+   próprio parágrafo. */
+.admin-card--padded > :last-child {
+    margin-bottom: 0;
 }
 
 /* ===== Empty state ===== */
@@ -195,10 +213,19 @@
     color: var(--gray-600);
 }
 
+/* `--gray-500` E NÃO `--gray-400`: sobre branco, o 400 (#9ca3af) dá 2,6:1, abaixo do piso AA
+   de 4,5:1 e abaixo até dos 3:1 de texto grande. E esta classe não carrega decoração: é onde
+   mora a explicação de toda tela vazia do painel ("ou o servidor foi reiniciado, ou o registro
+   não está sendo escrito"). O 500 (#6b7280) dá 5,0:1 e continua sendo voz baixa. */
+
+/* `margin-inline: auto` É O PAR OBRIGATÓRIO DO TETO DE LEITURA aqui, e a falta dele foi uma
+   regressão de algumas horas: `.admin-empty` centra o TEXTO, e a dica passou a ser um bloco de
+   70ch ancorado à esquerda com o texto centrado dentro dele. O título ficava centrado no
+   cartão e a dica, duzentos pixels à esquerda: dois eixos de centragem, um embaixo do outro. */
 .admin-empty__hint {
-    margin: var(--space-2) 0 0;
+    margin: var(--space-2) auto 0;
     font-size: var(--font-size-sm);
-    color: var(--gray-400);
+    color: var(--gray-500);
 }
 
 /*
@@ -321,6 +348,17 @@
     outline: none;
 }
 
+/* O ANEL DE `--primary-100` NÃO É INDICADOR DE FOCO: ele mede 1,06:1 contra o fundo do painel,
+   ou seja, é invisível, e o `outline: none` acima tinha tirado o do navegador. A WCAG 2.2 pede
+   3:1 para indicador de foco. O caso que denunciou isto é a busca de Usuários, que desde hoje
+   já nasce com a borda verde: no foco a borda não mudava, o halo não se via, e dar Tab no
+   comando mais usado da aba não produzia efeito visível nenhum. O contorno fica em
+   `:focus-visible`, depois da regra acima, para não desenhar anel em clique de ponteiro. */
+.admin-input:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 1px;
+}
+
 /* ===== Action buttons ===== */
 
 .admin-btn {
@@ -386,9 +424,17 @@
     margin-bottom: var(--space-4);
 }
 
+/* A BUSCA É REALÇADA EM REPOUSO, e não só no foco (pedido do dono, 2026-09-20). Ela é o
+   comando mais usado da aba e nascia com a mesma borda cinza de todo campo, sem nada que a
+   distinguisse do resto da fileira.
+   O REALCE É SÓ A BORDA. O fundo de `--primary-50` saiu no mesmo dia, a pedido, e a medição
+   explica por que ele não fazia falta: #f0fdf4 contra o #f9fafb do painel dá 1,00:1, isto é,
+   o campo não parecia tinto de coisa nenhuma, e no foco ele clareava para branco, ficando
+   MENOS marcado que em repouso. Quem distingue o foco agora é o contorno de `.admin-input`. */
 .admin-users__search {
     flex: 1;
     max-width: 360px;
+    border-color: var(--primary);
 }
 
 .admin-users__inactive-toggle {
@@ -408,6 +454,17 @@
     text-align: center;
 }
 
+/* A REGRA QUE FALTAVA. Quatro telas aplicam `admin-users__table-wrap` ao cartão da tabela
+   (Usuários, Pessoal e as duas do Catálogo) e o arquivo não tinha uma linha para ela: alguém
+   pretendeu um contêiner de rolagem e nunca o escreveu. Sem isso, a tabela de OITO colunas de
+   Usuários, sem largura declarada em nenhuma delas, passa dos 1080px da coluna e é CORTADA
+   pelo `overflow: hidden` do cartão, levando junto a coluna de Ações: o botão "Desativar"
+   some na borda e nada diz que sumiu.
+   O `overflow-x` sozinho preserva o `hidden` do outro eixo e, com ele, o arredondamento. */
+.admin-users__table-wrap {
+    overflow-x: auto;
+}
+
 .admin-users__table {
     width: 100%;
     border-collapse: collapse;
@@ -420,6 +477,11 @@
     text-align: left;
     border-bottom: var(--border-width) solid var(--border-color);
     vertical-align: middle;
+
+    /* LOGIN E NOME DE OM SÃO TOKENS INDIVISÍVEIS, e sem isto eles empurram o mínimo da tabela
+       inteira, que é o que alimenta o corte acima. O resto do painel já usa esta quebra em dez
+       sítios; esta tabela era a exceção. */
+    overflow-wrap: anywhere;
 }
 
 .admin-users__table th {
@@ -465,10 +527,15 @@
     color: var(--gray-500);
 }
 
+/* O CHIP NAO QUEBRA EM DUAS LINHAS. Ele e `inline-flex` com um ponto desenhado antes do
+   texto, e a coluna de Status nao tem largura declarada: espremida pelas outras sete, a
+   palavra caia para a linha de baixo e o ponto ficava sozinho em cima. O `white-space` faz
+   a coluna pedir a largura que o rotulo precisa, e a tabela agora rola em vez de cortar. */
 .admin-users__badge {
     display: inline-flex;
     align-items: center;
     gap: var(--space-1);
+    white-space: nowrap;
     padding: 2px var(--space-2);
     border-radius: var(--radius-full);
     font-size: var(--font-size-xs);
@@ -488,9 +555,16 @@
     color: var(--primary-700);
 }
 
+/* Os botões da célula de ações, espaçados sem `gap`, porque a célula voltou a ser célula. */
+.admin-users__actions .admin-btn + .admin-btn {
+    margin-left: var(--space-2);
+}
+
+/* `--gray-600` E NÃO `--gray-500`: o selo é cinza sobre cinza (#6b7280 sobre #e5e7eb dá
+   3,9:1, abaixo do piso AA), e ele é rótulo semântico em 12px semibold, não decoração. */
 .admin-users__badge--inactive {
     background: var(--gray-200);
-    color: var(--gray-500);
+    color: var(--gray-600);
 }
 
 .admin-users__badge--pending {
@@ -499,15 +573,31 @@
     color: #b45309;
 }
 
+/* ELA É UM `<td>`, E POR ISSO NÃO PODE SER `display: flex`: o navegador envolve o conteúdo
+   numa célula anônima, e daí saem três defeitos de uma vez. A régua que separa as linhas passa
+   a ser desenhada no bloco de flex e termina uns doze pixels acima da borda da linha (um degrau
+   no fim de cada uma); o `vertical-align: middle` da tabela deixa de alcançar os botões, que
+   sobem para o topo; e, com quebra de linha, a linha de quatro botões da conta pendente fica
+   com o dobro da altura das vizinhas. `width: 1%` é a forma canônica de pedir "o mínimo" a uma
+   coluna de tabela, e é o que `.admin-audit__acoes` já fazia ao lado. */
 .admin-users__actions {
-    display: flex;
-    gap: var(--space-2);
+    width: 1%;
+    text-align: right;
+    white-space: nowrap;
     flex-wrap: wrap;
     justify-content: flex-end;
 }
 
 /* ===== Forms (create / edit / password / transfer) ===== */
 
+/* O FORMULÁRIO É CENTRADO COMO TODO O RESTO, e a exceção que morou aqui por uma hora foi
+   revertida a pedido do dono: em Sistema o formulário É o corpo inteiro da aba, então
+   tirar dele a margem automática era tirar a centragem daquela tela.
+
+   O PREÇO, DECLARADO: nas quatro abas que têm lista E formulário (Usuários, Grupos, Pessoal,
+   Catálogo), a lista ocupa os 1080px e o formulário tem 520 ou 720 próprios, então trocar de
+   uma vista para a outra desloca a coluna. Estreitar a lista para a mesma medida resolveria
+   o salto, e é decisão de produto, não conserto. */
 .admin-form {
     max-width: 520px;
     background: #fff;
@@ -1174,36 +1264,12 @@
     color: var(--gray-400);
 }
 
-/* O NOME CLICÁVEL, que preenche o filtro de id exato.
-
-   ELE ERA UM CONTROLE INVISÍVEL, e é o defeito que estas regras fecham: a classe que o
-   marcava (`admin-audit__alvo--clicavel`) não tinha uma única regra em `src/css/`, então
-   o alvo tinha `role="button"` e `tabindex=0` sem cursor, sem estado de passagem e sem
-   foco visível. Hoje ele é um `<button>` de verdade, e o que sobra aqui é despi-lo do
-   desenho de botão sem tirar dele os quatro sinais de que é clicável. */
-.admin-audit__filtro-rapido {
-    padding: 0;
-    border: 0;
-    background: none;
-    font: inherit;
-    color: var(--gray-800);
-    text-align: left;
-    text-decoration: underline dotted var(--gray-400);
-    text-underline-offset: 2px;
-    cursor: pointer;
-    overflow-wrap: anywhere;
-}
-
-.admin-audit__filtro-rapido:hover {
-    color: var(--primary-hover);
-    text-decoration-color: var(--primary);
-}
-
-.admin-audit__filtro-rapido:focus-visible {
-    outline: 2px solid var(--primary);
-    outline-offset: 2px;
-    border-radius: var(--radius-sm);
-}
+/* O NOME CLICÁVEL SAIU EM 2026-09-20, com a apuração inteira, e as três regras dele foram
+   embora junto. Ele preenchia o filtro de alvo (ou de ator) por id exato, e sem os campos
+   daqueles filtros na barra ele passaria a recortar a lista sem nada na tela dizendo por quê.
+   O que fica registrado, porque custou: ele já foi um controle INVISÍVEL, marcado por uma
+   classe (`admin-audit__alvo--clicavel`) que não tinha uma única regra de CSS, com
+   `role="button"` e `tabindex=0` prometendo teclado que nunca existiu. */
 
 .admin-audit__om {
     width: 8rem;
@@ -1488,17 +1554,16 @@
     margin-top: var(--space-8);
 }
 
-/* A dica da janela e as ressalvas das seções são PROSA sobre a lista, não itens dela: mesmo peso
-   de legenda de `.admin-grants__scope`, e é de propósito que se pareçam. */
-.admin-diag__hint,
+/* As ressalvas das seções são PROSA sobre a lista, não itens dela: mesmo peso de legenda de
+   `.admin-grants__scope`, e é de propósito que se pareçam.
+
+   `.admin-diag__hint` SAIU DAQUI em 2026-09-20, junto com o elemento: era a dica de janela do
+   topo da aba, e ela levava um `margin-top` negativo para se encaixar sob o cabeçalho. Regra
+   sem elemento é pior que regra ausente, porque quem lê o arquivo acha que a tela tem aquilo. */
 .admin-diag__nota {
     margin: 0 0 var(--space-3);
     color: var(--gray-600);
     font-size: var(--font-size-sm);
-}
-
-.admin-diag__hint {
-    margin-top: calc(-1 * var(--space-2));
 }
 
 /* A nota abaixo de uma lista (o que a varredura leu) fica colada nela, não solta. */
@@ -2141,12 +2206,38 @@
     max-width: 34rem;
 }
 
+/* A ROLAGEM HORIZONTAL DA TABELA DE DEFEITOS. Ver o `_tabelaDeDefeitos` de `diag-tab.js`:
+   oito colunas com quatro `nowrap` não cabem nos 1080px da coluna de conteúdo, e o cartão
+   recorta. Aqui o excesso vira barra de rolagem em vez de sumiço. */
+.admin-diag__rolagem {
+    overflow-x: auto;
+}
+
 .admin-diag__origem,
 .admin-diag__pagina,
 .admin-diag__quando {
     font-size: var(--font-size-sm);
     color: var(--gray-700);
     white-space: nowrap;
+}
+
+/* A PÁGINA É O MOTOR DO TRANSBORDO: `paginaLabel` corta em 80 caracteres e cai na URL
+   inteira quando o campo `pagina` não veio, tudo isso em `nowrap`. Sem teto, uma linha
+   empurrava a tabela sozinha e ocupava metade da largura. O valor completo continua no
+   `title` da célula, então o corte não esconde nada. É a mesma forma de
+   `.admin-diag__saude-release`, que já resolvia este caso ao lado. */
+.admin-diag__pagina {
+    max-width: 24ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* A ÚLTIMA LINHA VISÍVEL É A PENÚLTIMA DO `tbody`, sempre: cada defeito empilha a linha dele
+   MAIS uma linha de gaveta oculta. A regra compartilhada que tira a borda do `:last-child`
+   caía na gaveta invisível, e a última linha de verdade ficava com a borda, colada à do
+   cartão: um traço duplo no rodapé. */
+.admin-diag__defeitos tbody tr:nth-last-child(2) td {
+    border-bottom: none;
 }
 
 .admin-diag__releases {
@@ -2162,9 +2253,12 @@
     color: var(--gray-500);
 }
 
+/* O `padding: 0` que morava aqui deixava o texto encostado na borda do botão nos quatro
+   lados, porque `.admin-btn--ghost` desenha moldura: uma caixinha branca com contorno e zero
+   respiro. O alvo de clique também ficava abaixo do mínimo de toque. */
 .admin-diag__gaveta-botao {
     margin-top: var(--space-1);
-    padding: 0;
+    padding: 2px var(--space-2);
     font-size: var(--font-size-xs);
 }
 
@@ -2184,6 +2278,27 @@
 /* Esmaecido, e NÃO inerte: o clique tem de continuar chegando, senão o motivo não chega. */
 .admin-diag__acao[aria-disabled="true"] {
     opacity: 0.6;
+}
+
+/* O MESMO ESMAECIMENTO PARA O CAMPO recusado durante uma carga. O seletor de janela já
+   recebia `aria-disabled` e um `title` explicando, e não mudava de aparência NENHUMA: a
+   pessoa trocava a janela, o valor voltava sozinho e só um toast no canto dizia por quê. */
+.admin-input[aria-disabled="true"] {
+    opacity: 0.6;
+    cursor: progress;
+}
+
+/* O cartão de saúde não some mais enquanto recarrega; ele fica, apagado. Ver
+   `_defeitosCarregando` em `diag-tab.js`. */
+.admin-diag__saude[aria-busy="true"] {
+    opacity: 0.55;
+}
+
+/* A LARGURA DO CAMPO É FIXA porque ele nasce DENTRO da coluna de ações da tabela: sem teto,
+   o `size` padrão do navegador (~160px) esticava a coluna e as outras sete se estreitavam de
+   uma vez, com as linhas mudando de altura no meio do clique. */
+.admin-diag__commit .admin-input {
+    width: 14ch;
 }
 
 .admin-diag__commit {
@@ -2483,7 +2598,12 @@
     font-family: var(--font-mono, ui-monospace, monospace);
 }
 
+/* O DELTA NÃO ENCOLHE E NÃO ESMAGA. Ele é `nowrap` e chega a 36 caracteres
+   ("820 ms (era 500 ms, +320 ms / +64%)"); sem `flex: 0 0 auto` ele disputava a largura com o
+   nome da rota, que é quem tem reticências, e o nome era reduzido a duas letras. Quem cede
+   espaço é o item que sabe se cortar. */
 .admin-diag__resumo-delta {
+    flex: 0 0 auto;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
     color: var(--gray-600);
@@ -2546,7 +2666,11 @@
    servidor que não informou o alcance é `.admin-uso__nota`, de voz baixa, porque versão anterior
    não é incidente e alarmar a cada carga ensina a ignorar o alarme. */
 
+/* O RESPIRO DE BAIXO É DE QUEM TEM O DE CIMA. A seção só declarava `margin-top`, então entre
+   a borda do cartão de presença e o campo de busca de Usuários o espaço era ZERO: os dois se
+   tocavam. */
 .admin-uso__section {
+    margin-bottom: var(--space-6);
     margin-top: var(--space-8);
 }
 
@@ -2559,9 +2683,10 @@
     font-size: var(--font-size-sm);
 }
 
-.admin-uso__hint {
-    margin-top: calc(-1 * var(--space-2));
-}
+/* A MARGEM NEGATIVA SAIU COM O ELEMENTO QUE ELA POSICIONAVA. Ela existia para colar a dica de
+   janela sob o cabeçalho da aba, e aquela dica foi removida em 2026-09-20; o único consumidor
+   que sobrou da classe é o carimbo de hora do painel de presença, que ela puxava 8px para
+   cima, contra os números. */
 
 /* ----- o horizonte: até onde o dado alcança ----- */
 
@@ -2848,7 +2973,13 @@
     font-variant-numeric: tabular-nums;
 }
 
+/* O TRILHO RECORTA, como o irmão de tipos já fazia. A largura da barra do funil é calculada
+   contra o PRIMEIRO passo, não contra o máximo da lista, e não tinha teto: um dado de coorte
+   em que um passo posterior supere o primeiro produzia mais de 100%, e a barra atravessava o
+   trilho até ser cortada em quadrado na borda do cartão. O teto entrou junto, em
+   `larguraDaBarra`; isto aqui é a segunda tranca. */
 .admin-uso__degrau-trilho {
+    overflow: hidden;
     display: block;
     height: 10px;
     border-radius: var(--radius-full);
@@ -2926,8 +3057,12 @@
     color: var(--gray-900);
 }
 
+/* `--gray-400` sobre branco dá 2,6:1 e reprova até o piso de texto grande. Estas duas classes
+   carregam justamente as frases que o módulo de frases declara que NÃO podem ser lidas como
+   vazio nem como zero ("ainda não", "sem amostra"). O itálico continua sendo a diferença de
+   voz; a cor sobe para `--gray-600`, que dá 7,6:1. */
 .admin-uso__retencao-valor--aberta {
-    color: var(--gray-400);
+    color: var(--gray-600);
     font-style: italic;
 }
 
@@ -2960,7 +3095,7 @@
 }
 
 .admin-uso__sem-amostra {
-    color: var(--gray-400);
+    color: var(--gray-600);
     font-style: italic;
 }
 

@@ -551,22 +551,6 @@ export function janelaLabel() {
     return 'Janela';
 }
 
-/**
- * A dica do seletor de janela.
- *
- * ELA DIZIA "o servidor não guarda além de 7d", E ERA FALSO (visto na captura de tela de
- * 2026-08-30, antes de a aba entrar). O servidor GUARDA trinta dias de log
- * (`LOG_RETENTION_DAYS`); o teto de 7d é da CONSULTA, e existe porque ler trinta arquivos
- * numa requisição HTTP seria derrubar o servidor pela porta do diagnóstico. A diferença não
- * é sutil para quem opera: a primeira frase manda a pessoa desistir de investigar um
- * incidente de dez dias atrás que está inteiro no disco, alcançável por `npm run diag`.
- * Documentação que engana é pior que documentação ausente, e uma frase na tela é
- * documentação.
- * @returns {string}
- */
-export function janelaHint() {
-    return `As três seções leem a mesma janela. Aqui o teto de consulta é ${JANELA_TETO}; o log em disco guarda mais, e o comando diag alcança.`;
-}
 
 /** @param {*} janela @returns {string} */
 export function pulsoEmptyNotice(janela) {

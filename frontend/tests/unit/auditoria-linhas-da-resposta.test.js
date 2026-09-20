@@ -30,7 +30,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { linhasDaResposta, nomeDeOmNasLinhas } from '../../src/js/admin/audit-phrases.js';
+import { linhasDaResposta } from '../../src/js/admin/audit-phrases.js';
 
 const FRONT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const RAIZ = resolve(FRONT, '..');
@@ -104,35 +104,5 @@ describe('linhasDaResposta — as linhas moram em `data`', () => {
         expect(servico).toMatch(/^\s*data: data\.rows,$/m);
         expect(servico, 'se o servidor passar a mandar `items`, é aqui que se descobre')
             .not.toMatch(/^\s*items:/m);
-    });
-});
-
-describe('nomeDeOmNasLinhas — o nome da OM que já saiu da lista de ativas', () => {
-    it('acha o nome na página que está na tela', () => {
-        // É o consumidor do defeito acima: com a cópia sempre vazia, esta função devolvia
-        // `undefined` SEMPRE e o filtro caía no UUID cru.
-        expect(nomeDeOmNasLinhas(linhasDaResposta(RESPOSTA), 'om-morta')).toBe('OMX');
-    });
-
-    it('não achando, devolve `undefined` em vez de inventar', () => {
-        // `buildDomainOptions` já cai no id nesse caso, e um nome inventado seria pior que
-        // mostrar o id.
-        expect(nomeDeOmNasLinhas(linhasDaResposta(RESPOSTA), 'om-que-nao-veio')).toBeUndefined();
-        expect(nomeDeOmNasLinhas([], 'om-morta')).toBeUndefined();
-        expect(nomeDeOmNasLinhas(null, 'om-morta')).toBeUndefined();
-        // Sem filtro não há o que resolver.
-        expect(nomeDeOmNasLinhas(linhasDaResposta(RESPOSTA), '')).toBeUndefined();
-    });
-
-    it('a linha sem sigla e sem nome NÃO vira um id truncado', () => {
-        // O último degrau de `nomeDaOm` é o id cortado em oito caracteres — certo numa célula
-        // estreita da lista, errado num seletor, onde `buildDomainOptions` já mostraria o id
-        // INTEIRO. Rótulo pior que o padrão não é rótulo, então aqui a resposta é ausência.
-        const so_id = [{ target_org_id: '3f2b1c4d-0000-4000-8000-000000000001' }];
-        expect(nomeDeOmNasLinhas(so_id, '3f2b1c4d-0000-4000-8000-000000000001')).toBeUndefined();
-        // DISCRIMINAÇÃO: com o nome longo e sem sigla, o nome vence e sai inteiro.
-        expect(nomeDeOmNasLinhas(
-            [{ target_org_id: 'om-1', target_org_nome: 'Organização Um' }], 'om-1',
-        )).toBe('Organização Um');
     });
 });

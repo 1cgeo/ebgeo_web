@@ -14,17 +14,30 @@ export function montarPresenca(container) {
     const anon = document.createElement('p');
     logged.dataset.testid = 'admin-presenca-logados';
     anon.dataset.testid = 'admin-presenca-deslogados';
+    // OS TRÊS NASCEM COM TEXTO, e isto é estado de CARREGANDO e não enfeite: a consulta é
+    // assíncrona e, enquanto ela não volta, três parágrafos vazios deixam um cartão branco de
+    // uns cem pixels entre o título da aba e o resto. Ele reaparece a cada remontagem da aba
+    // de Usuários, isto é, depois de salvar, aprovar, desativar e reativar.
+    logged.textContent = 'Consultando…';
+    anon.textContent = '';
     numeros.append(logged, anon);
+    // A REGIÃO VIVA FICA NOS NÚMEROS, que são o que muda, e NÃO no carimbo de hora. Com
+    // `role="status"` no relógio, o leitor de tela interrompia a leitura da tabela a cada
+    // quinze segundos para anunciar a hora, para sempre, enquanto a aba estivesse aberta.
+    numeros.setAttribute('aria-live', 'polite');
     const situacao = document.createElement('p');
     situacao.className = 'admin-uso__hint';
-    situacao.setAttribute('role', 'status');
-    const sync = document.createElement('p');
-    sync.dataset.testid = 'admin-presenca-pendencias';
-    const detalhe = document.createElement('p');
-    detalhe.className = 'admin-uso__hint';
-    detalhe.textContent = 'Contas distintas logadas e navegadores deslogados com página visível nos últimos 90 segundos. '
-        + 'Várias abas do mesmo navegador contam uma vez. Pessoas usando navegadores diferentes podem contar mais de uma vez. Atualização a cada 15 segundos.';
-    corpo.append(numeros, situacao, sync, detalhe);
+    // DOIS BLOCOS SAÍRAM EM 2026-09-20, por decisão do dono. Um era a linha de PENDÊNCIAS
+    // (quantos navegadores têm operação na fila, a maior idade, em quantos a verificação não
+    // respondeu, quantas falhas de coleta); o outro era a nota que explicava a regra de
+    // contagem (aba do mesmo navegador conta uma vez, pessoa em navegadores diferentes conta
+    // mais de uma, atualização a cada 15 s). O painel é montado por DUAS abas, Usuários e Uso,
+    // então a poda vale nas duas.
+    //
+    // O QUE A PENDÊNCIA CONTAVA NÃO SE PERDEU do servidor: `getPresencaAgora` continua
+    // devolvendo os quatro campos, e o comando de diagnóstico continua alcançando. O que saiu
+    // é a exibição, que era a linha mais densa de uma seção de duas contagens.
+    corpo.append(numeros, situacao);
     sec.appendChild(corpo);
     container.appendChild(sec);
     let vivo = true;
@@ -43,19 +56,13 @@ export function montarPresenca(container) {
             logged.textContent = `${d.logados} ${d.logados === 1 ? 'usuário logado' : 'usuários logados'}`;
             anon.textContent = `${d.deslogados} ${d.deslogados === 1 ? 'navegador deslogado' : 'navegadores deslogados'}`;
             situacao.textContent = `Atualizado às ${new Date(d.atualizadoEm).toLocaleTimeString('pt-BR')}.`;
-            // `== null` E NÃO FALSY: zero é uma idade legítima (todo mundo acabou de sincronizar) e
-            // "não informada" é o estado em que ninguém da janela conseguiu medir a própria fila.
-            const idade = d.maiorIdadePendenteMs == null
-                ? 'não informada'
-                : `${Math.ceil(d.maiorIdadePendenteMs / 60000)} min`;
-            sync.textContent = `${d.navegadoresComPendencias} navegadores com ${d.pendentes} operações pendentes. `
-                + `Maior idade: ${idade}. Verificação indisponível em ${d.pendenciasDesconhecidas} navegadores. `
-                + `Falhas de coleta observadas nas páginas ativas: ${d.falhasColeta}.`;
         } catch {
             if (vivo) {
-                logged.textContent = 'Logados: indisponível';
-                anon.textContent = 'Deslogados: indisponível';
-                sync.textContent = '';
+                // A MESMA FORMA DA FRASE DE SUCESSO (número primeiro, rótulo depois), porque as
+                // duas caem no mesmo lugar, no mesmo corpo de 1,4rem: inverter a ordem no ramo
+                // de falha fazia a linha parecer outro campo.
+                logged.textContent = 'Presença indisponível';
+                anon.textContent = '';
                 situacao.textContent = 'Não foi possível atualizar a presença. Nova tentativa automática em 15 segundos.';
             }
         } finally { emVoo = false; }

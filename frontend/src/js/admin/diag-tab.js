@@ -110,7 +110,6 @@ import {
     horaLocalCompleta,
     intervaloDeOcorrencias,
     janelaEmPalavras,
-    janelaHint,
     janelaLabel,
     latenciaLabel,
     leitorCego,
@@ -479,11 +478,11 @@ class DiagTab {
             actions: [this._seletorDeJanela()],
         }));
 
-        const dica = document.createElement('p');
-        dica.className = 'admin-diag__hint';
-        dica.dataset.testid = 'admin-diag-hint';
-        dica.textContent = janelaHint();
-        c.appendChild(dica);
+        // A DICA DA JANELA SAIU EM 2026-09-20 (decisão do dono). Ela dizia que as três seções
+        // leem a mesma janela e que o teto de consulta aqui é de sete dias, enquanto o log em
+        // disco guarda mais e o comando de terminal alcança. As duas metades continuam
+        // verdadeiras; o que mudou é que elas deixaram de ocupar a linha acima do primeiro
+        // número, onde eram lidas antes de haver pergunta.
 
         // O RESUMO VEM PRIMEIRO porque ele é a resposta curta e as outras três são o detalhe: quem
         // abre esta aba quer saber se há algo a fazer antes de escolher onde olhar.
@@ -843,7 +842,13 @@ class DiagTab {
      */
     _defeitosCarregando() {
         if (!this._corpoDefeitos) return;
-        this._saudeHost.replaceChildren();
+        // O CARTÃO DE SAÚDE FICA NO LUGAR, esmaecido, em vez de ser esvaziado. Ele era apagado
+        // aqui e repintado no fim da carga, e como `.admin-diag__saude:empty` não ocupa altura,
+        // a cada troca de janela ou de filtro a barra de filtros e a tabela SALTAVAM para cima
+        // e voltavam meio segundo depois: quem estava mirando um seletor via o alvo se mover.
+        // Quem limpa continua sendo `_pintarDefeitos`, no fim, que também cobre o ramo de
+        // falha; aqui só se anuncia que o conteúdo está velho.
+        this._saudeHost.setAttribute('aria-busy', 'true');
         this._notaDefeitos.textContent = '';
         this._corpoDefeitos.replaceChildren();
         const p = document.createElement('p');
@@ -1006,8 +1011,13 @@ class DiagTab {
      */
     _pintarPulso(host, resultado, janela) {
         host.replaceChildren();
+        // O SUBTÍTULO NOMEIA A JANELA, e não diz "no período". A dica do topo da aba, que era
+        // quem amarrava os números ao seletor, saiu em 2026-09-20; sem isto, os três ladrilhos
+        // e as quatro faixas ficavam sem âncora nenhuma, e a tela só dizia o período quando NÃO
+        // havia número (os estados de vazio sempre nomearam a janela). A inversão é o defeito:
+        // a hora de dizer de quando é o número é justamente quando ele existe.
         host.appendChild(sectionHeader('Pulso de requisições', {
-            subtitle: 'Quanto o servidor respondeu no período, e com que faixa de status',
+            subtitle: `Quanto o servidor respondeu ${janelaEmPalavras(janela)}, e com que faixa de status`,
         }));
         const wrap = card({ testid: 'admin-diag-pulso-card' });
         host.appendChild(wrap);
@@ -1132,6 +1142,7 @@ class DiagTab {
         host.dataset.estado = estado;
 
         this._saudeHost.replaceChildren();
+        this._saudeHost.removeAttribute('aria-busy');
         this._notaDefeitos.textContent = '';
         this._corpoDefeitos.replaceChildren();
 
@@ -1296,6 +1307,19 @@ class DiagTab {
      * @returns {HTMLElement}
      */
     _tabelaDeDefeitos() {
+        // A TABELA ROLA DENTRO DE UM EMBRULHO PRÓPRIO, e não é escolha de estilo: são OITO
+        // colunas, quatro delas em `nowrap`, e a de Página carrega até 80 caracteres. Com a
+        // coluna de conteúdo limitada a 1080px, o mínimo da tabela passa disso num caso comum,
+        // e o `.admin-card` que a envolve tem `overflow: hidden` (ele precisa, por causa do
+        // `border-radius`), então o excesso era CORTADO em silêncio: sumiam Releases, Última
+        // vez e Ações, isto é, os botões de resolver e ignorar ficavam inalcançáveis.
+        //
+        // O EMBRULHO É INTERNO AO CARTÃO de propósito: pôr a rolagem no cartão custaria o
+        // arredondamento, e pô-la no `.admin-panel__content` faria a PÁGINA inteira deslizar
+        // de lado, arrastando junto o cabeçalho e as outras seções.
+        const rolagem = document.createElement('div');
+        rolagem.className = 'admin-diag__rolagem';
+
         const table = document.createElement('table');
         table.className = 'admin-users__table admin-diag__table admin-diag__defeitos';
         table.dataset.testid = 'admin-diag-defeitos-tabela';
@@ -1313,7 +1337,8 @@ class DiagTab {
         this._tbody = document.createElement('tbody');
         this._pintarLinhas();
         table.appendChild(this._tbody);
-        return table;
+        rolagem.appendChild(table);
+        return rolagem;
     }
 
     /**
@@ -1531,7 +1556,6 @@ class DiagTab {
         input.className = 'admin-input admin-input--sm';
         input.dataset.testid = 'admin-diag-commit-input';
         input.placeholder = commitPlaceholder();
-        input.title = commitHint();
         // O QUE FOI DIGITADO SOBREVIVE AO REPINTE: sem isto, uma resposta de gaveta chegando no
         // meio da digitação apagava o hash sem nada dizer.
         input.value = this._commitDigitado.get(item?.id) ?? '';
@@ -1832,8 +1856,10 @@ class DiagTab {
      */
     _pintarLatencia(host, resultado, janela) {
         host.replaceChildren();
+        // A JANELA ENTRA AQUI PELA MESMA RAZÃO DO PULSO: a tabela de p50/p95/máx não tinha
+        // nada na tela dizendo sobre que período foi medida.
         host.appendChild(sectionHeader('Latência por rota', {
-            subtitle: 'Da mais lenta para a mais rápida, medida pelo p95',
+            subtitle: `Da mais lenta para a mais rápida, medida pelo p95 ${janelaEmPalavras(janela)}`,
         }));
 
         const nota = document.createElement('p');

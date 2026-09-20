@@ -135,39 +135,28 @@ describe('a lista é uma TABELA, com o desenho da casa', () => {
 });
 
 describe('o nome clicável é um BOTÃO, e ele é visível', () => {
-    it('a classe fantasma não voltou, e o controle é nativo', () => {
-        // `admin-audit__alvo--clicavel` era marcada no JS e não existia no CSS: um controle
-        // sem cursor, sem passagem e sem foco.
+    it('o nome do alvo é TEXTO, e nenhum resto do controle antigo ficou', () => {
+        // O clique no nome preenchia o filtro de id exato, e os campos daquele filtro saíram
+        // da barra em 2026-09-20. A asserção mede as TRÊS pontas, porque meia remoção é o
+        // defeito real aqui: um botão sem regra de CSS (o estado de 2026-08), ou uma regra
+        // sem botão (lixo), ou um botão vivo escrevendo num filtro sem controle na tela,
+        // que é recorte invisível numa trilha.
         expect(ABA, 'a classe sem regra nenhuma voltou ao JS')
             .not.toContain('admin-audit__alvo--clicavel');
         expect(CSS_CODIGO).not.toContain('admin-audit__alvo--clicavel');
-        // E a promessa feita à mão saiu junto: `role="button"` num `<span>` prometia teclado
-        // que nunca existiu (não havia `keydown`).
         expect(ABA).not.toMatch(/setAttribute\('role', 'button'\)/);
-        expect(ABA).toMatch(/_botaoDeFiltro\(/);
+        expect(ABA, 'o botão de filtro rápido voltou ao JS').not.toMatch(/_botaoDeFiltro\(/);
+        expect(CSS, 'a regra do botão ficou sem botão').not.toContain('.admin-audit__filtro-rapido {');
     });
 
-    it('a classe que ficou TEM regra, com os quatro sinais', () => {
-        for (const parte of ['.admin-audit__filtro-rapido', '.admin-audit__filtro-rapido:hover',
-            '.admin-audit__filtro-rapido:focus-visible']) {
-            expect(CSS, `${parte} não tem regra: o controle volta a ser invisível`)
-                .toContain(parte);
-        }
-        const base = CSS.match(/\.admin-audit__filtro-rapido \{([\s\S]*?)\}/);
-        expect(base[1]).toMatch(/cursor:\s*pointer/);
-        expect(base[1], 'sem sublinhado, o nome não se distingue do texto ao lado')
-            .toMatch(/text-decoration:/);
-        const foco = CSS.match(/\.admin-audit__filtro-rapido:focus-visible \{([\s\S]*?)\}/);
-        expect(foco[1], 'foco invisível é a metade que o teclado paga').toMatch(/outline:/);
-    });
-
-    it('o ATOR também é clicável, e é ele que substitui a busca em texto', () => {
-        // A aba é a única sem `<input type="search">`, e a ausência é decisão: a lista é
-        // paginada no SERVIDOR, então uma busca no cliente filtraria as 50 linhas em mãos e
-        // diria "nada encontrado" sobre uma trilha de milhares. A afordância que a substitui
-        // é o clique — chegar a "tudo que fulano fez" sem digitar um UUID.
-        expect(ABA).toMatch(/this\._filtros\.actorId = String\(linha\.actor_id\)/);
-        expect(ABA).toMatch(/this\._filtros\.targetId = String\(linha\.target_id\)/);
+    it('nenhuma linha da tabela ESCREVE filtro, porque não há campo para ele', () => {
+        // A aba continua sem `<input type="search">`, e a ausência é decisão antiga: a lista
+        // é paginada no SERVIDOR, então uma busca no cliente filtraria as 50 linhas em mãos e
+        // diria "nada encontrado" sobre uma trilha de milhares. O que mudou em 2026-09-20 é
+        // que a afordância que a substituía (clicar no nome do ator ou do alvo) saiu junto com
+        // os campos de id. Escrever naqueles filtros sem campo na barra é recorte invisível.
+        expect(ABA).not.toMatch(/this\._filtros\.actorId =/);
+        expect(ABA).not.toMatch(/this\._filtros\.targetId =/);
     });
 
     it('o botão de detalhes tem nome ACESSÍVEL próprio', () => {

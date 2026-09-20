@@ -811,35 +811,6 @@ export function linhasDaResposta(resposta) {
     return Array.isArray(resposta?.data) ? resposta.data : [];
 }
 
-/**
- * O NOME DE UMA OM a partir das linhas que já estão na tela.
- *
- * POR QUE NÃO SAI DE `config.organizacoesMilitares`: aquela lista só traz OM ATIVA, e o caso
- * que este rótulo precisa cobrir é exatamente o oposto — a OM DESATIVADA, que
- * `buildDomainOptions` preserva no seletor de propósito, porque é o estado que dispara
- * investigação. Sem nome, a opção saía como UUID cru seguido de "(atual)".
- *
- * Devolve `undefined` quando não acha, e é o certo: `buildDomainOptions` já cai no id nesse
- * caso, e inventar um nome seria pior que mostrar o id.
- *
- * LÊ A SIGLA E O NOME DIRETO, e NÃO passa por `nomeDaOm`. A diferença é o último degrau
- * daquela função: sem sigla e sem nome, ela devolve o id TRUNCADO em oito caracteres, que é
- * a coisa certa numa célula estreita da lista e a errada aqui — o seletor cairia num pedaço
- * de UUID em vez do UUID inteiro, que é o que `buildDomainOptions` já mostra sozinho. Rótulo
- * pior que o padrão não é rótulo.
- * @param {Array<Object>} linhas - As linhas da página que está na tela.
- * @param {string} orgId
- * @returns {string|undefined}
- */
-export function nomeDeOmNasLinhas(linhas, orgId) {
-    if (!orgId) return undefined;
-    const linha = (Array.isArray(linhas) ? linhas : [])
-        .find((l) => String(l?.target_org_id ?? '') === String(orgId));
-    const sigla = (linha?.target_org_sigla ?? '').trim();
-    const nome = (linha?.target_org_nome ?? '').trim();
-    return sigla || nome || undefined;
-}
-
 /** @private O início do dia LOCAL de uma data `YYYY-MM-DD`, ou `null`. */
 function inicioDoDiaLocal(iso, deslocamentoEmDias = 0) {
     const [a, m, d] = String(iso ?? '').split('-').map(Number);
@@ -1018,29 +989,3 @@ export function temFiltroAtivo(filtros) {
     return Object.values(filtros ?? {}).some((v) => String(v ?? '').trim() !== '');
 }
 
-/**
- * OS FILTROS DE APURAÇÃO, os que a barra guarda atrás de um recolhimento.
- *
- * O CORTE É POR FREQUÊNCIA DE USO, e não por tipo de dado: período e ação são a consulta do
- * dia a dia, e alvo por id, ator por id e OM do acervo são a apuração de um caso. Os três
- * saem da primeira linha da barra porque uma barra que mostra tudo de uma vez não hierarquiza
- * nada, e a trilha é o assunto da tela, não os filtros dela.
- * @type {ReadonlyArray<string>}
- */
-export const FILTROS_DE_APURACAO = Object.freeze(['targetId', 'actorId', 'targetOrgId']);
-
-/**
- * QUANTOS filtros de apuração estão preenchidos.
- *
- * ELA É O QUE IMPEDE O RECOLHIMENTO DE VIRAR FILTRO INVISÍVEL, que é pior que filtro feio:
- * uma lista recortada por um id que ninguém vê lê-se como "não aconteceu". Quem chama usa o
- * número em dois lugares, e os dois importam: o selo no botão do recolhimento, e a decisão
- * de já abri-lo quando há algum.
- * @param {Object} filtros - O estado de filtros da aba.
- * @returns {number}
- */
-export function contarFiltrosDeApuracao(filtros) {
-    return FILTROS_DE_APURACAO
-        .filter((chave) => String(filtros?.[chave] ?? '').trim() !== '')
-        .length;
-}

@@ -1,5 +1,6 @@
 // Path: js/admin/uso-tab.js
 import { montarPresenca } from '@js/admin/presenca-panel.js';
+import { showError } from '@utils/toast_service.js';
 
 /**
  * @fileoverview Aba "Uso": quem usa o EBGeo, o que se produz nele e quanto, em seções sobre o
@@ -105,7 +106,6 @@ import {
     geometriaDaSerie,
     graficoLegenda,
     janelaEmPalavras,
-    janelaHint,
     janelaLabel,
     larguraDaBarra,
     lerMetricas,
@@ -233,11 +233,10 @@ class UsoTab {
 
         this._pararPresenca?.();
         this._pararPresenca = montarPresenca(c);
-        const dica = document.createElement('p');
-        dica.className = 'admin-uso__hint';
-        dica.dataset.testid = 'admin-uso-hint';
-        dica.textContent = janelaHint();
-        c.appendChild(dica);
+        // A DICA DA JANELA SAIU EM 2026-09-20 (decisão do dono). Ela avisava que o período
+        // vale para tudo abaixo menos "Contas ativas" e "Atlas existentes", que são o que
+        // existe hoje. A informação não se perdeu: cada número continua dizendo embaixo de si
+        // a qual dos dois pertence, que era a segunda frase da própria dica.
 
         // O AVISO DE HORIZONTE MORA FORA DO CORPO, e é por isso que ele sobrevive ao estado vazio:
         // ver o `@fileoverview`.
@@ -280,6 +279,14 @@ class UsoTab {
             select.appendChild(opt);
         }
         addScopedDomListener(this, 'view', select, 'change', () => {
+            // A RECUSA MORA AQUI, e é o par do `aria-disabled` de `_carregar`. O controle
+            // continua focável e clicável de propósito: é por ele que o motivo chega. Sem a
+            // reversão, o seletor ficaria mostrando um período que a tela não carregou.
+            if (this._recusando) {
+                select.value = this._janela;
+                showError('Aguarde a carga em andamento para trocar o período.');
+                return;
+            }
             this._janela = normalizarJanela(select.value);
             this._carregar();
         });
@@ -297,7 +304,15 @@ class UsoTab {
 
         this._avisos.replaceChildren();
         this._pintarCarregando();
-        if (this._select) this._select.disabled = true;
+        // O SELETOR FICA ALCANÇÁVEL, e a recusa é do `change`. `disabled` tira o elemento da
+        // ordem de tabulação e o navegador o DESFOCA: quem trocava o período pelo teclado via o
+        // foco cair no `<body>` e precisava tabular desde o topo. É a mesma correção que a aba
+        // de Diagnóstico já tinha feito no controle equivalente.
+        this._recusando = true;
+        if (this._select) {
+            this._select.setAttribute('aria-disabled', 'true');
+            this._select.title = 'Aguarde a carga em andamento para trocar o período.';
+        }
 
         let resposta = null;
         let erro = null;
@@ -307,7 +322,11 @@ class UsoTab {
             erro = e;
         }
         if (!this._alive || geracao !== this._geracao) return;
-        if (this._select) this._select.disabled = false;
+        this._recusando = false;
+        if (this._select) {
+            this._select.removeAttribute('aria-disabled');
+            this._select.removeAttribute('title');
+        }
 
         const dados = erro ? null : dadosDoPayload(resposta);
         const estado = estadoDaTela({ erro, dados });
@@ -1040,9 +1059,13 @@ function grafico(serie, resumo, { testid, legenda, tituloDe } = {}) {
     const eixoY = document.createElement('div');
     eixoY.className = 'admin-uso__eixo-y';
     const topo = document.createElement('span');
-    topo.textContent = numeroLabel(maximo);
+    // SÉRIE TODA ZERADA NÃO DESENHA "0 … 0". O resumo da série conta LINHAS e não totais, então
+    // trinta dias com zero em todos eles não caem no ramo de vazio: chega aqui, e com o topo do
+    // eixo também em zero a caixa fica em branco com dois zeros um em cima do outro, que não
+    // diz se a escala é zero ou se o dado não veio.
+    topo.textContent = maximo > 0 ? numeroLabel(maximo) : 'sem registro';
     const base = document.createElement('span');
-    base.textContent = '0';
+    base.textContent = maximo > 0 ? '0' : '';
     eixoY.append(topo, base);
     moldura.appendChild(eixoY);
 
@@ -1182,7 +1205,11 @@ function linhaDeFerramenta(linha) {
     tr.appendChild(acao);
 
     const alvo = document.createElement('td');
-    alvo.textContent = linha.alvo;
+    // CÉLULA EM BRANCO SE LÊ COMO COLUNA QUEBRADA, e o próprio módulo de frases já escreve essa
+    // regra para o atlas sem nome. Evento sem qualificador (cliente antigo, ou evento que não
+    // tem alvo) caía aqui como string vazia.
+    alvo.textContent = linha.alvo || 'sem qualificador';
+    if (!linha.alvo) alvo.className = 'admin-uso__sem-amostra';
     tr.appendChild(alvo);
 
     const vezes = document.createElement('td');

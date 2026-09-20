@@ -102,7 +102,8 @@
  * `granted_by = <quem pergunta>`, sem ramo de papel, então o administrador vê o que ELE
  * concedeu, e não o que o sistema inteiro concedeu. Ele PODE revogar mais do que isso (o
  * ramo largo de `requireGrantRevoker` é administração do sistema, não autoria), e é essa
- * assimetria que `issuedReachNotice` (`grant-phrases.js`) diz na tela dele.
+ * assimetria que a aba de Concessões dele SUBDECLARA: ela lista o que ele originou, e o
+ * gate de revogação do servidor tem um ramo largo de administração do sistema.
  *
  * `diagnostico` ENTROU EM 2026-08-30, entre `audit` e `account`, e a posição vem da mesma régua:
  * as abas de consulta ficam no fim, e entre elas a pessoal (`grants`) vem antes das do sistema.

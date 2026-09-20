@@ -29,9 +29,7 @@ import { fileURLToPath } from 'node:url';
 import {
     ALVOS_RESERVADOS,
     ALVOS_SEM_OM,
-    FILTROS_DE_APURACAO,
     TIPOS_DE_ALVO,
-    contarFiltrosDeApuracao,
     janelaDoPeriodo,
     resumoDaPagina,
     temFiltroAtivo,
@@ -216,7 +214,10 @@ describe('resumoDaPagina — o rodapé diz o INTERVALO, não só a página', () 
 });
 
 describe('temFiltroAtivo — o botão "Limpar filtros" só existe quando há o que limpar', () => {
-    const VAZIO = { action: '', targetType: '', targetId: '', targetOrgId: '', actorId: '' };
+    // DOIS, E NÃO CINCO, desde 2026-09-20: alvo por id, ator por id e OM do acervo saíram da
+    // tela junto com o recolhimento "Apuração". O predicado continua genérico (ele varre as
+    // chaves do objeto), então o que mudou aqui é o objeto que a aba lhe entrega.
+    const VAZIO = { action: '', targetType: '' };
 
     it('o estado inicial da aba não tem filtro nenhum', () => {
         // O PERÍODO FICA DE FORA de propósito: ele nunca está vazio (a aba abre em 7 dias),
@@ -226,13 +227,13 @@ describe('temFiltroAtivo — o botão "Limpar filtros" só existe quando há o q
         expect(temFiltroAtivo(null)).toBe(false);
     });
 
-    it('qualquer um dos cinco acende o botão', () => {
+    it('qualquer um dos dois acende o botão', () => {
         for (const chave of Object.keys(VAZIO)) {
             expect(temFiltroAtivo({ ...VAZIO, [chave]: 'x' }), chave).toBe(true);
         }
         // Espaço em branco não é filtro: ele não viaja na query string (`listAudit` descarta
         // o vazio, e a rota recusaria a string vazia com 422).
-        expect(temFiltroAtivo({ ...VAZIO, targetId: '   ' })).toBe(false);
+        expect(temFiltroAtivo({ ...VAZIO, action: '   ' })).toBe(false);
     });
 });
 
@@ -256,20 +257,14 @@ describe('o que a aba MANDA ao servidor: os parâmetros que a rota sempre aceito
         expect(schema).toMatch(/^ {2}to: Joi\.date\(\)\.iso\(\),$/m);
     });
 
-    it('a aba EXPÕE todos eles, `to`, `limit` e `actorId` inclusive', () => {
-        // Os três que faltavam. `actorId` é o mais grave dos três: ele existia no estado de
-        // filtros e o campo só era desenhado para quem administra, apesar de o serviço o
-        // repassar nos DOIS ramos.
+    it('a aba EXPÕE `to` e `limit`, que a rota sempre aceitou', () => {
         expect(aba, 'o intervalo fechado precisa mandar `to`').toMatch(/\bp\.to = to;/);
         expect(aba, 'o tamanho da página deixou de ser fixo').toMatch(/limit: this\._porPagina/);
-        expect(aba).toMatch(/data-?testid|admin-audit-ator/);
-        // O CAMPO DO ATOR ESTÁ FORA DO GATE de `_administra`, e é esta a asserção que
-        // reprovaria a volta do defeito. O gate por `administra` continua existindo, e o que
-        // se mede é que ele não alcança mais o ator.
-        const gateDoAtor = aba.match(/if \(this\._administra\)[\s\S]{0,400}?admin-audit-ator/);
-        expect(gateDoAtor, 'o campo de ator voltou para dentro do gate de administrador')
-            .toBeNull();
-        expect(aba).toMatch(/'admin-audit-ator'/);
+        // O CAMPO DE ATOR SAIU DA TELA em 2026-09-20, com a apuração inteira, e com ele a
+        // asserção que media o gate de `_administra` em volta dele. A rota continua aceitando
+        // `actorId` (`audit.schemas.js`), então a volta é de tela e não de contrato; o que
+        // este arquivo não pode mais afirmar é onde o campo é desenhado, porque ele não é.
+        expect(aba, 'o campo de ator voltou sem controle na tela').not.toMatch(/admin-audit-ator/);
     });
 
     it('o limite oferecido cabe no teto do servidor (1 a 200)', () => {
@@ -284,34 +279,5 @@ describe('o que a aba MANDA ao servidor: os parâmetros que a rota sempre aceito
             expect(n, `${n} está fora do que a rota aceita`).toBeGreaterThanOrEqual(1);
             expect(n).toBeLessThanOrEqual(200);
         }
-    });
-});
-
-describe('contarFiltrosDeApuracao — o selo que impede o recolhimento de esconder recorte', () => {
-    const vazio = { action: '', targetType: '', targetId: '', targetOrgId: '', actorId: '' };
-
-    it('sem nada preenchido, não há selo', () => {
-        expect(contarFiltrosDeApuracao(vazio)).toBe(0);
-        expect(contarFiltrosDeApuracao(undefined)).toBe(0);
-    });
-
-    it('conta os três que moram atrás do recolhimento', () => {
-        expect(contarFiltrosDeApuracao({ ...vazio, actorId: 'u1' })).toBe(1);
-        expect(contarFiltrosDeApuracao({ ...vazio, actorId: 'u1', targetId: 'r2' })).toBe(2);
-        expect(contarFiltrosDeApuracao({ ...vazio, actorId: 'u1', targetId: 'r2', targetOrgId: 'o3' })).toBe(3);
-    });
-
-    it('e NÃO conta os que ficam à vista', () => {
-        // Período e ação são a consulta do dia a dia e continuam na primeira fileira. Contá-los
-        // faria o selo acender sobre filtros que ninguém precisa procurar.
-        expect(contarFiltrosDeApuracao({ ...vazio, action: 'LOGIN', targetType: 'USER' })).toBe(0);
-        expect(FILTROS_DE_APURACAO).not.toContain('action');
-        expect(FILTROS_DE_APURACAO).not.toContain('targetType');
-    });
-
-    it('espaço em branco não é filtro', () => {
-        // O campo aplica com `trim()`, então um id de espaços não recorta nada. Um selo aceso
-        // sobre uma lista inteira mentiria na direção oposta.
-        expect(contarFiltrosDeApuracao({ ...vazio, targetId: '   ' })).toBe(0);
     });
 });

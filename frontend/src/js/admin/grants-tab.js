@@ -28,9 +28,11 @@
  * 2026-08-24. `grants/issued` filtra por `granted_by`, sem ramo de papel: toda linha que ele vê é
  * dele e o botão continua honesto, mas o alcance DELE é maior que a lista, porque o ramo largo de
  * `requireGrantRevoker` é administração do sistema. Subdeclarar autoridade também engana, então a
- * assimetria é dita na tela por `issuedReachNotice`, que é a única coisa aqui a variar por papel
- * global. O perfil chega por PARÂMETRO, de `mountAdminPage`: esta aba não lê `sessionContext`, e
- * é o que a mantém montável num teste sem sessão.
+ * assimetria era dita na tela por uma nota, que SAIU em 2026-09-20 por decisão do dono. Com ela
+ * foi embora a última coisa que variava por papel global aqui, e o parâmetro `isAdmin` deixou de
+ * ter leitor: a aba passou a ser a mesma para as três audiências que a abrem. Ele continua na
+ * assinatura porque `mountAdminPage` o passa às sete abas pelo mesmo caminho, e tirá-lo de UMA
+ * seria uma exceção a explicar em dois arquivos.
  *
  * `viaGroup` É VISÍVEL DE PROPÓSITO. É a única transferência de autoridade do sistema que não gera
  * linha própria em `resource_grants`: o acesso vem da membresia, e sai junto com ela. Sem o rótulo,
@@ -71,14 +73,12 @@ import {
     granteeGroupNotice,
     granteeLabel,
     grantorLabel,
-    grantsScopeNotice,
     isGroupGrant,
     issuedEmptyHint,
     issuedEmptyNotice,
     issuedExtensionHint,
     issuedExtensionTermLabel,
     issuedFailureNotice,
-    issuedReachNotice,
     issuedRevocationSummary,
     issuedRevocationWarning,
     receivedEmptyHint,
@@ -97,8 +97,8 @@ import {
 /**
  * Builds the "Concessões" tab definition for the admin panel.
  * @param {{isAdmin?: boolean}} [principal] - O papel GLOBAL de quem abriu o painel, já lido por
- *   `mountAdminPage`. Só o administrador do sistema muda alguma coisa aqui, e o que ele muda é
- *   UMA frase (ver `issuedReachNotice`); nada de gate, que é do servidor.
+ *   `mountAdminPage`. NADA nesta aba varia por ele desde 2026-09-20: o que variava era uma nota,
+ *   e ela saiu. Gate nenhum morou aqui em tempo algum, porque o gate é do servidor.
  * @returns {import('./admin-panel.js').AdminTab}
  */
 export function createGrantsTab({ isAdmin = false } = {}) {
@@ -117,6 +117,9 @@ class GrantsTab {
      * @param {{isAdmin?: boolean}} [principal]
      */
     constructor({ isAdmin = false } = {}) {
+        // GUARDADO SEM LEITOR, de propósito: a nota que dependia dele saiu, e o campo fica
+        // como o ponto de amarração de qualquer coisa que volte a variar por papel. Ver o
+        // `@fileoverview`.
         this._isAdmin = isAdmin === true;
     }
 
@@ -154,24 +157,16 @@ class GrantsTab {
                 + 'a você',
         }));
 
-        const escopo = document.createElement('p');
-        escopo.className = 'admin-grants__scope';
-        escopo.dataset.testid = 'admin-grants-scope';
-        escopo.textContent = grantsScopeNotice();
-        c.appendChild(escopo);
-
-        // ACIMA DAS DUAS SEÇÕES, e não dentro de "Concedidos por mim": a assimetria que ela
-        // descreve vale para os dois lados (o administrador também revoga o que aparece em
-        // "Recebidos por mim", pelo cartão do recurso). String vazia para todo mundo que não
-        // administra o sistema, e aí não nasce parágrafo nenhum.
-        const alcance = issuedReachNotice({ isAdmin: this._isAdmin });
-        if (alcance) {
-            const p = document.createElement('p');
-            p.className = 'admin-grants__reach';
-            p.dataset.testid = 'admin-grants-reach';
-            p.textContent = alcance;
-            c.appendChild(p);
-        }
+        // DUAS NOTAS SAÍRAM DAQUI EM 2026-09-20, por decisão do dono, e o que elas diziam
+        // fica registrado aqui porque continua VERDADE do servidor, só deixou de ser dito na
+        // tela. A primeira avisava que esta aba lista CONCESSÃO, uma a uma, e que acesso por
+        // papel global, por recurso público ou por empréstimo de atlas não tem linha em
+        // `resource_grants`. A segunda dizia a assimetria do administrador: `grants/issued`
+        // filtra por `granted_by`, sem ramo de papel, enquanto o gate de revogação do servidor
+        // (`requireGrantRevoker`) tem um ramo largo de administração do sistema, de modo que
+        // ele revoga também o que não originou. Nenhuma linha da lista fica desonesta por
+        // isso; o que a lista faz é SUBDECLARAR o alcance dele. A outra superfície de
+        // concessão continua sendo o cartão do recurso, no catálogo.
 
         const concedidos = document.createElement('section');
         concedidos.className = 'admin-grants__section';
