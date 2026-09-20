@@ -456,8 +456,12 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   continua valendo, porque ele refaz a AVALIAÇÃO, que é barata, e o que se paga uma vez é a
   transformação. Caso que carrega uma ferramenta inteira (o ESLint, em
   `frontend/tests/unit/maplibre-construtores-regua.test.js`) leva orçamento próprio no terceiro
-  argumento do `it`. O que NÃO foi feito, e é decisão do dono: subir o tempo limite global de caso do vitest, que
-  calaria a classe inteira e também atrasaria em todo caso a denúncia de um travamento de verdade.
+  argumento do `it`. **Desde 2026-09-20 o tempo limite global de caso do frontend é de 20 s**, no
+  lugar dos 5 s padrão do vitest, por autorização do dono, e o número é o pior caso medido (11,2 s)
+  com folga; ele está escrito em `frontend/vitest.config.js` com a medição ao lado. O preço
+  declarado: um caso que TRAVA de verdade é denunciado em 20 s em vez de 5. Isso não aposenta o
+  aquecimento: 20 s cala o sintoma, e o `beforeAll` é o que tira o carregador da conta do caso.
+
 - There is **no CI of any kind and no git hooks**: everything is run manually.
   (The GitHub Pages workflow was removed on 2026-07-18 along with the dead
   `prepare-deploy.js` it depended on; see [[deploy-web]].)

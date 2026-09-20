@@ -32,6 +32,18 @@ export default defineConfig({
         // cost) is in the fileoverview of the setup file itself.
         setupFiles: ['tests/setup/indexeddb.setup.js'],
         globals: true,
+        // 20 s, NOT the 5 s default, and the number is measured (2026-09-20). A case that does
+        // `await import(...)` of a large graph pays the TRANSFORM of those modules inside its own
+        // budget the first time the worker sees them: 175 ms idle, 7.7 to 11.2 s with the machine
+        // oversubscribed (two or three sessions running suites and Playwright at once), while the
+        // code under test took 19 ms. Three flakes in one day had this root, each dismissed by a
+        // different session as "not mine, passes alone". 20 s is the measured worst case with
+        // margin. THE PRICE: a test that truly hangs is now reported after 20 s instead of 5,
+        // per hanging case, which costs seconds on a failure path and nothing on a green run.
+        // A case that still needs more declares it in the third argument of `it`, and the right
+        // fix for a heavy cold import remains warming it in a `beforeAll`.
+        testTimeout: 20000,
+        hookTimeout: 30000,
         coverage: {
             provider: 'v8',
             reporter: ['text', 'html', 'lcov'],
