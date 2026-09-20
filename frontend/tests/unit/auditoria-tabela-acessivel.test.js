@@ -213,16 +213,25 @@ describe('a barra de filtros parou de reescrever o que `.admin-input` já resolv
 
     it('e a barra usa a classe da casa', () => {
         const usos = [...ABA.matchAll(/className = 'admin-input admin-audit__controle'/g)];
-        expect(usos.length, 'os três tipos de controle (select, texto, data) usam a mesma base')
-            .toBeGreaterThanOrEqual(3);
+        // DOIS TIPOS DESDE 2026-09-20, e eram três: o campo de TEXTO saiu junto com a apuração,
+        // que era a única coisa que o desenhava (alvo por id e ator por id). Sobraram o seletor
+        // e a data.
+        expect(usos.length, 'os dois tipos de controle (select, data) usam a mesma base')
+            .toBeGreaterThanOrEqual(2);
     });
 
-    it('a nota de ESCOPO por audiência continua de pé', () => {
-        // Ela é o que impede o produtor de ler ausência como "não aconteceu", e o
-        // administrador de não saber que a lista dele não tem recorte. As duas frases ficam.
+    it('a nota de ESCOPO é SÓ do produtor, e a do administrador não voltou', () => {
+        // A DO PRODUTOR FICA: ela é o que impede a ausência de uma linha de ser lida como "não
+        // aconteceu", e é a única das duas que descreve um recorte que existe.
         expect(ABA).toMatch(/escopoDaTrilhaNotice\(this\._escopoOrgId\)/);
-        expect(ABA).toMatch(/Você vê a trilha inteira do sistema/);
         expect(ABA).toMatch(/admin-audit__nota/);
+        // A DO ADMINISTRADOR SAIU em 2026-09-20, por decisão do dono: ela anunciava a AUSÊNCIA
+        // de recorte, que é uma linha de prosa por abertura de tela para não mudar decisão
+        // nenhuma. A asserção é de ausência para que a volta dela seja uma escolha, e não um
+        // descuido de quem reescrever `_nota()`.
+        expect(ABA).not.toMatch(/Você vê a trilha inteira do sistema/);
+        // E O RAMO CONTINUA EXISTINDO: sem este par, apagar o `_nota()` inteiro passaria verde.
+        expect(ABA).toMatch(/if \(this\._administra\) return null;/);
     });
 
     it('e a barra é redesenhada quando o ESCOPO chega, não só quando `administra` muda', () => {

@@ -66,6 +66,7 @@ import { initKeyboardServiceBriefing, BriefingEditorControl, BriefingPresenterCo
 import { ToolbarControl, ActiveToolChip } from './toolbar';
 import { AttributeTableControl } from './attribute_table';
 import { PhoneLayout } from './phone';
+import { installTabletPanelPush } from '@js/map/tablet-panel-push.js';
 import { AccountControl, SyncStatusControl, AtlasNameControl } from '@js/account/index.js';
 import { OnlineUsersControl, RemoteCursorsLayer, RemoteSelectionsLayer, startPresence } from '@js/presence/index.js';
 import { CommentOverlay } from '@js/comment_tool/index.js';
@@ -720,6 +721,15 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
 
     const phoneLayout = new PhoneLayout({ map });
     phoneLayout.init();
+
+    // ===== TABLET: O PAINEL EMPURRA O MAPA =====
+    //
+    // A FAIXA DO TABLET É O QUE SOBRA entre o corte de telefone e a mesa, e até 2026-09-20 ela
+    // não existia: todo tablet caía na interface de mesa, com a barra lateral deitada por cima
+    // de um mapa que nunca recua. Ver o cabeçalho de `map/tablet-panel-push.js` para a conta de
+    // quanto mapa sobrava (312px num iPad em retrato) e para o porquê de o empurrão ser padding
+    // no contêiner e não `easeTo` com padding de câmera.
+    installTabletPanelPush({ map, eventBus: getEventBus() });
 
     // Return everything needed by later phases
     return {

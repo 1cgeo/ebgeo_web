@@ -617,7 +617,15 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // 2026-09-20, quarto lote do dia: 726 com `modals/signup-launcher.js`, a folha que carrega
         // o cadastro sob demanda. O grafo COMPLETO ganha um módulo; o ANSIOSO perde quatro e ganha
         // um (534 -> 531 módulos, 7547 -> 7508 kB), medido por controle pela sessão que o escreveu.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(726);
+        //
+        // 2026-09-20, quinto lote do dia: 728, com os DOIS módulos da faixa do tablet. Medido por
+        // controle, e os dois entram por arestas diferentes: comentada a aresta de
+        // `map/tablet-panel-push.js` em `map_sig.js`, 727; comentada ela E a de
+        // `utilities/tablet-mode.js`, que entra pelo `phone-layout.js` (o corte de telefone passou
+        // a morar lá, para a faixa do tablet ser derivada dele em vez de escrita de novo), 726.
+        // Cada módulo vale exatamente um, e nenhum dos dois é pesado: juntos somam menos de 6 kB
+        // de fonte, porque os dois são folha e um deles não tem import nenhum.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(728);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);

@@ -112,6 +112,27 @@
    Applied to all touch devices regardless of screen size.
    ========================================================================= */
 
+/* ===== A FAIXA DO TABLET =====
+
+   ESPELHO DE `TABLET_QUERY`, em `frontend/src/js/utilities/tablet-mode.js`. CSS não importa
+   constante de JS, então os dois lados carregam a mesma consulta escrita à mão e precisam
+   andar juntos; o arquivo de lá diz isso no cabeçalho.
+
+   O RECUO É PROPRIEDADE CUSTOMIZADA e não valor fixo porque a largura do painel muda com a
+   janela (400px, e 340px abaixo de 1024): quem calcula é o próprio painel, e quem publica o
+   número aqui é `installTabletPanelPush`, a partir do `contentLeftOffset` que o evento de
+   leiaute já carregava. O zero de reserva mantém o mapa inteiro se o JS não tiver rodado.
+
+   A NOTAÇÃO DIVERGE DO JS DE PROPÓSITO, e os VALORES é que são o espelho: aqui a folha usa
+   intervalo (`width >= 481px`) porque o stylelint da casa o exige, e lá o módulo usa
+   `min-width`, que todo navegador entende. A sintaxe de intervalo só chegou ao Safari na
+   16.4, e um `matchMedia` que não casa desliga a faixa em silêncio num iPad mais velho. */
+@media (pointer: coarse) and (width >= 481px) and (height >= 441px) {
+    body[data-tablet-panel="open"] #map-sig {
+        padding-left: var(--tablet-map-inset, 0);
+    }
+}
+
 @media (pointer: coarse) {
     button,
     .btn,

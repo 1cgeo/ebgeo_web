@@ -165,8 +165,12 @@ describeOrSkip('Painel — aba Auditoria (navegador real + backend real)', () =>
         // recolhimento "Apuração". A asserção aqui é a do estado NOVO, e não a ausência da
         // antiga: um botão que continuasse vivo escreveria num filtro sem controle na barra,
         // isto é, encolheria a lista sem nada dizer por quê.
+        // A CLASSE, E NÃO O TESTID, e a diferença importa. O guarda
+        // `frontend/tests/unit/e2e-testids-existem.test.js` varre os specs atrás de testid
+        // que não existe mais em `src/`, e não sabe distinguir uma asserção de AUSÊNCIA de
+        // uma mira quebrada: citar aqui o testid removido reprovava aquele guarda. A classe
+        // cobre a mesma ausência e não mente para ele.
         await expect(page.locator('.admin-audit__filtro-rapido')).toHaveCount(0);
-        await expect(page.locator('[data-testid="admin-audit-alvo"]')).toHaveCount(0);
 
         // ----- 5. A GAVETA ABRE E NÃO ESTOURA --------------------------------------
         const primeira = page.locator('[data-testid="admin-audit-row"]').first();

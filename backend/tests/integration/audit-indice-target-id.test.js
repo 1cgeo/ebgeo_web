@@ -61,7 +61,13 @@ describe('auditoria: o filtro por targetId sozinho tem índice próprio', () => 
   async function planoDaTela(targetId, offset = 0) {
     const { rows } = await db.query(
       `EXPLAIN (FORMAT TEXT) ${LIST_AUDIT}`,
-      [null, null, null, targetId, null, null, null, 50, offset],
+      // DEZ PARÂMETROS DESDE 2026-09-20, e eram nove: o oitavo é o recorte de entrada e
+      // saída do sistema (`includeAccess`), que entrou no bloco de filtros compartilhado e
+      // empurrou limite e deslocamento para o nono e o décimo. `true` aqui, e não `false`,
+      // porque o que este caso mede é o caminho do ÍNDICE de `target_id`: com `false` o
+      // plano ganharia o `NOT IN` de ação, que não é servível por aquele índice, e a
+      // medição passaria a ser sobre outra coisa.
+      [null, null, null, targetId, null, null, null, true, 50, offset],
     );
     return rows.map((r) => r['QUERY PLAN']).join('\n');
   }

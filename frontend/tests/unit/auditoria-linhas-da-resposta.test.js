@@ -91,8 +91,13 @@ describe('linhasDaResposta — as linhas moram em `data`', () => {
         // PISO: a varredura precisa estar mesmo olhando o arquivo certo. Sem isto, um
         // `readFileSync` que devolvesse vazio passaria na asserção acima para sempre.
         const usos = [...aba.matchAll(/linhasDaResposta\(/g)];
-        expect(usos.length, 'os DOIS sítios (a cópia guardada e a lista) usam o mesmo leitor')
-            .toBeGreaterThanOrEqual(2);
+        // UM SÍTIO DESDE 2026-09-20, e eram dois. O segundo guardava uma cópia das linhas para
+        // o rótulo do filtro de OM achar o nome de uma OM já desativada; o filtro saiu com a
+        // apuração inteira e a cópia foi junto. O piso continua sendo o que importa: enquanto
+        // existir ALGUM uso, a varredura está olhando o arquivo certo e a asserção de `.items`
+        // acima significa alguma coisa.
+        expect(usos.length, 'a lista precisa passar pelo leitor do envelope')
+            .toBeGreaterThanOrEqual(1);
     });
 
     it('e o servidor continua mandando `data`: a fonte é o serviço, não este arquivo', () => {

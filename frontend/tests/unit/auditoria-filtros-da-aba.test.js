@@ -244,17 +244,21 @@ describe('o que a aba MANDA ao servidor: os parâmetros que a rota sempre aceito
         resolve(RAIZ, 'backend/src/modules/audit/audit.schemas.js'), 'utf8',
     );
 
-    it('o schema da rota aceita os nove, e é dele que sai o inventário', () => {
+    it('o schema da rota aceita os DEZ, e é dele que sai o inventário', () => {
         // PISO: a leitura do schema achou mesmo os campos. Sem isto, um regex quebrado
         // deixaria as asserções abaixo comparando vazio com vazio.
         const aceitos = [...schema.matchAll(/^ {2}(\w+): Joi\./gm)].map((m) => m[1]);
         expect(aceitos.sort()).toEqual([
-            'action', 'actorId', 'from', 'limit', 'page',
+            'action', 'actorId', 'from', 'includeAccess', 'limit', 'page',
             'targetId', 'targetOrgId', 'targetType', 'to',
         ]);
         // `to` por extenso, porque é o que faltava na tela: num laço ele reprovaria sem dizer
-        // qual dos nove era.
+        // qual dos dez era.
         expect(schema).toMatch(/^ {2}to: Joi\.date\(\)\.iso\(\),$/m);
+        // `includeAccess` por extenso pela razão OPOSTA: ele é o único cuja AUSÊNCIA muda o
+        // resultado da consulta (sem ele, entrada e saída do sistema ficam de fora), então o
+        // dia em que alguém o tirar do schema a lista da tela muda sem nada mais mudar.
+        expect(schema).toMatch(/^ {2}includeAccess: Joi\.boolean\(\)\.default\(false\),$/m);
     });
 
     it('a aba EXPÕE `to` e `limit`, que a rota sempre aceitou', () => {

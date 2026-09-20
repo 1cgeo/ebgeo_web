@@ -43,12 +43,17 @@ import { controlKeyForFeatureType, ensureControl } from '@tools/tool-registry.js
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { showToast, deepClone } from '@utils';
 import config from '@js/config.js';
+import { PHONE_QUERY } from '@utils/tablet-mode.js';
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-const PHONE_QUERY = '(max-width: 480px), (max-height: 440px) and (pointer: coarse)';
+// O CORTE MORA EM `utilities/tablet-mode.js` desde 2026-09-20, e este arquivo passou a
+// importá-lo. A razão não é arrumação: a faixa do TABLET é definida como o complemento deste
+// corte dentro do ponteiro grosso, então os dois números precisam se mexer juntos. Uma cópia
+// aqui faria o tablet herdar um limite que o telefone já tinha abandonado.
+// O import é DIRETO por arquivo, nunca pelo barril `@utils`, que arrastaria a store.
 
 /**
  * Below this delta (degrees, on both axes) the map did not really pan, so a
