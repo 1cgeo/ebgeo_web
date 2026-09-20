@@ -455,11 +455,23 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // gasta por deriva que ninguém remediu, e a banda estava reprovando o PRÓXIMO arquivo,
         // qualquer que fosse ele, pela terceira vez seguida. Se a próxima recentragem vier outra
         // vez de deriva não atribuída, o conserto não é o número: é medir a deriva.
-        expect(ansioso.arquivos.size).toBeGreaterThanOrEqual(466);
-        expect(ansioso.arquivos.size).toBeLessThanOrEqual(546);
+        //
+        // RECENTRADA EM 2026-09-20, e desta vez a deriva FOI medida, dos dois lados e pelo mesmo
+        // caminhador: 526 módulos e 7408 kB no HEAD limpo (`cd99fb20`, num `git worktree`
+        // descartável), 529 e 7437 kB com os quatro lotes do dia. A parte do dia é +3 módulos e
+        // +29 kB, e ela tem dono: `context-menu/qan-menu-gate.js` (o portão do "Exportar QAN"),
+        // `utilities/person-label.js` (o rótulo militar da tela de compartilhamento) e
+        // `utilities/image-limit-phrases.js` (as frases de recusa de imagem), três folhas de zero
+        // imports, mais o crescimento de `utilities/image_utils.js` e de `account.control.js`.
+        // O que NÃO tem dono é o resto: de 6880 kB em 2026-09-13 a 7408 kB no HEAD são 528 kB em
+        // seis dias, entrados pelos commits do plano de lançamento sem que ninguém remedisse, e o
+        // HEAD já estava a 22 kB do teto. É a quarta vez que a banda reprova o PRÓXIMO arquivo em
+        // vez de uma pasta voltando. A banda nova é de ~8% em torno de 529 e 7437.
+        expect(ansioso.arquivos.size).toBeGreaterThanOrEqual(487);
+        expect(ansioso.arquivos.size).toBeLessThanOrEqual(571);
         const kb = kbDe(ansioso.arquivos);
-        expect(kb, `fonte ansiosa em ${kb} kB`).toBeGreaterThanOrEqual(6330);
-        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(7430);
+        expect(kb, `fonte ansiosa em ${kb} kB`).toBeGreaterThanOrEqual(6840);
+        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(8030);
     });
 
     it('o grafo COMPLETO (seguindo `import()`) cabe entre o piso e o teto medidos', () => {
@@ -568,7 +580,16 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // volte a ter caminho para o servidor. Ele entra SÓ por `import()`, de dentro de
         // `buildImageUploads`: a metade (b) deste arquivo continua contando 15 módulos ansiosos em
         // `import_export`, que é o outro lado desta mesma linha.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(717);
+        // 2026-09-20: 720, e a medida tem os dois lados. O HEAD limpo (`cd99fb20`) deu 717; os
+        // três módulos novos do dia são folhas de ZERO imports e ANSIOSAS, cada uma medida por
+        // controle pela sessão que a escreveu: `context-menu/qan-menu-gate.js` (o portão puro do
+        // "Exportar QAN" no clique direito, que saiu de dentro de `context-menu.control.js`),
+        // `utilities/person-label.js` (o compositor do rótulo militar, "Cap Silva · 1º CGEO", que
+        // chega pelo barril `@modals`) e `utilities/image-limit-phrases.js` (as frases de recusa
+        // de imagem, lidas por `utilities/image_utils.js`, que já era ansioso). Três sessões
+        // escreveram aqui em paralelo e deixaram o número RED de propósito, para que nenhuma
+        // absorvesse o lote da outra; esta linha é a recentragem única que elas pediram.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(720);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);

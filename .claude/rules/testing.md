@@ -288,6 +288,16 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   Playwright capture driving the real app and backend, then READING the produced
   image. Delete the temporary spec afterwards. `npm run test:e2e:ui`.
 
+  **A CAPTURA ESPERA O ESTADO, NÃO O TEMPO, e quem delega a captura relê a imagem** (medido em
+  2026-09-20). Um toast que nasce num `onload` de imagem, num `fetch` ou em qualquer callback
+  assíncrono ainda não existe na linha seguinte ao gesto: o `page.screenshot` dispara, o spec fecha
+  verde e a imagem sai SEM o que ela deveria provar. Foi assim que a recusa de imagem por dimensão
+  ganhou uma captura sem toast nenhum, e o relatório do agente que a produziu descrevia o texto do
+  toast mesmo assim. Duas regras daí: antes do screenshot, espere o estado por localizador com o
+  texto (`expect(page.locator('.toast', { hasText: ... })).toBeVisible()`) e imprima o `innerText`
+  no stdout, que é o caminho independente da imagem; e ao receber de um subagente um relatório que
+  diz "li a imagem", abra a imagem, porque a frase é prosa e o arquivo é o pixel.
+
   **VERDE COM "flaky" NÃO É VERDE, e é o default aqui.**
   `frontend/playwright.config.js` tem `retries: 1`, então a única camada que
   exercita a UI re-executa o caso que falhou e, se ele passar na segunda tentativa,
