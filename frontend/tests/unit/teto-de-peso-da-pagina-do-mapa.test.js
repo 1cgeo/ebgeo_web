@@ -589,7 +589,29 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // de imagem, lidas por `utilities/image_utils.js`, que já era ansioso). Três sessões
         // escreveram aqui em paralelo e deixaram o número RED de propósito, para que nenhuma
         // absorvesse o lote da outra; esta linha é a recentragem única que elas pediram.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(720);
+        //
+        // 2026-09-20, segundo lote do dia: 724, medido pelo mesmo caminhador (533 módulos e
+        // 7498 kB ansiosos, 724 e 10936 kB no completo). Os quatro módulos novos são de `ui/` e
+        // entram por `modals/signup.modal.js`, que já era ansioso pelo barril `@modals`:
+        // `searchable-select.js` e `searchable-select.model.js` (o combo buscável da OM no
+        // cadastro), `password-visibility.js` (o olho, que `modals/login.modal.js` também usa) e
+        // `password-match.model.js` (o veredicto ao vivo da confirmação). A sessão que os
+        // escreveu mediu por controle, trocando o modal pela versão do HEAD: 720 sem eles.
+        //
+        // PASSAR O CADASTRO PARA `import()` FOI AVALIADO E RECUSADO, com número: o modal mais os
+        // três módulos que só ele usa (o olho fica, porque o login também o usa) somam 52 kB de
+        // FONTE, que é o que este arquivo conta e é quase todo comentário, mas 19,6 kB minificados
+        // e 6,7 kB em gzip, contra 4139 kB e 1085 kB do que o `index.html` referencia: 0,6% do que
+        // a pessoa baixa. O preço seria um caminho de falha novo no clique de "Criar conta" (chunk
+        // que não chega) nas DUAS páginas que abrem o modal, e o CSS continuaria ansioso de
+        // qualquer forma. Contagem de módulo é procuração de peso, e aqui ela exagera.
+        //
+        // 2026-09-20, terceiro lote do dia: 725 com `utilities/quill-image-paste.model.js`
+        // (cerca de 6 kB), a folha pura das portas de colagem de imagem do editor Quill. A sessão
+        // que a escreveu mediu por controle: comentada a aresta em `utilities/quill-helpers.js`,
+        // 724; reposta, 725. O lote de nomes do mesmo dia acrescentou ZERO módulos, também por
+        // controle: `utilities/person-label.js` já estava no grafo pelo modal de compartilhamento.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(725);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);
@@ -901,7 +923,24 @@ const PAGINAS_DIST = Object.freeze([
     // outras três páginas (41/35/35) são as MESMAS da medida de recentragem acima, o que é a
     // propriedade esperada: nem o Turf nem o milsymbol nem o GDAL são referenciados por HTML
     // nenhum, então nenhum dos três podia mover estas contas.
-    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 86, minKb: 3600, maxKb: 4150 },
+    //
+    // index.html: 4150 -> 4220 em 2026-09-20, MEDIDO DOS DOIS LADOS com build fresco em cada um e
+    // a mesma régua (`payloadDe`): 84 arquivos e 4134 kB em `cd99fb20`, o HEAD de antes do dia,
+    // num `git worktree` descartável; 84 e 4166 kB com os seis lotes do dia (QAN, teto de
+    // imagem, rótulo militar, botão Entrar, cadastro e recuperação de senha, portas de imagem do
+    // Quill). São +32 kB, e eles têm dono. Esta régua soma a passada moderna E a legacy (o
+    // `nomodule` referencia por `data-src`, que a regex casa), então os 32 são cerca de 16 kB de
+    // código novo contados duas vezes. As outras páginas, na mesma medida: `atlas.html` de 638
+    // para 669 (abre login e cadastro), `admin.html` de 781 para 786.
+    //
+    // O QUE NÃO TEM DONO É O RESTO, de novo: de 4098 em 2026-09-14 a 4134 no HEAD são 36 kB que
+    // entraram sem remedição, e o HEAD já estava a 16 kB do teto. A folga nova é a de sempre,
+    // cerca de 52 kB sobre a medida. Uma saída AVALIADA e não tomada: carregar o cadastro por
+    // `import()` devolveria a esta conta cerca de 40 kB (19,6 kB minificados, duas passadas), mais
+    // que o dia inteiro, ao preço de um caminho de falha novo no clique de "Criar conta" nas duas
+    // páginas que o abrem. Em gzip são 6,7 kB de 1085. Fica registrado como a primeira alavanca
+    // a puxar se este teto voltar a apertar.
+    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 86, minKb: 3600, maxKb: 4220 },
     { html: 'atlas.html', entrada: 'atlas', minArq: 18, maxArq: 44, minKb: 320, maxKb: 700 },
     // admin.html: 800 -> 950 -> 720 em 2026-09-02, com a medida na mao: 670 kB em 24 arquivos, build
     // fresco. As abas Diagnostico e Uso (com os folhas de frase) tinham levado a pagina a 882 kB

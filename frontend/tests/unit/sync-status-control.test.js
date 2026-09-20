@@ -403,6 +403,22 @@ async function classeNova() {
 /** Deixa a carga do painel, que é assíncrona por natureza, chegar ao fim. */
 const assentar = () => new Promise((resolve) => { setTimeout(resolve, 0); });
 
+/**
+ * Espera o painel ABRIR, pelo estado e nunca pelo tempo.
+ *
+ * O clique abre por `await import()` do painel, e a primeira resolução de um import dinâmico leva
+ * MAIS de uma volta do laço de eventos com a máquina carregada: `assentar()` é uma volta só, então
+ * a asserção positiva corria contra ele. Medido em 2026-09-20: 10 de 10 verdes isolado, e vermelho
+ * em quatro rodadas da suíte inteira com outros processos vivos, sempre num caso diferente destes.
+ * As asserções NEGATIVAS (`toBe(0)`) continuam sobre `assentar()`, e a fraqueza delas é a oposta:
+ * sob a mesma carga elas podem passar antes de a abertura indevida acontecer.
+ *
+ * @param {number} vezes - Quantas aberturas o cenário deve ter registrado
+ */
+const esperarAberturas = (vezes) => vi.waitFor(() => {
+    expect(cenario.aberturas).toBe(vezes);
+}, { timeout: 5000, interval: 5 });
+
 /** Monta, faz uma leitura e devolve o controle já pintado (o container é `control._container`). */
 async function montado() {
     const Classe = await classeNova();
@@ -546,7 +562,7 @@ describe('o aviso do acervo tem caixa PRÓPRIA, e o crachá continua abrindo o p
         disparar(comandoDe(container), 'click');
         await assentar();
 
-        expect(cenario.aberturas).toBe(1);
+        await esperarAberturas(1);
         // E não dispara o reparo de passagem: os dois assuntos continuam separados.
         expect(cenario.reparos).toBe(0);
     });
@@ -572,7 +588,7 @@ describe('o aviso do acervo tem caixa PRÓPRIA, e o crachá continua abrindo o p
 
         disparar(comando, 'keydown', { key: 'Enter' });
         await assentar();
-        expect(cenario.aberturas).toBe(1);
+        await esperarAberturas(1);
     });
 
     it('sem o aviso, o crachá segue com um alvo só', async () => {
@@ -636,7 +652,7 @@ describe('no atlas local o crachá não é comando, e o mouseover é curto', () 
         expect(comando.getAttribute('tabindex')).toBe('0');
         disparar(comando, 'click');
         await assentar();
-        expect(cenario.aberturas).toBe(1);
+        await esperarAberturas(1);
     });
 
     it('o mouseover é o resumo, e o leitor de tela continua com a frase inteira', async () => {
