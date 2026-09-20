@@ -216,25 +216,74 @@
     transition: background var(--transition-fast), color var(--transition-fast);
 }
 
-/* Primary action: "Entrar" — the app's standard green confirm button
-   (matches .prompt-modal-btn-confirm: padding-based height + border). */
+/* A PORTA DE ENTRADA, e ela é a ÚNICA coisa que o visitante anônimo vê deste controle.
+   O tratamento é o mesmo do gêmeo em `app-bar.css` (`.app-bar__action--primary`), e a REGRA
+   compartilhada é: pílula de preenchimento sólido, ícone de pessoa mais a palavra, alvo de
+   `--touch-target-min`, e contraste AA contra a SUPERFÍCIE EM QUE ELA CAI. A tinta é que
+   inverte, porque a superfície inverte: aqui o fundo é o basemap (claro), lá é a barra verde
+   escura.
+
+   O QUE ESTAVA ERRADO, medido em 2026-09-20 a 1440x900 sobre o basemap topográfico:
+
+   - `--primary` (#16a34a) com texto branco dá 3,30:1. AA para texto de 14px pede 4,5:1, então
+     o rótulo REPROVAVA. `--primary-700` (#15803d) dá 5,01:1 e `--primary-800` (#166534), do
+     hover, dá 7,13:1. A família é a mesma; o que muda é o degrau.
+   - 64x34 px, isto é, ABAIXO de `--touch-target-min` (44px) e o menor elemento clicável da
+     tela, com seis botões brancos de 40px empilhados logo abaixo dele.
+   - `margin: 5px` o deixava 5px da borda direita, enquanto a coluna de ferramentas recua 16px:
+     ele não parecia destacado, parecia desalinhado. `--space-4` à direita alinha os dois.
+   - Verde sólido sobre um basemap que no canto superior direito é justamente mata e litoral.
+     O anel branco de 2px é o que garante separação em QUALQUER basemap (claro, escuro ou
+     imagem de satélite), porque a cor que separa deixa de depender da cor que está por baixo. */
 .account-control__btn--login {
     height: auto;
-    margin: 5px;
-    padding: var(--space-2) var(--space-3);
-    background: var(--primary);
-    border: var(--border-width) solid var(--primary);
+    min-height: var(--touch-target-min);
+    gap: var(--space-2);
+    margin: var(--space-3) var(--space-4);
+    padding: 0 var(--space-4);
+    background: var(--primary-700);
+    border: var(--border-width) solid var(--primary-800);
+    border-radius: var(--radius-full);
+    box-shadow: 0 0 0 2px rgb(255 255 255 / 85%), var(--shadow-control);
     color: #fff;
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+}
+
+/* O ícone herda a tinta do rótulo: a regra geral de `.account-control__btn-icon` o pinta de
+   cinza, que é o certo dentro do menu e ilegível sobre o verde. */
+.account-control__btn--login .account-control__btn-icon {
+    color: currentcolor;
+}
+
+/* Sem `flex: 1` aqui: a pílula tem largura automática e a palavra não precisa esticar. */
+.account-control__btn--login .account-control__btn-label {
+    flex: 0 0 auto;
 }
 
 .account-control__btn--login:hover {
-    background: var(--primary-hover);
-    border-color: var(--primary-hover);
+    background: var(--primary-800);
+    border-color: var(--primary-800);
 }
 
+/* O foco cai FORA do anel branco, senão ele se perde dentro dele. */
 .account-control__btn--login:focus-visible {
     outline: 2px solid var(--primary-dark);
-    outline-offset: 2px;
+    outline-offset: 4px;
+}
+
+/* NO CELULAR ELE DESCE, e isso conserta uma sobreposição que já existia.
+   Medido a 390x844: `.phone-search-bar` ocupa x 16..374 e y 8..56, e o canto superior direito do
+   MapLibre continua em `top: 0` — a regra de `responsive.css` que o desceria mira
+   `.maplibregl-ctrl-top-right` e perde para o CSS do vendor, que o Vite injeta depois da folha
+   da casa. O botão antigo (64px) já caía por cima dos 54px finais da busca; a pílula de 107px
+   cairia por cima de 107. Descer o BOTÃO é o conserto local: ele não depende de ganhar a cascata
+   do vendor, só da margem do próprio elemento, e vale só para o estado deslogado (a tira do
+   avatar, logado, não tem esta margem e continua onde estava). */
+@media (width <= 480px) {
+    .account-control__btn--login {
+        margin-top: calc(var(--phone-search-height) + var(--space-4));
+    }
 }
 
 /* Dropdown menu items (config actions + "Sair"): full-width left-aligned icon + text

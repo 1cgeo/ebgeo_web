@@ -141,6 +141,10 @@ const CONFIG_BOOT_RETRY_MS = 1000;
 const ICON_MAP = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" opacity="0"/><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/></svg>`;
 const ICON_ADMIN = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`;
 
+/* A mesma pessoa desenhada pelo botão "Entrar" do mapa (`account/account.control.js`): os dois
+   são a mesma porta, e uma delas com outro desenho seria a pessoa procurando duas coisas. */
+const ICON_LOGIN = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>`;
+
 /**
  * Fetches the runtime config with a few retries; a real outage gets the branded screen.
  * @returns {Promise<boolean>}
@@ -944,9 +948,17 @@ function adminEntryLabel() {
     }).label;
 }
 
-/** @returns {AppBarAction[]} The page actions: back to the local map, and the admin page for
- *  whoever may open it, labelled with what they actually get there. */
-function buildActions() {
+/**
+ * @param {Object} [options]
+ * @param {boolean} [options.offerLogin] - Se a barra leva "Entrar". É PARÂMETRO e não
+ *   `!sessionContext.isAuthenticated()` lido aqui dentro por causa do ramo de servidor fora
+ *   (`renderWithoutServer`): ali também não há sessão, e ali "Entrar" é exatamente o que não
+ *   funciona, pela mesma razão pela qual aquele ramo troca o convite por `createServerOutage`.
+ *   Derivar da sessão faria o botão aparecer justamente na tela que declara que ele não vale.
+ * @returns {AppBarAction[]} The page actions: back to the local map, and the admin page for
+ *  whoever may open it, labelled with what they actually get there.
+ */
+function buildActions({ offerLogin = false } = {}) {
     const actions = [{
         label: 'Mapa local',
         icon: ICON_MAP,
@@ -961,6 +973,21 @@ function buildActions() {
             icon: ICON_ADMIN,
             testid: 'projects-admin',
             onClick: () => window.location.assign(ADMIN_URL),
+        });
+    }
+    // POR ÚLTIMO, e é por isso que ele é o botão mais à direita da barra: sem sessão não há
+    // identidade nem "Sair" depois dele. O topo direito é onde se procura entrar, e até aqui a
+    // única porta desta página ficava a ~645px de rolagem, no meio do convite. O clique é o
+    // MESMO `openLoginDialog` do convite — uma segunda entrada do mesmo fluxo, nunca um
+    // segundo fluxo.
+    if (offerLogin) {
+        actions.push({
+            label: 'Entrar',
+            icon: ICON_LOGIN,
+            testid: 'app-bar-login',
+            title: 'Entrar na sua conta para abrir os atlas do servidor',
+            variant: 'primary',
+            onClick: openLoginDialog,
         });
     }
     return actions;
@@ -1151,7 +1178,7 @@ async function initProjectsPage() {
         // `user`, sem selo e sem "Sair": ele não tem papel, e inventar um diria o que o servidor
         // não disse.
         user: signedIn ? { id: sessionContext.userId, name: sessionContext.username } : null,
-        actions: buildActions(),
+        actions: buildActions({ offerLogin: !signedIn }),
         onLogout: signedIn ? () => { endSession(); } : null,
     });
     document.body.appendChild(appBar.element);

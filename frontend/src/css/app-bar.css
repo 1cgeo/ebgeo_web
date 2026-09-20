@@ -103,6 +103,31 @@
     outline-offset: 2px;
 }
 
+/*
+ * A AÇÃO PRINCIPAL DA PÁGINA, hoje só uma: "Entrar" no seletor de atlas deslogado.
+ *
+ * É o GÊMEO de `.account-control__btn--login` (`account.css`), e a regra compartilhada é a
+ * mesma: pílula de preenchimento sólido, ícone de pessoa mais a palavra, alvo de
+ * `--touch-target-min` (que esta barra já impõe a toda ação) e contraste AA contra a superfície
+ * em que ela cai. A TINTA INVERTE porque a superfície inverte: sobre o basemap claro do mapa o
+ * botão é verde escuro com texto branco; aqui, sobre a faixa `--primary-800`/`--primary-700`,
+ * verde sobre verde seria invisível, então o preenchimento é branco e a palavra é
+ * `--primary-800` (7,13:1, AAA). As demais ações continuam translúcidas, e é esse contraste
+ * entre elas que faz esta ser lida como A ação.
+ */
+.app-bar__action--primary {
+    background: #fff;
+    border-color: #fff;
+    box-shadow: var(--shadow-md);
+    color: var(--primary-800);
+    font-weight: var(--font-weight-semibold);
+}
+
+.app-bar__action--primary:hover {
+    background: var(--primary-50);
+    border-color: var(--primary-50);
+}
+
 .app-bar__action-icon {
     display: inline-flex;
     align-items: center;

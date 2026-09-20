@@ -105,8 +105,9 @@ const ACCOUNT_TAB_ID = 'account';
 const ACCOUNT_URL = `./admin.html?aba=${ACCOUNT_TAB_ID}`;
 
 /**
- * Fills a dropdown menu button with a leading icon + a text label. The icon is a trusted static
- * SVG string (injected via innerHTML); the label is set via textContent (never user data).
+ * Fills a button with a leading icon + a text label. The icon is a trusted static SVG string
+ * (injected via innerHTML); the label is set via textContent (never user data). Used by every
+ * dropdown item AND by the logged-out "Entrar" button; only the CSS differs.
  * @param {HTMLButtonElement} btn
  * @param {string} iconSvg
  * @param {string} label
@@ -218,12 +219,20 @@ export class AccountControl {
         this._container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group account-control';
         this._container.setAttribute('data-testid', 'account-control');
 
-        // Logged-out affordance: the only thing visible when anonymous.
+        // Logged-out affordance: the only thing visible when anonymous, so it stands for the
+        // whole server half of the product. It was bare text until 2026-09-20; the icon/label
+        // pair is the same one the dropdown items use, and the sizing rationale (with the
+        // measurements) lives in `.account-control__btn--login`, in `account.css`.
+        //
+        // The `aria-label` says more than the visible word and CONTAINS it, which is what keeps
+        // WCAG 2.5.3 (label in name) satisfied while still naming the destination.
         this._loginBtn = document.createElement('button');
         this._loginBtn.type = 'button';
         this._loginBtn.className = 'account-control__btn account-control__btn--login';
         this._loginBtn.setAttribute('data-testid', 'account-login-btn');
-        this._loginBtn.textContent = 'Entrar';
+        this._loginBtn.setAttribute('aria-label', 'Entrar na sua conta');
+        this._loginBtn.setAttribute('title', 'Entrar na sua conta');
+        setMenuButtonContent(this._loginBtn, ICON_ACCOUNT, 'Entrar');
 
         // Logged-in affordance: a single circular avatar button (initials only).
         // It opens the dropdown menu; the name/logout live inside the menu.

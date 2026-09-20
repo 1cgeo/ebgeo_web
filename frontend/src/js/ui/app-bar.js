@@ -60,6 +60,8 @@ const ACCOUNT_URL = `./admin.html?aba=${ACCOUNT_TAB_ID}`;
  * @property {string} [icon] - Static SVG markup (no user data).
  * @property {string} [testid] - data-testid for the button.
  * @property {string} [title] - Tooltip / accessible hint.
+ * @property {'primary'} [variant] - Solid-fill treatment for the ONE action that is the page's
+ *   main call (today: "Entrar", on the signed-out chooser). See `.app-bar__action--primary`.
  * @property {function(): void} onClick
  */
 
@@ -303,8 +305,14 @@ function buildAction(scope, action) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'app-bar__action';
+    if (action.variant === 'primary') btn.classList.add('app-bar__action--primary');
     if (action.testid) btn.dataset.testid = action.testid;
     if (action.title) btn.title = action.title;
+    // O NOME ACESSÍVEL PRECISA SOBREVIVER AO RÓTULO ESCONDIDO. Abaixo de 640px
+    // `.app-bar__action-label` recebe `display: none`, o que o tira também da árvore de
+    // acessibilidade: sem isto, "Sair", "Minha conta" e "Entrar" viram botões SEM NOME no
+    // celular. O texto é o mesmo da etiqueta visível, então nada muda em tela larga.
+    btn.setAttribute('aria-label', action.label);
 
     if (action.icon) {
         const ic = document.createElement('span');
