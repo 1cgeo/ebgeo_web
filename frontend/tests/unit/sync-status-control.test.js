@@ -26,7 +26,7 @@
  * reprovados aqui, e os três primeiros pela razão exata do achado, saindo `enviado`/`ok`.
  */
 
-import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Estado que os duplos leem, e que cada caso arruma
@@ -233,7 +233,7 @@ const { SyncStatusControl } = await import('../../src/js/account/sync-status.con
  * @returns {Promise<{work: string, tone: string, label: string, title: string}>}
  */
 async function pintar() {
-    const control = new SyncStatusControl();
+    const control = vigiado(new SyncStatusControl());
     const container = control.onAdd({});
     await control._readQueue();
     const comando = comandoDe(container);
@@ -244,6 +244,40 @@ async function pintar() {
         title: comando.getAttribute('title'),
     };
 }
+
+/**
+ * NENHUM CASO TERMINA COM CARGA EM VOO. O pré-carregamento do painel é um `import()` de disparo
+ * solto, e a fábrica do duplo conta a carga no instante em que o módulo é AVALIADO, lendo o cenário
+ * compartilhado. Um caso que terminasse antes disso entregava a contagem dele ao caso SEGUINTE, já
+ * com o contador zerado: foi assim que o caso que exige ZERO cargas recebeu 1 na suíte da raiz em
+ * 2026-09-20, verde quando isolado. É o espelho da corrida que o ajudante de espera por contagem
+ * fecha: lá a asserção corria na frente da carga, aqui a carga corria atrás do caso.
+ *
+ * E NENHUM CONTROLE SOBREVIVE AO CASO QUE O CRIOU, venha ele de onde vier. Drenar a carga em voo
+ * não bastava, e a causa foi achada por RASTRO, depois de duas hipóteses erradas (o batimento de um
+ * caso de falha; um controle já removido): carimbando cada controle no construtor e cada pedido de
+ * import, a segunda carga vinha de controles criados FORA de `montado()`, por `pintar()` e por dois
+ * `new` diretos dos primeiros blocos deste arquivo, que nenhuma desmontagem alcançava. Eles seguem
+ * vivos lendo o cenário compartilhado, e quando um caso posterior põe pendência na fila, a leitura
+ * seguinte deles pinta âmbar e dispara uma pré-carga que cai no contador do caso corrente: 2 onde se
+ * espera 1. Foi a espera por estado que tornou isso visível, porque a igualdade imediata de antes
+ * media cedo demais para ver a segunda carga chegar. Daí `vigiado`: TODO construtor passa por ele.
+ */
+const montados = [];
+
+/** Registra o controle para a desmontagem do `afterEach` e o devolve. */
+function vigiado(control) {
+    montados.push(control);
+    return control;
+}
+
+afterEach(async () => {
+    const emVoo = montados.map((control) => control._painelModulo).filter(Boolean);
+    for (const control of montados) control.onRemove();
+    montados.length = 0;
+    await Promise.allSettled(emVoo);
+    await assentar();
+});
 
 beforeEach(() => {
     Object.assign(cenario, {
@@ -347,7 +381,7 @@ describe('a coleta falha FECHADA', () => {
     });
 
     it('antes da primeira leitura o crachá diz que está verificando', async () => {
-        const control = new SyncStatusControl();
+        const control = vigiado(new SyncStatusControl());
         const container = control.onAdd({});
         expect(comandoDe(container).getAttribute('data-work')).toBe('verificando');
     });
@@ -372,7 +406,7 @@ describe('atlas local e visitante', () => {
 
     it('visitante anônimo esconde o crachá inteiro', async () => {
         cenario.autenticado = false;
-        const control = new SyncStatusControl();
+        const control = vigiado(new SyncStatusControl());
         const container = control.onAdd({});
         expect(container.hidden).toBe(true);
     });
@@ -404,6 +438,19 @@ async function classeNova() {
 const assentar = () => new Promise((resolve) => { setTimeout(resolve, 0); });
 
 /**
+ * Espera a CONTAGEM de cargas do painel, pelo estado e nunca pelo tempo.
+ *
+ * O pré-carregamento é um `import()` de disparo solto dentro de `_render`: ninguém o awaita, então
+ * `montado()` volta antes de a fábrica do duplo ter rodado sempre que a máquina está carregada. É a
+ * mesma corrida que o parágrafo abaixo descreve para o painel ABERTO, e ela reprovou a suíte da raiz
+ * em 2026-09-20 num caso que passa 10 de 10 isolado. A asserção NEGATIVA (zero cargas) continua
+ * por igualdade direta depois de `assentar()`: esperar por um zero não prova nada.
+ */
+const cargasChegamA = (n, rotulo) => vi.waitFor(() => {
+    expect(cenario.cargasDoPainel, rotulo).toBe(n);
+}, { timeout: 5000, interval: 10 });
+
+/**
  * Espera o painel ABRIR, pelo estado e nunca pelo tempo.
  *
  * O clique abre por `await import()` do painel, e a primeira resolução de um import dinâmico leva
@@ -422,7 +469,7 @@ const esperarAberturas = (vezes) => vi.waitFor(() => {
 /** Monta, faz uma leitura e devolve o controle já pintado (o container é `control._container`). */
 async function montado() {
     const Classe = await classeNova();
-    const control = new Classe();
+    const control = vigiado(new Classe());
     control.onAdd({});
     await control._readQueue();
     await assentar();
@@ -454,7 +501,7 @@ describe('o painel é buscado antes do clique, e a falha do clique fala', () => 
     it('assim que a luz sai do verde, o módulo é baixado sem clique nenhum', async () => {
         cenario.censo = { pendentes: 0, preparadas: 0, problemas: 1 };
         const control = await montado();
-        expect(cenario.cargasDoPainel).toBe(1);
+        await cargasChegamA(1);
 
         // E o clique não baixa de novo: a promessa é o cache.
         await control._abrirPendencias();
@@ -482,8 +529,77 @@ describe('o painel é buscado antes do clique, e a falha do clique fala', () => 
         const control = await montado();
 
         await control._abrirPendencias();
-        expect(cenario.avisos[0]).toMatch(/Tente de novo/);
+        // "Tente de novo" era FALSO: a segunda tentativa do mesmo módulo é recusada pelo navegador
+        // sem tocar a rede (medido no Chromium e no Firefox). A providência que funciona é recarregar,
+        // e a frase diz também que o trabalho está guardado, porque é isso que torna recarregar seguro.
+        expect(cenario.avisos[0]).toMatch(/atualize a página/i);
+        expect(cenario.avisos[0]).toMatch(/continua guardado/i);
+        expect(cenario.avisos[0]).not.toMatch(/tente de novo/i);
         expect(cenario.avisos[0]).not.toMatch(/Sem conexão/);
+    });
+
+    it('RECONECTANDO com a rede de pé a carga É tentada: só OFFLINE explícito a recusa', async () => {
+        // A máquina de conexão é a do socket de colaboração. CONNECTING (o boot inteiro, que é quando
+        // a fila traz o trabalho da sessão anterior) e RECONNECTING acontecem com rede e servidor de
+        // pé; recusar ali pulava uma carga que daria certo e dizia "Sem conexão" a quem está conectado.
+        for (const estado of ['connecting', 'reconnecting']) {
+            cenario.cargasDoPainel = 0;
+            cenario.aberturas = 0;
+            cenario.avisos.length = 0;
+            cenario.conexao = estado;
+            cenario.censo = { pendentes: 1, preparadas: 0, problemas: 0 };
+            const control = await montado();
+            await control._abrirPendencias();
+            expect(cenario.cargasDoPainel, estado).toBe(1);
+            expect(cenario.avisos, estado).toHaveLength(0);
+            await esperarAberturas(1);
+        }
+    });
+
+    it('a rede que cai NO MEIO da carga manda recarregar só quando ela voltar', async () => {
+        // A carga foi tentada e falhou, então o módulo está envenenado e a saída é recarregar. Mas
+        // recarregar o mapa SEM rede troca esta tela pela de "EBGeo indisponível".
+        cenario.painelFalha = true;
+        cenario.censo = { pendentes: 1, preparadas: 0, problemas: 0 };
+        const control = await montado();
+        const navegadorReal = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+        Object.defineProperty(globalThis, 'navigator', { value: { onLine: false }, configurable: true });
+        try {
+            // Módulo ainda não carregado e navegador offline: a carga nem é tentada.
+            control._painelModulo = null;
+            await control._abrirPendencias();
+            expect(cenario.avisos.at(-1)).toMatch(/Sem conexão/);
+            // A forma da queda NO MEIO: a promessa já em voo rejeita com o navegador já offline.
+            control._painelModulo = Promise.reject(new Error('Failed to fetch dynamically imported module'));
+            control._painelModulo.catch(() => {});
+            await control._abrirPendencias();
+            expect(cenario.avisos.at(-1)).toMatch(/caiu enquanto/);
+            expect(cenario.avisos.at(-1)).toMatch(/quando a rede voltar, atualize a página/);
+        } finally {
+            if (navegadorReal) Object.defineProperty(globalThis, 'navigator', navegadorReal);
+            else delete globalThis.navigator;
+        }
+    });
+
+    it('sem conexão a carga NEM É TENTADA, que é o que mantém verdadeira a frase offline', async () => {
+        cenario.conexao = 'offline';
+        cenario.censo = { pendentes: 1, preparadas: 0, problemas: 0 };
+        const control = await montado();
+
+        await control._abrirPendencias();
+        // Zero cargas: nem a pré-carga nem o clique chamaram o `import()`. Uma tentativa aqui
+        // falharia e deixaria o módulo envenenado para quando a rede voltasse.
+        expect(cenario.cargasDoPainel).toBe(0);
+        expect(cenario.avisos[0]).toMatch(/Sem conexão/);
+
+        // A rede volta: agora sim ele carrega, e o clique abre.
+        cenario.conexao = 'online';
+        control._onSignal();
+        await control._readQueue();
+        await assentar();
+        await control._abrirPendencias();
+        expect(cenario.cargasDoPainel).toBe(1);
+        await esperarAberturas(1);
     });
 
     it('a falha offline não se cristaliza: voltar a ONLINE reabre a tentativa', async () => {
@@ -504,7 +620,7 @@ describe('o painel é buscado antes do clique, e a falha do clique fala', () => 
         control._onSignal();
         await control._readQueue();
         await assentar();
-        expect(cenario.cargasDoPainel).toBe(depoisDaPrimeira + 1);
+        await cargasChegamA(depoisDaPrimeira + 1);
     });
 });
 
@@ -533,10 +649,20 @@ describe('o painel é buscado antes do clique, e a falha do clique fala', () => 
 describe('o aviso do acervo tem caixa PRÓPRIA, e o crachá continua abrindo o painel', () => {
     /** Monta com a soma de recursos privados falhada e sem rede, que é o estado do achado. */
     async function comAvisoESemRede() {
-        cenario.degradado = true;
-        cenario.conexao = 'offline';
+        // A REDE CAI DEPOIS, com o painel já pré-carregado, que é a história real do achado. O
+        // cenário montava o controle JÁ offline e contava com o dublê do `import()` dando certo
+        // sem rede, coisa que navegador nenhum faz: sem conexão a carga nem é tentada (um import
+        // que falha envenena o módulo pela vida da página), então o que abre offline é só o que
+        // foi carregado antes. O controle positivo está na primeira linha abaixo.
         cenario.censo = { pendentes: 1, preparadas: 0, problemas: 0 };
         const control = await montado();
+        await cargasChegamA(1, 'o painel foi pré-carregado enquanto havia conexão');
+
+        cenario.degradado = true;
+        cenario.conexao = 'offline';
+        control._onSignal();
+        await control._readQueue();
+        await assentar();
         return { control, container: control._container };
     }
 

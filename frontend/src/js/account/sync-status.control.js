@@ -29,18 +29,50 @@ import { describeSyncWork, SYNC_TONE, SYNC_WORK_STATE } from './sync-phrases.js'
 /**
  * O que a pessoa lê quando o clique em "Pendências" não consegue trazer o painel.
  *
- * SÃO DUAS FRASES E NÃO UMA porque o desfecho é outro em cada caso: sem rede o módulo chega
- * sozinho quando ela voltar, e a pessoa não precisa fazer nada; com rede de pé o que falhou foi a
- * carga em si, e aí a providência é tentar de novo. Uma frase só teria de mentir num dos dois.
- * Elas moram aqui, e não no módulo de frases do painel, porque o painel é justamente o que não
- * carregou.
+ * SÃO DUAS FRASES E NÃO UMA porque o desfecho é outro em cada caso: sem conexão a carga NEM É
+ * TENTADA, então o módulo chega sozinho quando a conexão voltar; com conexão de pé o que falhou foi
+ * a carga em si, e aí a única providência que funciona é recarregar a página. Uma frase só teria
+ * de mentir num dos dois. Elas moram aqui, e não no módulo de frases do painel, porque o painel é
+ * justamente o que não carregou.
+ *
+ * "TENTE DE NOVO" ERA FALSO, e foi medido em 2026-09-20 no Chromium e no Firefox: um `import()`
+ * cuja busca falha fica gravado como FALHO no mapa de módulos da página, e a tentativa seguinte do
+ * mesmo módulo é recusada sem tocar a rede, nos três modos (pedido abortado, 404, rede desligada e
+ * religada). Esquecer a promessa no `catch`, que este arquivo já fazia, não basta: quem lembra é o
+ * navegador. Daí a frase nova e, mais importante, daí `_carregarPainel` NÃO TENTAR sem conexão,
+ * que é o que mantém verdadeira a promessa da frase de cima.
  */
 const PAINEL_SEM_REDE = 'Sem conexão para carregar o painel de pendências. Ele será carregado '
     + 'sozinho quando a rede voltar, e o seu trabalho continua guardado neste computador.';
 
-/** O outro desfecho: a rede está de pé e mesmo assim a carga falhou. */
-const PAINEL_NAO_CARREGOU = 'Não foi possível carregar o painel de pendências agora. '
-    + 'Tente de novo.';
+/**
+ * A carga foi TENTADA e a rede caiu no meio. O módulo já está envenenado, então a saída é
+ * recarregar, mas NÃO AGORA: no mapa, recarregar sem rede troca esta tela pela de "EBGeo
+ * indisponível", que é pior que ficar sem o painel.
+ */
+const PAINEL_CAIU_NO_MEIO = 'A conexão caiu enquanto o painel de pendências carregava. O seu '
+    + 'trabalho continua guardado neste computador: quando a rede voltar, atualize a página para '
+    + 'abrir o painel.';
+
+/** O outro desfecho: a carga foi TENTADA e falhou, e nesta página ela não volta a dar certo. */
+const PAINEL_NAO_CARREGOU = 'Não foi possível carregar o painel de pendências. O seu trabalho '
+    + 'continua guardado neste computador: atualize a página para abrir o painel.';
+
+/**
+ * Whether fetching the panel module now would be a fetch that cannot succeed.
+ *
+ * `navigator.onLine === false` is the reliable half of that flag (the `true` half promises
+ * nothing). The sync connection counts ONLY when it is explicitly OFFLINE, never "anything but
+ * ONLINE": that machine is the collaboration socket, and CONNECTING (the whole of a boot, which
+ * is exactly when the queue holds the previous session's work) and RECONNECTING both happen with
+ * the network up and the server reachable. Refusing there skipped a load that would have
+ * succeeded and told a connected person "Sem conexão". Found by review, 2026-09-20.
+ * @returns {boolean}
+ */
+function semConexaoParaCarregar() {
+    if (globalThis.navigator?.onLine === false) return true;
+    return connectionState.getState() === ConnectionStates.OFFLINE;
+}
 
 /**
  * O atributo de TRANSPORTE, que continua sendo o vocabulário de conexão.
@@ -366,6 +398,16 @@ export class SyncStatusControl {
      * @private
      */
     _carregarPainel() {
+        // WITHOUT A CONNECTION THE IMPORT IS NOT ATTEMPTED, and that is what keeps the offline
+        // promise true. A failed fetch poisons the module for the life of the page (see the
+        // sentences at the top), so trying while offline would turn "it loads by itself when the
+        // network is back" into "it never loads until you reload". A module ALREADY loaded is
+        // served from the cached promise below, connection or not: that is what the preload buys.
+        if (!this._painelModulo && semConexaoParaCarregar()) {
+            const erro = new Error('pendency panel: load not attempted while offline');
+            erro.naoTentado = true;
+            return Promise.reject(erro);
+        }
         if (!this._painelModulo) {
             this._painelModulo = import('./pendencias/pendencias-panel.js').catch((error) => {
                 this._painelModulo = null;
@@ -428,9 +470,13 @@ export class SyncStatusControl {
             abrirPainelDePendencias();
         } catch (error) {
             console.warn('Sync status: could not open the pendency panel:', error);
-            const semRede = connectionState.getState() !== ConnectionStates.ONLINE;
+            // The sentence follows WHAT HAPPENED to the module, not the connection light: an
+            // attempt that failed has poisoned it for this page, whatever the light says now.
+            const semRede = error?.naoTentado === true;
             this._painelIndisponivel = semRede;
-            showError(semRede ? PAINEL_SEM_REDE : PAINEL_NAO_CARREGOU);
+            if (semRede) showError(PAINEL_SEM_REDE);
+            else if (globalThis.navigator?.onLine === false) showError(PAINEL_CAIU_NO_MEIO);
+            else showError(PAINEL_NAO_CARREGOU);
         }
     }
 
