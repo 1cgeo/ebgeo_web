@@ -12,6 +12,7 @@ import {
     dropSourceConfirmation, dropSourceDenial, dropSourceDone
 } from './migration-recovery-phrases.js';
 import { MigrationRecoveryError } from '../store/migration/transition-state.js';
+import { createDeferredScreen } from './deferred-screen.js';
 
 let screen = null;
 let covered = [];
@@ -237,14 +238,24 @@ async function sweepAbandonedCopies() {
 export async function runLegacyUpgradeGate() {
     registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_INICIO);
     descarregarUso();
-    const progress = makeScreen('Preparando seus dados', 'Verificando a atualização dos dados locais…');
+    // ARMED, not drawn: on a machine with nothing to migrate this gate settles in a fraction of a
+    // second, and the card used to flash on every boot. See `deferred-screen.js`.
+    const progress = createDeferredScreen({
+        message: 'Verificando a atualização dos dados locais…',
+        show: (message) => makeScreen('Preparando seus dados', message),
+    });
     const probe = createTabLock({ key: noneKey(), overlayHost: null, autoPulse: false });
     try {
         await probe.acquire(noneKey(), { settleMs: 100 });
         if (probe.legacyPeerDetected) throw new MigrationRecoveryError('legacy_tab', 'Há uma janela da versão antiga aberta.');
         await prepareLegacyTransition({ onProgress: ({ copied, total }) => {
-            progress.text.textContent = `Copiando e verificando seus dados: ${copied} de ${total} registros. Aguarde a conclusão.`;
+            progress.setText(`Copiando e verificando seus dados: ${copied} de ${total} registros. Aguarde a conclusão.`);
+            // A copy tick means the wait is REAL: the person's data is being rewritten, so say so now.
+            progress.showNow();
         } });
+        // Cancel BEFORE anything else awaits: a timer firing during the sweep below would draw the
+        // progress card over a boot that already succeeded.
+        progress.cancel();
         closeScreen();
         registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_SUCESSO);
         descarregarUso();
@@ -252,6 +263,8 @@ export async function runLegacyUpgradeGate() {
         await sweepAbandonedCopies();
         return true;
     } catch (error) {
+        // Same reason, other exit: a late timer would REPLACE the recovery screen drawn below.
+        progress.cancel();
         if (error.code === 'legacy_tab') registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_ABA_ANTIGA);
         else if (error instanceof MigrationRecoveryError) registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_FALHA);
         else registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_STORAGE_ERROR);
