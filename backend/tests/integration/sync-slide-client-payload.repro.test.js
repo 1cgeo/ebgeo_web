@@ -309,7 +309,8 @@ describe('slide sync accepts the payload the real client emits (repro)', () => {
     const gravado = rows.find((r) => r.id === comControles).controls;
     assert.deepEqual(gravado, {
       basemap: true, models3d: false, views360: false, terrain: true, coordinates: false, utilities: false,
-    }, 'o servidor grava as SEIS chaves, e só `true` liga');
+      search: false, navigation: false,
+    }, 'o servidor grava TODAS as chaves da lista fechada, e só `true` liga');
     assert.equal(rows.find((r) => r.id === antigo).controls, null, 'cliente antigo não inventa o campo');
 
     const snap = await supertest(app)
@@ -337,6 +338,7 @@ describe('slide sync accepts the payload the real client emits (repro)', () => {
     assert.equal(rows.length, 1);
     assert.deepEqual(rows[0].controls, {
       basemap: false, models3d: false, views360: false, terrain: false, coordinates: false, utilities: true,
+      search: false, navigation: false,
     });
   });
 

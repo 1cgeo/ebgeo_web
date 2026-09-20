@@ -3,10 +3,11 @@
 /**
  * A APRESENTAÇÃO É UM PALCO LIMPO, no navegador real (regra do dono, 2026-09-20).
  *
- * Seis controles do mapa (seletor de mapa base, modelos 3D, imagens 360, terreno, coordenadas e
- * utilitários) ficam ESCONDIDOS ao apresentar, e cada um só volta quando o autor marcou a caixa
- * daquele slide; o padrão de todos é falso. A conta ("Entrar", ou a identidade de quem entrou) e o
- * "compartilhar esta vista" somem SEMPRE, em qualquer slide.
+ * Os controles do mapa (seletor de mapa base, modelos 3D, imagens 360, terreno, coordenadas,
+ * utilitários, busca e o grupo de navegação) ficam ESCONDIDOS ao apresentar, e cada um só volta
+ * quando o autor marcou a caixa daquele slide; o padrão de todos é falso. A conta ("Entrar", ou a
+ * identidade de quem entrou), o selo com o nome do atlas e o "compartilhar esta vista" somem
+ * SEMPRE, em qualquer slide.
  *
  * A lista fechada, o espelho com o servidor e a fiação do CSS estão presos em
  * `tests/unit/controles-do-slide.test.js`. Este arquivo mede o que aquele não alcança: que o
@@ -31,6 +32,9 @@ const ALVOS = {
     terreno: '#feature-toggle-terrain',
     coordenadas: '.coordinates-control',
     utilitarios: '.toolbar-group[data-group-id="utility"]',
+    busca: '.search-bar-container',
+    navegacao: '.bottom-controls-right',
+    seloDoAtlas: '.atlas-name-badge',
 };
 
 /** Para cada alvo: true/false se está na tela, ou 'AUSENTE' se o deploy de teste não o monta. */
@@ -78,13 +82,36 @@ describeOrSkip('controles do slide na apresentação', () => {
         expect(noEditor.base).toBe(true);
         expect(noEditor.coordenadas).toBe(true);
         expect(noEditor.utilitarios).toBe(true);
+        expect(noEditor.busca).toBe(true);
+        expect(noEditor.navegacao).toBe(true);
         const caixas = page.locator('.briefing-editor-control-check');
-        await expect(caixas).toHaveCount(6);
+        // Uma caixa por controle da lista fechada, e nenhuma marcada.
+        expect(await caixas.evaluateAll((els) => els.map((el) => el.dataset.control))).toEqual(
+            ['basemap', 'models3d', 'views360', 'terrain', 'coordinates', 'utilities', 'search', 'navigation'],
+        );
         expect(await caixas.evaluateAll((els) => els.filter((el) => el.checked).length)).toBe(0);
+
+        // O SELO DO ATLAS NÃO É DESENHADO NUM ATLAS LOCAL (medido: ausente no boot, e com área zero
+        // depois), então a asserção sobre ele passaria verde sem provar nada. O spec o põe na tela à
+        // força, com estilo inline, que é a forma mais forte de "visível" que existe: se ele some ao
+        // apresentar, é a regra da apresentação que o tirou.
+        await page.evaluate(() => {
+            let selo = document.querySelector('.atlas-name-badge');
+            if (!selo) {
+                selo = document.createElement('div');
+                selo.className = 'atlas-name-badge';
+                document.body.appendChild(selo);
+            }
+            selo.hidden = false;
+            selo.textContent = 'Atlas de teste';
+            selo.setAttribute('style', 'display:block;position:fixed;top:8px;left:8px;width:160px;height:24px');
+        });
+        expect((await naTela(page)).seloDoAtlas, 'PISO: o selo está na tela antes de apresentar').toBe(true);
 
         await salvarEApresentar(page);
 
         const noPalco = await naTela(page);
+        expect(noPalco.seloDoAtlas, 'o selo do atlas não aparece em slide nenhum').toBe(false);
         for (const [nome, visivel] of Object.entries(noPalco)) {
             if (visivel === 'AUSENTE') continue;
             expect(visivel, `${nome} continua na tela ao apresentar`).toBe(false);
@@ -95,17 +122,25 @@ describeOrSkip('controles do slide na apresentação', () => {
         await criarBriefingComPosicao(page);
         await page.locator('.briefing-editor-control-check[data-control="basemap"]').check();
         await page.locator('.briefing-editor-control-check[data-control="utilities"]').check();
+        await page.locator('.briefing-editor-control-check[data-control="navigation"]').check();
 
         await salvarEApresentar(page);
 
         const noPalco = await naTela(page);
         expect(noPalco.base).toBe(true);
         expect(noPalco.utilitarios).toBe(true);
+        // UMA caixa traz o grupo inteiro de navegação: zoom, tela cheia e bússola.
+        expect(noPalco.navegacao).toBe(true);
+        for (const id of ['nav-btn-zoom-in', 'nav-btn-zoom-out', 'nav-btn-fullscreen', 'nav-btn-compass']) {
+            await expect(page.locator(`#${id}`)).toBeVisible();
+        }
+        expect(noPalco.busca, 'a busca não foi marcada').toBe(false);
         expect(noPalco.coordenadas).toBe(false);
         if (noPalco.terreno !== 'AUSENTE') expect(noPalco.terreno).toBe(false);
         if (noPalco.modelos3d !== 'AUSENTE') expect(noPalco.modelos3d).toBe(false);
         expect(noPalco.conta).toBe(false);
         expect(noPalco.compartilharVista).toBe(false);
+        if (noPalco.seloDoAtlas !== 'AUSENTE') expect(noPalco.seloDoAtlas).toBe(false);
     });
 
     test('sair da apresentação devolve todos os controles', async ({ page }) => {
@@ -120,6 +155,8 @@ describeOrSkip('controles do slide na apresentação', () => {
         expect(depois.base).toBe(true);
         expect(depois.coordenadas).toBe(true);
         expect(depois.utilitarios).toBe(true);
+        expect(depois.busca).toBe(true);
+        expect(depois.navegacao).toBe(true);
         expect(await page.evaluate(() => document.body.className)).not.toMatch(/briefing-show-/);
     });
 });

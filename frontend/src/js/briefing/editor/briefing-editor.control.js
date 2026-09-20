@@ -871,7 +871,8 @@ export class BriefingEditorControl {
     }
 
     /**
-     * The map controls the slide shows WHILE PRESENTED: six checkboxes, all off by default,
+     * The map controls the slide shows WHILE PRESENTED: one checkbox per entry of the closed
+     * list (`SLIDE_CONTROLS`), all off by default,
      * placed below the content on purpose (the owner asked for that order: what the slide says
      * first, what it lets the audience touch last). The editor itself is never affected; only
      * the presenter hides and shows controls.

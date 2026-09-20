@@ -15,8 +15,8 @@
  * and not there is silently discarded on the way in.
  *
  * WHAT IS NOT IN THE LIST, ON PURPOSE: the account area (the "Entrar" button or the signed-in
- * identity) and "share this view". Those are NEVER shown while presenting, for any slide, so they
- * are not a choice of the author; `css/briefing/briefing-presentation.css` hides them outright.
+ * identity), the atlas name badge and "share this view". Those are NEVER shown while presenting,
+ * for any slide, so they are not a choice of the author; `css/briefing/briefing-presentation.css` hides them outright.
  *
  * The editor is NOT affected by any of this: the author needs the selector and the viewers to
  * build the slide. Only the presenter applies these classes.
@@ -38,20 +38,24 @@ export const SLIDE_CONTROLS = Object.freeze([
     Object.freeze({ key: 'terrain', label: 'Terreno', bodyClass: 'briefing-show-terrain' }),
     Object.freeze({ key: 'coordinates', label: 'Controle de coordenadas', bodyClass: 'briefing-show-coordinates' }),
     Object.freeze({ key: 'utilities', label: 'Utilitários', bodyClass: 'briefing-show-utilities' }),
+    // The search bar, and the navigation cluster as ONE choice (zoom, fullscreen and compass
+    // live in `.bottom-controls-right`; the owner asked for a single checkbox for all of them).
+    Object.freeze({ key: 'search', label: 'Busca', bodyClass: 'briefing-show-search' }),
+    Object.freeze({ key: 'navigation', label: 'Controles de navegação', bodyClass: 'briefing-show-navigation' }),
 ]);
 
 /** Class that marks "a presentation is running", under which the controls above are hidden. */
 export const PRESENTING_BODY_CLASS = 'briefing-presenting';
 
 /**
- * The six flags of a slide, every one a real boolean.
+ * The flags of a slide, one per control of the list, every one a real boolean.
  *
  * ONLY `true` IS TRUE. A slide written before this field existed has no `controls` at all, and a
  * hostile or half-written payload may carry `'true'`, `1` or an array: every one of those reads as
  * HIDDEN, which is the default of the owner and the side that fails closed.
  *
  * @param {*} raw - `slide.controls`, in whatever shape it arrived.
- * @returns {Object<string, boolean>} Exactly the keys of `SLIDE_CONTROLS`.
+ * @returns {Object<string, boolean>} Exactly the keys of `SLIDE_CONTROLS`, every one a boolean.
  */
 export function normalizeSlideControls(raw) {
     const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};

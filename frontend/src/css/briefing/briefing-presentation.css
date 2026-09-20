@@ -368,11 +368,13 @@
    screen ticked it: the presenter mirrors `slide.controls` into the `briefing-show-*` classes
    (`js/briefing/slide-controls.js` is the closed list, and the two must move together).
 
-   The account area ("Entrar", or the signed-in identity with its menu) and "share this view" are
-   NOT a choice of the author: they are never shown while presenting, for any slide.
+   The account area ("Entrar", or the signed-in identity with its menu), the atlas name badge and
+   "share this view" are NOT a choice of the author: they are never shown while presenting, for
+   any slide. The navigation cluster (zoom, fullscreen, compass) is ONE choice, not three.
    ========================================================================= */
 
 body.briefing-presenting .account-control,
+body.briefing-presenting .atlas-name-badge,
 body.briefing-presenting .toolbar-standalone-btn[data-tool-id="share-view"] {
     display: none !important;
 }
@@ -383,6 +385,8 @@ body.briefing-presenting:not(.briefing-show-views360) #feature-toggle-panorama,
 body.briefing-presenting:not(.briefing-show-terrain) #feature-toggle-terrain,
 body.briefing-presenting:not(.briefing-show-coordinates) .coordinates-control,
 body.briefing-presenting:not(.briefing-show-coordinates) .coordinates-control-3d,
-body.briefing-presenting:not(.briefing-show-utilities) .toolbar-group[data-group-id="utility"] {
+body.briefing-presenting:not(.briefing-show-utilities) .toolbar-group[data-group-id="utility"],
+body.briefing-presenting:not(.briefing-show-search) .search-bar-container,
+body.briefing-presenting:not(.briefing-show-navigation) .bottom-controls-right {
     display: none !important;
 }

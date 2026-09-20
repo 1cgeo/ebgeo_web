@@ -16,11 +16,12 @@
 
 export const SLIDE_CONTROL_KEYS = Object.freeze([
   'basemap', 'models3d', 'views360', 'terrain', 'coordinates', 'utilities',
+  'search', 'navigation',
 ]);
 
 /**
  * @param {*} raw - `controls` as the client sent it.
- * @returns {Object<string, boolean>|null} The six flags, or null when nothing usable came.
+ * @returns {Object<string, boolean>|null} One flag per key of the list, or null when nothing usable came.
  */
 export function normalizeSlideControls(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;

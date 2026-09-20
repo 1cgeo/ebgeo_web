@@ -37,7 +37,7 @@ const CENSO = {
   'slides.position': ['CLOSED', '{longitude, latitude, zoom, altitude}'],
   'slides.orientation': ['CLOSED', '{bearing, pitch, heading, lon, lat, fov}'],
   'slides.temporal_cursor': ['CLOSED', 'número (epoch ms) ou null'],
-  'slides.controls': ['CLOSED', 'seis booleanos sobre lista fechada (SLIDE_CONTROL_KEYS); chave de fora é descartada'],
+  'slides.controls': ['CLOSED', 'booleanos sobre lista fechada (SLIDE_CONTROL_KEYS); chave de fora é descartada'],
   'comments.data': ['CLOSED', 'comment.operations.js escreve só escalares; `text` é texto livre (teto)'],
   // AS TRÊS JSONB QUE NÃO SÃO DO ATLAS E MESMO ASSIM VÊM DE UM CLIENTE: telemetria de erro do
   // navegador, escrita por rota REST própria e ANÔNIMA, não por op de sync. A tabela se chamava

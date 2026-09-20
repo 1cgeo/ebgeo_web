@@ -3,9 +3,13 @@
 // OS CONTROLES QUE UM SLIDE MOSTRA AO SER APRESENTADO (regra do dono, 2026-09-20).
 //
 // Uma apresentação é um palco limpo: seletor de mapa base, modelos 3D, imagens 360, terreno,
-// controle de coordenadas e utilitários ficam ESCONDIDOS, e cada um só volta quando o autor marcou
-// a caixa daquele slide. O padrão de todos é falso. A conta ("Entrar" ou a identidade de quem
-// entrou) e o "compartilhar esta vista" não são escolha do autor: somem sempre.
+// controle de coordenadas, utilitários, busca e controles de navegação ficam ESCONDIDOS, e cada um
+// só volta quando o autor marcou a caixa daquele slide. O padrão de todos é falso. A conta
+// ("Entrar" ou a identidade de quem entrou), o selo com o nome do atlas e o "compartilhar esta
+// vista" não são escolha do autor: somem sempre.
+//
+// A CONTAGEM NÃO SE ESCREVE EM PROSA AQUI. Este cabeçalho disse "seis" e envelheceu em uma hora,
+// quando o dono pediu mais dois. A lista é asserida por extenso no primeiro caso, e é ela que vale.
 //
 // TRÊS COISAS QUE ESTE ARQUIVO PRENDE, e que erram em silêncio:
 //
@@ -32,14 +36,14 @@ import { SLIDE_CONTROL_KEYS, normalizeSlideControls as normalizarNoServidor }
 const ler = (caminho) => readFileSync(new URL(caminho, import.meta.url), 'utf8');
 
 describe('a lista fechada', () => {
-    it('são os seis controles que o dono pediu, nesta ordem', () => {
+    it('são os controles que o dono pediu, nesta ordem', () => {
         expect(SLIDE_CONTROLS.map((c) => c.key)).toEqual(
-            ['basemap', 'models3d', 'views360', 'terrain', 'coordinates', 'utilities'],
+            ['basemap', 'models3d', 'views360', 'terrain', 'coordinates', 'utilities', 'search', 'navigation'],
         );
         // Rótulo é texto de interface: pt-BR, com acento.
         expect(SLIDE_CONTROLS.map((c) => c.label)).toEqual([
             'Seletor de mapa base', 'Modelos 3D', 'Imagens 360', 'Terreno',
-            'Controle de coordenadas', 'Utilitários',
+            'Controle de coordenadas', 'Utilitários', 'Busca', 'Controles de navegação',
         ]);
     });
 
@@ -56,6 +60,7 @@ describe('a lista fechada', () => {
 describe('normalizeSlideControls', () => {
     const TUDO_ESCONDIDO = {
         basemap: false, models3d: false, views360: false, terrain: false, coordinates: false, utilities: false,
+        search: false, navigation: false,
     };
 
     it.each([undefined, null, {}, [], 'basemap', 42, true])('%j: tudo escondido, que é o padrão do dono', (bruto) => {
@@ -74,7 +79,7 @@ describe('normalizeSlideControls', () => {
         expect(saida.terrain).toBe(true);
     });
 
-    it('PROPRIEDADE: a saída tem sempre as seis chaves booleanas, e os dois pacotes concordam', () => {
+    it('PROPRIEDADE: a saída tem sempre TODAS as chaves da lista, booleanas, e os dois pacotes concordam', () => {
         fc.assert(fc.property(fc.anything(), (bruto) => {
             const cliente = normalizeSlideControls(bruto);
             expect(Object.keys(cliente)).toEqual(SLIDE_CONTROLS.map((c) => c.key));
@@ -114,10 +119,17 @@ describe('a fiação: CSS, apresentador e editor', () => {
         }
     });
 
-    it('a conta e o compartilhar vista somem SEMPRE na apresentação, sem classe que os traga de volta', () => {
+    it('a conta, o selo do atlas e o compartilhar vista somem SEMPRE, sem classe que os traga de volta', () => {
         expect(css).toMatch(/body\.briefing-presenting \.account-control,/);
+        expect(css).toMatch(/body\.briefing-presenting \.atlas-name-badge,/);
         expect(css).toMatch(/body\.briefing-presenting \.toolbar-standalone-btn\[data-tool-id="share-view"\]/);
-        expect(css).not.toMatch(/briefing-show-account|briefing-show-share/);
+        expect(css).not.toMatch(/briefing-show-account|briefing-show-share|briefing-show-atlas/);
+    });
+
+    it('a navegação é UMA escolha: a regra mira o contêiner inteiro, não cada botão', () => {
+        expect(css).toContain('body.briefing-presenting:not(.briefing-show-navigation) .bottom-controls-right');
+        expect(css).not.toMatch(/briefing-show-navigation\) #nav-btn-/);
+        expect(css).toContain('body.briefing-presenting:not(.briefing-show-search) .search-bar-container');
     });
 
     it('o CSS da apresentação chega ao navegador pelo manifesto', () => {

@@ -3035,22 +3035,26 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
 
 ### 2026-09-20: a apresentação de briefing é um palco limpo, e o slide escolhe o que volta
 
-- **Decisão:** ao APRESENTAR um briefing, seis controles do mapa ficam escondidos e só voltam quando o
+- **Decisão:** ao APRESENTAR um briefing, os controles do mapa ficam escondidos e só voltam quando o
   autor marcou a caixa daquele slide: seletor de mapa base, modelos 3D, imagens 360, terreno, controle
-  de coordenadas e utilitários. O padrão de todos é falso. A área da conta (o botão de entrar, ou a
-  identidade de quem entrou com o menu dela) e o "compartilhar esta vista" NÃO são escolha do autor:
-  somem em todo slide. As caixas ficam abaixo do conteúdo no editor.
+  de coordenadas, utilitários e, acrescentados pelo dono no mesmo dia, a busca e os controles de
+  navegação (zoom, tela cheia e bússola, que são UMA caixa só). O padrão de todos é falso. A área da
+  conta (o botão de entrar, ou a identidade de quem entrou com o menu dela), o selo com o nome do atlas
+  e o "compartilhar esta vista" NÃO são escolha do autor: somem em todo slide. As caixas ficam abaixo
+  do conteúdo no editor. A lista viva é `SLIDE_CONTROLS`; esta entrada dizia "seis" e envelheceu em
+  uma hora, então a contagem saiu da prosa.
 - **Por quê:** relato do dono. O palco herdava o que o mapa mostrava, e o que o público pode tocar é
   decisão do slide: um slide que convida a comparar bases quer o seletor, o seguinte não quer nada.
 - **O editor não é afetado**, de propósito: o autor precisa do seletor e dos visualizadores para montar
   o slide. Só o apresentador liga a classe de apresentação.
 - **Forma:** uma coluna JSONB nula em `slides` (`020_controles_do_slide.sql`) sobre lista FECHADA,
   espelhada nos dois pacotes (`frontend/src/js/briefing/slide-controls.js` e
-  `backend/src/modules/sync/slide-controls.js`). Seis colunas booleanas foram recusadas: cada controle
+  `backend/src/modules/sync/slide-controls.js`). Uma coluna booleana por controle foi recusada: cada controle
   novo seria uma migração, e a lista fechada mais o normalizador dão a mesma garantia (chave de fora é
   descartada, e só `true` liga). Quem esconde e mostra é CSS sob classes do `body`, que é o mecanismo que
   a casa já usa para o modo de briefing; o controlador de perfis de visibilidade não tem nenhum elemento
   registrado, então passar por ele seria um no-op.
 - **Compatibilidade:** slide anterior a esta data não tem o campo e apresenta com tudo escondido. Isso
-  MUDA o que se via antes (coordenadas e terreno apareciam ao apresentar), e é o padrão que o dono pediu.
+  MUDA o que se via antes (busca, coordenadas, terreno e navegação apareciam ao apresentar), e é o
+  padrão que o dono pediu.
 - **Status:** aceita.
