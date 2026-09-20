@@ -214,7 +214,7 @@ const ANCORAS = Object.freeze([
  */
 const ACRESCIMO_PERMITIDO = Object.freeze([
     NUCLEO,
-    'src/js/catalog/grant-tree.js', // folha de funções puras, zero imports (rótulo e frase de grupo)
+    'src/js/catalog/grant-tree.js', // funções puras; UM import desde 2026-09-20, a folha `person-label.js`
     // 2026-09-20: o compositor do rótulo militar ("Cap Silva · 1º CGEO"), folha de ZERO
     // imports. Ele entra por ARQUIVO (`@utils/person-label.js`) e nunca pelo barril `@utils`,
     // que está na lista de proibidos logo acima: é a mesma regra do `grant-tree.js`, e é ela

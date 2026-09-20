@@ -41,6 +41,7 @@
  */
 
 import { apiClient } from '@store/sync/api-client.js';
+import { militaryPersonLabel } from '@utils/person-label.js';
 import { showConfirm } from '@modals/confirm.modal.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
 // Do ARQUIVO, nunca dos barrels `@utils` / `@modals`: esta página não carrega a store, e os
@@ -53,8 +54,9 @@ import {
 } from '@utils/event-cleanup.js';
 import { sectionHeader, card, emptyState, failureState, ICON_GRANTS } from './admin-dom.js';
 // A ESCADA DE PRAZO E A ARITMÉTICA DA EXTENSÃO SÃO COMPARTILHADAS com o modal de recurso, que é a
-// outra tela que estende concessão. `grant-tree.js` tem ZERO imports por contrato, então trazê-lo
-// para cá não arrasta a store para `admin.html`, que boota sem ela.
+// outra tela que estende concessão. `grant-tree.js` tem UM import desde 2026-09-20, e ele é uma
+// folha de zero imports (`@utils/person-label.js`, o compositor do rótulo militar), então trazê-lo
+// para cá continua não arrastando a store para `admin.html`, que boota sem ela.
 import {
     extensionDeadline,
     extensionOutcome,
@@ -225,8 +227,40 @@ class GrantsTab {
      * @returns {Array<Object>}
      */
     static _rows(payload) {
-        if (Array.isArray(payload)) return payload;
-        return Array.isArray(payload?.grants) ? payload.grants : [];
+        const linhas = Array.isArray(payload) ? payload
+            : (Array.isArray(payload?.grants) ? payload.grants : []);
+        return linhas.map(GrantsTab._comRotuloMilitar);
+    }
+
+    /**
+     * @private Rewrites the two person names of a row in the military form, "Cap Silva".
+     *
+     * THE SAME GRANT READ "Cap Andrade" in the resource dialog and "Maria Clara de Andrade" here,
+     * because this tab rendered the single string the server sends. The server now also sends the
+     * pieces (war name, abbreviated rank) and the label is built by the ONE composer every other
+     * screen uses, here in the funnel both lists go through, so the row, the confirm dialog and
+     * the toast all name the person the same way. A GROUP keeps its own name.
+     * @param {Object} grant
+     * @returns {Object} A copy with `granteeName` and `grantorName` recomposed
+     */
+    static _comRotuloMilitar(grant) {
+        if (!grant || typeof grant !== 'object') return grant;
+        const saida = { ...grant };
+        if (grant.granteeKind !== 'group' && (grant.granteeNomeGuerra || grant.granteePostoGraduacao)) {
+            saida.granteeName = militaryPersonLabel({
+                nome: grant.granteeName,
+                nome_guerra: grant.granteeNomeGuerra,
+                posto_graduacao: grant.granteePostoGraduacao,
+            }).label;
+        }
+        if (grant.grantorNomeGuerra || grant.grantorPostoGraduacao) {
+            saida.grantorName = militaryPersonLabel({
+                nome: grant.grantorName,
+                nome_guerra: grant.grantorNomeGuerra,
+                posto_graduacao: grant.grantorPostoGraduacao,
+            }).label;
+        }
+        return saida;
     }
 
     /**

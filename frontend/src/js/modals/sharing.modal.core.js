@@ -73,8 +73,9 @@ import { sessionContext } from '@store/sync/session-context.js';
 // `batch-points.modal.js`, que importa `@store` e `@utils`, e com isso a store inteira volta
 // pelo caminho transitivo. Foi a maior das quatro cadeias medidas.
 import { showConfirm } from './confirm.modal.js';
-// Import DIRETO, e não pelo barrel `@catalog`: `grant-tree.js` tem ZERO imports (é uma
-// folha de funções puras) e é essa propriedade que permite reusá-lo daqui sem arrastar o
+// Import DIRETO, e não pelo barrel `@catalog`: `grant-tree.js` é uma folha de funções puras cujo
+// único import (desde 2026-09-20) é `@utils/person-label.js`, que por sua vez não importa nada, e
+// é essa propriedade que permite reusá-lo daqui sem arrastar o
 // catálogo inteiro para dentro do modal de compartilhar atlas. O rótulo da `<option>` é o
 // MESMO nos dois eixos porque o problema é o mesmo: desde que a unicidade de nome de grupo
 // passou a ser por dono, dois grupos homônimos de gente diferente são estado legal, e uma
@@ -566,7 +567,7 @@ export function participantsFromOverview(overview, atlasId) {
  * held to a closed import list by `frontend/tests/unit/compartilhar-sem-a-store.test.js`, so the
  * duplication was one short function against a page of imports. The twin is gone now that the
  * rule lives in a leaf with ZERO imports (`@utils/person-label.js`), which costs neither side a
- * module: `atlas-drive.js` can adopt the same leaf whenever its card is revisited.
+ * module: `atlas-drive.js` adopted the same leaf on the same day, so there is one rule left.
  *
  * `GET /atlas/overview` CARRIES NO UNIT, so this row shows rank plus war name and nothing else.
  * That is the payload's decision, not this function's: the route deliberately answers with id,

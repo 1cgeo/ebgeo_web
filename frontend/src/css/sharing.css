@@ -1007,6 +1007,26 @@
     color: var(--gray-500);
 }
 
+/* A LINHA DE CONCESSÃO QUEBRA, e a do modal de atlas não. As duas compartilham
+   `.sharing-member`, mas esta carrega CINCO elementos `flex-shrink: 0` à direita (data,
+   prazo, nível, "Estender" e o remover), enquanto a de atlas carrega um `<select>` e um
+   botão. Com todos numa linha só, o bloco de identidade fica com o que sobrar — MEDIDO em
+   2026-09-20, sobravam cerca de 60px, e o clipe de reticências entregava `Ca…` no lugar do
+   nome, que é a informação inteira de uma lista chamada "quem tem acesso". O piso de largura
+   é o que força os chips para a linha de baixo quando não cabem, em vez de comerem o nome.
+
+   O GANCHO É `[data-grantee-kind]`, que só a linha de concessão escreve (`_renderGrantItem`,
+   `catalog/resource-share.modal.js`), e não uma classe nova: o atributo já existe, já
+   distingue pessoa de grupo, e uma classe a mais seria um segundo nome para a mesma linha. */
+.sharing-member[data-grantee-kind] {
+    flex-wrap: wrap;
+}
+
+.sharing-member[data-grantee-kind] .sharing-member__info {
+    flex: 1 1 14rem;
+    min-width: 12rem;
+}
+
 /* O nível da concessão (Ver / Ver e compartilhar). É um RÓTULO, não um seletor:
    trocar o nível de uma concessão viva não é operação que o servidor ofereça —
    revoga-se e concede-se de novo, para que a árvore registre o ato. */

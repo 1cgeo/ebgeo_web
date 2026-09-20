@@ -24,14 +24,21 @@ import {
 } from '@utils/event-cleanup.js';
 import { escapeHtml } from '@utils/html-escape.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
+// Por ARQUIVO, e nunca pelo barril `@utils`: `person-label.js` é o compositor do rótulo militar
+// (`Cap Silva · 1º CGEO`) e tem ZERO imports, que é o que permite usá-lo de dentro de um modal
+// que também vive em `atlas.html`. É o MESMO compositor do modal de compartilhamento e do de
+// recurso: as três telas oferecem a mesma busca de pessoas, e três rótulos diferentes para a
+// mesma pessoa é o que elas tinham antes de 2026-09-20.
+import { militaryPersonLabel } from '@utils/person-label.js';
 import { apiClient } from '@store/sync/api-client.js';
 // Import DIRETO por arquivo, e a razão é a página: `atlas-drive.js`, o corpo de `atlas.html`,
 // importa ESTE modal, e aquela página boota sem a store. `permission-levels.js` tem ZERO
 // imports por contrato (asserido em `frontend/tests/unit/permission-levels.test.js`), então
 // trazê-lo não arrasta nada; um barrel (`@utils`, `@modals`, `@store`) arrastaria.
 import { grantablePermissionOptions, isGrantablePermission } from '@js/projects/permission-levels.js';
-// `grant-tree.js` e `admin-audience.js` têm ZERO imports por contrato, então trazê-los para cá
-// não arrasta a store para `atlas.html`, que é onde este modal também vive.
+// `admin-audience.js` tem ZERO imports por contrato e `grant-tree.js` tem UM desde 2026-09-20
+// (`@utils/person-label.js`, folha de zero imports), então trazê-los para cá não arrasta a store
+// para `atlas.html`, que é onde este modal também vive.
 import {
     searchFailureNotice,
     PEOPLE_SEARCH_MIN_CHARS, peopleSearchHint, peopleSearchTruncatedNotice,
@@ -89,8 +96,24 @@ export class CreateAtlasModal extends ModalBase {
         this._defaultName = typeof defaultName === 'string' ? defaultName : '';
         /** @type {boolean} */
         this._isPublic = false;
-        /** @type {Array<{userId:string, username:string, nome:string, permission:string}>} */
+        /**
+         * Os convidados encenados. Os três campos militares viajam junto desde 2026-09-20,
+         * porque é a linha do membro que os escreve: sem eles, a pessoa escolhida como
+         * "Cap Andrade" na busca virava "Maria Clara de Andrade" ao entrar na lista logo
+         * acima, na mesma janela e no mesmo segundo.
+         * @type {Array<{userId:string, username:string, nome:string, nome_guerra:?string,
+         *   posto_graduacao:?string, organizacao_militar_sigla:?string, permission:string}>}
+         */
         this._members = [];
+        /**
+         * O ÍNDICE DOS RESULTADOS DA BUSCA VIVA, por id.
+         *
+         * Existe porque o convite precisa de SEIS campos da pessoa e o botão carregava três
+         * em `data-*`. Seis atributos de dado de pessoa no DOM é a forma de esquecer de
+         * escapar um deles; um índice em memória, apagado a cada redesenho, não tem DOM.
+         * @type {Map<string, Object>}
+         */
+        this._encontrados = new Map();
         /**
          * O EIXO DE GRUPO, que era exclusivo do modal de compartilhamento.
          *
@@ -208,15 +231,28 @@ export class CreateAtlasModal extends ModalBase {
 
     /**
      * @private
+     *
+     * O RÓTULO É O MILITAR, e a segunda linha junta unidade e `@login`, como a linha de
+     * membro do modal de compartilhamento (`_linhaDeIdentidade`, `sharing.modal.core.js`):
+     * é literalmente a mesma linha de interface, e ela não pode nomear a mesma pessoa de
+     * dois jeitos conforme o atlas já exista ou não.
+     *
+     * AS INICIAIS SAEM DE `name`, o rótulo SEM o posto: `getInitials('Cap Silva')` é `CS`,
+     * de modo que todo Capitão da lista compartilharia a primeira letra.
      * @param {{userId:string, username:string, nome:string, permission:string}} member
      */
     _renderMemberItem(member) {
         const userId = String(member?.userId ?? '');
-        const nome = member?.nome ?? member?.username ?? '';
-        const username = member?.username ?? '';
+        const { label, name, detail } = militaryPersonLabel(member);
         const current = isGrantablePermission(member?.permission) ? member.permission : 'write';
         const color = escapeHtml(getPresenceColor(userId));
-        const initials = escapeHtml(getInitials(nome));
+        const initials = escapeHtml(getInitials(name || label));
+        const nome = label;
+        // Vazio não desenha elemento nenhum: a linha da grade tem altura, e um `<span>` em
+        // branco abre um buraco que se lê como campo que não carregou.
+        const identidade = detail
+            ? `<span class="sharing-member__lotacao">${escapeHtml(detail)}</span>`
+            : '';
         const options = PERMISSION_LEVELS.map((p) =>
             `<option value="${p.value}"${current === p.value ? ' selected' : ''}>${p.label}</option>`
         ).join('');
@@ -225,7 +261,7 @@ export class CreateAtlasModal extends ModalBase {
                 <span class="sharing-avatar" aria-hidden="true" style="background-color: ${color};">${initials}</span>
                 <div class="sharing-member__info">
                     <span class="sharing-member__name">${escapeHtml(nome)}</span>
-                    <span class="sharing-member__username">@${escapeHtml(username)}</span>
+                    ${identidade}
                 </div>
                 <select class="sharing-member__permission" data-action="permission"
                         aria-label="Permissão de ${escapeHtml(nome)}">
@@ -352,8 +388,13 @@ export class CreateAtlasModal extends ModalBase {
                 <h3 class="sharing-section__title">Adicionar pessoas</h3>
                 <div class="sharing-search">
                     <span class="sharing-search__icon" aria-hidden="true">${ICONS.search}</span>
+                    <!-- O NOME DE GUERRA ESTÁ NO CONVITE PORQUE ESTÁ NO CASAMENTO: a lista
+                         escreve "Cap Andrade", e um campo que só oferecesse "nome ou
+                         usuário" mandaria a pessoa digitar o que está lendo e concluir que
+                         o colega não tem conta. -->
                     <input type="text" class="sharing-search__input" data-action="search"
-                           data-testid="create-atlas-user-search" placeholder="Buscar por nome ou usuário…"
+                           data-testid="create-atlas-user-search"
+                           placeholder="Buscar por nome, nome de guerra ou usuário…"
                            autocomplete="off" aria-label="Buscar pessoas">
                 </div>
                 <div class="sharing-results" data-results hidden></div>
@@ -363,7 +404,13 @@ export class CreateAtlasModal extends ModalBase {
 
     /**
      * @private
-     * @param {Array<{id:string, username:string, nome:string}>} results
+     *
+     * A UNIDADE NA LINHA DO MEIO e o `@login` embaixo, como no resultado de busca das duas
+     * telas irmãs: aqui há largura (o resultado não divide a linha com um `<select>` e dois
+     * botões) e a unidade é o que desempata homônimo ANTES do clique, que é o momento em
+     * que o erro custa um convite à pessoa errada.
+     * @param {Array<{id:string, username:string, nome:string, nome_guerra?:string,
+     *   posto_graduacao?:string, organizacao_militar_sigla?:string}>} results
      */
     _renderResults(results) {
         const memberIds = new Set(this._members.map((m) => String(m.userId)));
@@ -373,18 +420,23 @@ export class CreateAtlasModal extends ModalBase {
 
         return pickable.map((u) => {
             const id = String(u?.id ?? '');
-            const nome = u?.nome ?? u?.username ?? '';
-            const username = u?.username ?? '';
+            const { label, name, unit, handle } = militaryPersonLabel(u);
             const color = escapeHtml(getPresenceColor(id));
-            const initials = escapeHtml(getInitials(nome));
+            const initials = escapeHtml(getInitials(name || label));
+            const unitRow = unit
+                ? `<span class="sharing-member__lotacao">${escapeHtml(unit)}</span>`
+                : '';
+            const handleRow = handle
+                ? `<span class="sharing-member__username">${escapeHtml(handle)}</span>`
+                : '';
             return `
                 <button type="button" class="sharing-result" data-action="add"
-                        data-user-id="${escapeHtml(id)}" data-username="${escapeHtml(username)}"
-                        data-nome="${escapeHtml(nome)}">
+                        data-user-id="${escapeHtml(id)}">
                     <span class="sharing-avatar" aria-hidden="true" style="background-color: ${color};">${initials}</span>
                     <span class="sharing-result__info">
-                        <span class="sharing-member__name">${escapeHtml(nome)}</span>
-                        <span class="sharing-member__username">@${escapeHtml(username)}</span>
+                        <span class="sharing-member__name">${escapeHtml(label)}</span>
+                        ${unitRow}
+                        ${handleRow}
                     </span>
                 </button>
             `;
@@ -490,13 +542,26 @@ export class CreateAtlasModal extends ModalBase {
 
     /**
      * @private Stages a searched user as a member (default Edição) and resets the search.
-     * @param {string} userId
-     * @param {string} username
-     * @param {string} nome
+     *
+     * OS CAMPOS SÃO COPIADOS UM A UM, e não por espalhamento do resultado da busca: o que
+     * fica encenado aqui é entregue ao chamador em `_handleCreate`, e espalhar a linha
+     * inteira da busca mandaria adiante campos que esta tela não pediu.
+     * @param {{id:string, username?:string, nome?:string, nome_guerra?:string,
+     *   posto_graduacao?:string, organizacao_militar_sigla?:string}} pessoa - A linha da
+     *   busca, lida do índice vivo dos resultados.
      */
-    _addMember(userId, username, nome) {
+    _addMember(pessoa) {
+        const userId = String(pessoa?.id ?? '');
         if (!userId || this._members.some((m) => String(m.userId) === String(userId))) return;
-        this._members.push({ userId, username, nome, permission: DEFAULT_GRANT_PERMISSION });
+        this._members.push({
+            userId,
+            username: pessoa?.username ?? '',
+            nome: pessoa?.nome ?? '',
+            nome_guerra: pessoa?.nome_guerra ?? null,
+            posto_graduacao: pessoa?.posto_graduacao ?? null,
+            organizacao_militar_sigla: pessoa?.organizacao_militar_sigla ?? null,
+            permission: DEFAULT_GRANT_PERMISSION,
+        });
         this._refreshMembers();
 
         const input = this.getBody()?.querySelector('[data-action="search"]');
@@ -572,10 +637,15 @@ export class CreateAtlasModal extends ModalBase {
         const nota = truncated
             ? `<p class="sharing-results__truncated" data-testid="create-atlas-search-truncated">${escapeHtml(peopleSearchTruncatedNotice())}</p>`
             : '';
+        // O ÍNDICE É REESCRITO A CADA DESENHO, junto com os botões que o consultam: uma
+        // linha que saiu da tela não pode continuar convidável por um clique atrasado.
+        this._encontrados = new Map(
+            (Array.isArray(results) ? results : []).map((u) => [String(u?.id ?? ''), u])
+        );
         container.innerHTML = this._renderResults(results) + nota;
         container.querySelectorAll('[data-action="add"]').forEach((btn) => {
             addScopedDomListener(this, 'results', btn, 'click', () =>
-                this._addMember(btn.dataset.userId, btn.dataset.username, btn.dataset.nome));
+                this._addMember(this._encontrados.get(String(btn.dataset.userId))));
         });
     }
 

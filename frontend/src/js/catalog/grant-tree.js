@@ -45,10 +45,21 @@
  * que a lista não cobre, a busca que falhou, a leitura recusada, o efeito real da revogação e
  * o desfecho de estender um prazo). O critério de moradia é o mesmo de sempre: nada disso é
  * DOM, tudo isso é decidido por comparação sobre o payload, e frase de ato irreversível que
- * mora dentro de um construtor de HTML não é testável em node. O arquivo continua com ZERO
- * imports, e isso é contrato (`frontend/tests/unit/compartilhar-sem-a-store.test.js` mede o
- * grafo que ele acrescenta a uma página que boota sem a store).
+ * mora dentro de um construtor de HTML não é testável em node.
+ *
+ * DESDE 2026-09-20 ELE TEM UM IMPORT, E SÓ UM, e a propriedade que valia não era "zero
+ * imports" e sim o GRAFO que ele acrescenta a uma página que boota sem a store
+ * (`frontend/tests/unit/compartilhar-sem-a-store.test.js`, que o mede). `@utils/person-label.js`
+ * é uma folha de zero imports que já está na lista fechada daquele teste, então o grafo não
+ * mudou de tamanho. O que ele traz é o compositor do rótulo militar (`posto + nome de guerra`,
+ * com a unidade ao lado), e ele entra AQUI em vez de no modal porque este arquivo é dono das
+ * frases: a linha da lista, o `aria-label` do botão e o texto do diálogo destrutivo nomeiam a
+ * MESMA pessoa, e nomeá-la de duas formas a dois centímetros de distância é a divergência que
+ * o compositor único existe para fechar.
  */
+
+// Import por ARQUIVO, nunca pelo barril `@utils`: ver o `fileoverview` acima.
+import { militaryPersonLabel } from '@utils/person-label.js';
 
 /** O mesmo teto de `REVOKE_SUBTREE_PRESERVING_REACH`. Manter os dois iguais é o ponto. */
 export const MAX_GRANT_DEPTH = 32;
@@ -268,6 +279,49 @@ export function groupMemberCount(grant) {
 }
 
 /**
+ * A PESSOA de uma concessão, no shape que {@link militaryPersonLabel} lê.
+ *
+ * EXISTE PORQUE O PAYLOAD PREFIXA. `LIST_GRANTS_FOR_RESOURCE` responde sobre DOIS sujeitos
+ * na mesma linha (quem recebeu e quem concedeu), então as colunas nascem `grantee_*` e
+ * `granted_by_*`; o compositor, que serve também à busca de pessoas e ao modal de atlas,
+ * lê os nomes NUS. Esta tradução é a costura entre os dois, e ela é uma só para os dois
+ * sujeitos porque o prefixo é o único que muda.
+ *
+ * @param {Object} grant
+ * @param {'grantee'|'granted_by'} prefixo - Qual dos dois sujeitos da linha.
+ * @returns {Object} O shape de pessoa, com `undefined` no que a linha não carrega.
+ */
+function pessoaDaConcessao(grant, prefixo) {
+    return {
+        nome: grant?.[`${prefixo}_nome`],
+        nome_guerra: grant?.[`${prefixo}_nome_guerra`],
+        posto_graduacao: grant?.[`${prefixo}_posto_graduacao`],
+        organizacao_militar: grant?.[`${prefixo}_organizacao_militar`],
+        organizacao_militar_sigla: grant?.[`${prefixo}_organizacao_militar_sigla`],
+        username: grant?.[`${prefixo}_username`],
+    };
+}
+
+/**
+ * A identidade MILITAR de quem recebeu uma concessão a PESSOA, já composta.
+ *
+ * SÓ PARA O RAMO DE PESSOA, de propósito: um grupo não tem posto nem nome de guerra, e o
+ * chamador que desenha a linha precisa dos pedaços (a unidade e o `@login` vão em
+ * elementos diferentes do da chamada principal). Quem só quer o texto usa
+ * {@link granteeName}, que já escolhe entre os dois ramos.
+ *
+ * `name` É O RÓTULO SEM O POSTO, e ele existe para o avatar: `getInitials('Cap Silva')` é
+ * `CS`, de modo que todo Capitão da lista compartilharia a primeira letra e o selo
+ * deixaria de identificar alguém. O posto é um POSTO, não um nome.
+ *
+ * @param {Object} grant
+ * @returns {{label: string, name: string, unit: string, handle: string, detail: string}}
+ */
+export function granteePersonLabel(grant) {
+    return militaryPersonLabel(pessoaDaConcessao(grant, 'grantee'));
+}
+
+/**
  * O nome de exibição de quem recebeu uma concessão, pessoa OU grupo.
  *
  * Numa concessão a grupo `grantee_nome` e `grantee_username` vêm nulos por CHECK, e
@@ -276,13 +330,24 @@ export function groupMemberCount(grant) {
  * existe pela mesma razão do fallback da pessoa: string vazia é ausência, não nome,
  * e a linha em branco é pior que um rótulo genérico.
  *
- * @param {{grantee_nome?: string, grantee_username?: string,
+ * A PESSOA É NOMEADA NA FORMA MILITAR DESDE 2026-09-20 (`Cap Silva`), e o compositor entra
+ * só no degrau que TEM nome: os dois degraus de baixo ficam como estavam, com o login CRU
+ * e o literal 'Usuário'. A razão é que esta string entra em frase corrida ("Remover o
+ * acesso de X?"), onde o `@` do compositor e o 'Alguém' dele leriam diferente do resto do
+ * vocabulário deste arquivo. Quem precisa dos pedaços usa {@link granteePersonLabel}.
+ *
+ * @param {{grantee_nome?: string, grantee_nome_guerra?: string,
+ *   grantee_posto_graduacao?: string, grantee_username?: string,
  *   grantee_group_id?: string|null, grantee_group_name?: string}} grant
  * @returns {string}
  */
 export function granteeName(grant) {
     if (isGroupGrant(grant)) return grant?.grantee_group_name || 'Grupo';
-    return grant?.grantee_nome || grant?.grantee_username || 'Usuário';
+    const militar = granteePersonLabel(grant);
+    // `name` é o nome chamado (guerra, ou civil); vazio significa que a linha não trouxe
+    // nome nenhum, e aí os dois degraus antigos continuam valendo palavra por palavra.
+    if (militar.name) return militar.label;
+    return grant?.grantee_username || 'Usuário';
 }
 
 /**
@@ -396,15 +461,41 @@ export function deadGrantorChip(grant) {
  * `granted_by` nulo é a concessão da ADMINISTRAÇÃO (raiz sem concedente), e ela nunca
  * cai no ramo de morto: ver {@link isGrantorDead}.
  *
- * @param {{granted_by_nome?: string, granted_by_username?: string,
+ * O CONCEDENTE É NOMEADO NA MESMA FORMA DO BENEFICIÁRIO desde 2026-09-20, pela mesma
+ * escada de {@link granteeName}: as duas frases ficam a dois centímetros uma da outra na
+ * mesma linha, e nomear o de cima de `Cap Silva` e o de baixo de `João Batista de Souza`
+ * faria a tela parecer falar de duas pessoas. A unidade dele NÃO viaja, de propósito: a
+ * frase é uma oração dentro da linha, não uma identificação, e o payload por isso traz só
+ * posto e nome de guerra para este sujeito.
+ *
+ * @param {{granted_by_nome?: string, granted_by_nome_guerra?: string,
+ *   granted_by_posto_graduacao?: string, granted_by_username?: string,
  *   granted_by_vivo?: boolean}} grant
  * @returns {string}
  */
 export function grantOriginLabel(grant) {
-    // `||` e não `??`, como em `granteeName`: string vazia é ausência de nome, não nome.
-    const concedente = grant?.granted_by_nome || grant?.granted_by_username || '';
+    const concedente = grantorName(grant);
     if (!concedente) return 'concedido pela administração';
     return isGrantorDead(grant) ? `veio de ${concedente}` : `recebido de ${concedente}`;
+}
+
+/**
+ * COMO O CONCEDENTE SE CHAMA, ou `''` quando a linha não nomeia ninguém.
+ *
+ * Mesma escada de {@link granteeName}, e ela é repetida aqui em vez de compartilhada
+ * porque o degrau do fundo é DIFERENTE: um beneficiário sem nome ainda é uma linha da
+ * lista e precisa de um rótulo ('Usuário'), enquanto um concedente sem nome é a concessão
+ * da ADMINISTRAÇÃO, que tem frase PRÓPRIA. Colapsar os dois faria a raiz administrativa
+ * ser "recebido de Usuário".
+ *
+ * @param {Object} grant
+ * @returns {string}
+ */
+function grantorName(grant) {
+    const militar = militaryPersonLabel(pessoaDaConcessao(grant, 'granted_by'));
+    if (militar.name) return militar.label;
+    // `||` e não `??`, como em `granteeName`: string vazia é ausência de nome, não nome.
+    return grant?.granted_by_username || '';
 }
 
 /**
@@ -504,8 +595,10 @@ export function revokeAvailability(grant, actor) {
  * @returns {{label: string, title: string}}
  */
 export function revokeBlockedNotice(grant) {
-    // `||` e não `??`, como em `grantOriginLabel`: string vazia é ausência de nome.
-    const concedente = grant?.granted_by_nome || grant?.granted_by_username || '';
+    // A MESMA ESCADA de `grantOriginLabel`, e não uma cópia da comparação: as duas frases
+    // falam da MESMA pessoa na MESMA linha (uma diz de quem veio, a outra a quem pedir), e
+    // duas escadas divergem no degrau que ninguém olha.
+    const concedente = grantorName(grant);
     const label = 'só quem concedeu remove';
     if (!concedente) {
         return {
@@ -808,10 +901,18 @@ export const PEOPLE_SEARCH_MAX_ROWS = 20;
  * era uma busca que nunca saiu. É a mesma distinção que {@link searchFailureNotice} faz do outro
  * lado ("não achei" contra "não perguntei"), agora na ponta de cá.
  *
+ * O NOME DE GUERRA ENTROU NA FRASE EM 2026-09-20, e ele não é acréscimo cosmético: a busca
+ * passou a casá-lo (`SEARCH_USERS`) e as telas passaram a ESCREVÊ-LO (`Cap Silva`). Uma dica
+ * que oferecesse só "nome ou usuário" mandaria a pessoa desconfiar justamente do termo que a
+ * tela acabou de lhe mostrar, e concluir que o colega não tem conta — o nome civil pode não
+ * conter o nome de guerra. É a mesma lição de D13 na direção oposta: lá a frase teve de parar
+ * de prometer o que a busca deixou de casar, aqui ela tem de prometer o que ela passou a casar.
+ *
  * @returns {string}
  */
 export function peopleSearchHint() {
-    return `Digite ao menos ${PEOPLE_SEARCH_MIN_CHARS} caracteres para buscar por nome ou usuário.`;
+    return `Digite ao menos ${PEOPLE_SEARCH_MIN_CHARS} caracteres para buscar por nome, `
+        + 'nome de guerra ou usuário.';
 }
 
 /**
@@ -824,13 +925,15 @@ export function peopleSearchHint() {
  *
  * O TEXTO NOMEIA O QUE A BUSCA CASA, e isso é consequência direta de D13: posto e OM saíram do
  * casamento, então "refine o termo" sem dizer POR ONDE mandaria a pessoa digitar o nome da OM de
- * novo, que é justamente o termo que deixou de funcionar.
+ * novo, que é justamente o termo que deixou de funcionar. Pela MESMA razão o nome de guerra
+ * entrou na lista em 2026-09-20, quando passou a ser casado: uma frase que enumera o que a busca
+ * casa é uma promessa, e promessa incompleta manda refinar por onde não se pode.
  *
  * @returns {string}
  */
 export function peopleSearchTruncatedNotice() {
-    return `Mostrando as primeiras ${PEOPLE_SEARCH_MAX_ROWS}. A busca casa nome e usuário: `
-        + 'refine o termo para ver o resto.';
+    return `Mostrando as primeiras ${PEOPLE_SEARCH_MAX_ROWS}. A busca casa nome, nome de guerra `
+        + 'e usuário: refine o termo para ver o resto.';
 }
 
 /**

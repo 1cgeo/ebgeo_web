@@ -11,7 +11,6 @@ import {
     memberRemovalWarning,
     memberRemovalSummary,
     groupOwnerLabel,
-    memberDisplayName,
 } from '../../src/js/admin/group-phrases.js';
 
 // AS FRASES DA ABA "GRUPOS".
@@ -268,23 +267,14 @@ describe('groupDeletionSummary — o que o servidor disse que caiu', () => {
     });
 });
 
-describe('memberDisplayName — como a pessoa aparece', () => {
-    it('põe o posto na frente do nome quando há os dois', () => {
-        expect(memberDisplayName({ nome: 'Ana Lima', posto_graduacao: 'Cap', username: 'ana' }))
-            .toBe('Cap Ana Lima');
-    });
-
-    it('sem nome cai no usuário, e o posto não se cola ao usuário', () => {
-        // Posto + login ("Cap ana") lê como nome de guerra e não é: o posto só acompanha o nome.
-        expect(memberDisplayName({ username: 'ana', posto_graduacao: 'Cap' })).toBe('ana');
-        expect(memberDisplayName({ nome: '   ', username: 'ana' })).toBe('ana');
-    });
-
-    it('sem nada devolve um rótulo, nunca vazio', () => {
-        expect(memberDisplayName({})).toBe('Usuário');
-        expect(memberDisplayName(null)).toBe('Usuário');
-    });
-});
+// `memberDisplayName` FOI PODADA EM 2026-09-20 e o bloco dela saiu daqui junto.
+//
+// Ela era a terceira cópia de "como uma pessoa se chama", e as três escreviam posto mais nome
+// CIVIL enquanto a tela de compartilhamento passou a escrever posto mais nome de GUERRA. A regra
+// mora hoje em `src/js/utilities/person-label.js`, folha de zero imports, e quem a cobra (com os
+// MESMOS casos que estavam aqui, mais os do nome de guerra) é
+// `tests/unit/rotulo-de-pessoa-militar.test.js`. Que a aba de grupos a use, em vez de reescrever a
+// escada, é cobrado por `tests/unit/rotulo-de-pessoa-uma-regra-so.test.js`.
 
 describe('memberRemovalWarning — o aviso antes de tirar alguém', () => {
     it('nomeia o que ela perde E que os repasses dela por este grupo caem', () => {

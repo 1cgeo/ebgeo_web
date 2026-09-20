@@ -125,6 +125,29 @@ describe('cardMenuActions — o menu do cartão por nível', () => {
 });
 
 describe('accessPersonLabel — como uma pessoa é nomeada', () => {
+    // O NOME DE GUERRA VENCE O CIVIL desde 2026-09-20, e este é o caso que a versão anterior
+    // desta função errava CALADA: `GET /atlas/overview` já mandava `nome_guerra` por membro
+    // (`LIST_USER_ATLAS_MEMBERS`) e o rodapé o jogava fora, escrevendo `Cap Maria Clara de
+    // Andrade` enquanto a tela de compartilhamento DO MESMO ATLAS escrevia `Cap Andrade`.
+    //
+    // A FIXTURE É O CASO REAL E NÃO O FÁCIL: o nome de guerra NÃO é pedaço do nome civil
+    // (`João Batista de Souza` chamado `Silva` é estado comum no Exército). Com um nome de
+    // guerra que fosse substring do civil, uma implementação que ignorasse o campo passaria
+    // por acidente num `toContain`.
+    it('prefere o NOME DE GUERRA ao nome civil, com o posto na frente', () => {
+        expect(accessPersonLabel({
+            nome: 'João Batista de Souza', nome_guerra: 'Silva', posto_graduacao: 'Cap',
+        })).toBe('Cap Silva');
+    });
+
+    it('cai no nome CIVIL quando a conta ainda não tem nome de guerra', () => {
+        // DISCRIMINAÇÃO do caso acima: se o rótulo fosse sempre o nome de guerra, esta linha
+        // viria vazia, e uma conta recém-criada é exatamente assim.
+        expect(accessPersonLabel({
+            nome: 'João Batista de Souza', nome_guerra: null, posto_graduacao: 'Cap',
+        })).toBe('Cap João Batista de Souza');
+    });
+
     it('põe o posto na frente do nome', () => {
         expect(accessPersonLabel({ nome: 'Silva', posto_graduacao: 'Cap' })).toBe('Cap Silva');
     });

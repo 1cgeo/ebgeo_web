@@ -39,9 +39,10 @@
  * deste atlas, inclusive quem entra por link público"). O único número que aparece é o de
  * {@link lendingScopeNote}, e ele é sobre o que a própria tela acabou de listar.
  *
- * Zero imports, como `grant-tree.js` e `group-phrases.js`: os dois consumidores moram em
- * páginas diferentes (a de administração, que boota sem a store, e o mapa), e uma dependência
- * aqui chegaria às duas.
+ * Zero imports, como `group-phrases.js`: os dois consumidores moram em páginas diferentes (a de
+ * administração, que boota sem a store, e o mapa), e uma dependência aqui chegaria às duas.
+ * (`grant-tree.js` era o terceiro exemplo desta frase até 2026-09-20, quando passou a importar uma
+ * folha; a propriedade que vale continua sendo o GRAFO, e não a contagem de imports.)
  */
 
 /**

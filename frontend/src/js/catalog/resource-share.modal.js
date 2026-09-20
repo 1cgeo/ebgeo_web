@@ -37,6 +37,10 @@ import { showConfirm } from '@modals/confirm.modal.js';
 import { addScopedDomListener, clearScopedListeners, trackTimer } from '@utils/event-cleanup.js';
 import { escapeHtml } from '@utils/html-escape.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
+// O compositor do rótulo militar (`Cap Silva · 1º CGEO`), folha de ZERO imports, por ARQUIVO.
+// Ele serve à BUSCA daqui; a linha de quem já tem concessão passa por `granteePersonLabel`,
+// que é o mesmo compositor com a tradução do prefixo `grantee_*` do payload.
+import { militaryPersonLabel } from '@utils/person-label.js';
 import { apiClient } from '@store/sync/api-client.js';
 import { refreshVisibleResources } from '@store/sync/resource-access.service.js';
 import { syncEngine } from '@store/sync/sync-engine.js';
@@ -65,6 +69,7 @@ import {
     grantOriginLabel,
     granteeGroupOwnerLabel,
     granteeName,
+    granteePersonLabel,
     granteeSubject,
     grantsListScopeNote,
     groupMemberCount,
@@ -466,6 +471,12 @@ export class ResourceShareModal extends ModalBase {
 
     /**
      * @private O avatar de quem recebeu: identidade de pessoa OU selo de grupo.
+     *
+     * AS INICIAIS SAEM DO NOME SEM O POSTO, e essa é a única razão de este método não usar
+     * o mesmo `nome` que a linha escreve: `getInitials('Cap Silva')` é `CS`, de modo que
+     * todo Capitão da lista ganharia o mesmo `C` e o selo pararia de identificar alguém.
+     * O posto é um POSTO, não um nome. A queda para `nome` cobre a linha que não trouxe
+     * nome nenhum, onde o rótulo já É o login.
      * @param {Object} grant
      * @param {string} nome
      */
@@ -474,7 +485,7 @@ export class ResourceShareModal extends ModalBase {
             return `<span class="sharing-avatar resource-share__group-avatar" aria-hidden="true">${GROUP_ICON}</span>`;
         }
         const color = escapeHtml(getPresenceColor(String(grant?.grantee_id ?? '')));
-        const initials = escapeHtml(getInitials(nome));
+        const initials = escapeHtml(getInitials(granteePersonLabel(grant).name || nome));
         return `<span class="sharing-avatar" aria-hidden="true" style="background-color: ${color};">${initials}</span>`;
     }
 
@@ -495,6 +506,23 @@ export class ResourceShareModal extends ModalBase {
      * carregam os dois o trio `nowrap`/`overflow`/`ellipsis`), então numa linha estreita
      * ele corta justamente no nome. Alargar a coluna quebraria a linha de membro
      * compartilhada com o modal de atlas; o `title` é o padrão da casa para isso.
+     *
+     * A PESSOA GANHOU UNIDADE EM 2026-09-20, e ela vem ANTES do `@login`, na mesma ordem e
+     * pela mesma razão do modal de atlas (`_linhaDeIdentidade`, `modals/sharing.modal.core.js`):
+     * o que identifica passou a ser `Cap Silva · 1º CGEO`, e o login virou o desempate de
+     * homônimo em vez do identificador principal. Ele NÃO sai da linha, porque numa base
+     * militar dois `Cap Silva` da mesma OM cabem na mesma lista e só o login é único.
+     *
+     * OS DOIS VÃO NUMA SEGUNDA LINHA, e não ao lado do nome, e isso foi MEDIDO numa captura: a
+     * linha de concessão carrega cinco elementos `flex-shrink: 0` à direita (data, prazo,
+     * nível, "Estender" e o remover), de modo que o bloco de identidade fica com o que sobra.
+     * Com os três textos colados num `<span>` só, o clipe de reticências comia o rótulo e a
+     * tela mostrava `Ca…` — o nome, que é a informação inteira desta lista. Empilhar dá a cada
+     * um a largura da coluna, e a CSS que faz a coluna existir está em `sharing.css`, sob
+     * `[data-grantee-kind]`.
+     *
+     * VAZIO NÃO DESENHA ELEMENTO NENHUM: a linha tem altura, e um `<span>` em branco abre um
+     * buraco que se lê como campo que não carregou.
      * @param {Object} grant
      * @param {string} nome
      */
@@ -509,9 +537,12 @@ export class ResourceShareModal extends ModalBase {
                               title="${escapeHtml(dono)}">${escapeHtml(dono)}</span>
                     </span>`;
         }
-        const username = grant?.grantee_username ?? '';
-        const arroba = username ? ` <span class="sharing-member__username">@${escapeHtml(username)}</span>` : '';
-        return `<span class="sharing-member__name">${escapeHtml(nome)}${arroba}</span>`;
+        const { detail } = granteePersonLabel(grant);
+        const identidade = detail
+            ? `<span class="sharing-member__lotacao" data-testid="resource-share-grantee-detail"
+                     title="${escapeHtml(detail)}">${escapeHtml(detail)}</span>`
+            : '';
+        return `<span class="sharing-member__name" title="${escapeHtml(nome)}">${escapeHtml(nome)}</span>${identidade}`;
     }
 
     /**
@@ -826,8 +857,14 @@ export class ResourceShareModal extends ModalBase {
                 ${this._renderGroupRow()}
                 <div class="sharing-search">
                     <span class="sharing-search__icon" aria-hidden="true">${CATALOG_UI_ICONS.SEARCH}</span>
+                    <!-- O NOME DE GUERRA ESTÁ NO CONVITE PORQUE ESTÁ NO CASAMENTO. A lista
+                         logo acima escreve "Cap Andrade", e um campo que só oferecesse
+                         "nome ou usuário" mandaria a pessoa digitar exatamente o que ela
+                         está lendo e concluir que o colega não tem conta — o nome civil
+                         pode não conter o nome de guerra. -->
                     <input type="text" class="sharing-search__input" data-action="search"
-                           data-testid="resource-share-search" placeholder="Buscar por nome ou usuário…"
+                           data-testid="resource-share-search"
+                           placeholder="Buscar por nome, nome de guerra ou usuário…"
                            autocomplete="off" aria-label="Buscar pessoas">
                 </div>
                 <div class="sharing-results" data-results hidden></div>
@@ -854,20 +891,32 @@ export class ResourceShareModal extends ModalBase {
 
         return escolhiveis.map((u) => {
             const id = String(u?.id ?? '');
-            const nome = u?.nome ?? u?.username ?? '';
-            const username = u?.username ?? '';
+            // O MESMO compositor da linha logo acima (`granteePersonLabel` é ele com a
+            // tradução do prefixo do payload). Antes daqui saíam três linhas (nome civil,
+            // `@login` e um `posto · OM` de rodapé) enquanto a linha de concessão saía com
+            // duas e sem posto: a pessoa escolhida na busca TROCAVA de nome ao aparecer na
+            // lista logo acima, na mesma janela e no mesmo segundo.
+            const { label, name, unit, handle } = militaryPersonLabel(u);
             const color = escapeHtml(getPresenceColor(id));
-            const initials = escapeHtml(getInitials(nome));
-            const meta = [u?.posto_graduacao, u?.organizacao_militar].filter(Boolean).join(' · ');
-            const metaRow = meta ? `<span class="sharing-result__meta">${escapeHtml(meta)}</span>` : '';
+            const initials = escapeHtml(getInitials(name || label));
+            // A UNIDADE NA LINHA DO MEIO e o `@login` embaixo, ao contrário da linha de
+            // concessão, que junta as duas: aqui há espaço (o resultado não divide a largura
+            // com nível, prazo e dois botões) e a unidade é o que desempata homônimo ANTES do
+            // clique, que é o momento em que o erro custa uma concessão à pessoa errada.
+            const unitRow = unit
+                ? `<span class="sharing-member__lotacao" data-testid="resource-share-result-lotacao">${escapeHtml(unit)}</span>`
+                : '';
+            const handleRow = handle
+                ? `<span class="sharing-result__meta">${escapeHtml(handle)}</span>`
+                : '';
             return `
                 <button type="button" class="sharing-result" data-action="grant"
                         data-testid="resource-share-result" data-user-id="${escapeHtml(id)}">
                     <span class="sharing-avatar" aria-hidden="true" style="background-color: ${color};">${initials}</span>
                     <span class="sharing-result__info">
-                        <span class="sharing-member__name">${escapeHtml(nome)}</span>
-                        <span class="sharing-member__username">@${escapeHtml(username)}</span>
-                        ${metaRow}
+                        <span class="sharing-member__name">${escapeHtml(label)}</span>
+                        ${unitRow}
+                        ${handleRow}
                     </span>
                 </button>
             `;

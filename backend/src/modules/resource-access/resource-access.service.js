@@ -426,6 +426,9 @@ export async function listGrantsIssuedByActor(actorId) {
       granteeKind: paraGrupo ? 'group' : 'user',
       granteeId: paraGrupo ? r.grantee_group_id : r.grantee_id,
       granteeName: paraGrupo ? r.grantee_group_name : r.grantee_nome,
+      // The pieces of the military label, for the client's single composer. Null for a group.
+      granteeNomeGuerra: paraGrupo ? null : (r.grantee_nome_guerra ?? null),
+      granteePostoGraduacao: paraGrupo ? null : (r.grantee_posto_graduacao ?? null),
       level: r.grant_level,
       expiresAt: r.expires_at,
       createdAt: r.created_at,
@@ -455,6 +458,8 @@ export async function listGrantsReceivedByActor(actorId) {
     resourceName: r.resource_name,
     grantorId: r.grantor_id,
     grantorName: r.grantor_nome ?? null,
+    grantorNomeGuerra: r.grantor_nome_guerra ?? null,
+    grantorPostoGraduacao: r.grantor_posto_graduacao ?? null,
     level: r.grant_level,
     expiresAt: r.expires_at,
     createdAt: r.created_at,

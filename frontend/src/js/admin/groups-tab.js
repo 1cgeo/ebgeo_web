@@ -54,7 +54,6 @@ import {
     memberAdditionSummary,
     groupTableColumns,
     groupOwnerLabel,
-    memberDisplayName,
     memberAddedByLabel,
     memberAdmissionTitle,
     LEAVE_AVAILABILITY,
@@ -75,6 +74,11 @@ import {
 import {
     PEOPLE_SEARCH_MIN_CHARS, peopleSearchHint, peopleSearchTruncatedNotice,
 } from '@js/catalog/grant-tree.js';
+// COMO UMA PESSOA SE CHAMA nao e frase de grupo, e desde 2026-09-20 nao mora mais em
+// `group-phrases.js`: a regra (posto abreviado + nome de guerra) e uma folha de ZERO imports,
+// compartilhada com as telas de compartilhamento de atlas e de recurso. Import por ARQUIVO,
+// nunca pelo barril `@utils`, que arrastaria a store para `admin.html`.
+import { militaryPersonLabel } from '@utils/person-label.js';
 
 /** The user search waits this long after the last keystroke before hitting the backend. */
 const SEARCH_DEBOUNCE_MS = 250;
@@ -692,7 +696,10 @@ class GroupsTab {
         search.id = 'admin-group-search';
         search.className = 'admin-input admin-groups__search';
         search.dataset.testid = 'admin-group-search';
-        search.placeholder = 'Buscar por nome ou usuário…';
+        // O nome de guerra entrou no convite porque entrou no CASAMENTO da busca: a tabela
+        // escreve "Cap Andrade", e oferecer so "nome ou usuario" manda a pessoa digitar o que
+        // esta lendo e concluir que o colega nao tem conta.
+        search.placeholder = 'Buscar por nome, nome de guerra ou usuário…';
         box.appendChild(search);
 
         const results = document.createElement('div');
@@ -779,7 +786,7 @@ class GroupsTab {
             row.dataset.testid = 'admin-group-candidate';
 
             const text = document.createElement('span');
-            text.textContent = `${memberDisplayName(candidate)} (@${candidate.username || ''})`;
+            text.textContent = `${militaryPersonLabel(candidate).label} (@${candidate.username || ''})`;
             row.appendChild(text);
 
             row.appendChild(this._button('Adicionar', 'admin-btn admin-btn--ghost admin-btn--sm',
@@ -826,18 +833,37 @@ class GroupsTab {
             tr.dataset.testid = 'admin-group-member-row';
             tr.dataset.userId = member.id;
 
+            // A IDENTIDADE É A MILITAR desde 2026-09-20 (`Cap Andrade`), e não o nome civil
+            // por extenso com o posto colado na frente. Quem põe alguém num grupo que decide
+            // acesso a recurso privado escolhe a pessoa numa busca que já responde na forma
+            // militar; enquanto a tabela escrevia `Cap Maria Clara de Andrade`, a pessoa
+            // trocava de nome entre o clique e a linha.
+            //
+            // AS INICIAIS SAEM DO NOME SEM O POSTO: `getInitials('Cap Andrade')` é `CA`, e
+            // todo Capitão do grupo ganharia o mesmo `C`.
+            //
+            // O NOME CIVIL NÃO SE PERDE, vai para o `title`: ele é REFORÇO (é quem administra
+            // contas que precisa dele, e essa tela é a de Pessoal), e só é escrito quando
+            // DIFERE do rótulo, senão a dica repetiria o que já está na tela.
+            const { label, name, detail } = militaryPersonLabel(member);
             const idTd = document.createElement('td');
             const identity = document.createElement('div');
             identity.className = 'admin-users__identity';
-            identity.appendChild(avatar(member.nome || member.username, member.id || member.username));
+            identity.appendChild(avatar(name || label, member.id || member.username));
             const text = document.createElement('div');
             text.className = 'admin-users__identity-text';
             const nameEl = document.createElement('span');
             nameEl.className = 'admin-users__name';
-            nameEl.textContent = member.nome || '—';
+            nameEl.textContent = label;
+            const civil = String(member.nome || '').trim();
+            if (civil && civil !== label) nameEl.title = civil;
             const handle = document.createElement('span');
             handle.className = 'admin-users__handle';
-            handle.textContent = `@${member.username || ''}`;
+            // `detail` é a composição da folha (unidade e `@login`); aqui a listagem não manda
+            // OM, então ele é só o arroba — e vazio quando o rótulo JÁ é o login, que é o que
+            // impede a linha de escrever `@fulano` duas vezes. Uma queda para `member.username`
+            // aqui desfaria exatamente essa proteção.
+            handle.textContent = detail;
             text.append(nameEl, handle);
             identity.appendChild(text);
             idTd.appendChild(identity);
@@ -880,7 +906,7 @@ class GroupsTab {
             // contagem visível na coluna ao lado e ausente da frase. A rota continua idempotente, e
             // `added: false` cai no ramo que não anuncia mudança nenhuma.
             showSuccess(memberAdditionSummary(
-                { name: memberDisplayName(user), added: result?.added },
+                { name: militaryPersonLabel(user).label, added: result?.added },
                 group,
             ));
             if (this._alive) this._renderMembers(group);
@@ -907,7 +933,7 @@ class GroupsTab {
         const { group: alvo, stale } = await this._reachForWarning(group);
         if (!this._alive) return;
         const ok = await showConfirm(
-            `Tirar ${memberDisplayName(member)} do grupo "${group.name || ''}"?`,
+            `Tirar ${militaryPersonLabel(member).label} do grupo "${group.name || ''}"?`,
             {
                 message: memberRemovalWarning(alvo, { countsStale: stale }),
                 destructive: true,
@@ -920,7 +946,7 @@ class GroupsTab {
             // O número é o do SERVIDOR (a poda inteira), pelo mesmo motivo da exclusão do grupo:
             // a tela não conhece a subárvore que o membro alimentou a partir deste grupo.
             showSuccess(memberRemovalSummary({
-                name: memberDisplayName(member),
+                name: militaryPersonLabel(member).label,
                 grantsAffected: result?.grantsAffected,
             }));
             if (this._alive) this._renderMembers(group);

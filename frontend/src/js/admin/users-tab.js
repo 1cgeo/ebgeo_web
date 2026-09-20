@@ -44,6 +44,9 @@ import {
 import {
     PEOPLE_SEARCH_MIN_CHARS, peopleSearchHint, peopleSearchTruncatedNotice,
 } from '@js/catalog/grant-tree.js';
+// O compositor do rótulo militar (`Cap Silva`), folha de ZERO imports, por ARQUIVO. Aqui ele
+// entra como informação SECUNDÁRIA e nunca no lugar do nome civil: ver `_renderTable`.
+import { militaryPersonLabel } from '@utils/person-label.js';
 
 /**
  * O papel global de que o par (papel, OM de produção) é exigido pelo banco.
@@ -143,7 +146,10 @@ class UsersTab {
         const search = document.createElement('input');
         search.type = 'search';
         search.className = 'admin-input admin-users__search';
-        search.placeholder = 'Buscar por nome ou usuário…';
+        // O FILTRO É LOCAL (sobre a lista já carregada), e o texto promete exatamente os três
+        // campos que `_applyFilter` compara. O nome de guerra entrou junto com a coluna de
+        // identidade: prometer o que a linha mostra e não casar seria a pior metade das duas.
+        search.placeholder = 'Buscar por nome, nome de guerra ou usuário…';
         search.dataset.testid = 'admin-users-search';
         search.value = this._filter || '';
         search.addEventListener('input', () => { this._filter = search.value; this._applyFilter(); });
@@ -196,8 +202,11 @@ class UsersTab {
     _applyFilter() {
         if (!this._tableWrap) return;
         const q = (this._filter || '').trim().toLowerCase();
+        // O NOME DE GUERRA ENTROU NO CASAMENTO em 2026-09-20, junto com a linha que passou a
+        // escrevê-lo: a busca do SERVIDOR (`SEARCH_USERS`) já o casa, e um filtro local que não
+        // o casasse mandaria quem digita o que está lendo na tela concluir que a conta sumiu.
         const visible = !q ? this._users : this._users.filter((u) =>
-            `${u.nome || ''} ${u.username || ''}`.toLowerCase().includes(q));
+            `${u.nome || ''} ${u.nome_guerra || ''} ${u.username || ''}`.toLowerCase().includes(q));
         this._renderTable(this._tableWrap, visible);
     }
 
@@ -243,18 +252,50 @@ class UsersTab {
             tr.dataset.userId = u.id;
 
             // Identity: avatar + name + @handle (the username text the e2e matches lives here).
+            //
+            // O NOME CIVIL CONTINUA SENDO O PRINCIPAL AQUI, e essa é a única tela do produto
+            // de que isso vale. As outras quatro que nomeiam gente (compartilhar atlas,
+            // conceder recurso, criar atlas, membros de grupo) passaram a escrever a forma
+            // militar em 2026-09-20, porque nelas a pergunta é "quem é o colega". Aqui a
+            // pergunta é "qual CONTA é esta": quem administra usuários precisa do nome
+            // completo, que é o que casa com a identificação funcional e com o que o
+            // formulário ao lado edita. Trocá-lo pelo nome de guerra tiraria da tela de
+            // contas o único campo que identifica a pessoa por inteiro.
+            //
+            // A FORMA MILITAR ENTRA COMO SECUNDÁRIA, na linha do `@login`, e SEM COLUNA NOVA:
+            // o painel é desktop-only com tabelas de cinco a sete colunas (esta já tem oito),
+            // e uma nona coluna empurraria a tabela para fora da tela pelo que é, aqui,
+            // informação de apoio.
+            //
+            // SEM NOME DE GUERRA SOBRA SÓ O POSTO, e essa metade foi medida numa captura: a
+            // conta que não preencheu o campo tem `label` igual a `<posto> <nome civil>`, de
+            // modo que a linha secundária repetia inteiro o nome que está logo acima. O que
+            // ela tem de nova ali é o POSTO, e esta tabela não tem coluna para ele — então é
+            // ele, sozinho, que fica. Ler `posto_graduacao` aqui não é reescrever a escada: o
+            // campo é mostrado, não concatenado a nome nenhum.
+            const { label: rotuloMilitar, name: nomeChamado } = militaryPersonLabel(u);
+            const civil = String(u.nome || '').trim();
+            const temNomeDeGuerra = Boolean(civil && nomeChamado && nomeChamado !== civil);
+            const secundario = temNomeDeGuerra
+                ? rotuloMilitar
+                : String(u.posto_graduacao || '').trim();
             const idTd = document.createElement('td');
             const identity = document.createElement('div');
             identity.className = 'admin-users__identity';
-            identity.appendChild(avatar(u.nome || u.username, u.id || u.username));
+            identity.appendChild(avatar(civil || u.username, u.id || u.username));
             const text = document.createElement('div');
             text.className = 'admin-users__identity-text';
             const nm = document.createElement('span');
             nm.className = 'admin-users__name';
-            nm.textContent = u.nome || '—';
+            nm.textContent = civil || '—';
             const handle = document.createElement('span');
             handle.className = 'admin-users__handle';
-            handle.textContent = `@${u.username || ''}`;
+            // Vazio não desenha separador nenhum: a conta sem posto e sem nome de guerra volta
+            // a ter a linha secundária que sempre teve, só o `@login`. É também o que impede a
+            // linha sem nome NENHUM de escrever `@ana · @ana`, porque ali o rótulo militar já
+            // é o próprio login e `temNomeDeGuerra` é falso.
+            const arroba = `@${u.username || ''}`;
+            handle.textContent = secundario ? `${secundario} · ${arroba}` : arroba;
             text.append(nm, handle);
             identity.appendChild(text);
             idTd.appendChild(identity);

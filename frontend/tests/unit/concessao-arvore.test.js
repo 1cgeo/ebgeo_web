@@ -9,12 +9,14 @@ import {
     granteeCounts,
     granteeGroupOwnerLabel,
     granteeName,
+    granteePersonLabel,
     granteeSubject,
     groupMemberCount,
     groupOptionLabel,
     isGrantorDead,
     isGroupGrant,
     revocationWarning,
+    revokeBlockedNotice,
     MAX_GRANT_DEPTH,
 } from '../../src/js/catalog/grant-tree.js';
 
@@ -144,6 +146,63 @@ describe('granteeName — o nome que a linha mostra', () => {
     it('grupo sem nome cai em "Grupo", e não no rótulo de pessoa', () => {
         expect(granteeName(grp('G', null, null, 3))).toBe('Grupo');
         expect(granteeName(grp('G', null, '', 3))).toBe('Grupo');
+    });
+
+    // A FORMA MILITAR ENTROU EM 2026-09-20, e o degrau de cima passou a ser `posto + nome de
+    // guerra`. A fixture usa um nome de guerra que NÃO é pedaço do nome civil, que é o caso
+    // real: com `Souza`/`de Souza` uma implementação que ignorasse o campo passaria por acaso.
+    it('nomeia a PESSOA na forma militar: posto mais nome de guerra', () => {
+        const linha = {
+            grantee_nome: 'João Batista de Souza',
+            grantee_nome_guerra: 'Silva',
+            grantee_posto_graduacao: 'Cap',
+            grantee_username: 'jbsouza',
+        };
+        expect(granteeName(linha)).toBe('Cap Silva');
+        // DISCRIMINAÇÃO: sem nome de guerra o rótulo volta a ser o civil, senão a conta que
+        // ainda não o preencheu apareceria sem nome.
+        expect(granteeName({ ...linha, grantee_nome_guerra: null })).toBe('Cap João Batista de Souza');
+    });
+
+    // OS DOIS DEGRAUS DE BAIXO NÃO MUDARAM, de propósito: esta string entra em frase corrida
+    // ("Remover o acesso de X?"), onde o `@` e o 'Alguém' do compositor leriam diferente do
+    // resto do vocabulário deste arquivo. É o caso acima de `prefere o nome...`, repetido aqui
+    // com o posto presente para provar que o posto NÃO se cola ao login.
+    it('sem nome nenhum o posto não se cola ao login, e o rótulo continua o antigo', () => {
+        expect(granteeName({ grantee_username: 'ana', grantee_posto_graduacao: 'Cap' })).toBe('ana');
+    });
+});
+
+describe('granteePersonLabel — os pedaços que a linha desenha em elementos separados', () => {
+    // A LINHA DESENHA TRÊS COISAS EM LUGARES DIFERENTES (rótulo, unidade e `@login`), e o
+    // avatar precisa de uma QUARTA: o nome SEM o posto. `getInitials('Cap Silva')` é `CS`, de
+    // modo que todo Capitão da lista compartilharia a primeira letra e o selo deixaria de
+    // identificar alguém.
+    it('traduz o prefixo `grantee_*` do payload para o compositor', () => {
+        const linha = {
+            grantee_nome: 'João Batista de Souza',
+            grantee_nome_guerra: 'Silva',
+            grantee_posto_graduacao: 'Cap',
+            grantee_organizacao_militar_sigla: '1º CGEO',
+            grantee_username: 'jbsouza',
+        };
+        expect(granteePersonLabel(linha)).toEqual({
+            label: 'Cap Silva',
+            name: 'Silva',
+            unit: '1º CGEO',
+            handle: '@jbsouza',
+            detail: '1º CGEO · @jbsouza',
+        });
+    });
+
+    // DISCRIMINAÇÃO: a tradução é do prefixo CERTO. Uma linha que trouxesse só os campos do
+    // CONCEDENTE não pode vazar para o beneficiário, senão a lista nomearia a pessoa errada.
+    it('ignora os campos do CONCEDENTE, que moram na mesma linha', () => {
+        const so_concedente = {
+            granted_by_nome: 'Bruno Sá', granted_by_nome_guerra: 'Sá',
+            granted_by_posto_graduacao: 'Maj', granted_by_username: 'bsa',
+        };
+        expect(granteePersonLabel(so_concedente).label).toBe('Alguém');
     });
 });
 
@@ -696,6 +755,27 @@ describe('isGrantorDead / deadGrantorChip / grantOriginLabel', () => {
         const raiz = linha({ granted_by: null, granted_by_nome: null, granted_by_username: null, granted_by_vivo: true });
         expect(deadGrantorChip(raiz)).toBeNull();
         expect(grantOriginLabel(raiz)).toBe('concedido pela administração');
+    });
+
+    // O CONCEDENTE TAMBÉM É NOMEADO NA FORMA MILITAR desde 2026-09-20, pela MESMA escada do
+    // beneficiário: as duas frases ficam a dois centímetros uma da outra na mesma linha, e
+    // nomear o de cima de `Cap Silva` e o de baixo de `Bruno Sá de Oliveira` faria a tela
+    // parecer falar de duas pessoas. A UNIDADE dele NÃO entra: a frase é oração dentro da
+    // linha, não identificação, e o payload por isso só traz posto e nome de guerra aqui.
+    it('a origem nomeia o concedente por posto mais nome de guerra', () => {
+        const g = linha({
+            granted_by_nome: 'Bruno Sá de Oliveira',
+            granted_by_nome_guerra: 'Oliveira',
+            granted_by_posto_graduacao: 'Maj',
+            granted_by_vivo: true,
+        });
+        expect(grantOriginLabel(g)).toBe('recebido de Maj Oliveira');
+        // A MESMA ESCADA na nota de quem NÃO pode revogar: as duas falam da mesma pessoa, e
+        // duas escadas divergem no degrau que ninguém olha.
+        expect(revokeBlockedNotice(g).title).toContain('Maj Oliveira');
+        // DISCRIMINAÇÃO: sem nome de guerra a frase volta ao civil, e não fica vazia.
+        expect(grantOriginLabel({ ...g, granted_by_nome_guerra: null }))
+            .toBe('recebido de Maj Bruno Sá de Oliveira');
     });
 
     it('sem `granted_by_nome`, a origem cai no @username, e string vazia é ausência', () => {

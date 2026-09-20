@@ -240,10 +240,19 @@ export const SOFT_DELETE_GROUP = `
  * `posto_graduacao` é DERIVADO (`ranks.nome`), não coluna de `users` — a mesma junção
  * que `users.queries.js` faz, e pela mesma razão: a tela mostra o posto ao lado do
  * nome, e sem ele dois homônimos ficam indistinguíveis na lista.
+ *
+ * `nome_guerra` ENTROU EM 2026-09-20, e é o ÚNICO campo acrescentado desde então. O posto
+ * já vinha, mas a tela o escrevia ao lado do nome CIVIL por extenso (`Cap Maria Clara de
+ * Andrade`), que é a metade militar de uma frase civil. Quem põe alguém num grupo que
+ * decide acesso a recurso privado escolhe a pessoa numa busca que já responde `Cap
+ * Andrade`, então sem este campo a pessoa TROCA de nome entre a busca e a tabela. Ele NÃO
+ * amplia o que a rota revela — é menos identificador que o `nome` completo que já viajava
+ * ao lado — e a listagem continua sem e-mail e sem papel.
  *   $1 = group_id
  */
 export const LIST_MEMBERS = `
-  SELECT u.id, u.username, u.nome, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
+  SELECT u.id, u.username, u.nome, u.nome_guerra,
+         COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
          m.added_at, m.added_by, au.username AS added_by_username
     FROM access_group_members m
     JOIN users u ON u.id = m.user_id AND u.is_active = true

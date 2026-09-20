@@ -56,6 +56,9 @@ import {
     trackTimer,
 } from '@utils/event-cleanup.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
+// Por ARQUIVO, e nunca pelo barril `@utils`: `person-label.js` tem ZERO imports, e é essa
+// propriedade que permite usá-lo do corpo de `atlas.html`, que boota sem a store.
+import { militaryPersonLabel } from '@utils/person-label.js';
 import {
     getPermissionLabel, isKnownPermission, hasAtLeast, permissionRank, serverTreatsAsAtlasOwner,
 } from '@js/projects/permission-levels.js';
@@ -129,28 +132,35 @@ function formatRelativeTime(value) {
 }
 
 /**
- * COMO UMA PESSOA É NOMEADA nesta página, com o posto na frente quando o servidor mandou um.
+ * COMO UMA PESSOA É NOMEADA nesta página: posto abreviado mais NOME DE GUERRA.
  *
- * O posto vem no payload de `GET /atlas/overview` (`posto_graduacao`, por membro) e era jogado
- * fora: o rodapé montava a lista só com `nome`. Num app do Exército "Cap Silva" e "Sd Silva" são
- * duas pessoas, e a lista que mostra só o sobrenome não distingue as duas.
+ * ERA UM GÊMEO DECLARADO, E DEIXOU DE SER EM 2026-09-20. Esta função e a `participantLabel`
+ * de `modals/sharing.modal.core.js` implementavam a mesma regra em duas cópias, com a
+ * justificativa de que importar uma da outra arrastaria uma página inteira. A regra passou a
+ * morar numa folha de ZERO imports (`@utils/person-label.js`), que não custa módulo nenhum a
+ * nenhum dos dois lados, e o gêmeo foi recolhido: este arquivo agora CHAMA o compositor.
+ *
+ * O PAYLOAD JÁ TRAZIA O QUE FALTAVA. `GET /atlas/overview` responde `{id, nome, nome_guerra,
+ * posto_graduacao, permission}` por membro (`LIST_USER_ATLAS_MEMBERS`,
+ * `backend/src/modules/atlas/atlas.queries.js`), e o `nome_guerra` chegava aqui e morria sem
+ * leitor: o rodapé escrevia `Cap Maria Clara de Andrade`, que é a metade militar de uma frase
+ * civil, enquanto a tela de compartilhamento do MESMO atlas escrevia `Cap Andrade`.
  *
  * O ÚLTIMO RECURSO NÃO É STRING VAZIA. Uma entrada sem nome nenhum ainda é uma pessoa com acesso,
  * e apagá-la da frase encurtaria a lista sem baixar a contagem ao lado, que é a forma de erro em
- * que a tela se contradiz sozinha.
+ * que a tela se contradiz sozinha. Quem garante isso é o compositor, cujo último degrau é uma
+ * palavra.
+ *
+ * A UNIDADE NÃO APARECE, e isso é do PAYLOAD e não desta função: a rota do resumo responde de
+ * propósito sem OM, sem login e sem e-mail. Por isso aqui se lê `label` e não `detail`.
  *
  * Pura, e exportada por isso: é a parte desta tela que se verifica em node.
- * @param {{nome?: string, posto_graduacao?: string, username?: string}} person
+ * @param {{nome?: string, nome_guerra?: string, posto_graduacao?: string,
+ *   username?: string}} person
  * @returns {string} Nunca vazia.
  */
 export function accessPersonLabel(person) {
-    const nome = String(person?.nome ?? '').trim();
-    const posto = String(person?.posto_graduacao ?? '').trim();
-    if (nome && posto) return `${posto} ${nome}`;
-    if (nome) return nome;
-    const username = String(person?.username ?? '').trim();
-    if (username) return `@${username}`;
-    return 'Alguém';
+    return militaryPersonLabel(person).label;
 }
 
 /**

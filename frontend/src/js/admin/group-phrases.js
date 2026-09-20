@@ -175,7 +175,8 @@ export const STALE_COUNTS_NOTICE =
  * o fato de que houve alguém. Nenhum dos dois pode virar "null" na tela.
  *
  * O servidor não manda o `nome` de quem adicionou, só o `username`, então a coluna mostra o
- * arroba: inventar `memberDisplayName` aqui produziria "Usuário" para toda linha.
+ * arroba: compor aqui o rótulo militar (`@utils/person-label.js`) produziria `@fulano` para
+ * toda linha, que é exatamente o que esta função já escreve, sem a dependência.
  *
  * @param {{added_by?: string|null, added_by_username?: string|null}} member
  * @returns {string}
@@ -659,15 +660,16 @@ export function participatingReachUnknownNotice() {
         + 'por aqui: a ausência do número não quer dizer que ele seja zero.';
 }
 
-/**
- * How a person is named in the member list and in the search results. Falls back down the
- * chain because `nome` is optional in the database and a blank row is unclickable.
- * @param {{nome?: string, username?: string, posto_graduacao?: string}} person
- * @returns {string}
+/*
+ * `memberDisplayName` MORAVA AQUI E FOI PODADA EM 2026-09-20.
+ *
+ * Ela era a TERCEIRA cópia de "como uma pessoa se chama nesta casa" (as outras duas eram
+ * `accessPersonLabel`, em `projects/atlas-drive.js`, e `participantLabel`, no modal de
+ * compartilhamento), e as três escreviam posto mais nome CIVIL enquanto a tela de
+ * compartilhamento passou a escrever posto mais nome de GUERRA. A regra mora agora em
+ * `@utils/person-label.js`, folha de zero imports, e `admin/groups-tab.js` a chama direto.
+ *
+ * ELA NÃO FOI SUBSTITUÍDA POR UM REEXPORT DAQUI, de propósito: seria um import, e a
+ * propriedade deste arquivo que oito outros módulos citam por extenso é justamente ele não
+ * ter nenhum. Frase de grupo continua aqui; nome de pessoa não é frase de grupo.
  */
-export function memberDisplayName(person) {
-    const nome = (person?.nome || '').trim();
-    const posto = (person?.posto_graduacao || '').trim();
-    const base = nome || (person?.username || '').trim() || 'Usuário';
-    return posto && nome ? `${posto} ${base}` : base;
-}

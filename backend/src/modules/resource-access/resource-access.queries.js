@@ -372,23 +372,56 @@ export const LIST_SHAREABLE_OF_ACTOR = `
  * `view_share` que o servidor não aceita como pai, então o aviso pré-clique dizia
  * "ninguém cai" e o toast seguinte contava uma queda. Era o defeito exato que a direção
  * de erro documentada naquele arquivo dizia estar impedindo.
+ *
+ * A IDENTIFICAÇÃO É MILITAR DESDE 2026-09-20, pelas MESMAS razões escritas em
+ * `SEARCH_USERS` e em `GET_SHARING_CONFIG`: numa base militar a pessoa é `Cap Silva`, e o
+ * nome de guerra pode não ser pedaço nenhum do nome civil. Esta é a tela irmã da de
+ * compartilhamento de atlas, alimentada pela MESMA busca de pessoas, e enquanto a busca
+ * oferecia `Cap Andrade` e a lista logo acima escrevia `Maria Clara de Andrade` a pessoa
+ * escolhida trocava de nome ao ser concedida, na mesma janela e no mesmo segundo.
+ *
+ * SÃO DOIS SUJEITOS NA MESMA LINHA, e os dois ganharam os campos: o BENEFICIÁRIO (o nome
+ * grande) e o CONCEDENTE (a frase "recebido de X", mais a nota de quem não pode revogar).
+ * Deixar o segundo para trás escreveria as duas formas de nomear gente a dois centímetros
+ * uma da outra.
+ *
+ * OS CAMPOS SÃO ACRÉSCIMO: `grantee_nome`, `grantee_username`, `granted_by_nome` e
+ * `granted_by_username` continuam onde estavam, porque o nome civil é a QUEDA de quem não
+ * tem nome de guerra e o login é o que desempata homônimo. O posto vem abreviado
+ * (`COALESCE(nome_abrev, nome)`) e a OM vem com a sigla caindo para o nome por extenso,
+ * porque as duas colunas de origem são anuláveis e a queda tem de ser para o valor mais
+ * longo, nunca para vazio. As TRÊS junções novas são `LEFT`, como as quatro que já
+ * estavam: um INNER faria a linha inteira sumir de uma tela de permissão, que é a direção
+ * de erro que este arquivo já pagou uma vez com o `grantee_id` nulo da concessão a grupo.
+ *
+ * E-MAIL E PAPEL CONTINUAM FORA, aqui como em todo este módulo: a lista responde "quem tem
+ * acesso", e nem o endereço nem o papel global de ninguém fazem parte dessa resposta.
  */
 export const LIST_GRANTS_FOR_RESOURCE = `
   SELECT g.id, g.resource_type, g.resource_id, g.grant_level, g.parent_grant_id, g.created_at,
          g.expires_at,
          g.grantee_id, gu.username AS grantee_username, gu.nome AS grantee_nome,
+         gu.nome_guerra AS grantee_nome_guerra,
+         COALESCE(grk.nome_abrev, grk.nome) AS grantee_posto_graduacao,
+         gorg.nome AS grantee_organizacao_militar,
+         COALESCE(gorg.sigla, gorg.nome) AS grantee_organizacao_militar_sigla,
          g.grantee_group_id, gg.name AS grantee_group_name,
          gg.owner_id AS grantee_group_owner_id,
          gou.username AS grantee_group_owner_username, gou.nome AS grantee_group_owner_nome,
          (SELECT COUNT(*) FROM access_group_members m WHERE m.group_id = g.grantee_group_id)::int
            AS grantee_group_member_count,
          g.granted_by, bu.username AS granted_by_username, bu.nome AS granted_by_nome,
+         bu.nome_guerra AS granted_by_nome_guerra,
+         COALESCE(brk.nome_abrev, brk.nome) AS granted_by_posto_graduacao,
          (g.granted_by IS NULL OR fn_principal_vivo(g.granted_by)) AS granted_by_vivo
     FROM resource_grants g
     LEFT JOIN users gu ON gu.id = g.grantee_id
+    LEFT JOIN ranks grk ON grk.id = gu.rank_id
+    LEFT JOIN organizations gorg ON gorg.id = gu.organization_id
     LEFT JOIN access_groups gg ON gg.id = g.grantee_group_id
     LEFT JOIN users gou ON gou.id = gg.owner_id
     LEFT JOIN users bu ON bu.id = g.granted_by
+    LEFT JOIN ranks brk ON brk.id = bu.rank_id
    WHERE g.revoked_at IS NULL
      AND g.expires_at > NOW()
      AND g.resource_type = $1 AND g.resource_id = $2
@@ -445,9 +478,15 @@ const RECURSOS_VIVOS = `
 /**
  * O NOME DE EXIBIÇÃO de uma pessoa, com o mesmo par que o resto do módulo usa.
  *
- * `nome` é o nome de guerra e `username` é o login; o e-mail NUNCA entra, aqui nem em
- * lugar nenhum deste módulo. O `NULLIF` cobre a linha antiga com nome em branco, que
- * mostraria um rótulo vazio na tela em vez de cair no login.
+ * `nome` é o nome CIVIL (`users.nome`, NOT NULL) e `username` é o login; o nome de guerra
+ * mora em `users.nome_guerra`. Esta linha afirmou por um tempo que `nome` ERA o nome de
+ * guerra, o que é falso e engana justamente quem for nomear pessoa no padrão militar. O
+ * e-mail NUNCA entra, aqui nem em lugar nenhum deste módulo. O `NULLIF` cobre a linha
+ * antiga com nome em branco, que mostraria um rótulo vazio na tela em vez de cair no login.
+ *
+ * ESTE É O DEGRAU DE QUEDA, não o rótulo: as duas listagens de inventário mandam também
+ * `nome_guerra` e o posto abreviado, e quem compõe "Cap Silva" é o cliente, pelo compositor
+ * único dele. Compor aqui seria uma quinta cópia da mesma regra, em outra linguagem.
  * @param {string} alias - Apelido da junção com `users`.
  * @returns {string}
  */
@@ -479,11 +518,14 @@ export const LIST_GRANTS_ISSUED_BY_ACTOR = `
   WITH recurso AS (${RECURSOS_VIVOS})
   SELECT g.id, g.resource_type, g.resource_id, r.name AS resource_name,
          g.grantee_id, ${nomeDePessoa('gu')} AS grantee_nome,
+         gu.nome_guerra AS grantee_nome_guerra,
+         COALESCE(grk.nome_abrev, grk.nome) AS grantee_posto_graduacao,
          g.grantee_group_id, gg.name AS grantee_group_name,
          g.grant_level, g.expires_at, g.created_at
     FROM resource_grants g
     JOIN recurso r ON r.resource_type = g.resource_type AND r.resource_id = g.resource_id
     LEFT JOIN users gu ON gu.id = g.grantee_id
+    LEFT JOIN ranks grk ON grk.id = gu.rank_id
     LEFT JOIN access_groups gg ON gg.id = g.grantee_group_id
    WHERE g.granted_by = $1::uuid
      AND g.revoked_at IS NULL
@@ -517,11 +559,14 @@ export const LIST_GRANTS_RECEIVED_BY_ACTOR = `
   WITH recurso AS (${RECURSOS_VIVOS})
   SELECT g.id, g.resource_type, g.resource_id, r.name AS resource_name,
          g.granted_by AS grantor_id, ${nomeDePessoa('bu')} AS grantor_nome,
+         bu.nome_guerra AS grantor_nome_guerra,
+         COALESCE(brk.nome_abrev, brk.nome) AS grantor_posto_graduacao,
          g.grant_level, g.expires_at, g.created_at,
          g.grantee_group_id AS via_group_id, gg.name AS via_group_name
     FROM resource_grants g
     JOIN recurso r ON r.resource_type = g.resource_type AND r.resource_id = g.resource_id
     LEFT JOIN users bu ON bu.id = g.granted_by
+    LEFT JOIN ranks brk ON brk.id = bu.rank_id
     LEFT JOIN access_groups gg ON gg.id = g.grantee_group_id
    WHERE g.revoked_at IS NULL
      AND g.expires_at > NOW()

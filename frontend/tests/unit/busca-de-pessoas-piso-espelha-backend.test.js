@@ -36,6 +36,8 @@ import {
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const SCHEMAS_DO_SERVIDOR = resolve(AQUI, '../../../backend/src/modules/users/users.schemas.js');
+/** O SQL da busca. A frase promete o que o `WHERE` de `SEARCH_USERS` de fato casa. */
+const QUERIES_DO_SERVIDOR = resolve(AQUI, '../../../backend/src/modules/users/users.queries.js');
 
 /**
  * O valor de uma constante numérica exportada, lido do TEXTO do arquivo do servidor.
@@ -87,5 +89,40 @@ describe('o piso da busca de pessoas espelha o do backend', () => {
         expect(dica).toContain('nome');
         expect(dica).toContain('usuário');
         expect(dica).not.toContain('posto');
+    });
+
+    // O NOME DE GUERRA ENTROU NO CASAMENTO EM 2026-09-20 (`SEARCH_USERS`), e as telas passaram
+    // a ESCREVÊ-LO ("Cap Silva"). As duas frases enumeram o que a busca casa, então são elas
+    // que chegam à pessoa: uma que oferecesse só "nome ou usuário" mandaria quem está lendo
+    // "Cap Silva" desconfiar do termo certo e concluir que o colega não tem conta.
+    //
+    // A NEGATIVA DE `posto` E `om` CONTINUA VALENDO NAS DUAS, e é o que impede esta correção
+    // de reabrir o P8 que D13 fechou: nome de guerra é atributo INDIVIDUAL, posto e OM são
+    // COLETIVOS, e casar por coletivo é enumeração com outro nome.
+    it('as duas frases nomeiam o NOME DE GUERRA, e nenhuma promete posto ou OM', () => {
+        for (const frase of [peopleSearchHint(), peopleSearchTruncatedNotice()]) {
+            const texto = frase.toLowerCase();
+            expect(texto, frase).toContain('nome de guerra');
+            expect(texto, frase).toContain('usuário');
+            expect(texto, frase).not.toContain('posto');
+            expect(texto, frase).not.toContain('organização');
+        }
+    });
+
+    // DISCRIMINAÇÃO ESTRUTURAL: a frase promete o que o SERVIDOR casa, e o servidor casa em
+    // três ramos de `SEARCH_USERS`. Sem este caso, tirar `nome_guerra` do `WHERE` de lá
+    // deixaria as duas frases prometendo o que a busca já não entrega, sem nada ficar
+    // vermelho — é a mesma assimetria que D13 pagou na direção oposta.
+    it('e o `WHERE` do servidor de fato casa os TRÊS campos que elas prometem', () => {
+        const sql = readFileSync(QUERIES_DO_SERVIDOR, 'utf8');
+        const inicio = sql.indexOf('export const SEARCH_USERS');
+        // PISO CONTRA COMPARAÇÃO VAZIA, como o caso do topo deste arquivo: um `indexOf` que
+        // devolvesse -1 faria as três asserções abaixo varrerem o arquivo inteiro e passarem
+        // por acidente.
+        expect(inicio, 'SEARCH_USERS precisa existir no arquivo de queries').toBeGreaterThan(0);
+        const corpo = sql.slice(inicio, sql.indexOf('`;', inicio));
+        expect(corpo).toContain('LOWER(u.nome_guerra) LIKE LOWER($1)');
+        expect(corpo).toContain('LOWER(u.nome) LIKE LOWER($1)');
+        expect(corpo).toContain('LOWER(u.username) LIKE LOWER($1)');
     });
 });
