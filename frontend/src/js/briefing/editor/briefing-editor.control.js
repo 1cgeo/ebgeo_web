@@ -165,6 +165,8 @@ export class BriefingEditorControl {
 
         // Child components (created lazily)
         this._quillEditor = null;
+        /** @type {?Function} Detaches the text-change listener of the CURRENT Quill editor. */
+        this._quillChangeOff = null;
         this._sortableInstance = null;
 
         // Timers
@@ -318,6 +320,13 @@ export class BriefingEditorControl {
         this._eventBus.emit(EventTypes.BRIEFING_EDIT_ENDED, {
             briefingId: this._briefing?.id
         });
+
+        // The Quill listener is not a DOM listener, so `cleanup(this)` does not reach it: a picture
+        // still compressing when the panel closes would otherwise write into a slide of a briefing
+        // that is no longer open, and schedule an autosave for it.
+        this._quillChangeOff?.();
+        this._quillChangeOff = null;
+        this._quillEditor = null;
 
         // Cleanup UI
         cleanup(this);
@@ -895,11 +904,17 @@ export class BriefingEditorControl {
      */
     async _initQuillEditor(container, slide) {
         try {
-            if (this._quillEditor) {
-                this._quillEditor = null;
-            }
+            // THE PREVIOUS EDITOR IS SILENCED, not just forgotten. `_renderSlideEditor` empties the
+            // container, which detaches the old Quill from the page but leaves it ALIVE with its
+            // `text-change` listener attached; anything that still writes to it (a picture that
+            // finishes compressing after the person moved to another slide) used to fire that
+            // listener, and the listener read `this._quillEditor`, which by then was the NEXT
+            // slide's editor: slide A was overwritten with slide B's HTML and autosaved.
+            this._quillChangeOff?.();
+            this._quillChangeOff = null;
+            this._quillEditor = null;
 
-            this._quillEditor = await createQuillEditor(container, {
+            const editor = await createQuillEditor(container, {
                 placeholder: 'Digite o conte\u00FAdo do slide...',
                 theme: 'snow',
                 toolbar: [
@@ -915,17 +930,23 @@ export class BriefingEditorControl {
                 enableImageCompression: true
             });
 
+            this._quillEditor = editor;
+
             if (slide.content) {
                 // Slide content travels through sync, so it can come from another
                 // user. The presenter already sanitizes it on display; the editor
                 // has to do the same before writing it into Quill's root.
-                this._quillEditor.root.innerHTML = sanitizeQuillHtml(slide.content);
+                editor.root.innerHTML = sanitizeQuillHtml(slide.content);
             }
 
-            this._quillEditor.on('text-change', () => {
-                slide.content = this._quillEditor.root.innerHTML;
+            // THE SLIDE AND ITS EDITOR ARE CAPTURED AS A PAIR. Reading `this._quillEditor` inside
+            // the handler paired THIS slide with WHICHEVER editor was current when it fired.
+            const onChange = () => {
+                slide.content = editor.root.innerHTML;
                 this._scheduleAutosave();
-            });
+            };
+            editor.on('text-change', onChange);
+            this._quillChangeOff = () => editor.off('text-change', onChange);
 
         } catch (error) {
             console.error('Error initializing Quill editor:', error);
@@ -1858,6 +1879,8 @@ export class BriefingEditorControl {
         if (this._isOpen) {
             this.close(true);
         }
+        this._quillChangeOff?.();
+        this._quillChangeOff = null;
         cleanup(this);
     }
 }

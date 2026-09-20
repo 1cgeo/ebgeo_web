@@ -8,6 +8,9 @@ import { describe, it, expect } from 'vitest';
 import {
     validateImageFile,
     validateImageDimensions,
+    acceptedImageTypes,
+    acceptedImageExtensions,
+    reencodedImageType,
     IMAGE_CONFIG,
 } from '../../src/js/utilities/image_utils.js';
 
@@ -205,5 +208,114 @@ describe('validateImageDimensions — o teto de PIXELS', () => {
         for (const [w, h] of [[undefined, undefined], [null, null], ['800', '600'], [{}, []]]) {
             expect(validateImageDimensions(w, h).valid).toBe(false);
         }
+    });
+});
+
+describe('a porta que RE-ENCODA aceita GIF e BMP, e só ela', () => {
+    // A ferramenta de imagem e o arrastar-e-soltar desenham a figura num canvas e jogam fora os
+    // bytes originais, então o servidor nunca vê o GIF. Recusá-los ali era uma recusa que não
+    // protegia nada, e tirava um comportamento que as pessoas tinham.
+    const REENCODA = { allowReencodable: true };
+
+    it('aceita GIF e BMP quando a porta declara que re-encoda', () => {
+        expect(validateImageFile(fileLike('image/gif'), REENCODA)).toEqual({ valid: true });
+        expect(validateImageFile(fileLike('image/bmp'), REENCODA)).toEqual({ valid: true });
+    });
+
+    it('continua recusando GIF e BMP quando a porta guarda os bytes originais', () => {
+        // O controle que dá sentido ao caso acima: a opção tem de MUDAR a resposta, senão as duas
+        // metades passariam com um gate que aceita tudo.
+        for (const tipo of ['image/gif', 'image/bmp']) {
+            const result = validateImageFile(fileLike(tipo));
+            expect(result.valid, `${tipo} sem a opção`).toBe(false);
+            expect(result.reason).toMatch(/não suportado/i);
+        }
+    });
+
+    it('não afrouxa nada mais: SVG e PDF continuam recusados nos dois modos', () => {
+        for (const tipo of ['image/svg+xml', 'image/tiff', 'application/pdf']) {
+            expect(validateImageFile(fileLike(tipo), REENCODA).valid, tipo).toBe(false);
+            expect(validateImageFile(fileLike(tipo)).valid, tipo).toBe(false);
+        }
+    });
+
+    it('o teto de bytes continua valendo para um GIF aceito', () => {
+        const grande = { type: 'image/gif', size: IMAGE_CONFIG.maxSizeBytes + 1, name: 'a.gif' };
+        const result = validateImageFile(grande, REENCODA);
+        expect(result.valid).toBe(false);
+        expect(result.reason).toMatch(/o máximo é 10 MB/);
+    });
+
+    it('a FRASE de recusa nomeia os formatos DAQUELA porta, não uma lista fixa', () => {
+        // O defeito que isto prende: uma porta que aceita quatro formatos recusando com a frase de
+        // duas manda a pessoa converter um arquivo à toa.
+        const naPortaLarga = validateImageFile(fileLike('image/tiff'), REENCODA).reason;
+        expect(naPortaLarga).toContain('JPEG, PNG, WebP, GIF ou BMP');
+
+        const naPortaEstreita = validateImageFile(fileLike('image/tiff')).reason;
+        expect(naPortaEstreita).toContain('JPEG, PNG ou WebP');
+        expect(naPortaEstreita).not.toContain('GIF');
+    });
+
+    it('o fallback de MIME vazio aceita .gif e .bmp só na porta larga', () => {
+        const semMime = (nome) => ({ type: '', size: 1024, name: nome });
+        const opcoes = { allowExtensionFallback: true, allowReencodable: true };
+
+        expect(validateImageFile(semMime('foto.GIF'), opcoes)).toEqual({ valid: true });
+        expect(validateImageFile(semMime('mapa.bmp'), opcoes)).toEqual({ valid: true });
+        // Sem a opção de re-encode, a mesma extensão não vale.
+        expect(validateImageFile(semMime('foto.gif'), { allowExtensionFallback: true }).valid)
+            .toBe(false);
+        // E sem o fallback declarado, nem com a opção larga: MIME vazio não é MIME certo.
+        expect(validateImageFile(semMime('foto.gif'), REENCODA).valid).toBe(false);
+    });
+
+    it('acceptedImageTypes / acceptedImageExtensions são derivadas e não compartilham o array', () => {
+        expect(acceptedImageTypes()).toEqual(['image/jpeg', 'image/png', 'image/webp']);
+        expect(acceptedImageTypes({ allowReencodable: true }))
+            .toEqual(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp']);
+        expect(acceptedImageExtensions({ allowReencodable: true }))
+            .toEqual(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp']);
+
+        // Cópia, nunca a constante viva: um chamador que ordenasse o retorno reescreveria o gate.
+        const copia = acceptedImageTypes();
+        copia.push('image/tiff');
+        expect(IMAGE_CONFIG.allowedTypes).not.toContain('image/tiff');
+    });
+});
+
+describe('reencodedImageType: o canvas só devolve formato que o servidor aceita', () => {
+    it('mantém JPEG como JPEG', () => {
+        expect(reencodedImageType('data:image/jpeg;base64,AAAA')).toBe('image/jpeg');
+    });
+
+    it('converte GIF e BMP para PNG, que é o defeito que isto conserta', () => {
+        // `canvas.toDataURL('image/gif')` não é codificável em navegador nenhum: a especificação
+        // manda cair em PNG calado. O ramo que pedia `image/gif` dava os bytes certos com o nome
+        // errado, e o nome é o que a subida lê.
+        expect(reencodedImageType('data:image/gif;base64,R0lGOD')).toBe('image/png');
+        expect(reencodedImageType('data:image/bmp;base64,Qk0')).toBe('image/png');
+    });
+
+    it('converte PNG e WebP para PNG', () => {
+        expect(reencodedImageType('data:image/png;base64,iVBOR')).toBe('image/png');
+        expect(reencodedImageType('data:image/webp;base64,UklGR')).toBe('image/png');
+    });
+
+    it('nunca devolve um tipo fora da lista do servidor, para entrada nenhuma', () => {
+        const entradas = [
+            undefined, null, '', 'lixo', 42, {},
+            'data:image/gif', 'DATA:IMAGE/JPEG;base64,AA', 'data:image/jpeg2000;base64,AA',
+        ];
+        for (const entrada of entradas) {
+            expect(IMAGE_CONFIG.allowedTypes, String(entrada))
+                .toContain(reencodedImageType(entrada));
+        }
+    });
+
+    it('é sensível a maiúsculas de propósito: o prefixo vem de `canvas.toDataURL`', () => {
+        // Nada nesta árvore produz `DATA:IMAGE/JPEG`; normalizar aqui esconderia uma origem
+        // inesperada de data URL em vez de tratá-la, e o PNG é o lado seguro.
+        expect(reencodedImageType('DATA:IMAGE/JPEG;base64,AA')).toBe('image/png');
     });
 });

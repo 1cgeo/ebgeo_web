@@ -11,6 +11,13 @@ import DOMPurify from 'dompurify';
 import { showError } from './toast_service.js';
 import { ImageRefusal, imageRefusalNotice } from './image-limit-phrases.js';
 import { validateImageDimensions } from './image_utils.js';
+import {
+    QUILL_PASTE_MIME_TYPES,
+    QUILL_IMAGE_ACCEPT,
+    pastedHtmlImageVerdict,
+    withoutRefusedImages,
+    dataUrlToBytes,
+} from './quill-image-paste.model.js';
 
 /** DOMPurify configuration allowing only Quill-safe HTML tags and attributes. */
 export const QUILL_DOMPURIFY_CONFIG = {
@@ -178,6 +185,13 @@ export function compressQuillImage(file, options = {}) {
 
             canvas.width = width;
             canvas.height = height;
+            // JPEG has no alpha, and a fresh canvas is transparent BLACK: a pasted PNG or WebP with
+            // transparency (a logo, a cut-out screenshot) came out on a black background. White is
+            // the page colour of a slide. The format stays JPEG on purpose, because this picture
+            // is base64 inside HTML that travels through sync, and a photo as PNG is several
+            // times heavier; the declared loss is transparency, not legibility.
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(0, 0, width, height);
             ctx.drawImage(img, 0, 0, width, height);
 
             URL.revokeObjectURL(objectUrl);
@@ -194,6 +208,101 @@ export function compressQuillImage(file, options = {}) {
 }
 
 /**
+ * Shows the refusal a picture earned, in pt-BR, whatever threw it.
+ *
+ * Only a FLAGGED refusal is quoted. `canvas.toDataURL`, `getSelection` and `insertEmbed` throw
+ * too, and their messages are English engine text ("Failed to execute 'toDataURL'...") that must
+ * never reach a toast.
+ *
+ * @param {*} error - Whatever the compression path rejected with
+ */
+function reportImageRefusal(error) {
+    console.error('Error processing image:', error);
+    // THE REASON, not a flat "Erro ao adicionar imagem": every rejection is a pt-BR sentence
+    // naming the limit that was hit, and replacing it with a generic one threw away the only
+    // thing the person could act on.
+    showError(error?.isImageRefusal
+        ? error.message
+        : imageRefusalNotice(ImageRefusal.ILEGIVEL));
+}
+
+/** Said when a picture finishes compressing after its editor has left the page. */
+const EDITOR_GONE_NOTICE = 'A imagem não foi inserida: o editor foi fechado ou o slide foi trocado antes de ela ficar pronta.';
+
+/**
+ * Whether the editor is still attached to the document.
+ * @param {Object} quillInstance - Quill editor instance
+ * @returns {boolean} False for a missing instance or a detached root
+ */
+function isEditorOnPage(quillInstance) {
+    return Boolean(quillInstance?.root) && quillInstance.root.isConnected !== false;
+}
+
+/**
+ * Compresses each picture and embeds it, refusing out loud the ones that do not fit.
+ *
+ * THE ONE PATH EVERY DOOR ENDS IN. The button, a paste and a drop used to be three different
+ * stories: the button compressed and refused with a sentence, while the other two went through
+ * Quill's stock uploader, which reads the file with a `FileReader` and inserts the base64 whole —
+ * no byte ceiling, no pixel ceiling, no message. Funnelling all three here is the fix, and it is
+ * why this is a function and not a body inside the button handler.
+ *
+ * A SELECTION IS REPLACED, as in any editor: text selected when the picture arrives is deleted.
+ * That is what Quill's own uploader does too, and it is NEW for the toolbar button, whose old
+ * handler inserted at the start of the selection and left the text alone.
+ *
+ * ONE REFUSAL DOES NOT CANCEL THE REST: pasting three pictures of which one is too large embeds
+ * the other two and says why the third did not land. Dropping the batch would make the person
+ * redo work that was never in question.
+ *
+ * @param {Object} quillInstance - Quill editor instance
+ * @param {{index: number, length: number}} range - Where the pictures go
+ * @param {File[]} files - Pictures to embed, in the order they arrived
+ * @param {Object} [options] - Compression options passed to compressQuillImage
+ * @returns {Promise<number>} How many pictures were embedded
+ */
+export async function insertQuillImages(quillInstance, range, files, options = {}) {
+    if (!isEditorOnPage(quillInstance)) {
+        showError(EDITOR_GONE_NOTICE);
+        return 0;
+    }
+    // No range (an editor without focus) means the END of the slide, never index 0: a picture
+    // dropped at the top of somebody's text is worse than one appended after it.
+    let index = Number.isFinite(range?.index)
+        ? range.index
+        : Math.max(0, quillInstance.getLength() - 1);
+    if (range?.length > 0) {
+        quillInstance.deleteText(index, range.length, 'user');
+    }
+
+    let inseridas = 0;
+    for (const file of files) {
+        try {
+            // Awaited one at a time, not `Promise.all`: the insertion index moves with each
+            // embed, and a parallel decode would resolve in whatever order the pictures happen
+            // to finish, which is not the order the person pasted them in.
+            const compressedBase64 = await compressQuillImage(file, options);
+            // RE-CHECKED AFTER THE AWAIT, which is the whole point: compression takes a decode and
+            // a canvas, long enough for the person to move to another slide. The host empties
+            // the container, the editor leaves the page but stays alive, and an insert here
+            // would write a picture into a slide nobody is looking at.
+            if (!isEditorOnPage(quillInstance)) {
+                showError(EDITOR_GONE_NOTICE);
+                return inseridas;
+            }
+            quillInstance.insertEmbed(index, 'image', compressedBase64, 'user');
+            index += 1;
+            inseridas += 1;
+        } catch (error) {
+            reportImageRefusal(error);
+        }
+    }
+
+    if (inseridas > 0) quillInstance.setSelection(index, 0, 'silent');
+    return inseridas;
+}
+
+/**
  * Handles image upload for Quill editor with compression.
  *
  * @param {Object} quillInstance - Quill editor instance
@@ -202,28 +311,15 @@ export function compressQuillImage(file, options = {}) {
 export function handleQuillImageUpload(quillInstance, options = {}) {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = 'image/png, image/gif, image/jpeg, image/webp';
+    // The SAME list the paste and drop doors enforce: the picker used to offer four formats while
+    // Quill's stock uploader took two, so a WebP arrived by button and vanished by paste.
+    input.accept = QUILL_IMAGE_ACCEPT;
     input.click();
 
     input.onchange = async () => {
         const file = input.files[0];
         if (!file) return;
-
-        try {
-            const compressedBase64 = await compressQuillImage(file, options);
-            const range = quillInstance.getSelection(true);
-            quillInstance.insertEmbed(range.index, 'image', compressedBase64);
-            quillInstance.setSelection(range.index + 1);
-        } catch (error) {
-            console.error('Error processing image:', error);
-            // THE REASON, not a flat "Erro ao adicionar imagem": every rejection above is now a
-            // pt-BR sentence naming the limit that was hit, and replacing it with a generic one
-            // threw away the only thing the person could act on.
-            // Only a flagged refusal is quoted; anything else is an engine exception in English.
-            showError(error?.isImageRefusal
-                ? error.message
-                : imageRefusalNotice(ImageRefusal.ILEGIVEL));
-        }
+        await insertQuillImages(quillInstance, quillInstance.getSelection(true), [file], options);
     };
 }
 
@@ -254,11 +350,45 @@ export async function createQuillEditor(container, options = {}) {
         import('quill/dist/quill.snow.css')
     ]);
 
+    // The handler runs long after construction, but the uploader's options are read DURING it, so
+    // the instance cannot be named in them. A box filled in on the next line is the whole trick.
+    const editor = {};
+
     const quillInstance = new Quill(container, {
         theme,
         placeholder,
-        modules: { toolbar }
+        modules: {
+            toolbar,
+            // THE TWO DOORS QUILL WIRES BY ITSELF. `modules/uploader.js` owns both the `drop` on
+            // the editor root and the pasted FILES that `modules/clipboard.js` forwards to it,
+            // and its stock handler reads each file with a `FileReader` and inserts the base64
+            // whole — no byte ceiling, no pixel ceiling, no message. Until this option existed,
+            // the button was gated and Ctrl+V was not, which is backwards: a pasted screenshot is
+            // the biggest picture most people will ever put in a slide, and a slide's HTML
+            // travels through sync on every edit.
+            uploader: {
+                // The EMPTY string is on the list on purpose. `Uploader.upload` drops, without a
+                // word, every file whose `type` is not listed, and a drag from Windows Explorer
+                // can hand over `type: ''` for a perfectly good .jpg. Letting it through costs
+                // nothing: `compressQuillImage` decodes it or refuses it WITH the sentence.
+                mimetypes: [...QUILL_PASTE_MIME_TYPES, ''],
+                handler: (range, files) => {
+                    insertQuillImages(editor.quill, range, files, imageCompressionOptions);
+                },
+            },
+            // THE THIRD DOOR, and it never reaches the uploader. Pasted HTML that already carries
+            // `<img src="data:...">` (a picture copied out of a web page) is routed through
+            // `convert` instead, which is synchronous, so there is no decode to measure and no
+            // canvas to compress with. The matcher therefore never LEAVES an inline picture in
+            // that Delta: it refuses the ones over the byte ceiling on the spot, and hands the
+            // rest to `insertQuillImages` one tick later, so this door ends in the same path as
+            // the other four (see `createPastedImageMatcher`).
+            clipboard: {
+                matchers: [['img', createPastedImageMatcher(editor, imageCompressionOptions)]],
+            },
+        }
     });
+    editor.quill = quillInstance;
 
     if (enableImageCompression) {
         const toolbarModule = quillInstance.getModule('toolbar');
@@ -268,4 +398,81 @@ export async function createQuillEditor(container, options = {}) {
     }
 
     return quillInstance;
+}
+
+/**
+ * Clipboard matcher for an `<img>` arriving inside pasted HTML.
+ *
+ * It rewrites the Delta the earlier matchers built rather than touching the DOM: by the time a
+ * selector matcher runs, `matchBlot` has already turned the node into an `{ insert: { image } }`
+ * op, and that op is what would end up in the document.
+ *
+ * KEEPING THE SANITIZER INTACT: nothing here loosens `sanitizeQuillHtml`. This only TAKES
+ * pictures OUT of the pasted Delta, and whatever is embedded afterwards is a JPEG this module
+ * re-encoded itself, sanitized exactly as before at every point that renders slide content. An SVG
+ * `data:` URL, the one inline type that can carry script, is refused by MIME before any decode.
+ *
+ * A FACTORY, because the matcher needs the editor it serves: Quill reads `modules.clipboard`
+ * during construction, before the instance exists, so it receives the same late-filled `editor`
+ * box the uploader handler uses.
+ *
+ * @param {{quill: ?Object}} editor - Box that holds the Quill instance once it is built
+ * @param {Object} [options] - Compression options passed on to `insertQuillImages`
+ * @returns {function(Element, Object): Object} Matcher returning the Delta minus inline pictures
+ */
+function createPastedImageMatcher(editor, options) {
+    /** @type {File[]} Pictures taken out of the current paste, waiting for the async path. */
+    let pendentes = [];
+    let agendado = false;
+
+    const despachar = () => {
+        agendado = false;
+        const files = pendentes;
+        pendentes = [];
+        const quill = editor.quill;
+        if (!quill || files.length === 0) return;
+        // `getSelection(true)` focuses the editor and can throw on a detached root, and the
+        // promise below has no awaiter: both are caught here, or a lost picture would be silent.
+        let range = null;
+        try {
+            range = isEditorOnPage(quill) ? quill.getSelection(true) : null;
+        } catch {
+            range = null;
+        }
+        insertQuillImages(quill, range, files, options).catch(reportImageRefusal);
+    };
+
+    return function matchPastedImage(node, delta) {
+        const src = typeof node?.getAttribute === 'function' ? node.getAttribute('src') : null;
+        const verdict = pastedHtmlImageVerdict(src, QUILL_IMAGE_CONFIG.maxSizeMB * 1024 * 1024);
+
+        // No inline bytes (`https://`, `blob:`): nothing is being embedded, so it stays.
+        if (verdict.keep && verdict.bytes === undefined) return delta;
+
+        const semEsta = () => withoutRefusedImages(delta, (candidate) => candidate === src);
+        if (!verdict.keep) {
+            showError(verdict.reason);
+            return semEsta();
+        }
+
+        // INLINE BYTES NEVER STAY IN THE SYNCHRONOUS DELTA, even under the byte ceiling. `convert`
+        // cannot decode, so a picture left here entered whole: up to 5 MB of base64 in a slide's
+        // HTML, with no compression and no pixel ceiling, on the one door that bypassed both. It
+        // is taken out and sent down the same path a pasted FILE takes, one tick later, after
+        // Quill has applied the rest of the paste. The price is position: the pictures land at the
+        // caret that the paste leaves, not where they sat inside the pasted text.
+        const decoded = dataUrlToBytes(src);
+        if (!decoded || !QUILL_PASTE_MIME_TYPES.includes(decoded.type)) {
+            showError(decoded
+                ? imageRefusalNotice(ImageRefusal.TIPO, { tipos: [...QUILL_PASTE_MIME_TYPES] })
+                : imageRefusalNotice(ImageRefusal.ILEGIVEL));
+            return semEsta();
+        }
+        pendentes.push(new File([decoded.bytes], 'imagem-colada', { type: decoded.type }));
+        if (!agendado) {
+            agendado = true;
+            setTimeout(despachar, 0);
+        }
+        return semEsta();
+    };
 }

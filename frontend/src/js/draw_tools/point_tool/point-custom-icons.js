@@ -72,6 +72,48 @@ export function customMarkerSymbol(iconId) {
 }
 
 /**
+ * Whether a decoded icon is small enough to rasterise, INCLUDING the two SVG shapes that read as
+ * nonsense to a generic pixel gate.
+ *
+ * PURE AND EXPORTED because it is the whole decision, and because the two shapes below are the
+ * only part of it anyone gets wrong. It lived inline inside `normalizeIconFile`, which needs a
+ * DOM, a canvas and the store to run, so the sutileza could only ever be checked by mocking the
+ * very validator it wraps — a test that asserts the mock.
+ *
+ * TWO CEILINGS ARE DELIBERATELY NOT ENFORCED HERE, and each one is a refusal that would break a
+ * supported file:
+ *
+ *   1. AN SVG WITH NO INTRINSIC SIZE DECODES TO 0x0. `validateImageDimensions` calls that
+ *      unreadable, and rightly so for a photo; for an icon it is a legitimate state that the
+ *      rasteriser below already handles (it falls back to the normalized square). Refusing it
+ *      would turn a supported shape into an error.
+ *   2. AN SVG THAT DECLARES ONLY ONE SIDE decodes to 0 on the other. The missing side BORROWS the
+ *      present one, so the ceiling is applied to a square of the side that exists. Keying the
+ *      skip on width alone, which is the obvious way to write it, let a `height="40000"` root
+ *      walk straight past the ceiling, because its width read 0 and looked sizeless.
+ *
+ * THE BORROW IS KEYED ON AN EXACT ZERO, NOT ON FALSINESS, and the difference is not cosmetic. The
+ * obvious `naturalWidth || naturalHeight` also fires for NaN, which is what a FAILED DECODE leaves
+ * behind: a `{NaN, 64}` pair would quietly borrow the 64 and be declared a legal 64x64 icon, so
+ * the one state that genuinely means "unreadable" would pass as the one state that means "sizeless
+ * SVG". It is the same trap the rest of this product writes `Number.isFinite` for. Refusing NaN is
+ * the truth here, in every combination.
+ *
+ * @param {number} naturalWidth - Decoded width, straight off the image element
+ * @param {number} naturalHeight - Decoded height, straight off the image element
+ * @returns {{valid: boolean, reason?: string}} `reason` is the pt-BR sentence to show the person
+ */
+export function iconDimensionVerdict(naturalWidth, naturalHeight) {
+    const semTamanho = naturalWidth === 0 && naturalHeight === 0;
+    if (semTamanho) return { valid: true };
+
+    return validateImageDimensions(
+        naturalWidth === 0 ? naturalHeight : naturalWidth,
+        naturalHeight === 0 ? naturalWidth : naturalHeight,
+    );
+}
+
+/**
  * Load an image from a File/Blob via an object URL.
  * @param {Blob} blob
  * @returns {Promise<HTMLImageElement>}
@@ -128,22 +170,10 @@ export async function normalizeIconFile(file) {
 
         // The PIXEL ceiling. An SVG is in this door's allowlist and costs almost no bytes, so a
         // `width="40000"` root element walks past the two tests above and is only stopped here,
-        // before `drawImage` has to rasterise it.
-        //
-        // The `> 0` half is NOT redundancy: an SVG with no intrinsic size decodes to 0x0, which
-        // `validateImageDimensions` calls unreadable, and the lines below already handle that
-        // case deliberately (they fall back to the normalized square). Refusing it here would
-        // turn a supported shape into an error.
-        //
-        // The skip is keyed on BOTH sides being 0, which is the sizeless SVG and nothing else. An
-        // SVG that declares only one side decodes to 0 on the other, and keying on width alone let
-        // a `height="40000"` root walk past the ceiling; the missing side borrows the present one.
-        const semTamanho = img.naturalWidth === 0 && img.naturalHeight === 0;
-        const dimensions = validateImageDimensions(
-            img.naturalWidth || img.naturalHeight,
-            img.naturalHeight || img.naturalWidth,
-        );
-        if (!dimensions.valid && !semTamanho) {
+        // before `drawImage` has to rasterise it. The two SVG shapes this has to tolerate, and
+        // why, are at `iconDimensionVerdict`.
+        const dimensions = iconDimensionVerdict(img.naturalWidth, img.naturalHeight);
+        if (!dimensions.valid) {
             showError(dimensions.reason);
             return null;
         }

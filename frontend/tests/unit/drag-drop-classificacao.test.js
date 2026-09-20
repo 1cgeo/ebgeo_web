@@ -328,19 +328,45 @@ describe('ramo IMAGE', () => {
             .toBe('A imagem não foi carregada: o arquivo tem 37 MB e o máximo é 10 MB.');
     });
 
-    it('tipo fora da lista é recusado NOMEANDO os formatos aceitos', async () => {
-        // `.gif` continua classificando como IMAGE (a faixa de arrastar diz "Adicionar Imagem"),
-        // e é justamente por isso que a recusa precisa falar: sem ela a solta não fazia nada.
+    it.each([['animado.gif', 'image/gif'], ['planta.bmp', 'image/bmp']])(
+        'GIF e BMP PASSAM aqui, porque esta porta re-encoda: %s',
+        async (nome, tipo) => {
+            // Por uma revisão esta porta recusou os dois, e era uma recusa que não protegia nada:
+            // tudo que cai aqui vai para `resizeImage`, que desenha num canvas e emite PNG ou
+            // JPEG, de modo que o servidor nunca vê o formato que a pessoa soltou. A faixa de
+            // arrastar já dizia "Adicionar Imagem" para eles, e a solta então não fazia nada.
+            const { handler, imageControl } = makeHandler();
+            globalThis.FileReader = class {
+                readAsDataURL() { this.onload(); }
+                get result() { return `data:${tipo};base64,AA`; }
+            };
+            const event = dropOf([nome]);
+            event.dataTransfer.files = [fileOf(nome, { type: tipo })];
+
+            await handler.handleDrop(event);
+
+            expect(imageControl.addImageFeature).toHaveBeenCalledTimes(1);
+            expect(showError).not.toHaveBeenCalled();
+            delete globalThis.FileReader;
+        },
+    );
+
+    it('tipo fora da lista é recusado NOMEANDO os CINCO formatos desta porta', async () => {
+        // O `FileReader` NÃO é instalado neste caso: se a recusa deixar de acontecer, ele estoura
+        // em vez de passar verde. E a frase tem de listar GIF e BMP, senão manda a pessoa
+        // converter para um formato que ela já podia ter soltado.
         const { handler, imageControl } = makeHandler();
-        const event = dropOf(['animado.gif']);
-        event.dataTransfer.files = [fileOf('animado.gif', { type: 'image/gif' })];
+        const event = dropOf(['scan.png']);
+        event.dataTransfer.files = [fileOf('scan.png', { type: 'image/tiff' })];
 
         await handler.handleDrop(event);
 
         expect(imageControl.addImageFeature).not.toHaveBeenCalled();
         expect(showError).toHaveBeenCalledTimes(1);
-        expect(showError.mock.calls[0][0])
-            .toBe('A imagem não foi carregada: tipo de arquivo não suportado (use JPEG, PNG ou WebP).');
+        expect(showError.mock.calls[0][0]).toBe(
+            'A imagem não foi carregada: tipo de arquivo não suportado '
+            + '(use JPEG, PNG, WebP, GIF ou BMP).',
+        );
     });
 
     it('arquivo exatamente no teto passa, como no servidor', async () => {

@@ -264,10 +264,15 @@ class DragDropHandler {
      * THE SECOND DOOR INTO THE IMAGE TOOL, and it used to be the unguarded one. The tool's own
      * file picker now refuses on `size` and `type` before reading; a drop reaches
      * `addImageFeature` through a different call site, so the same refusal has to be written
-     * here too, or the ceiling exists only for people who use the button. The extension table
-     * above is wider than the MIME allowlist on purpose (a .gif or .bmp still classifies as
-     * IMAGE so the overlay reads "Adicionar Imagem"), which makes this the point that says why
-     * those two are refused instead of leaving a drop that silently does nothing.
+     * here too, or the ceiling exists only for people who use the button.
+     *
+     * IT OPTS INTO THE RE-ENCODABLE FORMATS, like the picker and for the same reason: everything
+     * that lands here goes through `AddImageControl.resizeImage`, which draws the picture into a
+     * canvas and emits PNG or JPEG, so the server never sees the GIF or the BMP. The extension
+     * table above already classified those two as IMAGE (the overlay reads "Adicionar Imagem"),
+     * and for a while the drop then refused what the overlay had just promised. The loss that
+     * comes with taking them is declared at `IMAGE_CONFIG.reencodableTypes`: an animated GIF
+     * becomes its first frame.
      *
      * @param {File} file - The dropped file
      * @param {Object} lngLat - Map coordinates the drop projected to
@@ -280,7 +285,10 @@ class DragDropHandler {
 
         // Before the `FileReader`, never after: reading a 400 MB drop builds a ~530 MB base64
         // string on the main thread and there is no tab left to show a refusal in.
-        const validation = validateImageFile(file, { allowExtensionFallback: true });
+        const validation = validateImageFile(file, {
+            allowExtensionFallback: true,
+            allowReencodable: true,
+        });
         if (!validation.valid) {
             showError(validation.reason);
             return;

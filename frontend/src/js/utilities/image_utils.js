@@ -29,6 +29,31 @@ export const IMAGE_CONFIG = {
     allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp'],
 
     /**
+     * Formats accepted ONLY by the doors that re-encode through a canvas.
+     *
+     * GIF AND BMP WORK AT THOSE DOORS BECAUSE THE SERVER NEVER SEES THEM. The image tool and the
+     * drop both decode the picture and hand `canvas.toDataURL` a format from
+     * {@link reencodedImageType}, so what is stored and what is uploaded is always PNG or JPEG;
+     * the original bytes are thrown away. Refusing them there was a regression against the
+     * behaviour people had, and it was a refusal that protected nothing.
+     *
+     * THE CRITERION IS "ALWAYS RE-ENCODES", PER DOOR, and an earlier version of this paragraph
+     * got two of the four wrong by filing them under "keeps the original bytes":
+     *  - the photo galleries and the atlas cover MUST NOT opt in: `processImageFile` only
+     *    compresses above 2 MB, so a small GIF would be stored and uploaded AS A GIF, and
+     *    `ALLOWED_MIME_TYPES` on the server would refuse it after the fact, too late to say so;
+     *  - the admin catalog thumbnail re-encodes, but `compressImage` falls back to the ORIGINAL
+     *    in its `catch`, and that fallback is what rules it out;
+     *  - the custom point icon always draws into a canvas and uploads a PNG, so it COULD opt in.
+     *    It does not, by choice and not by constraint: nobody asked for GIF icons.
+     *
+     * KNOWN LOSS, and it is not a defect: an ANIMATED GIF becomes its FIRST FRAME, because a
+     * canvas holds one frame and every door here draws into one.
+     */
+    reencodableTypes: ['image/gif', 'image/bmp'],
+    reencodableExtensions: ['.gif', '.bmp'],
+
+    /**
      * Longest decoded side accepted, in pixels.
      *
      * A BYTE CEILING DOES NOT BOUND PIXELS. A solid-colour PNG compresses by three orders of
@@ -69,13 +94,65 @@ function loadImage(src) {
 }
 
 /**
- * Whether a file name ends in one of the allowed image extensions, case-insensitively.
+ * Whether a file name ends in one of the given image extensions, case-insensitively.
  * @param {string} [name] - File name
+ * @param {string[]} extensions - Extensions to accept, each with its leading dot
  * @returns {boolean} True for e.g. "FOTO.JPG"; false for a missing or extensionless name
  */
-function hasAllowedExtension(name) {
+function hasAllowedExtension(name, extensions) {
     const lower = String(name ?? '').toLowerCase();
-    return IMAGE_CONFIG.allowedExtensions.some((ext) => lower.endsWith(ext));
+    return extensions.some((ext) => lower.endsWith(ext));
+}
+
+/**
+ * The MIME types a given door accepts.
+ *
+ * DERIVED, never written out at the call site, because THREE things have to agree at every door:
+ * the `accept` of the file picker, the gate, and the sentence the refusal prints. They have
+ * already drifted apart once in this product (the picker offered `image/*` while the gate refused
+ * most of it), and the person pays for the disagreement by fetching a second file that is also
+ * refused.
+ *
+ * @param {Object} [options]
+ * @param {boolean} [options.allowReencodable=false] - Door re-encodes through a canvas
+ * @returns {string[]} MIME types, in the order the sentence should name them
+ */
+export function acceptedImageTypes(options = {}) {
+    return options.allowReencodable === true
+        ? [...IMAGE_CONFIG.allowedTypes, ...IMAGE_CONFIG.reencodableTypes]
+        : [...IMAGE_CONFIG.allowedTypes];
+}
+
+/**
+ * The file extensions a given door accepts, for the EMPTY-MIME fallback only.
+ * @param {Object} [options]
+ * @param {boolean} [options.allowReencodable=false] - Door re-encodes through a canvas
+ * @returns {string[]} Extensions, each with its leading dot
+ */
+export function acceptedImageExtensions(options = {}) {
+    return options.allowReencodable === true
+        ? [...IMAGE_CONFIG.allowedExtensions, ...IMAGE_CONFIG.reencodableExtensions]
+        : [...IMAGE_CONFIG.allowedExtensions];
+}
+
+/**
+ * The MIME a canvas re-encode must ask for, given the picture that came in.
+ *
+ * IT CAN ONLY EVER ANSWER A FORMAT THE SERVER ACCEPTS, and that is the whole point. This used to
+ * pass `image/gif` straight through to `canvas.toDataURL` for a GIF input; no browser ENCODES
+ * GIF, so the spec makes the call silently fall back to PNG — the right bytes carrying, on paper,
+ * the wrong intent, and one bug fix away from producing a data URL the upload would refuse.
+ * Answering PNG explicitly makes the guarantee readable instead of accidental.
+ *
+ * JPEG STAYS JPEG so the quality argument keeps meaning something (it is ignored for PNG) and a
+ * photo does not balloon into a lossless re-encode. Everything else, PNG and WebP included,
+ * becomes PNG: it is lossless, it keeps transparency, and it is on the server allowlist.
+ *
+ * @param {string} [dataUrl] - Data URL of the decoded picture
+ * @returns {string} `'image/jpeg'` or `'image/png'`, never anything else
+ */
+export function reencodedImageType(dataUrl) {
+    return String(dataUrl ?? '').startsWith('data:image/jpeg') ? 'image/jpeg' : 'image/png';
 }
 
 /**
@@ -92,6 +169,9 @@ function hasAllowedExtension(name) {
  * @param {File} file - File to validate
  * @param {Object} [options]
  * @param {boolean} [options.allowExtensionFallback=false] - Judge an EMPTY MIME by extension
+ * @param {boolean} [options.allowReencodable=false] - Also accept `IMAGE_CONFIG.reencodableTypes`
+ *   (GIF, BMP). ONLY for a door that throws the original bytes away and re-encodes through a
+ *   canvas; see that constant for why, and for the animated-GIF loss it carries.
  * @returns {{valid: boolean, reason?: string}} `reason` is the pt-BR sentence to show the person
  */
 export function validateImageFile(file, options = {}) {
@@ -113,12 +193,19 @@ export function validateImageFile(file, options = {}) {
     // some drag sources, hand over `type: ''` for a perfectly good .jpg. Doors that re-encode
     // through a canvas (the image tool, the drop) opt into judging those by extension; doors that
     // store the original bytes do not, because the server would refuse the upload by MIME.
-    const tipoAceito = IMAGE_CONFIG.allowedTypes.includes(file.type)
-        || (options.allowExtensionFallback === true && !file.type && hasAllowedExtension(file.name));
+    //
+    // THE SENTENCE IS BUILT FROM THE LIST THIS CALL ACTUALLY ENFORCES, not from the server
+    // allowlist: the same refusal names four formats at a door that takes GIF and BMP and two at
+    // a door that does not, because a refusal naming a format the gate rejects (or omitting one
+    // it accepts) sends the person to convert a file for nothing.
+    const tipos = acceptedImageTypes(options);
+    const tipoAceito = tipos.includes(file.type)
+        || (options.allowExtensionFallback === true && !file.type
+            && hasAllowedExtension(file.name, acceptedImageExtensions(options)));
     if (!tipoAceito) {
         return {
             valid: false,
-            reason: imageRefusalNotice(ImageRefusal.TIPO, { tipos: IMAGE_CONFIG.allowedTypes }),
+            reason: imageRefusalNotice(ImageRefusal.TIPO, { tipos }),
         };
     }
 
@@ -183,10 +270,11 @@ export function validateImageDimensions(width, height) {
  * rather than let through, because everything downstream assumes an image.
  *
  * @param {File} file - File the person picked
+ * @param {Object} [options] - Forwarded verbatim to {@link validateImageFile}
  * @returns {Promise<{valid: boolean, reason?: string}>} `reason` is the pt-BR sentence to show
  */
-export async function validateImagePayload(file) {
-    const basica = validateImageFile(file);
+export async function validateImagePayload(file, options = {}) {
+    const basica = validateImageFile(file, options);
     if (!basica.valid) return basica;
 
     let url;

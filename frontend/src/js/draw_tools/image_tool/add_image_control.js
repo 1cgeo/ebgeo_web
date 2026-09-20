@@ -9,7 +9,8 @@ import {
 } from "../../store";
 import { IDUtils, showError, loadImageToMap as utilLoadImageToMap } from "../../utilities";
 import {
-    IMAGE_CONFIG,
+    acceptedImageTypes,
+    reencodedImageType,
     validateImageFile,
     validateImageDimensions,
 } from '@utils/image_utils.js';
@@ -377,9 +378,11 @@ class AddImageControl extends BaseControl {
 
     const input = document.createElement("input");
     input.type = "file";
-    // The allowlist itself, never `image/*`: the picker used to offer every format the OS knows
-    // about, including the ones the gate below and the server both refuse.
-    input.accept = IMAGE_CONFIG.allowedTypes.join(",");
+    // THE PICKER AND THE GATE READ THE SAME LIST, never `image/*` and never a literal: the picker
+    // used to offer every format the OS knows about, including the ones the gate and the server
+    // both refuse. This door re-encodes through a canvas, so the list is the wider one — the
+    // server never sees the file the person picked.
+    input.accept = acceptedImageTypes({ allowReencodable: true }).join(",");
     input.onchange = async (event) => {
       const file = event.target.files[0];
       if (!file) return;
@@ -388,7 +391,10 @@ class AddImageControl extends BaseControl {
       // and checking after is not a check at all: a 400 MB file becomes a ~530 MB base64 string
       // built on the main thread, and the tab is gone before any guard could run. `size` and
       // `type` are metadata the browser already holds, so this costs nothing.
-      const validation = validateImageFile(file, { allowExtensionFallback: true });
+      const validation = validateImageFile(file, {
+        allowExtensionFallback: true,
+        allowReencodable: true,
+      });
       if (!validation.valid) {
         showError(validation.reason);
         return;
@@ -512,6 +518,12 @@ class AddImageControl extends BaseControl {
    * On refusal the callback is NOT called, so nothing downstream is left half-built, and the
    * person is told which limit was hit and by how much.
    *
+   * IT IS ALSO THE RE-ENCODE, and that is what lets this door take GIF and BMP while the doors
+   * that keep the original bytes cannot: what leaves here is always PNG or JPEG
+   * ({@link reencodedImageType}), so the server is never offered a format it refuses. KNOWN LOSS,
+   * declared rather than discovered: an ANIMATED GIF arrives as its FIRST FRAME, because a canvas
+   * holds one frame.
+   *
    * @param {string} imageBase64 - Data URL of the picture to place
    * @param {Function} callback - Receives (resizedDataUrl, width, height) on success only
    */
@@ -558,15 +570,11 @@ class AddImageControl extends BaseControl {
       ctx.clearRect(0, 0, width, height);
       ctx.drawImage(img, 0, 0, width, height);
 
-      let imageType = "image/png";
-      if (imageBase64.startsWith("data:image/jpeg")) {
-        imageType = "image/jpeg";
-      } else if (imageBase64.startsWith("data:image/gif")) {
-        imageType = "image/gif";
-      }
-
+      // NEVER the incoming format: this is the point where a GIF or a BMP becomes a picture the
+      // SERVER will take. The branch that used to sit here asked `toDataURL` for `image/gif`,
+      // which no browser can encode, so the spec quietly handed back a PNG under the wrong name.
       const resizedImageBase64 = canvas.toDataURL(
-        imageType,
+        reencodedImageType(imageBase64),
         AddImageControl.IMAGE_QUALITY
       );
       callback(resizedImageBase64, width, height);

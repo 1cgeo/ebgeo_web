@@ -26,7 +26,9 @@ import { showConfirm } from '@modals/confirm.modal.js';
 // o barrel de modais a arrasta de volta pelo caminho transitivo.
 import { showSuccess, showError } from '@utils/toast_service.js';
 import { validateMapLibreStyle } from '@utils/maplibre-style-validate.js';
-import { validateImageFile, compressImage } from '@utils/image_utils.js';
+// By FILE, never by the `@utils` barrel: `admin.html` boots without the store, and that barrel
+// reaches `feature_navigation_utils`, which drags the whole store in behind it.
+import { validateImagePayload, compressImage } from '@utils/image_utils.js';
 import { blobToDataUrl } from '@utils/blob-to-data-url.js';
 import { sectionHeader, card, emptyState, ICON_CATALOG, failureState } from './admin-dom.js';
 import { orgLabel, buildDomainOptions } from './org-options.js';
@@ -662,7 +664,11 @@ class CatalogTab {
             fileInput.addEventListener('change', async () => {
                 const file = fileInput.files?.[0];
                 if (!file) return;
-                const v = validateImageFile(file);
+                // THE PIXEL CEILING TOO, not just bytes and MIME. `compressImage` below draws the
+                // picture into a canvas, and a byte ceiling cannot see a decompression bomb: a
+                // 300 kB solid-colour PNG decodes to 30000x30000 and allocates gigabytes right
+                // here, in the one tab an administrator is doing everything else from.
+                const v = await validateImagePayload(file);
                 if (!v.valid) { showFormError(error, v.reason); fileInput.value = ''; return; }
                 try {
                     const raw = await blobToDataUrl(file);
@@ -1463,7 +1469,10 @@ class CatalogTab {
         fileInput.addEventListener('change', async () => {
             const file = fileInput.files?.[0];
             if (!file) return;
-            const v = validateImageFile(file);
+            // Same pair as the catalog thumbnail above, for the same reason: `compressImage`
+            // rasterises into a canvas, so the decoded size has to be refused BEFORE the decode
+            // that draws it, not after the byte test that cannot see it.
+            const v = await validateImagePayload(file);
             if (!v.valid) { showFormError(error, v.reason); fileInput.value = ''; return; }
             try {
                 const raw = await blobToDataUrl(file);
