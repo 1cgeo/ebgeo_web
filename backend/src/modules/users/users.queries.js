@@ -71,7 +71,8 @@ export const UPDATE_USER_PASSWORD = `
 `;
 
 /**
- * A BUSCA DE PESSOAS. Casa NOME e LOGIN, e mais nada (decisão D13, 2026-09-14).
+ * A BUSCA DE PESSOAS. Casa NOME, NOME DE GUERRA e LOGIN, e mais nada (decisão D13,
+ * 2026-09-14; o nome de guerra entrou em 2026-09-20).
  *
  * POSTO E OM SAÍRAM DO CASAMENTO E FICARAM NA PROJEÇÃO, e a assimetria é o assunto inteiro.
  * Eles precisam continuar VINDO na linha, porque quem compartilha um atlas reconhece a pessoa
@@ -80,6 +81,18 @@ export const UPDATE_USER_PASSWORD = `
  * linhas por vez, para qualquer conta e para qualquer chave de API de escopo largo: a busca
  * casava contra um atributo COLETIVO, e casamento por atributo coletivo é enumeração com outro
  * nome. Nome e login identificam a PESSOA que se procura, e é por isso que só eles sobraram.
+ *
+ * O NOME DE GUERRA ENTRA NO CASAMENTO PELO MESMO CRITÉRIO, e ele não afrouxa a decisão: é
+ * atributo INDIVIDUAL, escolhido pela própria pessoa, e não classifica ninguém em coletivo
+ * nenhum. Ele entrou porque a tela de compartilhamento passou a IDENTIFICAR pela forma militar
+ * (`posto + nome de guerra`), e uma busca que não casasse contra o que a tela escreve manda a
+ * pessoa digitar exatamente o que ela está lendo e não achar nada — o nome completo pode não
+ * conter o nome de guerra (`João Batista de Souza` chamado `Silva` é estado normal).
+ *
+ * A SIGLA DA OM VIAJA AO LADO DO NOME DELA, nunca no lugar: a linha do compartilhamento cabe
+ * numa coluna estreita e `1º CGEO` cabe onde `1º Centro de Geoinformação` não cabe, mas
+ * `organizations.sigla` é ANULÁVEL e o campo antigo tem consumidor. Daí os dois campos, com o
+ * `COALESCE` caindo para o nome por extenso em vez de devolver vazio.
  *
  * O `LIMIT` É PARÂMETRO, e o chamador pede uma linha A MAIS que o teto: é assim que o serviço
  * distingue "vinte resultados" de "vinte de muitos" sem um `COUNT(*)`, que custaria a varredura
@@ -90,8 +103,10 @@ export const UPDATE_USER_PASSWORD = `
  *   $1 = padrão, $2 = teto + 1
  */
 export const SEARCH_USERS = `
-  SELECT u.id, u.username, u.nome, u.rank_id, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
-         u.organization_id, o.nome AS organizacao_militar
+  SELECT u.id, u.username, u.nome, u.nome_guerra,
+         u.rank_id, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
+         u.organization_id, o.nome AS organizacao_militar,
+         COALESCE(o.sigla, o.nome) AS organizacao_militar_sigla
   FROM users u
   LEFT JOIN ranks r ON r.id = u.rank_id
   LEFT JOIN organizations o ON o.id = u.organization_id
@@ -99,6 +114,7 @@ export const SEARCH_USERS = `
     AND (
       LOWER(u.username) LIKE LOWER($1)
       OR LOWER(u.nome) LIKE LOWER($1)
+      OR LOWER(u.nome_guerra) LIKE LOWER($1)
     )
   ORDER BY u.nome
   LIMIT $2

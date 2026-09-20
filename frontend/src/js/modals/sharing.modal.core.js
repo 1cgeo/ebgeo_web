@@ -55,6 +55,12 @@ import {
     trackTimer,
 } from '@utils/event-cleanup.js';
 import { escapeHtml } from '@utils/html-escape.js';
+// Import DIRETO por arquivo, e nunca pelo barril `@utils`: `person-label.js` tem ZERO imports
+// (é o compositor puro do rótulo militar) e é essa propriedade que permite usá-lo daqui sem
+// arrastar a store para `atlas.html`. Ele nasceu em 2026-09-20 porque as QUATRO linhas de
+// pessoa desta tela (dono, participante, resultado de busca e a lista do modo somente-leitura)
+// escreviam a mesma frase de quatro maneiras, e a do dono era a que estava para trás.
+import { militaryPersonLabel } from '@utils/person-label.js';
 // `presence-colors.js` tem ZERO imports (cor determinística e iniciais, funções puras), e é
 // por isso que ele fica AQUI enquanto o resto da presença fica de fora: o avatar de um membro
 // é desenho, não sessão viva. Os três que saíram são `presence-store.js`, `sync-engine.js` e
@@ -552,25 +558,27 @@ export function participantsFromOverview(overview, atlasId) {
 }
 
 /**
- * How ONE participant is named: rank plus name, because in an Army app "Cap Silva" and
+ * How ONE participant is named: rank plus war name, because in an Army app "Cap Silva" and
  * "Sd Silva" are two people and a list showing the surname alone does not tell them apart.
  *
- * A DELIBERATE TWIN of `accessPersonLabel` (`projects/atlas-drive.js`), not an import: that
- * file is the body of `atlas.html` and pulls the whole Drive with it, while this module is
- * held to a closed import list by `frontend/tests/unit/compartilhar-sem-a-store.test.js`. The
- * duplication is one short function; the import would be a page.
+ * IT WAS A DELIBERATE TWIN of `accessPersonLabel` (`projects/atlas-drive.js`) until 2026-09-20:
+ * that file is the body of `atlas.html` and pulls the whole Drive with it, while this module is
+ * held to a closed import list by `frontend/tests/unit/compartilhar-sem-a-store.test.js`, so the
+ * duplication was one short function against a page of imports. The twin is gone now that the
+ * rule lives in a leaf with ZERO imports (`@utils/person-label.js`), which costs neither side a
+ * module: `atlas-drive.js` can adopt the same leaf whenever its card is revisited.
+ *
+ * `GET /atlas/overview` CARRIES NO UNIT, so this row shows rank plus war name and nothing else.
+ * That is the payload's decision, not this function's: the route deliberately answers with id,
+ * name, rank and level, and no login or e-mail.
  *
  * NEVER EMPTY. An entry with no name is still a person with access, and dropping it from the
  * list would shorten the list without lowering the count beside it.
- * @param {{nome?: string, posto_graduacao?: string}} person
+ * @param {{nome?: string, nome_guerra?: string, posto_graduacao?: string}} person
  * @returns {string}
  */
 function participantLabel(person) {
-    const nome = String(person?.nome ?? '').trim();
-    const posto = String(person?.posto_graduacao ?? '').trim();
-    if (nome && posto) return `${posto} ${nome}`;
-    if (nome) return nome;
-    return 'Alguém';
+    return militaryPersonLabel(person).label;
 }
 
 /**
@@ -1222,18 +1230,38 @@ export class SharingModal extends ModalBase {
 
     _renderOwnerItem(owner) {
         const userId = String(owner?.userId ?? '');
-        const nome = owner?.nome ?? owner?.username ?? '';
-        const username = owner?.username ?? '';
+        const { label, name, detail } = militaryPersonLabel(owner);
         return `
             <div class="sharing-member" data-testid="sharing-owner-item">
-                ${this._avatar(userId, nome, { online: this._onlineIds?.has(userId) })}
+                ${this._avatar(userId, name || label, { online: this._onlineIds?.has(userId) })}
                 <div class="sharing-member__info">
-                    <span class="sharing-member__name">${escapeHtml(nome)}${this._marcaDeSiMesmo(userId)}</span>
-                    <span class="sharing-member__username">@${escapeHtml(username)}</span>
+                    <span class="sharing-member__name">${escapeHtml(label)}${this._marcaDeSiMesmo(userId)}</span>
+                    ${this._linhaDeIdentidade(detail)}
                 </div>
                 <span class="sharing-member__owner-badge">Gestor (dono)</span>
             </div>
         `;
+    }
+
+    /**
+     * @private A SEGUNDA LINHA de uma pessoa: a unidade e o login, nessa ordem.
+     *
+     * POR QUE O `@login` FICA, quando o pedido era "posto, nome de guerra e unidade": ele é o
+     * único campo GARANTIDAMENTE único da linha, e numa base militar homônimo não é exceção —
+     * dois `Cap Silva` da mesma OM cabem na mesma lista, e o gestor que precisa remover um
+     * deles não tem outro jeito de saber qual. O posto some, o nome de guerra se repete, a OM
+     * se repete; o login não. Ele passou de linha PRÓPRIA para elemento secundário, atrás da
+     * unidade, porque a identificação que a pessoa lê primeiro deixou de ser ele.
+     *
+     * VAZIO NÃO DESENHA NADA, e não um `<span>` em branco: a linha da grade tem altura, e um
+     * elemento vazio abre um buraco que se lê como campo que não carregou.
+     * @param {string} detail - Já composto por `militaryPersonLabel`.
+     * @returns {string}
+     */
+    _linhaDeIdentidade(detail) {
+        if (!detail) return '';
+        return `<span class="sharing-member__lotacao" data-testid="sharing-person-detail">`
+            + `${escapeHtml(detail)}</span>`;
     }
 
     /** @private */
@@ -1251,8 +1279,7 @@ export class SharingModal extends ModalBase {
      */
     _renderMemberItem(share) {
         const userId = String(share?.userId ?? '');
-        const nome = share?.nome ?? share?.username ?? '';
-        const username = share?.username ?? '';
+        const { label: nome, name: soONome, detail } = militaryPersonLabel(share);
         const current = isGrantablePermission(share?.permission) ? share.permission : 'read';
         const excedente = excedenteDeGrupo(share);
         const options = PERMISSION_LEVELS.map((p) =>
@@ -1273,10 +1300,10 @@ export class SharingModal extends ModalBase {
 
         return `
             <div class="sharing-member" data-testid="sharing-member-item" data-user-id="${escapeHtml(userId)}">
-                ${this._avatar(userId, nome, { online: this._onlineIds?.has(userId) })}
+                ${this._avatar(userId, soONome || nome, { online: this._onlineIds?.has(userId) })}
                 <div class="sharing-member__info">
                     <span class="sharing-member__name">${escapeHtml(nome)}${this._marcaDeSiMesmo(userId)}</span>
-                    <span class="sharing-member__username">@${escapeHtml(username)}</span>
+                    ${this._linhaDeIdentidade(detail)}
                     ${excedente
         ? `<span class="sharing-member__efetiva" data-testid="sharing-member-efetiva"
                              title="Um grupo deste atlas dá a esta pessoa ${escapeHtml(excedente.label)}. Mudar a permissão ao lado não retira o que vem pelo grupo.">
@@ -1416,8 +1443,16 @@ export class SharingModal extends ModalBase {
                 <h3 class="sharing-section__title">Adicionar pessoas</h3>
                 <div class="sharing-search">
                     <span class="sharing-search__icon" aria-hidden="true">${ICONS.search}</span>
+                    <!-- O NOME DE GUERRA ESTÁ NO CONVITE PORQUE ESTÁ NO CASAMENTO (2026-09-20).
+                         A lista logo acima escreve "Cap Andrade", e um campo que só oferecesse
+                         "nome ou usuário" mandaria a pessoa digitar exatamente o que ela está
+                         lendo e concluir que o colega não tem conta — o nome completo pode não
+                         conter o nome de guerra. As outras quatro buscas de pessoa do produto
+                         usam a MESMA rota e continuam com o texto antigo, que é incompleto e
+                         não falso; aqui ele seria falso, porque esta é a tela que renomeia. -->
                     <input type="text" class="sharing-search__input" data-action="search"
-                           data-testid="sharing-user-search" placeholder="Buscar por nome ou usuário…"
+                           data-testid="sharing-user-search"
+                           placeholder="Buscar por nome, nome de guerra ou usuário…"
                            autocomplete="off" aria-label="Buscar pessoas">
                 </div>
                 <div class="sharing-results" data-results hidden></div>
@@ -1427,7 +1462,9 @@ export class SharingModal extends ModalBase {
 
     /**
      * @private
-     * @param {Array<{id:string, username:string, nome:string, posto_graduacao?:string, organizacao_militar?:string}>} results
+     * @param {Array<{id:string, username:string, nome:string, nome_guerra?:string,
+     *   posto_graduacao?:string, organizacao_militar?:string,
+     *   organizacao_militar_sigla?:string}>} results
      */
     _renderResults(results) {
         const memberIds = new Set(this._shares.map((s) => String(s.userId)));
@@ -1442,23 +1479,31 @@ export class SharingModal extends ModalBase {
 
         return pickable.map((u) => {
             const id = String(u?.id ?? '');
-            const nome = u?.nome ?? u?.username ?? '';
-            const username = u?.username ?? '';
+            // O MESMO compositor das outras três linhas. Antes daqui saíam TRÊS linhas (nome
+            // civil, `@login` e um `posto · OM` de rodapé) enquanto a linha de membro saía com
+            // duas e sem posto nenhum: a pessoa que se acabou de escolher na busca mudava de
+            // nome ao entrar na lista logo acima, na mesma tela e no mesmo segundo.
+            const { label, name, unit, handle } = militaryPersonLabel(u);
             const color = escapeHtml(getPresenceColor(id));
-            const initials = escapeHtml(getInitials(nome));
-            // Posto/Graduação · Organização Militar — helps disambiguate homonyms.
-            const meta = [u?.posto_graduacao, u?.organizacao_militar].filter(Boolean).join(' · ');
-            const metaRow = meta
-                ? `<span class="sharing-result__meta">${escapeHtml(meta)}</span>`
+            const initials = escapeHtml(getInitials(name || label));
+            // A UNIDADE FICA NA LINHA DE CIMA e o `@login` na de baixo, ao contrário da linha
+            // de membro, que junta as duas: aqui há espaço (o resultado de busca não divide a
+            // largura com um `<select>` e dois botões) e a unidade é o que desempata homônimo
+            // ANTES do clique, que é o momento em que o erro custa um convite errado.
+            const unitRow = unit
+                ? `<span class="sharing-member__lotacao" data-testid="sharing-result-lotacao">${escapeHtml(unit)}</span>`
+                : '';
+            const handleRow = handle
+                ? `<span class="sharing-result__meta">${escapeHtml(handle)}</span>`
                 : '';
             return `
                 <button type="button" class="sharing-result" data-action="add"
                         data-testid="sharing-search-result" data-user-id="${escapeHtml(id)}">
                     <span class="sharing-avatar" aria-hidden="true" style="background-color: ${color};">${initials}</span>
                     <span class="sharing-result__info">
-                        <span class="sharing-member__name">${escapeHtml(nome)}</span>
-                        <span class="sharing-member__username">@${escapeHtml(username)}</span>
-                        ${metaRow}
+                        <span class="sharing-member__name">${escapeHtml(label)}</span>
+                        ${unitRow}
+                        ${handleRow}
                     </span>
                 </button>
             `;

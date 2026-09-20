@@ -26,9 +26,13 @@ import { createUser, loginUser } from '../helpers/fixtures.js';
 const U = () => `usrch_${randomUUID().slice(0, 8)}`;
 
 // Shape congelado da linha do autocomplete de compartilhamento.
+//
+// `nome_guerra` e `organizacao_militar_sigla` entraram em 2026-09-20: a linha passou a ser
+// desenhada como `Cap Silva · 1º CGEO`, e o rótulo que a tela escreve tem de sair desta
+// projeção. O racional inteiro está no gêmeo `users-projection-and-search.test.js`.
 const CAMPOS = [
-  'id', 'nome', 'organizacao_militar', 'organization_id',
-  'posto_graduacao', 'rank_id', 'username',
+  'id', 'nome', 'nome_guerra', 'organizacao_militar', 'organizacao_militar_sigla',
+  'organization_id', 'posto_graduacao', 'rank_id', 'username',
 ].sort();
 
 describe('GET /users/search — os LEFT JOIN de posto/OM, shape e escopo entre orgs', () => {

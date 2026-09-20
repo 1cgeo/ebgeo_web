@@ -132,16 +132,29 @@ describe('invariantes do dono na API de sharing', () => {
 
   // ── Item 129 ────────────────────────────────────────────────────────────────
   describe('item 129 — o bloco `owner` de GET /sharing', () => {
-    it('o bloco tem exatamente {nome, userId, username}, em camelCase', async () => {
+    it('o bloco ESPELHA uma linha de share, em camelCase, com a identidade militar', async () => {
+      // O BLOCO CRESCEU EM 2026-09-20, e a lista continua fechada. Ele tinha três campos
+      // enquanto cada participante tinha sete, e a tela precisava de DOIS caminhos para
+      // escrever a mesma frase — que é como um deles fica para trás (o dono era justamente o
+      // que aparecia sem posto e sem OM, na primeira linha da lista). Os quatro campos novos
+      // são os mesmos nomes que `shares[]` carrega, para que um compositor só sirva aos dois.
       const atlas = await cenario();
 
       const res = await como(ownerTok, 'get', `/api/v1/atlas/${atlas.id}/sharing`).expect(200);
       const bloco = res.body.data.owner;
 
-      assert.deepEqual(Object.keys(bloco).sort(), ['nome', 'userId', 'username']);
+      assert.deepEqual(Object.keys(bloco).sort(), [
+        'nome', 'nomeGuerra', 'organizacaoMilitar', 'organizacaoMilitarSigla',
+        'postoGraduacao', 'userId', 'username',
+      ]);
       assert.equal(bloco.userId, owner.id);
       assert.equal(bloco.nome, 'Dona do Atlas');
       assert.equal(bloco.username, owner.username);
+      // A fixture `createUser` põe o posto `Cap` e a OM padrão em toda conta, então estes dois
+      // são o POSITIVO do par: sem eles, apagar os dois LEFT JOIN da consulta deixaria o
+      // `deepEqual` acima verde com os campos presentes e NULOS.
+      assert.equal(bloco.postoGraduacao, 'Cap', 'o posto vem abreviado');
+      assert.equal(bloco.organizacaoMilitarSigla, 'DEFAULT', 'e a OM vem pela sigla');
 
       // Os nomes crus do SQL não podem escapar para o envelope.
       assert.equal(res.body.data.owner_id, undefined);

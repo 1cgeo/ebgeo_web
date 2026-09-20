@@ -23,9 +23,17 @@ import { createUser, createAdminUser, loginUser } from '../helpers/fixtures.js';
 
 // The exact contract of each projection. Written out, not derived from the query,
 // because deriving it from the thing under test would assert nothing.
+//
+// A LISTA GANHOU DOIS CAMPOS EM 2026-09-20, e nenhum deles afrouxa a regra de cima: a tela de
+// compartilhamento passou a identificar a pessoa na forma militar (`Cap Silva · 1º CGEO`), e
+// para isso precisa do NOME DE GUERRA (que já viaja em `/users/me` e no login) e da SIGLA da
+// OM (que cabe onde o nome por extenso não cabe). `nome_guerra` é MENOS identificador que o
+// `nome` completo que já estava aqui, e a sigla é o mesmo dado da OM noutra forma — nenhum dos
+// dois acrescenta um eixo novo de exposição. `email` continua PROIBIDO, e é ele que separa
+// esta lista da de `/me`.
 const SEARCH_KEYS = [
-  'id', 'nome', 'organizacao_militar', 'organization_id',
-  'posto_graduacao', 'rank_id', 'username',
+  'id', 'nome', 'nome_guerra', 'organizacao_militar', 'organizacao_militar_sigla',
+  'organization_id', 'posto_graduacao', 'rank_id', 'username',
 ];
 // `/users/me` ganhou `email` e `email_verified` em 2026-08-23, e a diferença com a lista de
 // BUSCA acima é o assunto inteiro: em `/users/me` o chamador É o titular, e ler o próprio

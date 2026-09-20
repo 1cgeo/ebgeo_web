@@ -248,7 +248,13 @@
     text-overflow: ellipsis;
 }
 
-.sharing-member__username {
+/* A SEGUNDA LINHA de uma pessoa. As duas classes existem porque o CONTEÚDO delas é outro,
+   e não porque o desenho seja: `__username` é só o `@login` (linha de grupo, modal de
+   recurso) e `__lotacao` é a identificação militar secundária ("1º CGEO · @dsilva"), que
+   desde 2026-09-20 é o que a tela de compartilhamento escreve abaixo de "Cap Silva". Um
+   seletor só para as duas, porque uma segunda cópia da regra é como elas divergem. */
+.sharing-member__username,
+.sharing-member__lotacao {
     font-size: var(--font-size-xs);
     color: var(--gray-500);
     white-space: nowrap;

@@ -89,9 +89,16 @@ describe('cartão de projeto · participantes, capa e presença', () => {
     // E nada de identidade de login: nome, posto e NÍVEL bastam para desenhar um avatar e dizer
     // a quem pedir permissão. `username` e e-mail continuam fora — a decisão de 2026-08-23
     // acrescentou UM campo, e a lista aqui é o que impede a próxima a acrescentar outros.
+    //
+    // `nome_guerra` é o SEGUNDO, e entrou em 2026-09-20 por uma razão de coerência de TELA, não
+    // de dado: esta lista é o modo somente-leitura do modal de compartilhamento (a cláusula 5.7
+    // dá a todo participante o direito de ver quem mais participa), e a outra metade do mesmo
+    // modal passou a identificar na forma militar. Sem este campo, quem tem leitura lia o nome
+    // civil completo e quem tem gestão lia "Cap Silva", na mesma janela. Ele EXPÕE MENOS que o
+    // `nome` que já viajava ao lado, então não alarga nada; login e e-mail continuam fora.
     assert.deepEqual(
       Object.keys(cartao.members[0]).sort(),
-      ['id', 'nome', 'permission', 'posto_graduacao']
+      ['id', 'nome', 'nome_guerra', 'permission', 'posto_graduacao']
     );
   });
 

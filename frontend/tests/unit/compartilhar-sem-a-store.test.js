@@ -214,7 +214,13 @@ const ANCORAS = Object.freeze([
  */
 const ACRESCIMO_PERMITIDO = Object.freeze([
     NUCLEO,
-    'src/js/catalog/grant-tree.js' // folha de funções puras, zero imports (rótulo e frase de grupo)
+    'src/js/catalog/grant-tree.js', // folha de funções puras, zero imports (rótulo e frase de grupo)
+    // 2026-09-20: o compositor do rótulo militar ("Cap Silva · 1º CGEO"), folha de ZERO
+    // imports. Ele entra por ARQUIVO (`@utils/person-label.js`) e nunca pelo barril `@utils`,
+    // que está na lista de proibidos logo acima: é a mesma regra do `grant-tree.js`, e é ela
+    // que permite às quatro linhas de pessoa desta tela terem UM compositor só sem que
+    // `atlas.html` pague uma página de imports por isso.
+    'src/js/utilities/person-label.js'
 ]);
 
 describe('o núcleo do modal de compartilhamento cabe em `atlas.html`', () => {
@@ -243,7 +249,12 @@ describe('o núcleo do modal de compartilhamento cabe em `atlas.html`', () => {
         // Atlas copying also verifies binary values through storage-value.js, a leaf
         // without imports. Keep the bound explicit; no application store is pulled in.
         // Atomic server import adds one lazy module, reusing the namespace factory.
-        expect(grafo.arquivos.size).toBeLessThanOrEqual(30);
+        //
+        // 30 -> 31 em 2026-09-20, e é decisão pelo mesmo critério de 2026-09-13: o acréscimo é
+        // `utilities/person-label.js`, folha de ZERO imports que compõe o rótulo militar das
+        // quatro linhas de pessoa desta tela. Ele não alcança a store, que é o que os proibidos
+        // abaixo medem, e o teto sobe UM em vez de a mudança ser desfeita.
+        expect(grafo.arquivos.size).toBeLessThanOrEqual(31);
     });
 
     for (const [rotulo, padrao] of Object.entries(PROIBIDOS)) {

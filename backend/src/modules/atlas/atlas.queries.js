@@ -265,6 +265,13 @@ export const UPDATE_PUBLIC_LINK = `
 // Os DOIS `<> a.owner_id` (um na contagem, um na lista) não são higiene: o dono PODE estar num
 // grupo compartilhado do próprio atlas, e ele já entra pela outra metade da união, com `ord = 0`.
 // Sem eles, seria contado e listado duas vezes.
+//
+// `nome_guerra` ENTROU EM 2026-09-20, e é o ÚNICO campo acrescentado desde o nível. Ele entra
+// porque a tela de participantes é a MESMA tela de compartilhamento, no modo sem controles, e a
+// outra metade dela passou a identificar pela forma militar (`Cap Silva`): sem este campo, quem
+// só tem leitura lia o nome civil completo e quem tem gestão lia o nome de guerra, na mesma
+// janela. Ele NÃO amplia o que a rota revela — é MENOS identificador que o `nome` completo que
+// já viajava ao lado — e continua sem e-mail e sem login.
 export const LIST_USER_ATLAS_MEMBERS = `
   SELECT a.id,
          1 + (SELECT COUNT(*) FROM fn_atlas_member_ids(a.id) mc
@@ -272,18 +279,21 @@ export const LIST_USER_ATLAS_MEMBERS = `
          COALESCE((
            SELECT json_agg(
                     json_build_object('id', m.id, 'nome', m.nome,
+                                      'nome_guerra', m.nome_guerra,
                                       'posto_graduacao', m.posto_graduacao,
                                       'permission', m.permission)
                     ORDER BY m.ord, m.nome
                   )
            FROM (
-             SELECT ow.id, ow.nome, COALESCE(orank.nome_abrev, orank.nome) AS posto_graduacao,
+             SELECT ow.id, ow.nome, ow.nome_guerra,
+                    COALESCE(orank.nome_abrev, orank.nome) AS posto_graduacao,
                     'owner'::text AS permission, 0 AS ord
              FROM users ow
              LEFT JOIN ranks orank ON orank.id = ow.rank_id
              WHERE ow.id = a.owner_id
              UNION ALL
-             SELECT mu.id, mu.nome, COALESCE(mrank.nome_abrev, mrank.nome) AS posto_graduacao,
+             SELECT mu.id, mu.nome, mu.nome_guerra,
+                    COALESCE(mrank.nome_abrev, mrank.nome) AS posto_graduacao,
                     ef.permission, 1 AS ord
              FROM fn_atlas_member_ids(a.id) ms
              JOIN users mu ON mu.id = ms.user_id

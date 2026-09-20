@@ -50,16 +50,34 @@
  * pessoa é membro daquele grupo — dedução sobre composição que o gestor não tem direito de
  * fazer. O que ele precisa saber para não se enganar é que o rebaixamento não teve efeito, e
  * isso "group" já diz.
+ *
+ * A IDENTIFICAÇÃO É MILITAR DESDE 2026-09-20, e é por isso que a linha do dono e a de cada
+ * participante ganharam posto, nome de guerra e OM. A tela escrevia `nome` completo mais
+ * `@login`, que é como um sistema civil nomeia gente: numa base militar quem compartilha
+ * reconhece `Cap Silva · 1º CGEO` e não `João Batista de Souza`. Os campos são ACRÉSCIMO —
+ * `nome` e `username` continuam onde estavam, porque o segundo é o que desempata homônimo.
+ *
+ * O POSTO VEM ABREVIADO (`COALESCE(nome_abrev, nome)`) e a OM vem em DOIS campos (sigla e
+ * nome por extenso), pelas mesmas razões escritas em `SEARCH_USERS`: as duas colunas de origem
+ * são anuláveis, e a queda tem de ser para o valor mais longo, nunca para vazio.
  */
 export const GET_SHARING_CONFIG = `
   SELECT a.is_public, a.public_link, a.owner_id,
          owner.username AS owner_username, owner.nome AS owner_nome,
+         owner.nome_guerra AS owner_nome_guerra,
+         COALESCE(orank.nome_abrev, orank.nome) AS owner_posto_graduacao,
+         oorg.nome AS owner_organizacao_militar,
+         COALESCE(oorg.sigla, oorg.nome) AS owner_organizacao_militar_sigla,
          (
            SELECT COALESCE(json_agg(
                     json_build_object(
                       'userId', s.user_id,
                       'username', u.username,
                       'nome', u.nome,
+                      'nomeGuerra', u.nome_guerra,
+                      'postoGraduacao', COALESCE(urank.nome_abrev, urank.nome),
+                      'organizacaoMilitar', uorg.nome,
+                      'organizacaoMilitarSigla', COALESCE(uorg.sigla, uorg.nome),
                       'permission', s.permission,
                       'effectivePermission', ef.permission,
                       'effectiveVia', CASE WHEN fn_permission_rank(ef.permission)
@@ -70,6 +88,8 @@ export const GET_SHARING_CONFIG = `
                   ), '[]')
              FROM atlas_shares s
              JOIN users u ON u.id = s.user_id
+             LEFT JOIN ranks urank ON urank.id = u.rank_id
+             LEFT JOIN organizations uorg ON uorg.id = u.organization_id
              LEFT JOIN LATERAL fn_user_atlas_shares(s.user_id, a.id) ef ON true
             WHERE s.atlas_id = a.id AND s.user_id IS NOT NULL
          ) AS shares,
@@ -94,6 +114,8 @@ export const GET_SHARING_CONFIG = `
          ) AS groups
   FROM atlas a
   JOIN users owner ON owner.id = a.owner_id
+  LEFT JOIN ranks orank ON orank.id = owner.rank_id
+  LEFT JOIN organizations oorg ON oorg.id = owner.organization_id
   WHERE a.id = $1 AND a.deleted_at IS NULL
 `;
 

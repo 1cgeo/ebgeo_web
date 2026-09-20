@@ -248,9 +248,17 @@ describe('Sharing API — gap coverage', () => {
       // a linha e mentia: rebaixar alguem que um grupo mantem em edicao mostrava "Leitura"
       // e nao rebaixava nada. Prende o comportamento
       // `tests/integration/sharing-permissao-efetiva.test.js`.
+      // E QUATRO EM 2026-09-20, pelo mesmo tipo de razao: a linha passou a ser desenhada na
+      // forma militar (`Cap Silva · 1º CGEO`), que e como uma pessoa e identificada num
+      // aplicativo do Exercito. `nome` e `username` FICARAM: o primeiro porque nem toda conta
+      // tem nome de guerra, o segundo porque e o unico campo unico da linha e e ele que
+      // desempata dois `Cap Silva` da mesma OM. Espelhado no bloco `owner` por
+      // `tests/integration/sharing-owner-invariants.test.js`.
       assert.deepEqual(
         Object.keys(share).sort(),
-        ['addedAt', 'effectivePermission', 'effectiveVia', 'nome', 'permission', 'userId', 'username'].sort()
+        ['addedAt', 'effectivePermission', 'effectiveVia', 'nome', 'nomeGuerra',
+          'organizacaoMilitar', 'organizacaoMilitarSigla', 'permission', 'postoGraduacao',
+          'userId', 'username'].sort()
       );
       assert.equal(share.userId, target.id);
       assert.equal(share.username, target.username);

@@ -23,10 +23,18 @@ export async function getSharingConfig(atlasId) {
   return {
     isPublic: rows[0].is_public,
     publicLink: rows[0].public_link,
+    // O BLOCO DO DONO ESPELHA UMA LINHA DE `shares`, campo a campo, e a simetria é o que
+    // permite ao cliente ter UM só compositor de rótulo para as duas. Enquanto o dono trazia
+    // três campos e o participante sete, a tela precisava de dois caminhos para escrever a
+    // mesma frase, e é assim que um deles fica para trás.
     owner: {
       userId: rows[0].owner_id,
       username: rows[0].owner_username,
       nome: rows[0].owner_nome,
+      nomeGuerra: rows[0].owner_nome_guerra,
+      postoGraduacao: rows[0].owner_posto_graduacao,
+      organizacaoMilitar: rows[0].owner_organizacao_militar,
+      organizacaoMilitarSigla: rows[0].owner_organizacao_militar_sigla,
     },
     shares: rows[0].shares,
     groups: rows[0].groups,
