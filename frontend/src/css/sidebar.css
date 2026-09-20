@@ -210,21 +210,22 @@
     flex-direction: column;
     align-items: center;
     gap: 4px;
-    transition: background var(--transition-fast), transform var(--transition-fast);
     position: relative;
 }
 
-.recent-map-btn:hover {
-    background: rgb(0 0 0 / 12%);
-}
-
-/* Active/selected map indicator */
-.recent-map-btn[data-active="true"] {
-    background: rgb(0 0 0 / 24%);
-}
+/* A LISTA DE MAPAS NAO TEM PASTILHA EM ESTADO NENHUM, nem ativo nem hover, e a ausencia
+   e a decisao. As de antes eram pretas a 24% (ativo) e 12% (hover) POR CIMA da trilha,
+   isto e, elas ESCURECIAM o verde em vez de troca-lo, e o retangulo que sobrava separava
+   do fundo por 1,5:1: forte o bastante para virar uma caixa, fraco demais para ser o
+   sinal. TODO estado mora agora no CRACHA, que e a coisa que a pessoa esta procurando:
+   o ativo leva anel branco e escala, o hover levanta o veu e cresce, e os demais recuam
+   sob o veu. A pastilha sobrevive nos botoes de ABA desta mesma trilha, que nao tem
+   cracha para marcar; e por isso que a trilha carrega dois idiomas, de proposito. */
 
 /* Map badge with initial */
 .recent-map-badge {
+    position: relative;
+    isolation: isolate;
     width: 32px;
     height: 32px;
     border-radius: var(--radius-md);
@@ -243,12 +244,39 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 
+/* O CRACHA INATIVO RECUA SOB UM VEU DA PROPRIA COR DA TRILHA, e o veu e um
+   pseudo-elemento porque `opacity` levaria junto a inicial BRANCA que mora dentro
+   dele: a 50% a letra cai para 2,61:1 sobre o proprio cracha, e so volta ao piso AA
+   em 0,9, que nao recua nada. O `isolation` e o que mantem o `z-index: -1` dentro do
+   cracha, pintando acima do fundo dele e abaixo da letra. Efeito colateral bom: o veu
+   escurece os tons CLAROS da paleta, e neles a letra branca sobe de 3,09:1 (lime) e
+   2,94:1 (gold) para perto de 3,6:1. Esses dois ja reprovavam AA antes desta mudanca. */
+.recent-map-btn:not([data-active="true"]) .recent-map-badge::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: color-mix(in srgb, var(--sidebar-bg) 38%, transparent);
+    transition: opacity var(--transition-fast);
+}
+
+/* Passar o mouse DEVOLVE a cor cheia: o recuo e estado de repouso, nao de bloqueio. */
+.recent-map-btn:hover .recent-map-badge::after {
+    opacity: 0;
+}
+
 .recent-map-btn[data-active="true"] .recent-map-badge {
     box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
     transform: scale(1.05);
 }
 
-/* Map name label */
+/* Map name label
+ *
+ * O ROTULO INATIVO CONTINUA BRANCO PURO, e isso nao e metade de trabalho feito: apaga-lo
+ * seria a outra metade do recuo, so que branco a 60% sobre a trilha da 2,82:1 e a 75% da
+ * 3,54:1, os dois abaixo do piso AA de 4,5:1 que o branco puro alcanca (5,01:1). O recuo
+ * acontece no CRACHA, que e superficie, e no PESO, nunca na cor do texto. */
 .recent-map-label {
     font-size: 9px;
     color: #fff;
@@ -260,21 +288,29 @@
     line-height: 1.2;
 }
 
-.recent-map-btn:hover .recent-map-label {
-    color: white;
-}
 
 .recent-map-btn[data-active="true"] .recent-map-label {
     color: white;
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
 }
 
-/* Thumbnail image styling */
+/* Thumbnail image styling.
+ *
+ * O RAMO DA MINIATURA E INALCANCAVEL HOJE (`sidebar.control.js` monta todo item com
+ * `thumbnail: null`), e mesmo assim ele leva o anel do ativo: quem o cobria era a
+ * pastilha, que saiu, e um ramo sem marcador nenhum e uma armadilha esperando quem
+ * for liga-lo. O veu do inativo nao se aplica aqui, porque `::after` com `z-index: -1`
+ * precisa de conteudo por cima, e imagem nao tem. */
 .recent-map-btn img {
     width: 32px;
     height: 32px;
     border-radius: var(--radius-md);
     object-fit: cover;
+}
+
+.recent-map-btn[data-active="true"] img {
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
+    transform: scale(1.05);
 }
 
 /* =========================================================================
