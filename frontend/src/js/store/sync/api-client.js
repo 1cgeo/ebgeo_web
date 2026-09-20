@@ -1173,11 +1173,19 @@ export class ApiClient {
      * (public/private — WHO SEES it) and `owner_org_id` (the producing organization — WHO
      * MAINTAINS it, null for the institutional collection). They are independent, and the
      * admin panel renders them as separate columns for that reason.
+     * `producedOnly` swaps the server's axis from ACCESS (who sees it) to PRODUCTION (who
+     * maintains it): the caller gets only what their own organization produced, with the
+     * institutional collection (`owner_org_id` null) left out. It resolves to everything for a
+     * global admin, since `fn_can_produce_resource` answers true for that role, so the admin
+     * panel sends it on every sub-tab and keeps one code path.
      * @param {string} category - 'basemap'|'data_layer'|'analysis_layer'|'tileset'
+     * @param {Object} [opcoes]
+     * @param {boolean} [opcoes.producedOnly] - Narrow to the caller's own organization.
      * @returns {Promise<Array<Object>>}
      */
-    async listResources(category) {
-        return this._request('GET', `/${this._catalogEndpoint(category)}`);
+    async listResources(category, { producedOnly = false } = {}) {
+        const qs = producedOnly ? '?producedOnly=true' : '';
+        return this._request('GET', `/${this._catalogEndpoint(category)}${qs}`);
     }
 
     /**
@@ -2498,6 +2506,8 @@ export class ApiClient {
      * @param {string} [params.targetOrgId] - Administrator only; ignored for everyone else.
      * @param {string} [params.from] - ISO instant, inclusive.
      * @param {string} [params.to] - ISO instant, EXCLUSIVE (half-open period).
+     * @param {boolean} [params.includeAccess] - Brings LOGIN/LOGOUT back into the list;
+     *   the server hides both unless this is true OR an explicit `action` was asked for.
      * @param {number} [params.page] - 1-based.
      * @param {number} [params.limit] - Server caps at 200; defaults to 50.
      * @returns {Promise<{ total:number, page:number, limit:number, escopoOrgId:string|null,

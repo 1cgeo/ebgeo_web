@@ -47,7 +47,12 @@ describe.skipIf(E2E_SKIP)('E2E — a trilha de auditoria pela fronteira real', (
     });
 
     it('o administrador recebe o envelope DESEMPACOTADO uma vez, com as linhas em `.data`', async () => {
-        const resposta = await apiAdmin.listAudit({ page: 1, limit: 50 });
+        // `includeAccess` ENTROU AQUI EM 2026-09-20 e não é enfeite: a trilha desta base tem
+        // como linha garantida apenas o `LOGIN` que o `beforeAll` planta, e a rota passou a
+        // esconder entrada e saída por padrão. Sem ele, a asserção de "pelo menos uma linha"
+        // mede a política de recorte em vez do envelope, e reprova por um motivo que não é o
+        // do caso.
+        const resposta = await apiAdmin.listAudit({ page: 1, limit: 50, includeAccess: true });
 
         expect(Array.isArray(resposta.data)).toBe(true);
         expect(resposta.data.length).toBeGreaterThanOrEqual(1);
@@ -67,6 +72,30 @@ describe.skipIf(E2E_SKIP)('E2E — a trilha de auditoria pela fronteira real', (
         ]) {
             expect(linha, `a linha precisa carregar \`${campo}\``).toHaveProperty(campo);
         }
+    });
+
+    it('entrada e saída ficam DE FORA por padrão, e dois caminhos as trazem de volta', async () => {
+        // O RECORTE É DO SERVIDOR, e é o ponto deste caso. A aba pagina pelo servidor e lê o
+        // `total` dele, então um recorte feito no cliente faria o rodapé dizer "1 a 50 de
+        // 213" sobre uma lista menor, com páginas de tamanhos irregulares e nada errado à
+        // vista.
+        const padrao = await apiAdmin.listAudit({ page: 1, limit: 200 });
+        expect(padrao.data.some((l) => l.action === 'LOGIN' || l.action === 'LOGOUT')).toBe(false);
+
+        const comAcesso = await apiAdmin.listAudit({ page: 1, limit: 200, includeAccess: true });
+        expect(comAcesso.data.some((l) => l.action === 'LOGIN')).toBe(true);
+
+        // O TOTAL ACOMPANHA A LISTA. `COUNT_AUDIT` divide o mesmo bloco de filtros que
+        // `LIST_AUDIT`, e é essa partilha que se mede aqui: contar linhas que ninguém
+        // alcança paginando é a forma silenciosa de o rodapé mentir.
+        expect(comAcesso.total).toBeGreaterThan(padrao.total);
+
+        // O PEDIDO EXPLÍCITO TAMBÉM VENCE O RECORTE, e este é o ramo que evita a tela vazia:
+        // o seletor de ação oferece "Entrada no sistema", e recusá-la em silêncio porque a
+        // caixa está desmarcada seria a tela negando o que ela mesma ofereceu.
+        const soLogin = await apiAdmin.listAudit({ action: 'LOGIN', page: 1, limit: 50 });
+        expect(soLogin.data.length).toBeGreaterThanOrEqual(1);
+        expect([...new Set(soLogin.data.map((l) => l.action))]).toEqual(['LOGIN']);
     });
 
     it('a PRIMEIRA CARGA DA ABA (quatro filtros vazios) não é 422', async () => {
@@ -92,7 +121,10 @@ describe.skipIf(E2E_SKIP)('E2E — a trilha de auditoria pela fronteira real', (
     });
 
     it('o filtro por ação ESTREITA de verdade, e a página respeita o `limit`', async () => {
-        const tudo = await apiAdmin.listAudit({ page: 1, limit: 50 });
+        // OS DOIS LADOS DA COMPARAÇÃO PRECISAM DA MESMA BASE. Com o recorte de acesso em
+        // vigor, um `tudo` sem `includeAccess` esconde justamente as linhas que `soLogin`
+        // conta, e a desigualdade de totais abaixo passaria a ser falsa por construção.
+        const tudo = await apiAdmin.listAudit({ page: 1, limit: 50, includeAccess: true });
         expect(tudo.data.length).toBeGreaterThanOrEqual(1);
 
         const soLogin = await apiAdmin.listAudit({ action: 'LOGIN', page: 1, limit: 50 });
@@ -100,7 +132,7 @@ describe.skipIf(E2E_SKIP)('E2E — a trilha de auditoria pela fronteira real', (
         expect([...new Set(soLogin.data.map((l) => l.action))]).toEqual(['LOGIN']);
         expect(soLogin.total).toBeLessThanOrEqual(tudo.total);
 
-        const umaSo = await apiAdmin.listAudit({ page: 1, limit: 1 });
+        const umaSo = await apiAdmin.listAudit({ page: 1, limit: 1, includeAccess: true });
         expect(umaSo.data).toHaveLength(1);
         expect(umaSo.limit).toBe(1);
         // O total NÃO é o tamanho da página: é o da consulta inteira, e é dele que o

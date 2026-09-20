@@ -63,7 +63,11 @@ function producerActor(req) {
  * autentica por cookie, e a requisição de cookie chega sem aquele cabeçalho.
  */
 export const list = (table) => asyncHandler(async (req, res) => {
-  const data = await svc.listCatalog(table, visibleTo(req, table));
+  // O `=== true` É LEITURA DE BOOLEANO JÁ CONVERTIDO: `validate` reescreve `req.query` com o
+  // valor do Joi (`req[source] = value`), então aqui chega booleano, nunca a string '1'.
+  const data = await svc.listCatalog(table, visibleTo(req, table), {
+    producedOnly: req.query?.producedOnly === true,
+  });
   marcarEscopoJson(req, res);
   res.json({ data });
 });

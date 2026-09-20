@@ -31,7 +31,7 @@ export function makeCatalogRouter(table) {
   // gate. Sem `atlasId` nao ha gate, porque "sem atlas em foco" e o estado normal.
   router.get(
     '/',
-    validate({ query: schemas.atlasScopeQuerySchema }),
+    validate({ query: schemas.listQuerySchema }),
     liftOptionalAtlasId,
     auth,
     requireAtlasScopeWhenPresent,

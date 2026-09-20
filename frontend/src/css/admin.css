@@ -99,9 +99,43 @@
     padding: var(--space-6) var(--space-8);
 }
 
-/* Constrain the readable width of content but let tables breathe. */
+/* A COLUNA DE CONTEUDO E CENTRADA, e o teto sozinho nao centrava nada: sem margem
+   automatica a coluna de 1080px encostava na ESQUERDA e todo o vao sobrava a direita, o
+   que num monitor largo se le como tela torta. A margem e `margin-inline`, nunca o atalho
+   de quatro lados, porque o espaco VERTICAL entre os blocos vem de margem propria de cada
+   um deles, e um `margin: 0 auto` o zeraria em todos de uma vez.
+
+   O CENTRO E O DA AREA DE CONTEUDO, e nao o da janela: a trilha de navegacao de 232px fica
+   fora dela. E a leitura certa para leiaute com trilha lateral, e tentar centrar pela janela
+   exigiria descontar a trilha aqui dentro, isto e, repetir a largura dela num segundo lugar. */
 .admin-panel__content > * {
     max-width: 1080px;
+    margin-inline: auto;
+}
+
+/* A MEDIDA DE LEITURA DA PROSA, que e OUTRA que a da coluna, e essa distincao e o ponto:
+   1080px serve a TABELA de cinco a sete colunas, e a mesma largura num paragrafo da uma
+   linha de cerca de 150 caracteres, o dobro dos 45 a 75 da norma tipografica. O olho perde
+   a volta da linha, e o texto e lido como "muito texto" mesmo sem uma palavra sobrando.
+
+   A UNICA MEDIDA DE LEITURA DO ARQUIVO ERA A DA LEGENDA DO CATALOGO (70ch), escrita a mao
+   num seletor so; as outras oito classes de prosa nao tinham nenhuma. Esta regra as reune,
+   e `ch` em vez de pixel porque a unidade acompanha a fonte: mudar o corpo do texto nao
+   desfaz o recorte.
+
+   O QUE FICA DE FORA, de proposito: tabela, cartao e formulario, que tem largura propria e
+   funcao de grade; e `.admin-audit__nota`, que ja tem 24rem e e empurrada para a direita
+   pela margem automatica dela. */
+.admin-section__subtitle,
+.admin-form__hint,
+.admin-empty__hint,
+.admin-catalog__legend,
+.admin-diag__nota,
+.admin-diag__hint,
+.admin-uso__nota,
+.admin-uso__hint,
+.admin-uso__aviso {
+    max-width: 70ch;
 }
 
 /* ===== Section header ===== */
@@ -626,10 +660,12 @@
 
 /* ===== Catalog tab ===== */
 
-/* A legenda dos três eixos (Acesso, Status, OM dona), acima da navegação de categorias. */
+/* A legenda dos três eixos (Acesso, Status, OM dona), acima da navegação de categorias.
+   A medida de leitura dela saiu daqui e foi para a regra compartilhada de prosa, lá em
+   cima: enquanto este era o único seletor do arquivo com `ch`, ele era a exceção; agora
+   seria a segunda cópia do mesmo número, que é como duas medidas divergem. */
 .admin-catalog__legend {
     margin: calc(var(--space-2) * -1) 0 var(--space-4);
-    max-width: 70ch;
 }
 
 .admin-catalog__nav {
@@ -928,6 +964,26 @@
 
 .admin-audit__linha .admin-audit__filtro {
     flex: 0 1 11rem;
+}
+
+/* A CAIXA DE MARCAR É FILTRO DE FILEIRA, NÃO CAMPO: o texto dela já é o rótulo, então ela não
+   leva rótulo em cima nem a base de 11rem dos `<select>`, que deixaria um vão à direita do
+   texto. A altura acompanha a dos botões da fileira, senão ela flutua entre eles. */
+.admin-audit__linha .admin-audit__filtro--caixa {
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+    height: var(--touch-target-min);
+    font-size: var(--font-size-sm);
+    color: var(--gray-600);
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.admin-audit__filtro--caixa input {
+    margin: 0;
+    cursor: pointer;
 }
 
 /* ALTURA IGUAL, e não só linha de base igual. Os botões da fileira (`Apuração`, `Limpar

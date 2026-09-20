@@ -30,7 +30,7 @@ import * as Q from './audit.queries.js';
  * @returns {Promise<{total: number, page: number, limit: number, data: Array}>}
  */
 export async function listAudit(
-  { action, actorId, targetType, targetId, targetOrgId, from, to, page, limit },
+  { action, actorId, targetType, targetId, targetOrgId, from, to, includeAccess, page, limit },
   escopo,
 ) {
   if (!escopo || typeof escopo.administra !== 'boolean') {
@@ -47,6 +47,10 @@ export async function listAudit(
     orgId ?? null,
     from ?? null,
     to ?? null,
+    // BOOLEANO E NAO NULO: o schema ja o resolve para `false` na borda, e um `?? null`
+    // aqui devolveria o predicado ao ramo `IS TRUE` ser falso por nulidade, que e a
+    // mesma decisao escrita duas vezes em lugares diferentes.
+    includeAccess === true,
   ];
   const [data, count] = await Promise.all([
     query(Q.LIST_AUDIT, [...filtros, limit, offset]),

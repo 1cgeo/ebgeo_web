@@ -205,3 +205,20 @@ export function schemasDeEscrita(table) {
 export const atlasScopeQuerySchema = Joi.object({
   atlasId: Joi.string().trim().guid(),
 }).unknown(true);
+
+/**
+ * A query da LISTAGEM: o escopo de atlas mais o recorte de PRODUÇÃO.
+ *
+ * `producedOnly` É PARÂMETRO EXPLÍCITO E NÃO O PADRÃO DA ROTA, de propósito. Sem ele,
+ * `GET /api/v1/<tabela>` continua devolvendo o acervo público inteiro mais o que o chamador
+ * alcança por papel, produção ou concessão, que é o contrato que os casos de concessão e de
+ * empréstimo medem. Quem pede o recorte é a aba Catálogo do painel, e só ela.
+ *
+ * A CHAVE PRECISA SER DECLARADA AQUI, e não basta lê-la no controller: o schema de escopo é
+ * `.unknown(true)`, então uma chave não declarada chega como a string crua `'1'` e um
+ * `=== true` do outro lado seria sempre falso, isto é, o recorte não aconteceria e nada
+ * acusaria. Declarada, o Joi a converte e aplica o default.
+ */
+export const listQuerySchema = atlasScopeQuerySchema.keys({
+  producedOnly: Joi.boolean().default(false),
+});

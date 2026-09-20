@@ -140,13 +140,43 @@ function assertValidStyle(table, config) {
  * depende disso). Com `visibleTo`, soma o que aquele principal enxerga por papel
  * global ou concessão.
  *
+ * COM `producedOnly`, O EIXO TROCA: sai o de ACESSO (quem enxerga) e entra o de PRODUÇÃO
+ * (quem mantém). É o recorte que a aba Catálogo do painel pede desde 2026-09-20, por decisão
+ * do dono, e ele é ESTRITO: o acervo institucional (`owner_org_id` nulo) fica de fora junto
+ * com o das outras OM, porque `fn_can_produce_resource` compara IGUALDADE e nulo não é igual
+ * a nada. A consequência foi escolhida sabendo o preço: hoje as dez linhas semeadas são
+ * institucionais, então a sub-aba de mapas base de um produtor cujo OM nada produziu abre
+ * VAZIA. A alternativa (somar o institucional) foi recusada: ela devolve à tela justamente as
+ * linhas que ele não pode tocar.
+ *
+ * O MESMO RAMO SERVE ÀS DUAS AUDIÊNCIAS, sem um `if` de papel, e é por isso que ele reusa
+ * `fn_can_produce_resource` em vez de comparar `owner_org_id` à mão: a função responde
+ * verdadeiro para administrador, então a lista dele não muda. É a forma que a listagem
+ * administrativa do 360 já usava (`LIST_PROJECTS_ADMIN`), e é o que torna as cinco sub-abas
+ * do painel simétricas em vez de duas regras diferentes com a mesma cara.
+ *
+ * SEM PRINCIPAL ELE FALHA FECHADO: `userId` nulo não produz nada, logo a lista vem vazia, em
+ * vez de degradar para o público como o eixo de acesso faz.
+ *
  * @param {string} table - One of CATALOG_TABLES.
  * @param {{userId: string|null, atlasId: string|null, resourceType: string}} [visibleTo]
+ * @param {{producedOnly?: boolean}} [opcoes]
  * @returns {Promise<Array>}
  */
-export async function listCatalog(table, visibleTo = null) {
+export async function listCatalog(table, visibleTo = null, { producedOnly = false } = {}) {
   const t = assertTable(table);
-  const pred = accessPredicate(visibleTo, 0, assertProductionTypeOf(t));
+  const tipoProducao = assertProductionTypeOf(t);
+  if (producedOnly) {
+    const { rows } = await query(
+      `SELECT ${COLS_COM_ACESSO} FROM ${t} t
+        WHERE t.active = true
+          AND fn_can_produce_resource($1::uuid, $2::text, t.id)
+        ORDER BY t.created_at, t.name`,
+      [visibleTo?.userId ?? null, tipoProducao],
+    );
+    return rows;
+  }
+  const pred = accessPredicate(visibleTo, 0, tipoProducao);
   const { rows } = await query(
     `SELECT ${COLS_COM_ACESSO} FROM ${t} t WHERE t.active = true ${pred.sql} ORDER BY t.created_at, t.name`,
     pred.params,

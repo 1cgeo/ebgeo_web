@@ -344,6 +344,45 @@ describe('O Produtor escreve o catálogo da própria OM, e só ele', () => {
     assert.equal(viva.owner_org_id, orgA);
   });
 
+  it('`?producedOnly=true` recorta por PRODUÇÃO, e o institucional sai junto', async () => {
+    // O RECORTE DA ABA CATÁLOGO DO PAINEL (decisão do dono, 2026-09-20). Ele é PARÂMETRO e
+    // não o padrão da rota, então a primeira metade deste caso é o controle disso: sem o
+    // parâmetro, o produtor continua enxergando o público do vizinho e o institucional, que
+    // é o contrato que os casos de concessão e de empréstimo medem. Sem esse controle, um
+    // recorte aplicado por engano a TODA leitura passaria verde aqui.
+    const { tabela, rota } = TABELAS[2]; // analysis_layers
+    const meu = idDe(tabela, 'a');
+    const doVizinho = idDe(tabela, 'b');
+    const institucional = idDe(tabela, 'inst');
+
+    const ids = async (token, qs = '') => (await supertest(app)
+      .get(`/api/v1/${rota}${qs}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200)).body.data.map((r) => r.id);
+
+    const padrao = await ids(tokenA);
+    assert.ok(padrao.includes(doVizinho), 'sem o parâmetro, a linha da outra OM continua vindo');
+    assert.ok(padrao.includes(institucional), 'e a institucional também');
+
+    const recortada = await ids(tokenA, '?producedOnly=true');
+    assert.ok(recortada.includes(meu), 'com o parâmetro, a linha da própria OM fica');
+    assert.ok(!recortada.includes(doVizinho), 'a da outra OM sai, mesmo sendo pública');
+    // O INSTITUCIONAL SAI JUNTO, e esta é a metade que foi escolhida entre duas: o recorte é
+    // ESTRITO. Ele não precisou de ramo próprio porque `fn_can_produce_resource` compara
+    // IGUALDADE, e `owner_org_id` nulo não é igual a nada — a decisão e a implementação
+    // coincidem por construção.
+    assert.ok(!recortada.includes(institucional), 'e a institucional também sai');
+
+    // O ADMINISTRADOR NÃO É RECORTADO PELO MESMO PARÂMETRO, e é isso que autoriza a aba a
+    // mandá-lo em toda sub-aba sem um `if` de papel no cliente: a função de produção responde
+    // verdadeiro para quem administra o sistema. Se algum dia ela deixar de responder, é este
+    // caso que fica vermelho, e não a tela do administrador ficando vazia em produção.
+    const doAdmin = await ids(tokenAdmin, '?producedOnly=true');
+    for (const id of [meu, doVizinho, institucional]) {
+      assert.ok(doAdmin.includes(id), `o administrador continua vendo ${id}`);
+    }
+  });
+
   it('LEITURA e ESCRITA concordam: o produtor VÊ a própria linha privada', async () => {
     // A INCOERÊNCIA QUE ESTE CASO IMPEDE é específica e já foi medida: sem o ramo de
     // produção no predicado de LEITURA, o produtor levava 404 no `GET` da própria

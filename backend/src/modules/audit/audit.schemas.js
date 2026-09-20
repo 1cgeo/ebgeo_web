@@ -18,6 +18,16 @@ export const listAuditSchema = Joi.object({
   // para `Date`, que o driver manda como timestamptz.
   from: Joi.date().iso(),
   to: Joi.date().iso(),
+  // ENTRADA E SAIDA DO SISTEMA FICAM DE FORA POR PADRAO, e este e o parametro que as
+  // traz de volta. `LOGIN` e a unica acao da trilha emitida por um ato ROTINEIRO (uma
+  // linha por sessao iniciada, por pessoa, por dia), e `LOGOUT` o acompanha; as outras
+  // ~40 acoes do CHECK sao atos de administracao ou de producao. Sem o recorte, a
+  // primeira pagina de qualquer investigacao vinha tomada por elas.
+  //
+  // O DEFAULT E `false` E NAO `undefined`: assim o servico recebe um booleano em vez de
+  // decidir sozinho o que ausencia significa, e o predicado nao depende de coalescencia
+  // no meio do caminho.
+  includeAccess: Joi.boolean().default(false),
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(200).default(50),
 });

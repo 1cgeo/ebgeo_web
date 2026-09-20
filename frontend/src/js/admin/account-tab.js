@@ -442,6 +442,71 @@ class AccountTab {
     }
 
     /**
+     * @private O bloco de campos de uma seção, como `<form>` de verdade.
+     *
+     * ERA UM `<div>` ATÉ 2026-09-20, e o Chrome reclamava disso quatro vezes ao abrir a aba
+     * ("Password field is not contained in a form"). O aviso não é estético: gerenciador de
+     * senha e preenchimento automático do navegador se guiam pelo formulário, então um campo
+     * de senha solto fica fora do que o navegador sabe oferecer e salvar, e o par
+     * `current-password` mais `new-password` de uma troca deixa de ser reconhecido como troca.
+     *
+     * O BOTÃO FICA FORA DO `<form>` e se associa por `form="<id>"`. Ele já morava num bloco de
+     * ações próprio, com estilo próprio, e arrastá-lo para dentro só para virar submit mexeria
+     * no arranjo por um motivo que não é de arranjo. Associado, ele continua sendo o botão de
+     * submissão para todos os efeitos: o Enter dentro de qualquer campo passa a valer, que é
+     * comportamento que a aba não tinha.
+     *
+     * `noValidate` PORQUE A VALIDAÇÃO É NOSSA: as três seções validam em JavaScript e escrevem
+     * a recusa numa caixa com `role="alert"`. Deixar a do navegador ligada traria um balão
+     * nativo por cima, com outra redação e sem o nosso texto.
+     * @param {string} secao - Sufixo do id, e o mesmo nome do `data-section`.
+     * @param {() => void} onSubmit
+     * @returns {HTMLFormElement}
+     */
+    _formBlock(secao, onSubmit) {
+        const form = el('form', 'account-settings__form');
+        form.id = `account-settings-form-${secao}`;
+        form.noValidate = true;
+        addScopedDomListener(this, LISTENER_SCOPE, form, 'submit', (e) => {
+            e.preventDefault();
+            onSubmit();
+        });
+        return form;
+    }
+
+    /**
+     * @private O campo de USUÁRIO que acompanha todo formulário com senha.
+     *
+     * ELE EXISTE PARA O GERENCIADOR DE SENHA, e não para a pessoa: sem ele o navegador sabe
+     * que há uma credencial mas não a QUAL conta ela pertence, então ou guarda a entrada sob
+     * um nome vazio ou sobrescreve a de outra conta do mesmo endereço. O Chrome pede por ele
+     * em voz alta ("Password forms should have (optionally hidden) username fields"), e o
+     * aviso apareceu no instante em que os blocos viraram `<form>` de verdade, porque antes
+     * não havia formulário a que cobrar coisa alguma.
+     *
+     * FORA DA VISTA, DENTRO DA RENDERIZAÇÃO: `display: none` o tiraria da árvore de leiaute, e
+     * gerenciador que ignora campo não renderizado voltaria a não achar a conta. O recorte de
+     * um pixel é a forma que mantém as duas propriedades. `readonly` mais `tabindex=-1` mais
+     * `aria-hidden` o deixam inalcançável por teclado e mudo para leitor de tela: o nome de
+     * usuário já é dito por extenso na seção "Meus dados", e ouvi-lo de novo aqui seria ruído.
+     *
+     * VAZIO ENQUANTO O PERFIL NÃO CHEGA, e isso basta: o que o Chrome cobra é a PRESENÇA do
+     * campo, e a submissão só acontece depois que a tela carregou.
+     * @returns {HTMLElement}
+     */
+    _usernameField() {
+        const input = document.createElement('input');
+        input.className = 'account-settings__username';
+        input.type = 'text';
+        input.autocomplete = 'username';
+        input.value = this._profile?.username || '';
+        input.readOnly = true;
+        input.tabIndex = -1;
+        input.setAttribute('aria-hidden', 'true');
+        return input;
+    }
+
+    /**
      * @private Um campo de texto ou de senha, com rótulo.
      * @param {{ field: string, label: string, type?: string, value?: string,
      *   autocomplete?: string, maxLength?: number }} spec
@@ -469,8 +534,13 @@ class AccountTab {
 
     /**
      * @private Um botão que carrega a ação da seção.
+     *
+     * COM `submitFor` ELE É O BOTÃO DE SUBMISSÃO do formulário daquele id, e então NÃO leva
+     * ouvinte de clique: quem dispara a ação é o `submit` do formulário, alcançado tanto pelo
+     * clique quanto pelo Enter. Dois caminhos para a mesma ação seriam duas chamadas no clique.
+     * Desabilitado, ele bloqueia os dois, que é o estado certo durante a ida à rede.
      * @param {{ label: string, variant?: string, disabled?: boolean, testid?: string,
-     *   onClick: () => void }} spec
+     *   submitFor?: string, onClick?: () => void }} spec
      * @returns {HTMLElement}
      */
     _actionButton(spec) {
@@ -479,10 +549,15 @@ class AccountTab {
             `account-settings__btn account-settings__btn--${spec.variant || 'primary'}`,
             spec.label,
         );
-        button.type = 'button';
+        if (spec.submitFor) {
+            button.type = 'submit';
+            button.setAttribute('form', spec.submitFor);
+        } else {
+            button.type = 'button';
+        }
         if (spec.testid) button.dataset.testid = spec.testid;
         if (spec.disabled) button.disabled = true;
-        else addScopedDomListener(this, LISTENER_SCOPE, button, 'click', spec.onClick);
+        else if (spec.onClick) addScopedDomListener(this, LISTENER_SCOPE, button, 'click', spec.onClick);
         return button;
     }
 
@@ -621,7 +696,7 @@ class AccountTab {
         section.appendChild(readonly);
         section.appendChild(el('p', 'account-settings__section-hint', ADMIN_ONLY_FIELDS_NOTE));
 
-        const form = el('div', 'account-settings__form');
+        const form = this._formBlock('perfil', () => this._saveProfile());
         form.appendChild(this._inputField({
             field: 'nome',
             label: 'Nome completo',
@@ -645,7 +720,7 @@ class AccountTab {
             label: this._saving ? 'Salvando...' : 'Salvar alterações',
             disabled: this._saving,
             testid: 'account-settings-save-profile',
-            onClick: () => this._saveProfile(),
+            submitFor: 'account-settings-form-perfil',
         }));
         section.appendChild(actions);
 
@@ -748,7 +823,8 @@ class AccountTab {
         ));
         section.appendChild(this._warningBox(EMAIL_CHANGE_WARNING));
 
-        const form = el('div', 'account-settings__form');
+        const form = this._formBlock('email', () => this._changeEmail());
+        form.appendChild(this._usernameField());
         form.appendChild(this._inputField({
             field: 'email-novo',
             label: 'Novo e-mail',
@@ -779,7 +855,7 @@ class AccountTab {
             label: this._changingEmail ? 'Enviando...' : 'Enviar confirmação',
             disabled: this._changingEmail,
             testid: 'account-settings-change-email',
-            onClick: () => this._changeEmail(),
+            submitFor: 'account-settings-form-email',
         }));
         section.appendChild(actions);
 
@@ -801,7 +877,8 @@ class AccountTab {
         section.appendChild(el('p', 'account-settings__section-hint', PASSWORD_RULE_TEXT));
         section.appendChild(this._warningBox(PASSWORD_SESSION_WARNING));
 
-        const form = el('div', 'account-settings__form');
+        const form = this._formBlock('senha', () => this._changePassword());
+        form.appendChild(this._usernameField());
         form.appendChild(this._inputField({
             field: 'senha-atual',
             label: 'Senha atual',
@@ -839,7 +916,7 @@ class AccountTab {
             variant: 'danger',
             disabled: this._changingPassword,
             testid: 'account-settings-change-password',
-            onClick: () => this._changePassword(),
+            submitFor: 'account-settings-form-senha',
         }));
         section.appendChild(actions);
 

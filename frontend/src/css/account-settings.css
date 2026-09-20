@@ -138,10 +138,30 @@
    FORM
    ========================================================================= */
 
+/* O BLOCO É UM `<form>` DE VERDADE desde 2026-09-20 (o Chrome recusa campo de senha solto, e
+   o gerenciador de senha do navegador se guia pelo formulário). A margem zerada é o que
+   mantém o arranjo idêntico ao do `<div>` anterior: a folha de agente de usuário dá margem
+   própria ao elemento, e ela apareceria como um vão a mais dentro de cada seção. */
 .account-settings__form {
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
+    margin: 0;
+}
+
+/* O CAMPO DE USUÁRIO DOS FORMULÁRIOS DE SENHA: fora da vista, dentro da renderização. Ver o
+   `_usernameField` de `account-tab.js` para o porquê de não ser `display: none`. Este é o
+   recorte de um pixel usado para conteúdo que existe para a máquina e não para o olho. */
+.account-settings__username {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
 }
 
 .account-settings__field {

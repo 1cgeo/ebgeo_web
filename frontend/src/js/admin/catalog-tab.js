@@ -410,25 +410,27 @@ class CatalogTab {
         const c = this._content;
         c.replaceChildren();
 
-        // O REGIME DE ESCOPO MUDA ENTRE AS SUB-ABAS, e nada dizia isso. Estas quatro vêm de
-        // `listCatalog`, recortada por ACESSO: o acervo público inteiro mais o privado dele, com a
-        // maioria das linhas trazendo "Mantido por outra OM" no lugar dos botões. A sub-aba 360 vem
-        // de `LIST_PROJECTS_ADMIN`, recortada por PRODUÇÃO: só a OM dele.
+        // AS CINCO SUB-ABAS PASSARAM A DIVIDIR O MESMO REGIME em 2026-09-20: todas recortadas
+        // por PRODUÇÃO, só a OM de quem pergunta. Antes, estas quatro vinham recortadas por
+        // ACESSO (o acervo público inteiro mais o privado dele, com a maioria das linhas
+        // trazendo "Mantido por outra OM" no lugar dos botões) e só a de 360 era por produção,
+        // de modo que "Nenhum item nesta categoria" significava coisas diferentes na mesma tela.
         //
-        // A consequência prática é que "Nenhum item nesta categoria" significa coisas diferentes
-        // nas duas, e sem a nota a pessoa lê a lista longa daqui como "tudo isto é meu".
-        // A NOTA SAI PARA OS DOIS PÚBLICOS, com o texto de cada um. A primeira versão desta nota
-        // era gateada por `!isAdmin()`, e o efeito é o que o achado M3 descreve: o administrador,
-        // que tem a lista mais larga possível, era o único sem legenda dizendo qual é o recorte.
+        // A NOTA FICA, e continua saindo para os DOIS públicos com o texto de cada um. Ela
+        // deixou de explicar uma assimetria e passou a explicar uma AUSÊNCIA, que é o preço do
+        // recorte estrito: o acervo institucional (sem OM dona) não aparece para o produtor,
+        // então uma sub-aba vazia precisa dizer que existe acervo que ele não mantém. A primeira
+        // versão desta nota era gateada por `!isAdmin()`, e o administrador, que tem a lista
+        // mais larga possível, era o único sem legenda dizendo qual é o recorte.
         const escopo = document.createElement('p');
         escopo.className = 'admin-form__hint';
         escopo.dataset.testid = 'admin-catalog-scope-note';
         escopo.textContent = sessionContext.isAdmin()
             ? 'Você vê e edita o acervo de todas as OM, e também o institucional (sem OM dona), '
               + 'porque administra o sistema. A coluna "OM dona" diz quem mantém cada linha.'
-            : 'Esta lista traz o acervo público de todas as OM mais o que é seu. '
-              + 'Você só edita as linhas da sua OM; nas demais, o lugar dos botões diz quem '
-              + 'mantém. A sub-aba 360 é diferente: lá aparecem apenas os seus projetos.';
+            : 'Esta lista traz apenas o que a sua OM produziu, nas cinco sub-abas. O acervo '
+              + 'institucional e o das outras OM não aparecem aqui, mesmo sendo públicos no '
+              + 'mapa: eles são mantidos por quem os produziu.';
         c.appendChild(escopo);
 
         const wrap = card({ testid: 'admin-catalog-list', padded: false });
@@ -441,7 +443,11 @@ class CatalogTab {
 
         let items;
         try {
-            items = await apiClient.listResources(category);
+            // O RECORTE DE PRODUÇÃO VAI SEMPRE, e não só para o produtor: a mesma cláusula
+            // serve às duas audiências porque `fn_can_produce_resource` responde verdadeiro
+            // para administrador. Um `if (isAdmin())` aqui seria uma segunda regra de papel
+            // no cliente, e o eixo global não se decide na tela.
+            items = await apiClient.listResources(category, { producedOnly: true });
         } catch (error) {
             if (!this._alive) return;
             // A SAÍDA que faltava. Ver `failureState` em `admin-dom.js`: falha de carregamento era
@@ -522,6 +528,12 @@ class CatalogTab {
                 actions.appendChild(button('Excluir', 'admin-btn admin-btn--danger', 'admin-catalog-delete',
                     () => this._deleteResource(r)));
             } else {
+                // RAMO MORTO DESDE 2026-09-20, e mantido de propósito, como o gêmeo dele na
+                // tabela de 360: a listagem passou a ser recortada por `fn_can_produce_resource`
+                // no WHERE, que é o mesmo predicado que `canProduceFor` espelha aqui, então toda
+                // linha que chega é mantida por quem a pede. Ele é a rede se os dois lados
+                // divergirem, e apagá-lo trocaria uma célula com texto por uma célula vazia, que
+                // se lê como defeito de renderização.
                 const nota = document.createElement('span');
                 nota.className = 'admin-users__status';
                 nota.textContent = 'Mantido por outra OM';

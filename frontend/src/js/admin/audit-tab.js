@@ -172,6 +172,18 @@ class AuditTab {
         // duas são vazias por invariante, mantida em `_trocarPeriodo`.
         this._de = '';
         this._ate = '';
+        // ENTRADA E SAÍDA DO SISTEMA NASCEM ESCONDIDAS, por decisão do dono em 2026-09-20.
+        // `LOGIN` é a única ação da trilha emitida por um ato ROTINEIRO (uma linha por sessão
+        // iniciada, por pessoa, por dia) e `LOGOUT` o acompanha, então as duas tomavam a
+        // primeira página de qualquer investigação. O recorte é DO SERVIDOR (`includeAccess`),
+        // nunca um `filter` sobre a página em mãos: a paginação é do servidor e devolve
+        // `total`, então esconder linhas aqui faria o rodapé dizer "1 a 50 de 213" sobre uma
+        // lista de 37, e as páginas viriam com tamanhos irregulares sem nada estar errado.
+        //
+        // NÃO MORA EM `this._filtros`, e isso não é descuido: `temFiltroAtivo` mede
+        // `String(v).trim() !== ''`, e um `false` ali dentro vira a string "false", que é não
+        // vazia. O botão "Limpar filtros" passaria a aparecer sobre uma barra sem filtro.
+        this._incluirAcesso = false;
         // O RECOLHIMENTO DA APURAÇÃO. Nasce fechado, e a primeira resposta pode abri-lo: com
         // filtro de apuração ativo ele abre sozinho, para o recorte nunca ficar invisível.
         this._apuracaoAberta = false;
@@ -216,6 +228,9 @@ class AuditTab {
         // servidor o ignora), mas a tela não deve pedir o que não pode: um parâmetro que
         // o servidor descarta é uma afordância que mente.
         if (!this._administra) delete p.targetOrgId;
+        // SÓ VIAJA QUANDO VERDADEIRO. O schema tem `default(false)`, então a ausência já é o
+        // recorte; mandar `false` explícito seria a mesma decisão escrita nos dois lados.
+        if (this._incluirAcesso) p.includeAccess = true;
         return p;
     }
 
@@ -438,6 +453,25 @@ class AuditTab {
         acao.control.value = this._filtros.action;
         linha.appendChild(acao.wrap);
 
+        // --- entrada e saída do sistema, escondidas por padrão ----------------
+        // O LUGAR É LOGO DEPOIS DA AÇÃO de propósito: é o seletor que ela modifica. E o
+        // recorte precisa ficar VISÍVEL na barra, porque uma lista recortada por uma regra
+        // que ninguém vê lê-se como "não aconteceu", que numa trilha é a leitura mais cara
+        // que existe (é a mesma razão do selo no botão da apuração).
+        //
+        // ESCOLHER `LOGIN` OU `LOGOUT` NO SELETOR CONTINUA FUNCIONANDO com a caixa
+        // desmarcada, e quem garante isso é o servidor: o pedido explícito de uma ação vence
+        // o recorte (`audit.queries.js`). Sem essa regra, a tela recusaria em silêncio uma
+        // opção que ela mesma oferece.
+        linha.appendChild(this._caixa(
+            'admin-audit-acesso',
+            'Mostrar entradas e saídas',
+            this._incluirAcesso,
+            (v) => this._aplicar(() => {
+                this._incluirAcesso = v;
+            }),
+        ));
+
         // --- tipo de alvo -----------------------------------------------------
         const tipo = this._select('admin-audit-tipo', 'Tipo de alvo', (v) => this._aplicar(() => {
             this._filtros.targetType = v;
@@ -468,6 +502,10 @@ class AuditTab {
                 this._filtros = {
                     action: '', targetType: '', targetId: '', targetOrgId: '', actorId: '',
                 };
+                // LIMPAR DEVOLVE A BARRA AO PADRÃO, e o padrão inclui esconder o acesso. A
+                // alternativa (preservar a caixa marcada) deixaria a tela num recorte que
+                // nenhum controle anuncia, já que o botão some junto com os filtros.
+                this._incluirAcesso = false;
             }));
             this._controles.push(limpar);
             linha.appendChild(limpar);
@@ -701,6 +739,33 @@ class AuditTab {
         return wrap;
     }
 
+    /**
+     * @private Uma caixa de marcar na fileira de filtros.
+     *
+     * O TEXTO DELA É O RÓTULO, então ela não leva o `<span>` de cima que os três campos
+     * irmãos levam, nem a largura fixa que a fileira dá a eles. Entra em `this._controles`
+     * como os outros, para o desligamento durante a busca em voo alcançá-la.
+     * @param {string} testid
+     * @param {string} rotulo
+     * @param {boolean} marcada
+     * @param {Function} onChange
+     * @returns {HTMLElement}
+     */
+    _caixa(testid, rotulo, marcada, onChange) {
+        const wrap = document.createElement('label');
+        wrap.className = 'admin-audit__filtro admin-audit__filtro--caixa';
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.checked = Boolean(marcada);
+        input.dataset.testid = testid;
+        const span = document.createElement('span');
+        span.textContent = rotulo;
+        addScopedDomListener(this, 'view', input, 'change', () => onChange(input.checked));
+        this._controles.push(input);
+        wrap.append(input, span);
+        return wrap;
+    }
+
     /** @private Quantas colunas a tabela tem para esta audiência. */
     _colunas() {
         return this._administra ? 6 : 5;
@@ -719,9 +784,16 @@ class AuditTab {
             // A FRASE DO VAZIO FICA COMO ESTÁ, e ela é a coisa certa: "nada casou o filtro"
             // nunca é a mesma afirmação que "nada aconteceu", e numa trilha confundir as duas
             // é o pior erro possível.
+            // E QUANDO O RECORTE DE ACESSO ESTÁ EM VIGOR, ELE É NOMEADO. Uma conta cuja
+            // única atividade no período foi entrar e sair vê exatamente esta tela, e sem a
+            // frase ela lê "nada aconteceu" sobre linhas que existem.
             host.appendChild(emptyState('Nenhum evento no período.', {
                 hint: 'Amplie o período ou limpe os filtros. Lista vazia aqui significa '
-                    + '"nada casou o filtro", nunca "nada aconteceu".',
+                    + '"nada casou o filtro", nunca "nada aconteceu".'
+                    + (this._incluirAcesso
+                        ? ''
+                        : ' Entradas e saídas do sistema estão ocultas: marque a caixa da'
+                          + ' barra para incluí-las.'),
             }));
             host.appendChild(this._rodape(resposta));
             return;
