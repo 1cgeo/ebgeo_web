@@ -353,15 +353,22 @@ export async function sendPasswordResetEmail(
   { exposeLink = !config.isProd, transport: injectedTransport = null } = {}
 ) {
   const subject = 'EBGeo — redefinição de senha';
-  const acesso = appLink ? `Abra o EBGeo em ${appLink}` : 'Abra o EBGeo';
+  const acesso = appLink ? `abra o EBGeo em ${appLink}` : 'abra o EBGeo';
+  // TWO PATHS, because the recovery screen has two steps since 2026-09-20. Whoever just asked for
+  // the code is ALREADY on the step that takes it; whoever closed the dialog (or opens this
+  // message on another device) lands on the step that ASKS for a code, with no box to paste into,
+  // and needs the link that skips it. The three quoted labels are the ones the login dialog
+  // writes, pinned by `tests/unit/email-de-recuperacao-cita-a-tela.test.js`.
   const text =
     `Olá${nome ? ` ${nome}` : ''},\n\n` +
     'Recebemos um pedido para redefinir a senha da sua conta no EBGeo.\n\n' +
     `Use este código:\n${token}\n\n` +
-    `${acesso}, clique em "Entrar", depois em "Esqueci minha senha", e cole o código junto ` +
-    'com a nova senha.\n\n' +
-    `O código vale por ${minutes} minutos e serve uma vez só. Ao redefinir, todas as sessões ` +
-    'abertas desta conta são encerradas.\n\n' +
+    'Se a tela de recuperação ainda estiver aberta, cole o código nela, junto com a nova ' +
+    'senha.\n\n' +
+    `Se você já a fechou: ${acesso}, clique em "Entrar", depois em "Esqueci minha senha" e em ` +
+    '"Já tenho um código".\n\n' +
+    `O código vale por ${minutes} minutos e serve uma vez só. Ao redefinir, você sai de todos ` +
+    'os dispositivos e entra de novo com a senha nova.\n\n' +
     'Se não foi você quem pediu, ignore esta mensagem: sua senha continua a mesma.';
 
   const detail = exposeLink ? { to, token } : { to };
