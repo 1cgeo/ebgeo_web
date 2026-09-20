@@ -9,7 +9,7 @@
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync, getFeatureById } from '../../store';
 import { IDUtils, showWarning, showToast, deepClone } from '../../utilities';
-import { isTouchDevice } from '../../utilities/pointer-utils';
+import { isTouchDevice, getPointerPosition } from '../../utilities/pointer-utils';
 import { DrawingFinishButton, setupVertexRemoveLongPress } from '../drawing-touch-helpers';
 import { addLineAttributesToPanel } from './line_attributes_panel.js';
 import AddLineGeometry from './add_line_geometry.js';
@@ -1005,26 +1005,60 @@ class AddLineControl extends BaseControl {
         });
     }
 
+    /**
+     * O ARRASTO DE ALÇA É DE PONTEIRO, E NÃO DE MOUSE, desde 2026-09-20.
+     *
+     * ELE NÃO FUNCIONAVA COM O DEDO, e esta ferramenta e o polígono eram as duas últimas assim:
+     * as outras nove (círculo, elipse, retângulo, setor, texto, seta, limite, frente ocupada e
+     * coordenação) já usavam ponteiro com captura. O MapLibre registra ouvintes DOM de
+     * `mousedown`/`mousemove`/`mouseup` e não sintetiza nada a partir do toque; o navegador só
+     * emitiria os eventos de compatibilidade num toque que NÃO virasse arrasto, e aqui o
+     * contêiner do canvas declara `touch-action: none` e o próprio MapLibre dá `preventDefault`
+     * no `touchmove`, de modo que o arrasto consome o gesto e nenhum `mousemove` intermediário
+     * nasce. As alças apareciam na tela e não obedeciam.
+     *
+     * A CAPTURA DE PONTEIRO É O QUE FAZ O ARRASTO SOBREVIVER à saída do dedo da alça: sem ela,
+     * o primeiro movimento que passasse por cima de outro elemento entregaria os eventos a ele.
+     */
     setupEditEventListeners = () => {
-        this.map.on('mousedown', this.onEditMouseDown);
-        this.map.on('mousemove', this.onEditMouseMove);
-        this.map.on('mouseup', this.onEditMouseUp);
+        this.map.getCanvasContainer().addEventListener('pointerdown', this.onEditMouseDown);
     }
 
     removeEditEventListeners = () => {
-        this.map.off('mousedown', this.onEditMouseDown);
-        this.map.off('mousemove', this.onEditMouseMove);
-        this.map.off('mouseup', this.onEditMouseUp);
+        const canvas = this.map.getCanvasContainer();
+        canvas.removeEventListener('pointerdown', this.onEditMouseDown);
+        canvas.removeEventListener('pointermove', this.onEditMouseMove);
+        canvas.removeEventListener('pointerup', this.onEditMouseUp);
+        canvas.removeEventListener('pointercancel', this.onEditMouseUp);
+        this._releaseEditPointer();
+    }
+
+    /** @private Solta a captura, se houver. Chamado na saída e no fim de todo arrasto. */
+    _releaseEditPointer = () => {
+        if (this._activeEditPointerId === null || this._activeEditPointerId === undefined) return;
+        try {
+            this.map.getCanvasContainer().releasePointerCapture(this._activeEditPointerId);
+        } catch {
+            // O ponteiro já pode ter sido solto pelo navegador (pointercancel), e tentar de
+            // novo levanta. A captura é conveniência, nunca invariante.
+        }
+        this._activeEditPointerId = null;
     }
 
     onEditMouseDown = (e) => {
         // Ignore right-click (button 2) - handled by handleEditRightClick
-        if (e.originalEvent && e.originalEvent.button === 2) return;
+        if (e.button === 2) return;
+        // SÓ O PONTEIRO PRIMÁRIO: num toque de dois dedos o segundo chega aqui como um
+        // `pointerdown` próprio, e sem esta guarda ele começaria um segundo arrasto da mesma
+        // alça, com a posição do dedo errado.
+        if (!e.isPrimary) return;
 
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
-        const handleFeatures = this.map.queryRenderedFeatures(e.point, {
+        const canvasContainer = this.map.getCanvasContainer();
+        const posicao = getPointerPosition(e, canvasContainer);
+        const handleFeatures = this.map.queryRenderedFeatures([posicao.x, posicao.y], {
             layers: ['line-edit-handles-layer']
         });
 
@@ -1037,6 +1071,21 @@ class AddLineControl extends BaseControl {
             this.activeHandleIndex = handle.properties.index;
             this.map.dragPan.disable();
             this.map.getCanvas().style.cursor = 'grabbing';
+
+            this._activeEditPointerId = e.pointerId;
+            try {
+                canvasContainer.setPointerCapture(e.pointerId);
+            } catch {
+                // Sem captura o arrasto ainda funciona enquanto o dedo não sair do elemento.
+                this._activeEditPointerId = null;
+            }
+            canvasContainer.addEventListener('pointermove', this.onEditMouseMove);
+            canvasContainer.addEventListener('pointerup', this.onEditMouseUp);
+            // `pointercancel` É OBRIGATÓRIO NO TOQUE: gesto de sistema, notificação ou o
+            // navegador assumindo o gesto interrompem o arrasto sem um `pointerup`, e sem este
+            // par a bandeira ficaria presa em verdadeiro e o ouvinte de movimento vazaria.
+            canvasContainer.addEventListener('pointercancel', this.onEditMouseUp);
+
             e.preventDefault();
         }
     }
@@ -1047,16 +1096,27 @@ class AddLineControl extends BaseControl {
      * `performPreviewUpdate`, which excludes the dragged feature itself.
      */
     onEditMouseMove = (e) => {
+        if (!e.isPrimary) return;
         const selectedFeature = this.getSelectedFeature();
         if (!this.isDraggingHandle || !selectedFeature) return;
 
-        this._previewScheduler.request({ point: e.point, lngLat: e.lngLat });
+        // O EVENTO É DOM, então a posição e a coordenada se derivam aqui: o `e.point` e o
+        // `e.lngLat` do evento de mapa do MapLibre não existem num `PointerEvent`.
+        const point = getPointerPosition(e, this.map.getCanvasContainer());
+        const lngLat = this.map.unproject([point.x, point.y]);
+        this._previewScheduler.request({ point, lngLat });
     }
 
     /**
      * Complete edit operation and recalculate profile if enabled
      */
     onEditMouseUp = async () => {
+        const canvasContainer = this.map.getCanvasContainer();
+        canvasContainer.removeEventListener('pointermove', this.onEditMouseMove);
+        canvasContainer.removeEventListener('pointerup', this.onEditMouseUp);
+        canvasContainer.removeEventListener('pointercancel', this.onEditMouseUp);
+        this._releaseEditPointer();
+
         // A drag born and dead inside ONE frame (down, move, up) parks its
         // position and never reaches the frame callback, so `lastPreviewPosition`
         // below would still be null and the vertex would not follow. Deliver the

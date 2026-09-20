@@ -199,11 +199,19 @@ const CENSO_CONSULTA = [
   },
   // ================= catálogo: as quatro tabelas por uma fábrica só ==========
   {
-    arquivo: 'src/modules/catalog/catalog.service.js', unidade: 'listCatalog', n: 2, classe: SQL,
+    arquivo: 'src/modules/catalog/catalog.service.js', unidade: 'listCatalog', n: 4, classe: SQL,
     predicado: P_CATALOGO,
-    motivo: 'A listagem crua de qualquer das quatro tabelas. O predicado é semi-join (uma consulta, '
-      + 'não uma por linha) e FECHA POR PADRÃO: sem principal devolve só o público, então esquecer '
-      + 'de passar `visibleTo` degrada para MENOS dado e nunca para vazamento.',
+    motivo: 'A listagem crua de qualquer das quatro tabelas, e ela tem DOIS eixos desde 2026-09-20, '
+      + 'por isso quatro linhas de contato e não duas. O eixo de ACESSO (quem enxerga) é o padrão: '
+      + 'predicado semi-join, uma consulta e não uma por linha, que FECHA POR PADRÃO, de modo que '
+      + 'esquecer de passar `visibleTo` degrada para MENOS dado e nunca para vazamento. O eixo de '
+      + 'PRODUÇÃO (quem mantém) entra só com `producedOnly`, que a aba Catálogo do painel manda em '
+      + 'toda sub-aba: ali o `accessPredicate` sai inteiro e sobra `fn_can_produce_resource`, a '
+      + 'mesma cláusula que a listagem administrativa do 360 já usava. RISCO DO RAMO NOVO, e ele é '
+      + 'o inverso do usual: ele não vaza, ESCONDE. Sem principal a função não produz nada e a '
+      + 'lista vem vazia; e o acervo institucional (`owner_org_id` nulo) fica de fora junto com o '
+      + 'das outras OM, porque a função compara IGUALDADE e nulo não é igual a nada. Foi escolha '
+      + 'declarada do dono, não descuido.',
   },
   {
     arquivo: 'src/modules/catalog/catalog.service.js', unidade: 'getCatalogItem', n: 2, classe: SQL,

@@ -167,6 +167,27 @@ function buildControl(Control, geometry, seed = {}) {
     return { control, map, written, sources };
 }
 
+/**
+ * Um evento de PONTEIRO na posição pedida.
+ *
+ * O arrasto de alça de linha e de polígono deixou de ouvir os eventos de mapa do MapLibre
+ * em 2026-09-20 e passou a ouvir ponteiro no contêiner do canvas, porque `mousedown` e
+ * `mousemove` não nascem de um dedo. O duplo de canvas fica em (0, 0) e o `unproject` do
+ * duplo de mapa é a identidade, então `ptr(5, 5)` chega à ferramenta como ponto (5, 5) e
+ * coordenada (5, 5), exatamente como o par `point`/`lngLat` que estava escrito aqui antes.
+ * @param {number} x @param {number} y @returns {Object}
+ */
+function ptr(x, y) {
+    return {
+        isPrimary: true,
+        button: 0,
+        pointerId: 1,
+        clientX: x,
+        clientY: y,
+        preventDefault: () => {},
+    };
+}
+
 /** The vertex handle the drag grabs, as `queryRenderedFeatures` returns it. */
 const vertexHandle = { properties: { handleType: 'vertex', index: 0 } };
 
@@ -203,8 +224,8 @@ describe('the line tool, drag inside one frame', () => {
     it('moves the feature when down, ONE move and up land before any frame runs', async () => {
         const { control, written } = await setup();
 
-        control.onEditMouseDown({ point: { x: 1, y: 1 }, originalEvent: { button: 0 }, preventDefault: () => {} });
-        control.onEditMouseMove({ point: { x: 5, y: 5 }, lngLat: { lng: 5, lat: 5 } });
+        control.onEditMouseDown(ptr(1, 1));
+        control.onEditMouseMove(ptr(5, 5));
         await control.onEditMouseUp();
 
         // The end handler had to deliver the parked pointer itself: the frame
@@ -221,8 +242,8 @@ describe('the line tool, drag inside one frame', () => {
     it('still moves the feature when the frame DID run before the mouseup', async () => {
         const { control, written } = await setup();
 
-        control.onEditMouseDown({ point: { x: 1, y: 1 }, originalEvent: { button: 0 }, preventDefault: () => {} });
-        control.onEditMouseMove({ point: { x: 7, y: 7 }, lngLat: { lng: 7, lat: 7 } });
+        control.onEditMouseDown(ptr(1, 1));
+        control.onEditMouseMove(ptr(7, 7));
         expect(clock.frame()).toBe(1);
         await control.onEditMouseUp();
 
@@ -236,7 +257,7 @@ describe('the line tool, drag inside one frame', () => {
     it('writes nothing when the drag never moved at all', async () => {
         const { control, written } = await setup();
 
-        control.onEditMouseDown({ point: { x: 1, y: 1 }, originalEvent: { button: 0 }, preventDefault: () => {} });
+        control.onEditMouseDown(ptr(1, 1));
         await control.onEditMouseUp();
 
         expect(written.filter(write => write.name === 'lines')).toHaveLength(0);
@@ -265,8 +286,8 @@ describe('the polygon tool, drag inside one frame', () => {
     it('moves the feature when down, ONE move and up land before any frame runs', async () => {
         const { control, written } = await setup();
 
-        control.onEditMouseDown({ point: { x: 2, y: 2 }, originalEvent: { button: 0 }, preventDefault: () => {} });
-        control.onEditMouseMove({ point: { x: 9, y: 9 }, lngLat: { lng: 9, lat: 9 } });
+        control.onEditMouseDown(ptr(2, 2));
+        control.onEditMouseMove(ptr(9, 9));
         await control.onEditMouseUp();
 
         expect(snapping.resolveCalls).toHaveLength(1);
@@ -281,8 +302,8 @@ describe('the polygon tool, drag inside one frame', () => {
     it('still moves the feature when the frame DID run before the mouseup', async () => {
         const { control, written } = await setup();
 
-        control.onEditMouseDown({ point: { x: 2, y: 2 }, originalEvent: { button: 0 }, preventDefault: () => {} });
-        control.onEditMouseMove({ point: { x: 4, y: 4 }, lngLat: { lng: 4, lat: 4 } });
+        control.onEditMouseDown(ptr(2, 2));
+        control.onEditMouseMove(ptr(4, 4));
         expect(clock.frame()).toBe(1);
         await control.onEditMouseUp();
 

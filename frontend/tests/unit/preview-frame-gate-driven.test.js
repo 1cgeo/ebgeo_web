@@ -224,7 +224,11 @@ describe('the line tool preview', () => {
         control.activeHandleType = 'vertex';
         control.activeHandleIndex = 0;
 
-        burst(control.onEditMouseMove, 8);
+        // PONTEIRO, E NÃO EVENTO DE MAPA, desde 2026-09-20: o arrasto de alça de linha e de
+        // polígono deixou de ouvir `mousemove` do MapLibre (que o toque nunca produz) e passou
+        // a ouvir `pointermove` no contêiner do canvas, como as outras nove ferramentas já
+        // faziam. A rajada de ponteiro já existia aqui para elas.
+        pointerBurst(control.onEditMouseMove, 8);
         expect(snapping.resolveCalls).toHaveLength(0);
 
         clock.frame();
