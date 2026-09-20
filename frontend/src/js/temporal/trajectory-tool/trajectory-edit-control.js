@@ -96,6 +96,27 @@ export class TrajectoryEditControl {
             // Clear the trajectory display when the feature panel closes (deselect).
             this._unsubscribers.push(bus.on(EventTypes.FEATURE_PANEL_CLOSED, () => this.hide()));
         }
+        // THE SELECTION OWNS THE DISPLAY, not the panel. "Panel closed" and "feature deselected"
+        // are not the same event: `expandSidebar` (state_manager.js) tucks the feature panel
+        // away by zeroing `ui.featurePanelOpen` WITHOUT emitting FEATURE_PANEL_CLOSED, on
+        // purpose, because the feature stays selected. A deselect that comes next finds the flag
+        // already false, `closeFeaturePanel` returns early, the event never fires, and the path
+        // stayed drawn over a map with nothing selected (reported 2026-09-20: select, open the
+        // Maps tab, click the map). The panel event above stays as the fast path.
+        //
+        // The check is deferred one microtask so a clear-then-reselect of the SAME feature in one
+        // tick reads the final selection instead of tearing the display down in between.
+        const state = getStateManager();
+        if (state?.subscribe) {
+            this._unsubscribers.push(state.subscribe('selection.features', () => {
+                if (this._selectionCheckQueued) return;
+                this._selectionCheckQueued = true;
+                queueMicrotask(() => {
+                    this._selectionCheckQueued = false;
+                    this._hideIfDeselected();
+                });
+            }));
+        }
         // Mutual exclusivity with tools: activating any tool/viewer stops trajectory
         // editing (and entering add mode deactivates the active tool — see startAdding).
         if (toolManager?.on) {
@@ -132,6 +153,11 @@ export class TrajectoryEditControl {
      */
     show(feature, options = {}) {
         if (!this._map || !feature?.properties) return;
+        // The other half of "the selection owns the display": the panel content that calls this
+        // is built ASYNCHRONOUSLY (`createFeaturePanelContent` awaits several sections first), so
+        // a build still in flight when the person deselects reaches this line AFTER the selection
+        // emptied, and no later selection change would ever take the path down again.
+        if (!this._isSelected(feature)) return;
 
         if (typeof options.onChange === 'function') this._onChange = options.onChange;
 
@@ -170,6 +196,29 @@ export class TrajectoryEditControl {
                 ? [{ type: 'Feature', geometry: { type: 'Point', coordinates: [kp.lng, kp.lat] }, properties: {} }]
                 : [],
         });
+    }
+
+    /**
+     * Hides the display when the feature it shows is no longer in the selection.
+     * A feature that is STILL selected keeps its trajectory (multi-select, a sidebar tab over
+     * the panel), which is why this asks the selection and not the panel.
+     * @private
+     */
+    _hideIfDeselected() {
+        if (!this._map || !this._feature) return;
+        if (!this._isSelected(this._feature)) this.hide();
+    }
+
+    /**
+     * Whether a feature is in the current selection.
+     * @private
+     * @param {Object} feature
+     * @returns {boolean}
+     */
+    _isSelected(feature) {
+        const id = String(feature?.properties?.id);
+        const selected = getStateManager()?.getSelectedFeatures?.() || [];
+        return selected.some((entry) => String(entry.id) === id);
     }
 
     /** Clears the trajectory display and exits add/edit mode. */
