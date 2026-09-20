@@ -116,7 +116,10 @@ export const SEARCH_USERS = `
       OR LOWER(u.nome) LIKE LOWER($1)
       OR LOWER(u.nome_guerra) LIKE LOWER($1)
     )
-  ORDER BY u.nome
+  -- The order is the one the screen WRITES (war name, falling back to the civil name), and it
+  -- comes before the LIMIT, so it also decides WHICH rows survive the ceiling. Ordering by the
+  -- civil name sorted the results by a key nobody reads on a list that shows "Cap Silva".
+  ORDER BY LOWER(COALESCE(NULLIF(u.nome_guerra, ''), u.nome)), u.id
   LIMIT $2
 `;
 

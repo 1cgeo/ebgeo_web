@@ -259,7 +259,7 @@ export const LIST_MEMBERS = `
     LEFT JOIN ranks r ON r.id = u.rank_id
     LEFT JOIN users au ON au.id = m.added_by
    WHERE m.group_id = $1::uuid
-   ORDER BY LOWER(COALESCE(u.nome, u.username))
+   ORDER BY LOWER(COALESCE(NULLIF(u.nome_guerra, ''), u.nome, u.username)), u.id
 `;
 
 /**

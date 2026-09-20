@@ -272,6 +272,19 @@ export const UPDATE_PUBLIC_LINK = `
 // só tem leitura lia o nome civil completo e quem tem gestão lia o nome de guerra, na mesma
 // janela. Ele NÃO amplia o que a rota revela — é MENOS identificador que o `nome` completo que
 // já viajava ao lado — e continua sem e-mail e sem login.
+//
+// A ORDEM É A DA TELA, e são DOIS `ORDER BY` com a MESMA chave. O de dentro vem ANTES do
+// `LIMIT 10`, então ele não decide só a ordem: decide QUAIS dez pessoas o cartão mostra. Os dois
+// ordenavam por `nome` (civil) enquanto a tela passou a escrever posto e nome de guerra, de
+// modo que a lista ficava arrumada por uma chave que ninguém lê, e o corte dos dez também. A
+// chave é a PRECEDÊNCIA (`ranks.sort_order` cresce do mais moderno ao mais antigo, então é
+// DESC, e quem não tem posto vai para o fim) e depois o nome que a tela escreve. Ordenar pelo
+// rótulo inteiro seria pior que o defeito: "1º Sgt" viria antes de "Cap", que viria antes de
+// "Maj". O `id` no fim é só determinismo entre homônimos do mesmo posto. `posto_ordem` e
+// `nome_ordem` ficam na subconsulta e NÃO entram no JSON: são chave de ordenação, não dado de
+// pessoa. A chave de nome é COLUNA das duas metades da união, e não expressão no `ORDER BY`,
+// porque o Postgres só aceita nome de coluna de saída ao ordenar um `UNION`: a primeira versão
+// escreveu a expressão lá e o overview inteiro respondeu 500, que é `atlas.html` sem cartão.
 export const LIST_USER_ATLAS_MEMBERS = `
   SELECT a.id,
          1 + (SELECT COUNT(*) FROM fn_atlas_member_ids(a.id) mc
@@ -282,11 +295,13 @@ export const LIST_USER_ATLAS_MEMBERS = `
                                       'nome_guerra', m.nome_guerra,
                                       'posto_graduacao', m.posto_graduacao,
                                       'permission', m.permission)
-                    ORDER BY m.ord, m.nome
+                    ORDER BY m.ord, m.posto_ordem DESC NULLS LAST, m.nome_ordem, m.id
                   )
            FROM (
              SELECT ow.id, ow.nome, ow.nome_guerra,
                     COALESCE(orank.nome_abrev, orank.nome) AS posto_graduacao,
+                    orank.sort_order AS posto_ordem,
+                    LOWER(COALESCE(NULLIF(ow.nome_guerra, ''), ow.nome)) AS nome_ordem,
                     'owner'::text AS permission, 0 AS ord
              FROM users ow
              LEFT JOIN ranks orank ON orank.id = ow.rank_id
@@ -294,13 +309,15 @@ export const LIST_USER_ATLAS_MEMBERS = `
              UNION ALL
              SELECT mu.id, mu.nome, mu.nome_guerra,
                     COALESCE(mrank.nome_abrev, mrank.nome) AS posto_graduacao,
+                    mrank.sort_order AS posto_ordem,
+                    LOWER(COALESCE(NULLIF(mu.nome_guerra, ''), mu.nome)) AS nome_ordem,
                     ef.permission, 1 AS ord
              FROM fn_atlas_member_ids(a.id) ms
              JOIN users mu ON mu.id = ms.user_id
              LEFT JOIN ranks mrank ON mrank.id = mu.rank_id
              LEFT JOIN LATERAL fn_user_atlas_shares(ms.user_id, a.id) ef ON true
              WHERE ms.user_id <> a.owner_id
-             ORDER BY ord, nome
+             ORDER BY ord, posto_ordem DESC NULLS LAST, nome_ordem, id
              LIMIT 10
            ) m
          ), '[]'::json) AS members,
