@@ -82,6 +82,15 @@ collabTest('restoring an inactive map rebuilds pixels from the latest remote pro
     const B = collab.peers[0];
     const id = await drawMilitarySymbolUI(A, [CENTER.lng, CENTER.lat]);
     await collab.expectFullSync({ entityId: id, type: 'military_symbols', operationType: 'create', skipRender: true });
+    // THE PEER'S RASTER IS REBUILT AFTER `remote.applied`, NOT BEFORE IT. The chain above ends when
+    // the op is applied and persisted; the regeneration it triggers is asynchronous (lazy milsymbol
+    // import, canvas, blob write), so reading `getImage` right here raced it and got `null`. The
+    // case failed 4 of 4 on the commit that introduced it and 2 of 3 one day later, always with
+    // "Cannot read properties of null (reading 'arrayBuffer')". Wait on the STATE the read needs,
+    // which is the same signal the first case of this file polls.
+    await expect
+        .poll(() => symbolImageState(B, id), { timeout: 15000 })
+        .toMatchObject({ hasLocalBlob: true });
     const original = await B.evaluate(async id => {
         const store = await import('/src/js/store/index.js');
         const blob = await store.getImage(id);
