@@ -1816,9 +1816,9 @@ body > .app-bar {
     z-index: 40;
 
     /* Translucida, porque ela cobre imagem: o operador precisa continuar vendo
-       o que esta debaixo dela ao enquadrar o topo da esfera. O gradiente e o
-       MESMO de app-bar.css (o verde da casa), so que com alfa: antes ele era um
-       roxo que nao existia em lugar nenhum do EBGeo. */
-    background: linear-gradient(120deg, rgb(var(--primary-800-rgb) / 92%), rgb(var(--primary-700-rgb) / 78%));
+       o que esta debaixo dela ao enquadrar o topo da esfera. O verde e o
+       MESMO de app-bar.css (`--primary`, chapado), so que com alfa: antes ele era
+       um roxo que nao existia em lugar nenhum do EBGeo. */
+    background: rgb(var(--primary-700-rgb) / 90%);
     backdrop-filter: blur(6px);
 }

@@ -105,7 +105,7 @@
     background: transparent;
     border: none;
     border-radius: var(--radius-md);
-    color: rgba(255, 255, 255, 0.8);
+    color: #fff;
     cursor: pointer;
     display: flex !important;
     flex-direction: column;
@@ -117,12 +117,17 @@
 }
 
 .sidebar-nav-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgb(0 0 0 / 12%);
     color: white;
 }
 
+/* A PASTILHA DO ITEM ATIVO CLAREIA A TRILHA, E O ROTULO E BRANCO POR CIMA DELA,
+   entao ela tem um teto: quanto mais clara a pastilha, menos o branco se le. Com a
+   trilha em `--primary-800`, 20% de branco da 4,46:1 (reprova AA por pouco) e 15%
+   da 5,03:1. O recuo de cinco pontos e o que compra o piso sem mudar o idioma
+   (ativo = mais claro que a trilha, hover = um pouco mais claro que o repouso). */
 .sidebar-nav-btn[data-active="true"] {
-    background: rgba(255, 255, 255, 0.2);
+    background: rgb(0 0 0 / 24%);
     color: white;
 }
 
@@ -154,7 +159,14 @@
     margin: var(--space-4) 0;
 }
 
-/* Recent Maps */
+/* Recent Maps
+ *
+ * O POLEGAR E VERDE SOBRE VERDE, e por isso ele NAO usa a escala da marca.
+ * Esta lista mora dentro da trilha, que e `--sidebar-bg`, e um polegar de
+ * `var(--primary)` ali dava 1,52:1 antes e daria 1,42:1 depois: invisivel nas duas
+ * versoes, so que a segunda seria lida como regressao deste lote. A cor que separa
+ * de um fundo verde escuro e o BRANCO, como ja fazem o separador e os estados de
+ * botao desta mesma trilha, e ela continua funcionando se a trilha mudar de degrau. */
 .sidebar-recent-maps {
     display: flex;
     flex-direction: column;
@@ -167,7 +179,7 @@
     overflow-y: auto;
     overflow-x: hidden;
     scrollbar-width: thin;
-    scrollbar-color: var(--primary) transparent;
+    scrollbar-color: rgb(255 255 255 / 45%) transparent;
 }
 
 .sidebar-recent-maps::-webkit-scrollbar {
@@ -179,12 +191,12 @@
 }
 
 .sidebar-recent-maps::-webkit-scrollbar-thumb {
-    background-color: var(--primary);
+    background-color: rgb(255 255 255 / 45%);
     border-radius: 2px;
 }
 
 .sidebar-recent-maps::-webkit-scrollbar-thumb:hover {
-    background-color: var(--primary-700);
+    background-color: rgb(255 255 255 / 70%);
 }
 
 .recent-map-btn {
@@ -203,12 +215,12 @@
 }
 
 .recent-map-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgb(0 0 0 / 12%);
 }
 
 /* Active/selected map indicator */
 .recent-map-btn[data-active="true"] {
-    background: rgba(255, 255, 255, 0.18);
+    background: rgb(0 0 0 / 24%);
 }
 
 /* Map badge with initial */
@@ -239,7 +251,7 @@
 /* Map name label */
 .recent-map-label {
     font-size: 9px;
-    color: rgba(255, 255, 255, 0.8);
+    color: #fff;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -317,7 +329,7 @@
     height: 32px;
     border-radius: var(--radius-md);
     border: none;
-    background: rgba(255, 255, 255, 0.1);
+    background: rgb(0 0 0 / 12%);
     color: white;
     cursor: pointer;
     display: flex;
@@ -327,7 +339,7 @@
 }
 
 .sidebar-panel-close:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: rgb(0 0 0 / 24%);
 }
 
 .sidebar-panel-close svg {
@@ -362,7 +374,7 @@
 }
 
 .sidebar-panel-content::-webkit-scrollbar-thumb:hover {
-    background-color: var(--primary-700);
+    background-color: var(--primary-hover);
 }
 
 /* Make tab content fill available space */
@@ -554,7 +566,7 @@
 }
 
 .sidebar-section-header-btn:hover {
-    background: var(--primary-700);
+    background: var(--primary-hover);
     transform: scale(1.05);
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
@@ -1079,7 +1091,7 @@
     align-items: center;
     justify-content: center;
     border-radius: 50%;
-    background: var(--primary-600, #16a34a);
+    background: var(--primary);
     color: white;
     font-size: var(--font-size-xs);
     font-weight: 600;
@@ -1774,7 +1786,7 @@
 }
 
 .layers-tab .features-tab-content::-webkit-scrollbar-thumb:hover {
-    background-color: var(--primary-700);
+    background-color: var(--primary-hover);
 }
 
 /* Features list não tem scroll próprio */
@@ -1870,7 +1882,7 @@
 }
 
 .feature-panel-content::-webkit-scrollbar-thumb:hover {
-    background-color: var(--primary-700);
+    background-color: var(--primary-hover);
     opacity: 1;
 }
 
@@ -2059,7 +2071,7 @@
 }
 
 .feature-panel-content .user-data-add-form button:hover {
-    background: var(--primary-700);
+    background: var(--primary-hover);
 }
 
 /* Attribute rows */
@@ -2228,7 +2240,7 @@
 .feature-panel-content .feature-attributes-add-btn:hover {
     background: var(--primary-50);
     border-color: var(--primary);
-    color: var(--primary-700);
+    color: var(--primary-hover);
 }
 
 .feature-panel-content .feature-attribute-key-input,
@@ -2242,7 +2254,7 @@
 }
 
 .feature-panel-content .feature-attributes-inline-confirm:hover {
-    background: var(--primary-700);
+    background: var(--primary-hover);
 }
 
 /* =========================================================================
@@ -2326,7 +2338,7 @@ body:has(.sidebar-container) .unified-attributes-panel {
 }
 
 .current-map-notes-btn:hover {
-    background: var(--primary-700);
+    background: var(--primary-hover);
     transform: scale(1.05);
 }
 
@@ -2417,7 +2429,7 @@ body:has(.sidebar-container) .unified-attributes-panel {
 }
 
 .map-notes-sidebar-save-btn:hover {
-    background: var(--primary-700);
+    background: var(--primary-hover);
 }
 
 /* View mode container */
@@ -2726,7 +2738,10 @@ body:has(.sidebar-container) .unified-attributes-panel {
     align-items: center;
     justify-content: space-between;
     padding: var(--space-4);
-    background: linear-gradient(to right, var(--primary-700), var(--primary));
+
+    /* FLAT `--primary`, by the owner's decision of 2026-09-20 (one green only). This header sits
+       right next to the sidebar rail, and a gradient put two greens side by side on one screen. */
+    background: var(--primary);
     color: white;
     flex-shrink: 0;
 }
@@ -3364,7 +3379,7 @@ body:has(.sidebar-container) .unified-attributes-panel {
 }
 
 .feature-tab-content::-webkit-scrollbar-thumb:hover {
-    background-color: var(--primary-700);
+    background-color: var(--primary-hover);
     opacity: 1;
 }
 
@@ -3448,7 +3463,7 @@ body:has(.sidebar-container) .unified-attributes-panel {
 .azimutes-tab__coord-clickable:hover {
     background: var(--primary-50);
     border-color: var(--primary-200);
-    color: var(--primary-700);
+    color: var(--primary-hover);
 }
 
 .azimutes-tab__coord-copied {
@@ -5145,7 +5160,7 @@ body:has(.sidebar-container) .unified-attributes-panel {
 }
 
 .briefings-create-btn:hover {
-    background: var(--primary-700);
+    background: var(--primary-hover);
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
@@ -5226,7 +5241,7 @@ body:has(.sidebar-container) .unified-attributes-panel {
     width: 40px;
     height: 40px;
     min-width: 40px;
-    background: linear-gradient(135deg, var(--primary-500), var(--primary-700));
+    background: var(--primary);
     border-radius: var(--radius-md);
     display: flex;
     align-items: center;

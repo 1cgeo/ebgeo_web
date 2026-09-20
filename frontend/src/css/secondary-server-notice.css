@@ -112,14 +112,14 @@
 }
 
 .server-notice__button--primary {
-    border: var(--border-width) solid var(--primary-600);
-    background: var(--primary-600);
+    border: var(--border-width) solid var(--primary);
+    background: var(--primary);
     color: #fff;
 }
 
 .server-notice__button--primary:hover {
-    border-color: var(--primary-700);
-    background: var(--primary-700);
+    border-color: var(--primary-hover);
+    background: var(--primary-hover);
 }
 
 .server-notice__button--secondary {
@@ -134,6 +134,6 @@
 }
 
 .server-notice__button:focus-visible {
-    outline: 2px solid var(--primary-600);
+    outline: 2px solid var(--primary);
     outline-offset: 2px;
 }

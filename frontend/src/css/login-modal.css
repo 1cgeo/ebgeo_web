@@ -307,3 +307,42 @@
 .login-modal__recovery-message[hidden] {
     display: none;
 }
+
+/* =========================================================================
+   A VISÃO DE RECUPERAÇÃO DE UMA FRASE SÓ, NO CELULAR
+   =========================================================================
+
+   Onde o servidor não entrega correio de conta (`features.password_reset_email` falso), a visão
+   "Recuperar senha" é UM parágrafo: não há formulário a desenhar, porque as rotas de e-mail não
+   estão montadas. A regra de `responsive.css` dá `height: 100vh` a todo `.modal-container` abaixo
+   de 480px, que é a decisão certa para um formulário e a errada para uma frase: capturado em
+   390x844 em 2026-09-20, o resultado é o parágrafo no alto de uma tela branca inteira, que se lê
+   como tela que não carregou.
+
+   A EXCEÇÃO É A MAIS ESTREITA QUE DÁ: o modificador só existe enquanto ESTA visão está na tela e
+   só nesta implantação (`login.modal.js`, `_applyView`), então nem o formulário de login, nem o
+   cadastro, nem a recuperação COM e-mail mudam de altura. `max-height` fica, de modo que conteúdo
+   mais alto que a janela continua rolando pelo `.modal-body`.
+
+   O SELETOR CARREGA AS DUAS CLASSES DE PROPÓSITO, e não é estilo: `style.css` importa
+   `responsive.css` DEPOIS de `account.css` (que traz este arquivo), então uma classe só empataria
+   em especificidade e perderia no desempate por ordem. Medido: com um seletor de classe única a
+   captura de 390x844 continuou de tela cheia.
+
+   E `align-self` É OBRIGATÓRIO AO LADO DE `height: auto`, o que só se descobre medindo: abaixo de
+   480px `modals-redesign.css` põe `align-items: stretch` no `.modal-overlay`, e item de flex com
+   tamanho transversal `auto` sob `stretch` volta a ocupar a linha inteira. Com `height: auto`
+   sozinho a captura continuou de tela cheia pela SEGUNDA vez, agora sem culpa da especificidade.
+
+   O LIMITE É 768px, e não 480px, e a diferença foi medida: a regra que dá altura de tela cheia a
+   todo `.modal-container` mora em `responsive.css` sob `width <= 768px`. A primeira versão desta
+   exceção cobria só até 480px, então em 700x900 (tablet em retrato, celular em paisagem) o
+   diálogo de uma frase seguia com 900px de altura. `100dvh`, como os vizinhos, porque `100vh` em
+   navegador de celular com barra dinâmica é maior que a área visível. */
+@media (width <= 768px) {
+    .modal-container.login-modal__container--recuperacao-curta {
+        height: auto;
+        max-height: 100dvh;
+        align-self: center;
+    }
+}

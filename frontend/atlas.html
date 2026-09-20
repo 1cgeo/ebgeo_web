@@ -27,7 +27,7 @@
 
         .loading-background {
             position: fixed;
-            background-color: #508D4E;
+            background-color: #15803d;
             width: 100vw;
             height: 100vh;
             z-index: 9999;
@@ -37,9 +37,17 @@
             top: 0;
             left: 0;
         }
+
+        /* A MESMA moldura da abertura do mapa (index.html): logotipo de 300px e barra, que anima 2s e
+           para cheia (nao ha o que medir antes do JS). Compacto de proposito: este <style> e so a
+           abertura. Presa por tests/unit/abertura-igual-nas-quatro-paginas.test.js. */
+        .loading-content { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .progress-bar { width: 200px; height: 4px; margin-top: 20px; background: rgba(255, 255, 255, 0.3); border-radius: 2px; }
+        .progress-fill { width: 0%; height: 100%; background: #B4E380; border-radius: 2px; animation: progressLoad 2s ease-out forwards; }
+        @keyframes progressLoad { from { width: 0%; } to { width: 100%; } }
     </style>
 
-    <meta name="theme-color" content="#508D4E">
+    <meta name="theme-color" content="#15803d">
     <meta name="color-scheme" content="light">
     <meta name="robots" content="noindex, nofollow">
 </head>
@@ -49,7 +57,12 @@
          restaurar a sessão. Sem sessão ela NÃO redireciona: mostra os atlas deste computador e um
          convite para entrar no lugar da lista do servidor. -->
     <div class="loading-background" id="initial-loader">
-        <img src="/images/logo_ebgeo.webp" alt="EBGeo" width="240" fetchpriority="high">
+        <div class="loading-content">
+            <img src="/images/logo_ebgeo.webp" alt="EBGeo" width="300" fetchpriority="high">
+            <div class="progress-bar">
+                <div class="progress-fill"></div>
+            </div>
+        </div>
     </div>
 
     <!-- Sem vendors: esta página não carrega MapLibre, Turf, milsymbol, Cesium nem GDAL. -->

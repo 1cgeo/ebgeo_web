@@ -928,8 +928,8 @@
 .layer-transfer-modal-btn-confirm:hover:not(:disabled),
 .combine-maps-modal-btn-confirm:hover:not(:disabled),
 .import-slides-modal-btn-confirm:hover:not(:disabled) {
-    background: var(--primary-600);
-    border-color: var(--primary-600);
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
 }
 
 .export-modal-btn-confirm:disabled,

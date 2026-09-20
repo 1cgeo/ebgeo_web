@@ -88,7 +88,7 @@
 .local-atlas__btn:hover {
     background: var(--primary-50);
     border-color: var(--primary);
-    color: var(--primary-700);
+    color: var(--primary-hover);
 }
 
 .local-atlas__count {
@@ -219,7 +219,7 @@
 .local-atlas__add:hover {
     background: var(--primary-50);
     border-color: var(--primary);
-    color: var(--primary-700);
+    color: var(--primary-hover);
 }
 
 .local-atlas__menu-btn {
@@ -332,7 +332,7 @@
 .local-atlas__failure-retry:hover {
     background: var(--primary-50);
     border-color: var(--primary);
-    color: var(--primary-700);
+    color: var(--primary-hover);
 }
 
 /* ===== No servidor, signed out ===== */

@@ -45,7 +45,7 @@
     justify-content: center;
     border-radius: 50%;
     background: #f0fdf4;
-    color: var(--primary-600);
+    color: var(--primary);
 }
 
 .tab-lock-overlay__icon svg {
@@ -78,7 +78,7 @@
     margin-top: 4px;
     border: none;
     border-radius: var(--radius-md);
-    background: var(--primary-600);
+    background: var(--primary);
     color: #fff;
     font-size: 14px;
     font-weight: 500;
@@ -87,11 +87,11 @@
 }
 
 .tab-lock-overlay__button:hover {
-    background: #15803d;
+    background: var(--primary-hover);
 }
 
 .tab-lock-overlay__button:active {
-    background: #14532d;
+    background: var(--primary-900);
 }
 
 /* =========================================================================

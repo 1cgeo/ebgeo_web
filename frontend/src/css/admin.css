@@ -89,7 +89,7 @@
 }
 
 .admin-panel__tab--active .admin-panel__tab-icon {
-    color: var(--primary-600);
+    color: var(--primary);
 }
 
 .admin-panel__content {
@@ -1139,7 +1139,7 @@
 }
 
 .admin-audit__filtro-rapido:hover {
-    color: var(--primary-700);
+    color: var(--primary-hover);
     text-decoration-color: var(--primary);
 }
 
@@ -1788,7 +1788,7 @@
 }
 
 .admin-diag__pilha-resumo:hover {
-    color: var(--primary-700);
+    color: var(--primary-hover);
 }
 
 /* O TETO E A ROLAGEM, pelo mesmo motivo da gaveta da Auditoria: uma pilha de trezentas linhas
@@ -1990,7 +1990,7 @@
    que a próxima providência alcança. */
 .admin-diag__saude-item--no-ar {
     border-color: var(--primary-300);
-    box-shadow: inset 3px 0 0 var(--primary-600);
+    box-shadow: inset 3px 0 0 var(--primary);
 }
 
 .admin-diag__saude-release {
@@ -2200,7 +2200,7 @@
    a barra à esquerda diz "é esta" sem competir com o chip da linha. */
 .admin-diag__ocorrencia-botao--ativa {
     border-color: var(--primary-300);
-    box-shadow: inset 3px 0 0 var(--primary-600);
+    box-shadow: inset 3px 0 0 var(--primary);
 }
 
 .admin-diag__meta-release,

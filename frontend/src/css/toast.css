@@ -27,9 +27,14 @@
     opacity: 1;
 }
 
-/* ===== Type Variants ===== */
+/* ===== Type Variants =====
+ * O texto do toast e BRANCO (`.toast` acima), entao o que cada variante escolhe e um
+ * FUNDO que sustente branco a 4,5:1. O verde era `--success-color` (#28a745), 3,13:1,
+ * o unico dos quatro que reprovava; `--color-success` (#22c55e) seria pior ainda.
+ * `--color-success-strong` e o degrau da marca que passa (5,02:1). O vermelho
+ * (#dc3545) da 4,53:1 e fica como esta. */
 .toast--success {
-    background-color: var(--success-color);
+    background-color: var(--color-success-strong);
 }
 
 .toast--error {

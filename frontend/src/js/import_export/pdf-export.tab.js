@@ -751,7 +751,7 @@ export default class PDFExportTab {
                 source: 'pdf-export-preview',
                 filter: ['==', 'type', 'paper'],
                 paint: {
-                    'fill-color': '#508D4E',
+                    'fill-color': '#15803d',
                     'fill-opacity': 0.15
                 }
             });
@@ -764,7 +764,7 @@ export default class PDFExportTab {
                 source: 'pdf-export-preview',
                 filter: ['==', 'type', 'paper'],
                 paint: {
-                    'line-color': '#508D4E',
+                    'line-color': '#15803d',
                     'line-width': 2,
                     'line-dasharray': [8, 4]
                 }
@@ -778,7 +778,7 @@ export default class PDFExportTab {
                 source: 'pdf-export-preview',
                 filter: ['==', 'type', 'usable'],
                 paint: {
-                    'line-color': '#508D4E',
+                    'line-color': '#15803d',
                     'line-width': 2,
                     'line-dasharray': [1]
                 }

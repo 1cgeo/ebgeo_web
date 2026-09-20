@@ -43,7 +43,7 @@ const CLUSTER_SIZE_STEPS = {
 };
 
 // Application primary color (3D tileset pins and clusters)
-const PRIMARY_COLOR = '#508D4E';
+const PRIMARY_COLOR = '#15803d';
 
 // First-person scene pin color
 const FIRST_PERSON_COLOR = '#7B52D3';

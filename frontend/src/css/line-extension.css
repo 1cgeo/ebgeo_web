@@ -21,7 +21,7 @@
     height: 22px;
     padding: 0;
     color: #fff;
-    background-color: var(--primary-600);
+    background-color: var(--primary);
     border: 2px solid #fff;
     border-radius: var(--radius-full);
     box-shadow: var(--shadow-control);
@@ -35,7 +35,7 @@
 }
 
 .line-extension-handle:hover {
-    background-color: var(--primary-700);
+    background-color: var(--primary-hover);
     transform: scale(1.15);
 }
 

@@ -25,7 +25,9 @@
  */
 
 :root {
-    /* = --primary-700 de design-tokens.css, o verde da barra lateral do mapa. O docsify deriva
+    /* = --primary de design-tokens.css (o degrau 700), o verde de ACAO do produto: link, botao. Ate
+       2026-09-20 esta linha dizia "o verde da barra lateral", que naquela data desceu para o 800;
+       o que o tutorial pinta com isto sao links e item ativo, entao o par certo e a acao. O docsify deriva
        dele oito tons (`--theme-color-1` a `--theme-color-8`) por `color-mix`, então esta linha
        pinta link, item ativo, barra de progresso e realce de código de uma vez. */
     --theme-color: #15803d;

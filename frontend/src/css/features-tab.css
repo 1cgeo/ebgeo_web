@@ -959,7 +959,7 @@
 }
 
 .layer-style-panel__done:hover {
-    background: var(--primary-700, var(--primary));
+    background: var(--primary-hover);
 }
 
 /* ===== ANALYSIS LAYERS ===== */

@@ -4,13 +4,35 @@
  * Legacy color overrides for design-tokens.css.
  * These intentionally override the design-tokens defaults to preserve
  * the original EBGeo palette used across sidebar, panels, and coordinates.
+ *
+ * ESTA FOLHA VEM DEPOIS DE `design-tokens.css` nos tres manifestos que a carregam
+ * (`style.css`, `projects-page.css`, `admin-page.css`), entao tudo o que ela redeclara
+ * GANHA. Quem ler so `design-tokens.css` le o valor errado, e foi isso que aconteceu
+ * com dois tokens ate 2026-09-20:
+ *
+ * - `--primary-dark` valia #427842 e nao o `--primary-800` declarado la. Ele e o HOVER
+ *   de `--primary` em cerca de vinte regras, e com `--primary` no degrau 700 (#15803d)
+ *   os dois passariam a ter a MESMA luminosidade (5,25:1 contra 5,02:1 sobre branco):
+ *   o hover sumiria sem ninguem apagar nada. A linha saiu, e o token voltou a valer o
+ *   que `design-tokens.css` declara, que e o mesmo degrau de `--primary-hover`.
+ * - `--primary-light` valia #B4E380, um verde-amarelo fora da familia da marca, e nao o
+ *   `--primary-100` declarado la. Este FICA: os oito usos dele sao borda e fundo de
+ *   estado "selecionado", e o #dcfce7 da escala da 1,10:1 contra branco, ou seja, o
+ *   indicador desapareceria. Trocar um problema de contraste por outro nao e conserto.
+ *   O que muda e este paragrafo dizer que ele existe.
+ *
+ * `--primary-color` (#508D4E), o TERCEIRO verde, SAIU em 2026-09-20 por decisao do dono: um
+ * verde so. Ele era o fundo da tela de carregamento escrito a mao nos HTML e a
+ * `<meta name="theme-color">`, e os dois passaram a #15803d, que e o valor de `--primary`.
+ * O literal continua escrito a mao la, porque a abertura precede o CSS; quem prende os dois
+ * juntos e `tests/unit/um-verde-so.test.js`.
+ *
+ * `--success-color` saiu porque tinha um consumidor so, o fundo do toast de sucesso, que
+ * reprovava AA (#28a745 da 3,13:1 com texto branco) e agora usa `--color-success-strong`.
  */
 :root {
-  --primary-color: #508D4E;
   --primary-light: #B4E380;
-  --primary-dark: #427842;
   --border-color: #eee;
-  --success-color: #28a745;
   --error-color: #dc3545;
 }
 
@@ -52,7 +74,7 @@ h3 {
  * These declarations ensure consistent behavior after CSS loads. */
 .loading-background {
   position: fixed;
-  background-color: var(--primary-color);
+  background-color: var(--primary);
   width: 100vw;
   height: 100vh;
   z-index: 9999; /* Must cover all UI including modals (--z-toast: 220) */
@@ -82,7 +104,7 @@ h3 {
  * Shared across LOS, line, and polygon tools (MapLibre marker overlays). */
 .measurement-label {
   background-color: rgba(255, 255, 255, 0.9);
-  border: 2px solid var(--primary-color);
+  border: 2px solid var(--primary);
   border-radius: 6px;
   padding: 6px 10px;
   font-family: var(--font-family-base);

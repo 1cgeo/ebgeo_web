@@ -71,7 +71,7 @@
     height: 32px;
     border-radius: var(--radius-full);
     background: var(--primary-50);
-    color: var(--primary-600);
+    color: var(--primary);
 }
 
 .visitor-banner__icon svg {
@@ -125,7 +125,7 @@
 }
 
 .visitor-banner__exit:focus-visible {
-    outline: 2px solid var(--primary-600);
+    outline: 2px solid var(--primary);
     outline-offset: 2px;
 }
 

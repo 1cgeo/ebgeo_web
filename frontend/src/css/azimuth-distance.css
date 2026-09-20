@@ -97,7 +97,7 @@
 }
 
 .azd-mode-btn.active {
-    border-color: var(--primary-600, #16a34a);
+    border-color: var(--primary);
     background: var(--primary-50, #f0fdf4);
 }
 
@@ -106,7 +106,7 @@
 }
 
 .azd-mode-btn.active svg {
-    color: var(--primary-600, #16a34a);
+    color: var(--primary);
 }
 
 .azd-mode-label {
@@ -253,7 +253,7 @@
 }
 
 .azd-auto-decl-btn:hover:not(:disabled) {
-    border-color: var(--primary-600, #16a34a);
+    border-color: var(--primary);
     background: var(--primary-50, #f0fdf4);
 }
 
@@ -304,7 +304,7 @@
 }
 
 .azd-quick-btn:hover {
-    border-color: var(--primary-600, #16a34a);
+    border-color: var(--primary);
     background: var(--primary-50, #f0fdf4);
 }
 
@@ -386,12 +386,12 @@
 
 .azd-btn-create {
     border: none;
-    background: var(--primary-600, #16a34a);
+    background: var(--primary);
     color: white;
 }
 
 .azd-btn-create:hover:not(:disabled) {
-    background: var(--primary-700, #15803d);
+    background: var(--primary-hover);
 }
 
 .azd-btn-create:disabled {
@@ -470,7 +470,7 @@
 }
 
 .azd-leg-row--active .azd-leg-badge {
-    background: var(--primary-600, #16a34a);
+    background: var(--primary);
     color: white;
 }
 
@@ -567,8 +567,8 @@
 }
 
 .azd-flip-btn:hover {
-    border-color: var(--primary-600, #16a34a);
-    color: var(--primary-600, #16a34a);
+    border-color: var(--primary);
+    color: var(--primary);
 }
 
 /* ===== REMOVE LEG BUTTON ===== */
@@ -623,8 +623,8 @@
 }
 
 .azd-add-leg-btn:hover {
-    border-color: var(--primary-600, #16a34a);
-    color: var(--primary-600, #16a34a);
+    border-color: var(--primary);
+    color: var(--primary);
 }
 
 .azd-add-leg-btn__icon {
@@ -684,12 +684,12 @@
 
 .azd-ref-box--set {
     background: var(--primary-50, #f0fdf4);
-    border: 1px solid var(--primary-600, #16a34a);
+    border: 1px solid var(--primary);
 }
 
 .azd-ref-box--set:hover {
     background: rgba(22, 163, 74, 0.12);
-    border-color: var(--primary-700, #15803d);
+    border-color: var(--primary-hover);
 }
 
 .azd-ref-text {
@@ -728,7 +728,7 @@
 }
 
 .azd-ref-action-btn--edit:hover {
-    color: var(--primary-600, #16a34a);
+    color: var(--primary);
     background: rgba(22, 163, 74, 0.1);
 }
 
@@ -741,7 +741,7 @@
 .azd-reference-marker {
     width: 24px;
     height: 24px;
-    background: var(--primary-600, #16a34a);
+    background: var(--primary);
     border: 3px solid white;
     border-radius: 50%;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
@@ -812,7 +812,7 @@
     justify-content: center;
     width: 20px;
     height: 20px;
-    background: var(--primary-600, #16a34a);
+    background: var(--primary);
     color: white;
     border-radius: 50%;
     font-size: 11px;

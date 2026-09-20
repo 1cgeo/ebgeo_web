@@ -111,6 +111,13 @@ body.first-person-active .sidebar-container {
     z-index: 300;
 }
 
+/* Enquanto a carga esta na tela a trilha NAO sobe, e a carga (contexto 200) a cobre. O elemento de
+   carga existe no DOM o tempo todo, entao a condicao e ele estar SEM `fp3d-hidden` com o
+   visualizador aberto. */
+body.first-person-active:has(.fp3d-loading:not(.fp3d-hidden)) .sidebar-container {
+    z-index: var(--z-sidebar);
+}
+
 body.first-person-active .modal-overlay {
     z-index: 400;
 }
@@ -146,13 +153,19 @@ body.first-person-active .modal-overlay {
    frames and the visitor should not watch that happen.
    ========================================================================= */
 
+/* O FUNDO E `--primary`, o verde UNICO do produto, como o de toda tela de carga: a de
+   abertura dos HTML, a do 3D, a do 360 e esta. Ate 2026-09-20 a abertura era um verde-oliva
+   proprio (#508D4E), escrito a mao nos HTML, que dava 3,99:1 com texto branco; ele saiu, e
+   o token que o espelhava em `base.css` tambem. */
 .fp3d-loading {
-    position: absolute;
+    /* TELA INTEIRA, trilha lateral inclusive, como a carga do 3D: ver o comentario de
+       `#loading-screen-3d` em `panels-3d.css`, que explica por que `fixed` escapa do conteiner. */
+    position: fixed;
     inset: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: var(--primary-color);
+    background-color: var(--primary);
     color: #fff;
     padding: var(--space-6);
     z-index: var(--fp3d-layer-loading);

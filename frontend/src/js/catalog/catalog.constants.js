@@ -57,7 +57,7 @@ export const CATALOG_TYPE_CONFIG = Object.freeze({
     [CATALOG_ITEM_TYPES.MODEL_3D]: {
         label: 'Modelos 3D',
         icon: CATALOG_ICONS[CATALOG_ITEM_TYPES.MODEL_3D],
-        color: '#508D4E',
+        color: '#15803d',
         hasDate: true,
         hasLocation: true,
         // This filter includes both Cesium tilesets AND first-person scenes
@@ -66,7 +66,7 @@ export const CATALOG_TYPE_CONFIG = Object.freeze({
     [CATALOG_ITEM_TYPES.FIRST_PERSON_SCENE]: {
         label: 'Cenas 3D',
         icon: CATALOG_ICONS[CATALOG_ITEM_TYPES.FIRST_PERSON_SCENE],
-        color: '#508D4E',
+        color: '#15803d',
         hasDate: true,
         hasLocation: true,
         // Scenes are shown under the "Modelos 3D" filter (same reasoning as
@@ -77,14 +77,14 @@ export const CATALOG_TYPE_CONFIG = Object.freeze({
     [CATALOG_ITEM_TYPES.PANORAMIC_360]: {
         label: 'Imagens 360°',
         icon: CATALOG_ICONS[CATALOG_ITEM_TYPES.PANORAMIC_360],
-        color: '#508D4E',
+        color: '#15803d',
         hasDate: true,
         hasLocation: true
     },
     [CATALOG_ITEM_TYPES.HILLSHADE]: {
         label: 'Sombreamento',
         icon: CATALOG_ICONS[CATALOG_ITEM_TYPES.HILLSHADE],
-        color: '#508D4E',
+        color: '#15803d',
         hasDate: false,
         hasLocation: false,
         // Hillshade will be shown in the Analysis filter in the modal
@@ -93,7 +93,7 @@ export const CATALOG_TYPE_CONFIG = Object.freeze({
     [CATALOG_ITEM_TYPES.ANALYSIS_LAYER]: {
         label: 'Análise',
         icon: CATALOG_ICONS[CATALOG_ITEM_TYPES.ANALYSIS_LAYER],
-        color: '#508D4E',
+        color: '#15803d',
         hasDate: false,
         hasLocation: true,
         // This filter includes both analysis layers AND hillshade
@@ -102,7 +102,7 @@ export const CATALOG_TYPE_CONFIG = Object.freeze({
     [CATALOG_ITEM_TYPES.DATA_LAYER]: {
         label: 'Dados',
         icon: CATALOG_ICONS[CATALOG_ITEM_TYPES.DATA_LAYER],
-        color: '#508D4E',
+        color: '#15803d',
         hasDate: false,
         hasLocation: false
     }
@@ -212,20 +212,20 @@ export const DEFAULT_THUMBNAILS = Object.freeze({
     [CATALOG_ITEM_TYPES.MODEL_3D]: 'data:image/svg+xml,' + encodeURIComponent(`
         <svg xmlns="http://www.w3.org/2000/svg" width="200" height="120" viewBox="0 0 200 120">
             <rect fill="#f3f4f6" width="200" height="120"/>
-            <path d="M100 30 L130 50 L130 80 L100 100 L70 80 L70 50 Z" fill="none" stroke="#508D4E" stroke-width="2"/>
-            <path d="M100 30 L100 60 L70 50" fill="none" stroke="#508D4E" stroke-width="2"/>
-            <path d="M100 60 L130 50" fill="none" stroke="#508D4E" stroke-width="2"/>
-            <path d="M100 60 L100 100" fill="none" stroke="#508D4E" stroke-width="2"/>
+            <path d="M100 30 L130 50 L130 80 L100 100 L70 80 L70 50 Z" fill="none" stroke="#15803d" stroke-width="2"/>
+            <path d="M100 30 L100 60 L70 50" fill="none" stroke="#15803d" stroke-width="2"/>
+            <path d="M100 60 L130 50" fill="none" stroke="#15803d" stroke-width="2"/>
+            <path d="M100 60 L100 100" fill="none" stroke="#15803d" stroke-width="2"/>
         </svg>
     `),
     [CATALOG_ITEM_TYPES.FIRST_PERSON_SCENE]: 'data:image/svg+xml,' + encodeURIComponent(`
         <svg xmlns="http://www.w3.org/2000/svg" width="200" height="120" viewBox="0 0 200 120">
             <rect fill="#f3f4f6" width="200" height="120"/>
-            <rect x="40" y="20" width="120" height="80" fill="none" stroke="#508D4E" stroke-width="2"/>
-            <rect x="80" y="45" width="40" height="35" fill="none" stroke="#508D4E" stroke-width="2"/>
-            <path d="M40 20 L80 45 M160 20 L120 45 M40 100 L80 80 M160 100 L120 80" fill="none" stroke="#508D4E" stroke-width="1.5"/>
-            <circle cx="100" cy="57" r="4" fill="none" stroke="#508D4E" stroke-width="2"/>
-            <path d="M100 61 L100 69 L104 77 M100 69 L96 77 M96 65 L104 65" fill="none" stroke="#508D4E" stroke-width="2"/>
+            <rect x="40" y="20" width="120" height="80" fill="none" stroke="#15803d" stroke-width="2"/>
+            <rect x="80" y="45" width="40" height="35" fill="none" stroke="#15803d" stroke-width="2"/>
+            <path d="M40 20 L80 45 M160 20 L120 45 M40 100 L80 80 M160 100 L120 80" fill="none" stroke="#15803d" stroke-width="1.5"/>
+            <circle cx="100" cy="57" r="4" fill="none" stroke="#15803d" stroke-width="2"/>
+            <path d="M100 61 L100 69 L104 77 M100 69 L96 77 M96 65 L104 65" fill="none" stroke="#15803d" stroke-width="2"/>
         </svg>
     `),
     [CATALOG_ITEM_TYPES.PANORAMIC_360]: 'data:image/svg+xml,' + encodeURIComponent(`
@@ -255,11 +255,11 @@ export const DEFAULT_THUMBNAILS = Object.freeze({
     [CATALOG_ITEM_TYPES.DATA_LAYER]: 'data:image/svg+xml,' + encodeURIComponent(`
         <svg xmlns="http://www.w3.org/2000/svg" width="200" height="120" viewBox="0 0 200 120">
             <rect fill="#f3f4f6" width="200" height="120"/>
-            <rect x="40" y="25" width="120" height="70" fill="none" stroke="#508D4E" stroke-width="2" rx="4"/>
-            <line x1="40" y1="48" x2="160" y2="48" stroke="#508D4E" stroke-width="1.5"/>
-            <line x1="40" y1="72" x2="160" y2="72" stroke="#508D4E" stroke-width="1.5"/>
-            <line x1="80" y1="25" x2="80" y2="95" stroke="#508D4E" stroke-width="1.5"/>
-            <line x1="120" y1="25" x2="120" y2="95" stroke="#508D4E" stroke-width="1.5"/>
+            <rect x="40" y="25" width="120" height="70" fill="none" stroke="#15803d" stroke-width="2" rx="4"/>
+            <line x1="40" y1="48" x2="160" y2="48" stroke="#15803d" stroke-width="1.5"/>
+            <line x1="40" y1="72" x2="160" y2="72" stroke="#15803d" stroke-width="1.5"/>
+            <line x1="80" y1="25" x2="80" y2="95" stroke="#15803d" stroke-width="1.5"/>
+            <line x1="120" y1="25" x2="120" y2="95" stroke="#15803d" stroke-width="1.5"/>
         </svg>
     `)
 });

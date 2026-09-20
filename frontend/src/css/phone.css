@@ -508,12 +508,12 @@
     }
 
     .phone-feature-detail__action-btn--primary {
-        background: var(--primary-600);
+        background: var(--primary);
         color: white;
     }
 
     .phone-feature-detail__action-btn--primary:active {
-        background: var(--primary-700);
+        background: var(--primary-hover);
     }
 
     .phone-feature-detail__properties {

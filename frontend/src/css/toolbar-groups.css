@@ -170,7 +170,7 @@
 }
 
 .toolbar-popup-grid .toolbar-tool-btn[data-active="true"] .tool-shortcut-badge {
-    color: var(--primary-600);
+    color: var(--primary);
 }
 
 /* List item (icon + label) */

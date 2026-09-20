@@ -24,9 +24,10 @@
        da viewport inteira) e por isso afasta do topo cada painel que a barra cobre.
        Sem o token, esse afastamento seria um numero magico repetido painel a painel,
        e o dia em que a barra mudasse de altura ele mentiria em todos.
-       O valor e a soma medida: 44px do alvo de toque do botao mais 2 x 12px de
-       `--space-3` de preenchimento. */
-    --app-bar-height: 68px;
+       O valor e a altura TOTAL da faixa (`.app-bar` e `border-box`): 44px do alvo de
+       toque do botao mais uma folga de 6px em cima e embaixo. Ate 2026-09-20 ele dizia
+       68 e a faixa media 92, porque o preenchimento somava por cima do `min-height`. */
+    --app-bar-height: 56px;
 
     /* =========================================================================
        RESPONSIVE / TOUCH
@@ -62,6 +63,52 @@
 
     /* =========================================================================
        COLORS - PRIMARY (Green)
+
+       A ESCALA NAO SE MEXE; O QUE SE MEXEU FOI O DEGRAU QUE O ALIAS APONTA
+       (2026-09-20). O verde da marca reprovava WCAG AA nos dois papeis ao mesmo
+       tempo, e pela mesma aritmetica: `--primary` era `--primary-600` (#16a34a),
+       que da 3,30:1 contra branco. Isso e o PISO DE TEXTO GRANDE (3:1) e nao o de
+       texto normal (4,5:1), entao tanto o botao verde de texto branco quanto o
+       LINK verde sobre branco reprovavam, e os dois papeis somam cerca de 450
+       chamadas de `var(--primary)` nesta pasta.
+
+       Os numeros medidos contra #fff, que sao o que decide a escolha:
+         600 #16a34a  3,30   reprova AA de texto normal
+         700 #15803d  5,02   passa AA (e AAA de texto grande)
+         800 #166534  7,13   passa AA em todo tamanho
+         900 #14532d  9,11   passa AAA de texto normal
+
+       Entao `--primary` desceu UM degrau, para 700, e o estado desceu JUNTO, senao
+       o hover ficaria identico ao repouso: `--primary-hover` foi de 700 para 800,
+       e a distancia entre os dois (1,42) e o que mantem o estado VISIVEL. O matiz
+       e a familia sao os mesmos; so a luminosidade mudou.
+
+       `--primary-dark` APONTA PARA O MESMO 800, e nao para o 900, de proposito.
+       Ele nao e um terceiro estado: na pratica ele e o hover de `--primary` em
+       cerca de vinte regras que foram escritas antes de `--primary-hover` existir.
+       Apontar os dois para o mesmo degrau da UM verde de hover no produto inteiro.
+       A TRIPLA repouso/hover/pressionado EXISTE, em dois seletores, e esta nota dizia que
+       nao: `.model-preview-button` (`map-controls.css`) e o botao do overlay de
+       `tab-lock.css`. Neles o PRESSIONADO e o 900, um degrau abaixo do hover; com o
+       pressionado no 800 os dois estados colapsavam, e foi uma revisao que achou.
+       (Ate 2026-09-20 ele nem valia o 800: `base.css` o redefinia como #427842,
+       um verde acinzentado com a MESMA luminosidade do novo `--primary`, o que
+       teria feito o hover sumir. Ver o comentario daquele arquivo.)
+
+       O 900 existe para o CROMO, nao para estado: e a ponta escura da faixa
+       superior e o par de `--sidebar-bg`.
+
+       DOIS CUIDADOS QUE ISTO CRIA, e os dois ja estao pagos:
+       - `var(--primary-700)` escrito A MAO dentro de uma regra de `:hover` virava
+         o proprio repouso. As 23 ocorrencias passaram a `var(--primary-hover)`.
+       - `var(--primary-600)` escrito a mao continuaria em 3,30:1 ao lado de um
+         `var(--primary)` ja corrigido, isto e, dois verdes diferentes na mesma
+         tela. As 36 ocorrencias passaram a `var(--primary)`.
+       AS DUAS VARREDURAS TIVERAM BURACO, achado por revisao no mesmo dia: a do 700 nao
+       casava a forma COM FALLBACK (`var(--primary-700, #15803d)`), que sobrou em hover de
+       tres arquivos, nem o literal `#15803d`; e nenhuma das duas entrou em `briefing/`, o
+       unico subdiretorio de `css/`. Quem refizer uma varredura destas busca as TRES
+       grafias e a arvore inteira: `git grep -n "primary-700|15803d" frontend/src/css`.
        ========================================================================= */
     --primary-50: #f0fdf4;
     --primary-100: #dcfce7;
@@ -70,15 +117,23 @@
     --primary-600: #16a34a;
     --primary-700: #15803d;
     --primary-800: #166534;
+    --primary-900: #14532d;
 
     /* Semantic aliases */
-    --primary: var(--primary-600);
-    --primary-hover: var(--primary-700);
+    --primary: var(--primary-700);
+    --primary-hover: var(--primary-800);
     --primary-light: var(--primary-100);
     --primary-dark: var(--primary-800);
 
-    /* Sidebar background - solid color */
-    --sidebar-bg: var(--primary-700);
+    /* A TRILHA E O CROMO, E CROMO FICA UM DEGRAU ABAIXO DA ACAO. Ela era
+       `--primary-700` enquanto `--primary` era o 600; com `--primary` no 700 ela
+       passa ao 800, porque a relacao e que importa, nao o numero. Deixa-la onde
+       estava faria uma superficie de `var(--primary)` desenhada sobre ela ficar
+       invisivel (1,00:1), e essa colisao NAO e hipotetica: o polegar da barra de
+       rolagem dos mapas recentes vive ali dentro e era pintado de `--primary`.
+       No 800 o texto branco a 80% que a trilha usa sobe de 3,82:1 para 5,20:1,
+       que e o conserto do rotulo de navegacao sem tocar em nenhuma regra dele. */
+    --sidebar-bg: var(--primary);
 
     /* =========================================================================
        COLORS - NEUTRAL (Gray)
@@ -110,6 +165,14 @@
     --color-error-strong: #b91c1c;
     --color-info-strong: #1d4ed8;
 
+    /* O QUARTO CHEGOU EM 2026-09-20, e o caso dele e o inverso dos tres de cima:
+       nao e texto sobre tinta clara, e FUNDO de texto branco. O toast de sucesso
+       pintava `--success-color` (#28a745, `base.css`), que da 3,13:1 contra
+       branco e reprova AA; `--color-success` (#22c55e) seria pior, 2,28:1. Este
+       degrau e o mesmo `--primary-700` da marca (5,02:1), porque sucesso e verde
+       e nao ha razao para o produto ter um segundo verde escuro. */
+    --color-success-strong: #15803d;
+
     /* =========================================================================
        COLORS - SUPERFICIE ESCURA
 
@@ -137,9 +200,17 @@
     --surface-dark-rgb: 31 41 55;        /* = var(--gray-800) */
     --surface-dark-deep-rgb: 17 24 39;   /* = var(--gray-900) */
     --on-dark-rgb: 229 231 235;          /* = var(--gray-200) */
+
+    /* ESTE NAO SEGUE `--primary`, de proposito, e continua no 600. Os usos dele
+       (todos em `calibracao.css`) sao translucidos, de 15% a 60%: tinta de fundo e uma
+       borda de previa, nunca texto e nunca preenchimento solido. O que uma tinta precisa
+       e de SATURACAO para registrar,
+       e o 600 e o degrau mais saturado da escala. O par escuro ja existe ao lado,
+       em `--primary-700-rgb` e `--primary-800-rgb`, para quem precisar dele. */
     --primary-rgb: 22 163 74;            /* = var(--primary-600) */
     --primary-700-rgb: 21 128 61;        /* = var(--primary-700) */
     --primary-800-rgb: 22 101 52;        /* = var(--primary-800) */
+    --primary-900-rgb: 20 83 45;         /* = var(--primary-900), a ponta escura da faixa da calibracao */
     --success-rgb: 34 197 94;            /* = var(--color-success) */
     --warning-rgb: 245 158 11;           /* = var(--color-warning) */
     --error-rgb: 239 68 68;              /* = var(--color-error) */

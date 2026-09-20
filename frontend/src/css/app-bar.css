@@ -7,8 +7,9 @@
  */
 
 /*
- * A ALTURA E DECLARADA, e nao apenas resultante. Ela ja era 68px por soma (44px do alvo de
- * toque do botao mais 2 x 12px de `--space-3`), e continua sendo a mesma; o que muda e haver um
+ * A ALTURA E DECLARADA, e nao apenas resultante: 56px, que sao os 44px do alvo de toque do botao
+ * mais 2 x 4px de `--space-1` mais a folga do `min-height`. Ela foi 68px no token e 92px NA TELA
+ * (ver o comentario do `box-sizing` abaixo), e o dono a achou grande. O que importa e haver um
  * NUMERO que outra folha possa citar. A calibracao 360 monta esta barra em SOBREPOSICAO, porque
  * o canvas dela precisa da razao de aspecto da viewport inteira, e por isso afasta do topo cada
  * painel que a barra cobre. Sem `--app-bar-height` esse afastamento seria um literal repetido, e
@@ -19,9 +20,22 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--space-4);
+
+    /* `border-box` E OBRIGATORIO AQUI, e a falta dele foi medida em 2026-09-20: `min-height` valia
+       para a caixa de CONTEUDO, o preenchimento somava por cima, e a faixa tinha 92px enquanto o
+       token dizia 68. O dono a viu "muito grande", e `calibracao.css` posiciona tres paineis pelo
+       token, entao la o erro era tambem de alinhamento. Hoje o token E a altura. */
+    box-sizing: border-box;
     min-height: var(--app-bar-height);
-    padding: var(--space-3) var(--space-6);
-    background: linear-gradient(120deg, var(--primary-800), var(--primary-700));
+    padding: var(--space-1) var(--space-6);
+
+    /* A FAIXA E `--primary` CHAPADO, por decisao do dono em 2026-09-20: um verde so no produto.
+       Ela ja foi um gradiente de dois degraus mais escuros (900 -> 800), escolhido no mesmo dia
+       com o argumento de que cromo nao pode ter a cor da ACAO; o dono viu quatro verdes na tela
+       e pediu um. O que aquele argumento protegia continua protegido de outro jeito: a acao
+       primaria desta faixa e BRANCA (`.app-bar__action--primary`), e as secundarias sao tinta
+       escura sobre o verde, entao nada aqui e verde sobre verde. Texto branco: 5,02:1. */
+    background: var(--primary);
     color: #fff;
     box-shadow: var(--shadow-md);
     z-index: 1;
@@ -64,7 +78,7 @@
 .app-bar__subtitle {
     margin: 0;
     font-size: var(--font-size-xs);
-    color: rgb(255 255 255 / 75%);
+    color: #fff;
 }
 
 /* ----- Actions ----- */
@@ -81,8 +95,12 @@
     gap: var(--space-2);
     min-height: var(--touch-target-min);
     padding: 0 var(--space-3);
-    background: rgb(255 255 255 / 10%);
-    border: var(--border-width) solid rgb(255 255 255 / 20%);
+
+    /* ESCURECE, nao clareia: com a faixa no verde primario (5,02:1 com branco), uma pilula de
+       branco a 10% derrubava o rotulo para 4,18:1. Tinta preta sobe o contraste em vez de gasta-lo,
+       e e o mesmo idioma da trilha lateral do mapa. */
+    background: rgb(0 0 0 / 14%);
+    border: var(--border-width) solid rgb(255 255 255 / 28%);
     border-radius: var(--radius-md);
     color: #fff;
     font-family: inherit;
@@ -94,8 +112,8 @@
 }
 
 .app-bar__action:hover {
-    background: rgb(255 255 255 / 22%);
-    border-color: rgb(255 255 255 / 35%);
+    background: rgb(0 0 0 / 26%);
+    border-color: rgb(255 255 255 / 45%);
 }
 
 .app-bar__action:focus-visible {
@@ -110,9 +128,8 @@
  * mesma: pílula de preenchimento sólido, ícone de pessoa mais a palavra, alvo de
  * `--touch-target-min` (que esta barra já impõe a toda ação) e contraste AA contra a superfície
  * em que ela cai. A TINTA INVERTE porque a superfície inverte: sobre o basemap claro do mapa o
- * botão é verde escuro com texto branco; aqui, sobre a faixa `--primary-800`/`--primary-700`,
- * verde sobre verde seria invisível, então o preenchimento é branco e a palavra é
- * `--primary-800` (7,13:1, AAA). As demais ações continuam translúcidas, e é esse contraste
+ * botão é verde com texto branco; aqui, sobre a faixa `--primary`, verde sobre verde seria
+ * invisível, então o preenchimento é branco e a palavra é `--primary-800` (7,13:1, AAA). As demais ações continuam translúcidas, e é esse contraste
  * entre elas que faz esta ser lida como A ação.
  */
 .app-bar__action--primary {

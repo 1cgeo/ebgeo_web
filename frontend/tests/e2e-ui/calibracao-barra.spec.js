@@ -40,8 +40,13 @@ import { createVerifiedUser } from './helpers/accounts.js';
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
-/** O valor de `--app-bar-height` em `design-tokens.css`. A medida abaixo o confirma no navegador. */
-const ALTURA_DA_BARRA = 68;
+/**
+ * O valor de `--app-bar-height` em `design-tokens.css`. A medida abaixo o confirma no navegador.
+ * Era 68 até 2026-09-20, quando o dono achou a faixa grande: nesta página ela media mesmo 68,
+ * porque a folha da calibração põe `border-box` em tudo, e em `atlas.html` e `admin.html` media
+ * 92, porque lá o preenchimento somava por cima do `min-height`.
+ */
+const ALTURA_DA_BARRA = 56;
 
 /**
  * Entra como administrador e para no MAPA, que é onde o controle de conta monta.

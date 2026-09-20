@@ -1009,7 +1009,7 @@
 }
 
 .catalog-footer__link {
-    color: var(--primary-600, #2563eb);
+    color: var(--primary);
     font-size: var(--font-size-sm);
     text-decoration: none;
 }

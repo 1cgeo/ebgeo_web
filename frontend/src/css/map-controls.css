@@ -515,11 +515,13 @@
 }
 
 .model-preview-button:hover {
-    background: var(--primary-700);
+    background: var(--primary-hover);
 }
 
 .model-preview-button:active {
-    background: var(--primary-800);
+    /* Pressed is one step BELOW hover. Hover moved to the 800 with the scale shift of 2026-09-20,
+       so leaving this at 800 collapsed the two states into one. */
+    background: var(--primary-900);
 }
 
 /* Street view button uses info blue */

@@ -257,7 +257,7 @@
     overflow: auto;
     position: relative;
     scrollbar-width: thin;
-    scrollbar-color: var(--primary-600, #16a34a) transparent;
+    scrollbar-color: var(--primary) transparent;
 }
 
 .attribute-table-container::-webkit-scrollbar {
@@ -270,7 +270,7 @@
 }
 
 .attribute-table-container::-webkit-scrollbar-thumb {
-    background-color: var(--primary-600, #16a34a);
+    background-color: var(--primary);
     border-radius: 3px;
 }
 
@@ -348,7 +348,7 @@
 
 .attribute-table-head th[data-sort] .attribute-table-sort-indicator {
     opacity: 1;
-    color: var(--primary-600, #16a34a);
+    color: var(--primary);
 }
 
 /* =========================================================================
@@ -370,7 +370,7 @@
 
 .attribute-table-body tr[data-selected="true"] {
     background: var(--primary-100, #dcfce7);
-    border-left: 3px solid var(--primary-600, #16a34a);
+    border-left: 3px solid var(--primary);
 }
 
 .attribute-table-body tr[data-selected="true"]:hover {
@@ -456,7 +456,7 @@
 
 .attribute-table-zoom-btn:hover {
     background: var(--primary-100, #dcfce7);
-    color: var(--primary-600, #16a34a);
+    color: var(--primary);
 }
 
 /* =========================================================================

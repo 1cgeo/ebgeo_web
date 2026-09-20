@@ -25,6 +25,15 @@ body.cesium-active .sidebar-container {
     z-index: 300 !important;
 }
 
+/* ENQUANTO A CARGA ESTA NA TELA A TRILHA NAO SOBE. A carga mora dentro do conteiner, cujo contexto
+   de empilhamento vale 200, entao de la ela nunca passaria dos 300 acima; o que se faz e nao
+   levantar a trilha ate a carga sair. O estado `-hidden` entra na lista de proposito: e o meio
+   segundo do fade, e com ele a trilha REAPARECE pelo proprio esmaecer da carga, em vez de saltar
+   por cima dela no primeiro quadro. Id mais classe vencem a regra acima em especificidade. */
+body:has(#loading-screen-3d:is(.loading-3d-visible, .loading-3d-hidden)) .sidebar-container {
+    z-index: var(--z-sidebar) !important;
+}
+
 /* Hide sidebar elements (but not feature-panel) when briefing editor is open */
 body.cesium-active.briefing-panel-active .sidebar-collapsed,
 body.cesium-active.briefing-panel-active .sidebar-panel:not(.feature-panel) {
@@ -822,14 +831,22 @@ body.cesium-active .modal-overlay {
 
 /* ===== 3D VIEWER LOADING SCREEN ===== */
 
+/* `--primary`, o mesmo verde de toda tela de carga do produto (ver `.fp3d-loading`).
+
+   ELA COBRE A TELA INTEIRA, TRILHA LATERAL INCLUSIVE (decisao do dono, 2026-09-20). Com a trilha
+   no mesmo `--primary`, a carga presa ao conteiner (que comeca DEPOIS da trilha) deixava dois
+   retangulos do mesmo verde encostados sem fronteira, com os icones da trilha boiando ao lado do
+   logotipo. `fixed` com `inset: 0` escapa do recuo do conteiner: nenhum ancestral aqui cria bloco
+   de contencao (nao ha `transform`, `filter` nem `contain` no conteiner), e `overflow: hidden` de
+   um ancestral nao recorta descendente `fixed`. */
 #loading-screen-3d {
-    position: absolute;
+    position: fixed;
     inset: 0;
     z-index: 500;
     display: none;
     align-items: center;
     justify-content: center;
-    background-color: var(--primary-color);
+    background-color: var(--primary);
     opacity: 0;
     transition: opacity 0.4s ease;
 }

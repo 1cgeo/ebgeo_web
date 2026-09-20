@@ -673,7 +673,11 @@
     user-select: text;
 }
 
+/* O par verde-sobre-verde-claro desta linha era o pior da familia: o verde-oliva antigo
+   (#508D4E, hoje extinto) sobre `--primary-light` (#B4E380) dava 2,7:1 para uma coordenada
+   em fonte monoespacada de 12px. O par agora e o da escala: texto `--primary` sobre a tinta
+   mais clara dela, 4,79:1. */
 .los-coord-row__value:hover {
-    background-color: var(--primary-light, #e3f2fd);
-    color: var(--primary-color, #1976d2);
+    background-color: var(--primary-50);
+    color: var(--primary);
 }
