@@ -11,7 +11,7 @@
  * ['get','id']`) unchanged.
  */
 
-import { IMAGE_CONFIG } from '@utils/image_utils.js';
+import { IMAGE_CONFIG, validateImageDimensions } from '@utils/image_utils.js';
 import { showError } from '@utils/toast_service.js';
 import { getCustomIconBlob, getEventBus } from '../../store';
 import { EventTypes } from '../../events/event_types.js';
@@ -125,6 +125,28 @@ export async function normalizeIconFile(file) {
 
     try {
         const img = await blobToImage(file);
+
+        // The PIXEL ceiling. An SVG is in this door's allowlist and costs almost no bytes, so a
+        // `width="40000"` root element walks past the two tests above and is only stopped here,
+        // before `drawImage` has to rasterise it.
+        //
+        // The `> 0` half is NOT redundancy: an SVG with no intrinsic size decodes to 0x0, which
+        // `validateImageDimensions` calls unreadable, and the lines below already handle that
+        // case deliberately (they fall back to the normalized square). Refusing it here would
+        // turn a supported shape into an error.
+        //
+        // The skip is keyed on BOTH sides being 0, which is the sizeless SVG and nothing else. An
+        // SVG that declares only one side decodes to 0 on the other, and keying on width alone let
+        // a `height="40000"` root walk past the ceiling; the missing side borrows the present one.
+        const semTamanho = img.naturalWidth === 0 && img.naturalHeight === 0;
+        const dimensions = validateImageDimensions(
+            img.naturalWidth || img.naturalHeight,
+            img.naturalHeight || img.naturalWidth,
+        );
+        if (!dimensions.valid && !semTamanho) {
+            showError(dimensions.reason);
+            return null;
+        }
 
         const canvas = document.createElement('canvas');
         canvas.width = NORMALIZED_SIZE;

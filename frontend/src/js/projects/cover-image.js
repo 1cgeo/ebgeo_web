@@ -15,6 +15,10 @@
  * base64 payload really is) is testable and the canvas part is not.
  */
 
+// By FILE, never the `@utils` barrel: this module is part of `atlas.html`, which boots without
+// the store, and the barrel reaches it transitively.
+import { validateImageDimensions } from '@utils/image_utils.js';
+
 /** Longest side the stored cover may have. ~2x a card at its widest, which is where it stops paying. */
 export const COVER_MAX_WIDTH = 640;
 export const COVER_MAX_HEIGHT = 400;
@@ -127,6 +131,13 @@ export async function fileToCoverPayload(file) {
     const img = await decodeImage(file);
     const source = { width: img.naturalWidth || img.width, height: img.naturalHeight || img.height };
     if (!source.width || !source.height) throw new Error('Esta imagem está vazia.');
+
+    // The PIXEL ceiling, between the decode and the first canvas. The shrinking below is what
+    // makes a big photo affordable, but it cannot run before the bitmap exists: a solid-colour
+    // PNG of 30000x30000 is a few hundred kB on disk and 3.6 GB of RGBA once the canvas copies
+    // it, so "it gets small in the end" is not a guard.
+    const dimensions = validateImageDimensions(source.width, source.height);
+    if (!dimensions.valid) throw new Error(dimensions.reason);
 
     let { width, height } = fitWithin(source.width, source.height);
     const canvas = document.createElement('canvas');

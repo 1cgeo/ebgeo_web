@@ -9,6 +9,8 @@
 
 import DOMPurify from 'dompurify';
 import { showError } from './toast_service.js';
+import { ImageRefusal, imageRefusalNotice } from './image-limit-phrases.js';
+import { validateImageDimensions } from './image_utils.js';
 
 /** DOMPurify configuration allowing only Quill-safe HTML tags and attributes. */
 export const QUILL_DOMPURIFY_CONFIG = {
@@ -94,6 +96,22 @@ export function cleanQuillContent(html) {
 }
 
 /**
+ * An Error that carries a sentence WRITTEN FOR THE PERSON, as opposed to one thrown by the engine.
+ *
+ * The flag is what the `catch` of the image handler reads: `canvas.toDataURL`, `getSelection` and
+ * `insertEmbed` throw too, and their messages are English engine text ("Failed to execute
+ * 'toDataURL'...") that must never reach a toast.
+ *
+ * @param {string} message - pt-BR refusal sentence
+ * @returns {Error} Error flagged with `isImageRefusal`
+ */
+function imageRefusalError(message) {
+    const error = new Error(message);
+    error.isImageRefusal = true;
+    return error;
+}
+
+/**
  * Compresses an image file before embedding in Quill.
  *
  * @param {File} file - Image file to compress
@@ -113,8 +131,19 @@ export function compressQuillImage(file, options = {}) {
     } = options;
 
     return new Promise((resolve, reject) => {
+        // The rejection message is now the SENTENCE THE PERSON READS, in pt-BR and naming both
+        // numbers. It used to be English prose that the caller swallowed into a flat "Erro ao
+        // adicionar imagem", so the one fact worth knowing (which limit, by how much) was lost
+        // at the only point that had it.
+        //
+        // This ceiling is deliberately STRICTER than `IMAGE_CONFIG.maxSizeBytes`: a Quill picture
+        // is embedded as base64 inside the slide's HTML and travels through sync on every edit,
+        // so it is not the same budget as a blob stored once.
         if (file.size > maxSizeMB * 1024 * 1024) {
-            reject(new Error(`Image too large (max ${maxSizeMB}MB)`));
+            reject(imageRefusalError(imageRefusalNotice(ImageRefusal.PESO, {
+                bytes: file.size,
+                maxBytes: maxSizeMB * 1024 * 1024,
+            })));
             return;
         }
 
@@ -124,6 +153,17 @@ export function compressQuillImage(file, options = {}) {
         const objectUrl = URL.createObjectURL(file);
 
         img.onload = () => {
+            // The PIXEL ceiling, which the byte ceiling above cannot stand in for: a small
+            // solid-colour PNG decodes to tens of thousands of pixels a side and the canvas
+            // below would allocate all of them. Refused between `load` and `drawImage`, which
+            // is the window where refusing still saves the bitmap.
+            const dimensions = validateImageDimensions(img.naturalWidth, img.naturalHeight);
+            if (!dimensions.valid) {
+                URL.revokeObjectURL(objectUrl);
+                reject(imageRefusalError(dimensions.reason));
+                return;
+            }
+
             let { width, height } = img;
 
             if (width > maxWidth) {
@@ -146,7 +186,7 @@ export function compressQuillImage(file, options = {}) {
 
         img.onerror = () => {
             URL.revokeObjectURL(objectUrl);
-            reject(new Error('Error loading image'));
+            reject(imageRefusalError(imageRefusalNotice(ImageRefusal.ILEGIVEL)));
         };
 
         img.src = objectUrl;
@@ -176,7 +216,13 @@ export function handleQuillImageUpload(quillInstance, options = {}) {
             quillInstance.setSelection(range.index + 1);
         } catch (error) {
             console.error('Error processing image:', error);
-            showError('Erro ao adicionar imagem');
+            // THE REASON, not a flat "Erro ao adicionar imagem": every rejection above is now a
+            // pt-BR sentence naming the limit that was hit, and replacing it with a generic one
+            // threw away the only thing the person could act on.
+            // Only a flagged refusal is quoted; anything else is an engine exception in English.
+            showError(error?.isImageRefusal
+                ? error.message
+                : imageRefusalNotice(ImageRefusal.ILEGIVEL));
         }
     };
 }

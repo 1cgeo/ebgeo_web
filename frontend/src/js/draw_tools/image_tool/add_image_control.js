@@ -8,6 +8,12 @@ import {
   getActiveLayerIdSync
 } from "../../store";
 import { IDUtils, showError, loadImageToMap as utilLoadImageToMap } from "../../utilities";
+import {
+    IMAGE_CONFIG,
+    validateImageFile,
+    validateImageDimensions,
+} from '@utils/image_utils.js';
+import { ImageRefusal, imageRefusalNotice } from '@utils/image-limit-phrases.js';
 import { uploadImageBlob } from "../../store/sync/image-sync.js";
 import { addImageAttributesToPanel } from "./image_attributes_panel.js";
 import AddImageGeometry from "./add_image_geometry.js";
@@ -371,17 +377,30 @@ class AddImageControl extends BaseControl {
 
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "image/*";
+    // The allowlist itself, never `image/*`: the picker used to offer every format the OS knows
+    // about, including the ones the gate below and the server both refuse.
+    input.accept = IMAGE_CONFIG.allowedTypes.join(",");
     input.onchange = async (event) => {
       const file = event.target.files[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = async () => {
-          const imageBase64 = reader.result;
-          await this.addImageFeature(e.lngLat, imageBase64);
-        };
-        reader.readAsDataURL(file);
+      if (!file) return;
+
+      // THE REFUSAL COMES BEFORE THE `FileReader`, and that ordering is the fix. Reading first
+      // and checking after is not a check at all: a 400 MB file becomes a ~530 MB base64 string
+      // built on the main thread, and the tab is gone before any guard could run. `size` and
+      // `type` are metadata the browser already holds, so this costs nothing.
+      const validation = validateImageFile(file, { allowExtensionFallback: true });
+      if (!validation.valid) {
+        showError(validation.reason);
+        return;
       }
+
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const imageBase64 = reader.result;
+        await this.addImageFeature(e.lngLat, imageBase64);
+      };
+      reader.onerror = () => showError(imageRefusalNotice(ImageRefusal.ILEGIVEL));
+      reader.readAsDataURL(file);
     };
     input.click();
     this.toolManager.deactivateCurrentTool();
@@ -480,8 +499,25 @@ class AddImageControl extends BaseControl {
 
   // ===== IMAGE PROCESSING =====
 
+  /**
+   * Decodes, refuses what is too big to draw, and hands the callback a downscaled copy.
+   *
+   * TWO CEILINGS GUARD THIS METHOD AND THEY ARE NOT THE SAME ONE. The byte ceiling was already
+   * spent at the picker (or at the drop), before the file was read; this is the PIXEL ceiling,
+   * and it is the only one that can catch a decompression bomb — a 300 kB solid-colour PNG that
+   * decodes to 30000x30000. The test sits between `load` (the header is parsed, the dimensions
+   * are known) and `drawImage` (the point the bitmap and the canvas copy get allocated), which
+   * is the one window where refusing still saves the memory.
+   *
+   * On refusal the callback is NOT called, so nothing downstream is left half-built, and the
+   * person is told which limit was hit and by how much.
+   *
+   * @param {string} imageBase64 - Data URL of the picture to place
+   * @param {Function} callback - Receives (resizedDataUrl, width, height) on success only
+   */
   resizeImage = (imageBase64, callback) => {
     const img = new Image();
+    img.onerror = () => showError(imageRefusalNotice(ImageRefusal.ILEGIVEL));
     img.onload = () => {
       // `naturalWidth`/`naturalHeight` are the decoded size and the only pair that
       // cannot be styled away; `width`/`height` are the layout attributes and read 0
@@ -490,6 +526,15 @@ class AddImageControl extends BaseControl {
       // divides by them, and a 0 or NaN here reaches `canvas.width` as a native call.
       let width = AddImageControl.usableDimension(img.naturalWidth, img.width);
       let height = AddImageControl.usableDimension(img.naturalHeight, img.height);
+
+      // The RAW decoded pair, not the coerced one: the fallback would turn an unreadable
+      // image into a legitimate 100x100 and hide exactly the case worth refusing.
+      const dimensions = validateImageDimensions(img.naturalWidth, img.naturalHeight);
+      if (!dimensions.valid) {
+        showError(dimensions.reason);
+        return;
+      }
+
       const aspectRatio = width / height;
 
       if (

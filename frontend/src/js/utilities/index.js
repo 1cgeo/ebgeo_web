@@ -56,10 +56,15 @@ export { blobToDataUrl } from './blob-to-data-url.js';
 export {
     IMAGE_CONFIG,
     validateImageFile,
+    validateImageDimensions,
+    validateImagePayload,
     compressImage,
     createThumbnail,
     processImageFile
 } from './image_utils.js';
+
+// Refusal wording shared by every door a picture can enter through
+export { ImageRefusal, imageRefusalNotice } from './image-limit-phrases.js';
 
 // Geometry utilities
 export {

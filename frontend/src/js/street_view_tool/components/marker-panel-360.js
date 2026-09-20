@@ -20,7 +20,8 @@ import {
     getMarker360Images,
     removeMarker360Image
 } from '@store/index.js';
-import { showSuccess, showToast, showWarning } from '@utils/index.js';
+import { showError, showSuccess, showToast } from '@utils/index.js';
+import { validateImagePayload, IMAGE_CONFIG } from '@utils/image_utils.js';
 import { showConfirm } from '@modals/index.js';
 import { deepClone } from '@utils/deep-utils.js';
 import { createTemporalValiditySection, releaseTemporalSection } from '@js/temporal/temporal-attributes-section.js';
@@ -365,7 +366,9 @@ async function buildPhotoGallerySection(placeholder, markerId) {
     // Hidden file input
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
-    fileInput.accept = 'image/jpeg,image/png,image/gif,image/webp';
+    // The allowlist the gate (and the server) actually enforce: offering GIF in the picker only
+    // led to a file the store refused with nothing but a `console.warn`.
+    fileInput.accept = IMAGE_CONFIG.allowedTypes.join(',');
     fileInput.multiple = true;
     fileInput.style.display = 'none';
     container.appendChild(fileInput);
@@ -399,10 +402,14 @@ async function buildPhotoGallerySection(placeholder, markerId) {
 
     fileInput.addEventListener('change', async (e) => {
         if (e.target.files?.length) {
-            for (const file of Array.from(e.target.files)) {
-                if (!file.type.startsWith('image/')) continue;
-                if (file.size > 10 * 1024 * 1024) {
-                    showWarning(`${file.name} excede 10MB`);
+            const arquivos = Array.from(e.target.files);
+            for (const file of arquivos) {
+                // ONE gate for every door, instead of a second copy of the 10 MB ceiling plus an
+                // `image/*` test that let through what the store then dropped in silence.
+                const validation = await validateImagePayload(file);
+                if (!validation.valid) {
+                    const rotulo = arquivos.length > 1 ? `${file.name}: ` : '';
+                    showError(`${rotulo}${validation.reason}`);
                     continue;
                 }
                 await addMarker360Image(markerId, file);

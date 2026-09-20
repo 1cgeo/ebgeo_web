@@ -9,7 +9,8 @@ import userDataManager from '@js/user_data/user_data_manager.js';
 import { getEventBus, isCurrentMapLockedSync } from '@store/index.js';
 import { EventTypes, FeatureUpdateProperty } from '@events/index.js';
 import { showConfirm } from '@modals/index.js';
-import { showWarning } from '@utils/index.js';
+import { showError } from '@utils/index.js';
+import { validateImagePayload, IMAGE_CONFIG } from '@utils/image_utils.js';
 
 /** @type {Array<Object>|null} Current gallery images for viewer navigation */
 let _viewerImages = null;
@@ -71,7 +72,9 @@ export async function createPhotoGallery(options) {
     // Hidden file input
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
-    fileInput.accept = 'image/jpeg,image/png,image/gif,image/webp';
+    // The allowlist the gate (and the server) actually enforce: offering GIF in the picker only
+    // led to a file `addImage` refused with nothing but a `console.warn`.
+    fileInput.accept = IMAGE_CONFIG.allowedTypes.join(',');
     fileInput.multiple = true;
     fileInput.className = 'feature-photo-gallery__file-input';
     container.appendChild(fileInput);
@@ -122,10 +125,17 @@ export async function createPhotoGallery(options) {
     fileInput.addEventListener('change', async (e) => {
         if (isCurrentMapLockedSync()) { fileInput.value = ''; return; }
         if (e.target.files?.length) {
-            for (const file of Array.from(e.target.files)) {
-                if (!file.type.startsWith('image/')) continue;
-                if (file.size > 10 * 1024 * 1024) {
-                    showWarning(`${file.name} excede 10MB`);
+            const arquivos = Array.from(e.target.files);
+            for (const file of arquivos) {
+                // ONE gate, shared with every other door a picture enters through. The pair of
+                // hand-rolled tests that stood here repeated the 10 MB ceiling as a literal and
+                // accepted formats (`image/*`) that `addImage` then refused with nothing but a
+                // `console.warn`: the person picked a GIF and the gallery simply did not change.
+                const validation = await validateImagePayload(file);
+                if (!validation.valid) {
+                    // The name only when there are several, or a single refusal reads as a list.
+                    const rotulo = arquivos.length > 1 ? `${file.name}: ` : '';
+                    showError(`${rotulo}${validation.reason}`);
                     continue;
                 }
                 await userDataManager.addImage(featureId, featureType, file);

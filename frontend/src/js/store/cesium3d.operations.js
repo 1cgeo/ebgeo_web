@@ -242,9 +242,18 @@ function getUserDefaultStyle(storageKey) {
 async function addEntityImage(entityId, file, collectionKey, changeEvent, mapName, entityType) {
     if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, `addImage:${collectionKey}`)) return null;
 
+    // A REFUSAL THE PERSON CANNOT SEE IS A CLICK THAT DID NOTHING. This used to stop at
+    // `console.warn`, so picking an oversized or unsupported picture left the gallery unchanged
+    // with no explanation anywhere. The block event is the house channel for an expected refusal
+    // (the store owns no toast), and `message` is the branch of `store-error-listener.js` that
+    // shows a sentence of our own instead of the canned lock/read-only ones.
     const validation = validateImageFile(file);
     if (!validation.valid) {
-        console.warn(`Invalid image: ${validation.reason}`);
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation: `addImage:${collectionKey}`,
+            reason: 'imagem-invalida',
+            message: validation.reason,
+        });
         return null;
     }
 

@@ -7,6 +7,10 @@ vi.mock('@store', () => ({
 }));
 vi.mock('@utils/image_utils.js', () => ({
     IMAGE_CONFIG: { maxSizeBytes: 10 * 1024 * 1024 },
+    // `normalizeIconFile` gained a pixel ceiling; the cases here never reach it (they are
+    // refused earlier, or they never decode), but the mock has to carry the export or the
+    // module fails to bind.
+    validateImageDimensions: () => ({ valid: true }),
 }));
 const showError = vi.fn();
 vi.mock('@utils/toast_service.js', () => ({

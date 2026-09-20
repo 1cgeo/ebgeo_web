@@ -636,9 +636,15 @@ export async function removeMarkers360ByPhoto(photoName, mapName = null) {
 export async function addMarker360Image(markerId, file, mapName = null) {
     if (!guardStreetview360Write(GuardAction.CREATE_MARKER_360, 'addMarker360Image')) return null;
 
+    // Same fix as the 3D gallery, plus the field name: this read `validation.error`, which
+    // `validateImageFile` has never returned, so even the console line printed `undefined`.
     const validation = validateImageFile(file);
     if (!validation.valid) {
-        console.warn('Invalid image file:', validation.error);
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation: 'addMarker360Image',
+            reason: 'imagem-invalida',
+            message: validation.reason,
+        });
         return null;
     }
 

@@ -49,6 +49,8 @@ import { showPrompt } from '@modals/prompt.modal.js';
 // que boota sem ela. Medido em 2026-08-23; o mesmo critério que já rege `confirm`/`prompt` acima.
 import { apiClient } from '@store/sync/api-client.js';
 import { fileToCoverPayload } from './cover-image.js';
+// By FILE, never the `@utils` barrel: this page boots without the store.
+import { validateImageFile } from '@utils/image_utils.js';
 import {
     setupCleanup, addDomListener, addScopedDomListener, clearScopedListeners, cleanup, removeElement,
     trackTimer,
@@ -1437,6 +1439,16 @@ export class AtlasDrive {
      */
     async _applyCover(project, file) {
         const id = String(project?.id ?? '');
+
+        // BEFORE THE DECODE. `accept` on the input is a hint the OS picker lets people override
+        // ("All files"), so the only real gate is this one, and it has to run before
+        // `fileToCoverPayload` hands the bytes to an `Image`.
+        const validation = validateImageFile(file);
+        if (!validation.valid) {
+            showError(validation.reason);
+            return;
+        }
+
         try {
             const payload = await fileToCoverPayload(file);
             await apiClient.setAtlasCover(id, payload);

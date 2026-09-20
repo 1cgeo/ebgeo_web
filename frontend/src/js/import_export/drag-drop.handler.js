@@ -1,5 +1,8 @@
 // Path: js/import_export/drag-drop.handler.js
 import { showError, showWarning } from '@utils/toast_service.js';
+// By FILE, not by the `@utils` barrel: that barrel reaches `feature_navigation_utils` and drags
+// the whole store in behind it.
+import { validateImageFile } from '@utils/image_utils.js';
 import { isCurrentMapLockedSync } from '@store';
 // O diálogo da CASA para uma pergunta de três respostas. Ver `askImportMode`: o modal artesanal que
 // vivia aqui não tinha "Cancelar", não marcava a ação destrutiva e não nomeava o que ela apaga.
@@ -255,9 +258,32 @@ class DragDropHandler {
         }
     }
 
+    /**
+     * Places a dropped picture on the map.
+     *
+     * THE SECOND DOOR INTO THE IMAGE TOOL, and it used to be the unguarded one. The tool's own
+     * file picker now refuses on `size` and `type` before reading; a drop reaches
+     * `addImageFeature` through a different call site, so the same refusal has to be written
+     * here too, or the ceiling exists only for people who use the button. The extension table
+     * above is wider than the MIME allowlist on purpose (a .gif or .bmp still classifies as
+     * IMAGE so the overlay reads "Adicionar Imagem"), which makes this the point that says why
+     * those two are refused instead of leaving a drop that silently does nothing.
+     *
+     * @param {File} file - The dropped file
+     * @param {Object} lngLat - Map coordinates the drop projected to
+     * @returns {Promise<void>}
+     */
     async processImageFile(file, lngLat) {
         if (!lngLat || isNaN(lngLat.lng) || isNaN(lngLat.lat)) {
             throw new Error('Coordenadas inválidas para posicionamento da imagem');
+        }
+
+        // Before the `FileReader`, never after: reading a 400 MB drop builds a ~530 MB base64
+        // string on the main thread and there is no tab left to show a refusal in.
+        const validation = validateImageFile(file, { allowExtensionFallback: true });
+        if (!validation.valid) {
+            showError(validation.reason);
+            return;
         }
 
         return new Promise((resolve, reject) => {

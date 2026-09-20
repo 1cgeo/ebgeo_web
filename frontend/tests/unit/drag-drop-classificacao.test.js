@@ -76,11 +76,21 @@ function makeHandler(over = {}) {
     return { handler, mapElement, toolManager, importControl, exportImportService, imageControl };
 }
 
+/**
+ * A dropped file. `size` and `type` now MATTER for the IMAGE branch: since the drop shares the
+ * image tool's byte/MIME gate, a fixture with neither is refused before the branch runs. They
+ * default to a small PNG so every pre-existing case keeps testing the routing it was written for.
+ * @param {string} name - File name, which is what `classifyFile` reads
+ * @param {Object} [over] - `size` / `type` overrides for the refusal cases
+ * @returns {Object} A File-like stand-in
+ */
+const fileOf = (name, over = {}) => ({ name, size: 2048, type: 'image/png', ...over });
+
 const dropOf = (names, extra = {}) => ({
     preventDefault: vi.fn(),
     clientX: 110,
     clientY: 220,
-    dataTransfer: { files: names.map((name) => ({ name })) },
+    dataTransfer: { files: names.map((name) => fileOf(name)) },
     ...extra,
 });
 
@@ -294,6 +304,59 @@ describe('ramo IMAGE', () => {
         const { handler, imageControl } = makeHandler();
         await handler.handleDrop(dropOf(['mapa.kml']));
         expect(imageControl.map.unproject).not.toHaveBeenCalled();
+    });
+
+    // ------------------------------------------------------------------
+    // O TETO, na SEGUNDA porta do ferramental de imagem
+    // ------------------------------------------------------------------
+    //
+    // A ferramenta tem duas entradas (o seletor de arquivo e a solta), e até 2026-09-20 só uma
+    // delas tinha portão. Estes três casos existem para que o conserto não volte a valer só para
+    // quem usa o botão: o `FileReader` é global e NÃO é instalado, então se alguma recusa deixar
+    // de acontecer o caso estoura em vez de passar verde.
+
+    it('arquivo acima do teto de bytes é recusado ANTES do FileReader, avisando com os números', async () => {
+        const { handler, imageControl } = makeHandler();
+        const event = dropOf(['gigante.png']);
+        event.dataTransfer.files = [fileOf('gigante.png', { size: 37 * 1024 * 1024 })];
+
+        await handler.handleDrop(event);
+
+        expect(imageControl.addImageFeature).not.toHaveBeenCalled();
+        expect(showError).toHaveBeenCalledTimes(1);
+        expect(showError.mock.calls[0][0])
+            .toBe('A imagem não foi carregada: o arquivo tem 37 MB e o máximo é 10 MB.');
+    });
+
+    it('tipo fora da lista é recusado NOMEANDO os formatos aceitos', async () => {
+        // `.gif` continua classificando como IMAGE (a faixa de arrastar diz "Adicionar Imagem"),
+        // e é justamente por isso que a recusa precisa falar: sem ela a solta não fazia nada.
+        const { handler, imageControl } = makeHandler();
+        const event = dropOf(['animado.gif']);
+        event.dataTransfer.files = [fileOf('animado.gif', { type: 'image/gif' })];
+
+        await handler.handleDrop(event);
+
+        expect(imageControl.addImageFeature).not.toHaveBeenCalled();
+        expect(showError).toHaveBeenCalledTimes(1);
+        expect(showError.mock.calls[0][0])
+            .toBe('A imagem não foi carregada: tipo de arquivo não suportado (use JPEG, PNG ou WebP).');
+    });
+
+    it('arquivo exatamente no teto passa, como no servidor', async () => {
+        const { handler, imageControl } = makeHandler();
+        globalThis.FileReader = class {
+            readAsDataURL() { this.onload(); }
+            get result() { return 'data:image/png;base64,AA'; }
+        };
+        const event = dropOf(['no-limite.png']);
+        event.dataTransfer.files = [fileOf('no-limite.png', { size: 10 * 1024 * 1024 })];
+
+        await handler.handleDrop(event);
+
+        expect(imageControl.addImageFeature).toHaveBeenCalledTimes(1);
+        expect(showError).not.toHaveBeenCalled();
+        delete globalThis.FileReader;
     });
 });
 

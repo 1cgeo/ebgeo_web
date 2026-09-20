@@ -20,6 +20,7 @@ import {
     validateImageFile,
     processImageFile
 } from '@utils/image_utils.js';
+import { showWarning } from '@utils/toast_service.js';
 import { sanitizeHtml } from '@sidebar/panels/notes-panel.js';
 
 /**
@@ -366,10 +367,16 @@ const userDataManager = {
      * @returns {Promise<Object|null>} Created image object or null on failure
      */
     async addImage(featureId, featureType, file) {
-        // Use shared validation utility
+        // Use shared validation utility.
+        //
+        // IT SPEAKS NOW. The refusal stopped at `console.warn`, so a picture the gate rejected
+        // looked to the person exactly like a click that did nothing. The gallery that calls this
+        // refuses first, with the same sentence, so this is the second line of defence for any
+        // future caller rather than a duplicate toast.
         const validation = validateImageFile(file);
         if (!validation.valid) {
             console.warn(`UserDataManager: Invalid image file - ${validation.reason}`);
+            showWarning(validation.reason);
             return null;
         }
 
