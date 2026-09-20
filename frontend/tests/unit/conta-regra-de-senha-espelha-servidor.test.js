@@ -30,15 +30,24 @@ import { fileURLToPath } from 'node:url';
 import {
     EDITABLE_PROFILE_FIELDS,
     MAX_NAME_LENGTH,
+    MAX_PASSWORD_BYTES,
     MAX_PASSWORD_LENGTH,
     MIN_PASSWORD_LENGTH,
+    PASSWORD_BYTES_TEXT,
     PASSWORD_RULE_TEXT,
+    validatePasswordForm,
 } from '../../src/js/admin/account-model.js';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const SCHEMAS = resolve(RAIZ, 'backend/src/modules/users/users.schemas.js');
+// A regra de senha que se DEFINE mora num arquivo só desde 2026-09-19, e os schemas a citam
+// pelo nome (`newPassword,` ou `password: newPassword`) em vez de repetir `.min/.max`. O
+// espelho segue a citação até a regra, senão a forma abreviada devolveria `null` e o piso
+// reprovaria sobre um schema correto.
+const REGRA = resolve(RAIZ, 'backend/src/modules/auth/password-rule.js');
 
 const FONTE = readFileSync(SCHEMAS, 'utf8');
+const FONTE_DA_REGRA = readFileSync(REGRA, 'utf8');
 
 /**
  * O corpo de um `export const <nome> = Joi.object({ ... });`, sem comentário de linha.
@@ -65,8 +74,26 @@ function corpoDoSchema(nome) {
  */
 function limiteDoCampo(corpo, campo, limite) {
     const declaracao = new RegExp(`\\b${campo}:\\s*Joi[^\\n]*`).exec(corpo);
-    if (!declaracao) return null;
-    const achado = new RegExp(`\\.${limite}\\((\\d+)\\)`).exec(declaracao[0]);
+    if (declaracao) {
+        const achado = new RegExp(`\\.${limite}\\((\\d+)\\)`).exec(declaracao[0]);
+        return achado ? Number(achado[1]) : null;
+    }
+    // Forma abreviada: o campo cita a regra compartilhada pelo nome. Só `newPassword` é essa
+    // regra, seja como `newPassword,` seja como `password: newPassword`.
+    const cita = new RegExp(`^\\s{2}(?:${campo},|${campo}:\\s*newPassword,)`, 'm').test(corpo);
+    if (!cita) return null;
+    const regra = /export const newPassword = Joi[^\n]*/.exec(FONTE_DA_REGRA);
+    if (!regra) return null;
+    const achado = new RegExp(`\\.${limite}\\((\\d+)\\)`).exec(regra[0]);
+    return achado ? Number(achado[1]) : null;
+}
+
+/**
+ * O teto em bytes da regra compartilhada do servidor.
+ * @returns {number|null}
+ */
+function tetoDeBytesDoServidor() {
+    const achado = /export const PASSWORD_MAX_BYTES = (\d+);/.exec(FONTE_DA_REGRA);
     return achado ? Number(achado[1]) : null;
 }
 
@@ -103,6 +130,21 @@ describe('a regra de senha do cliente espelha updatePasswordSchema', () => {
         const max = limiteDoCampo(corpo, 'newPassword', 'max');
         expect(max).not.toBeNull();
         expect(MAX_PASSWORD_LENGTH).toBe(max);
+    });
+
+    it('o teto em BYTES do cliente é o do servidor, e a tela o recusa antes de mandar', () => {
+        const bytes = tetoDeBytesDoServidor();
+        expect(bytes).not.toBeNull();
+        expect(MAX_PASSWORD_BYTES).toBe(bytes);
+        // 37 letras acentuadas cabem no teto de caracteres e estouram o de bytes.
+        const resultado = validatePasswordForm({
+            currentPassword: 'Original-123',
+            newPassword: 'á'.repeat(37),
+            confirmPassword: 'á'.repeat(37),
+        });
+        expect(resultado.valid).toBe(false);
+        expect(resultado.message).toBe(PASSWORD_BYTES_TEXT);
+        expect(PASSWORD_BYTES_TEXT).toContain(String(MAX_PASSWORD_BYTES));
     });
 
     it('a frase mostrada ao usuário cita os DOIS limites, em número', () => {

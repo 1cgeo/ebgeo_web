@@ -29,6 +29,7 @@ import { beforeEach, afterEach, describe, it, expect } from 'vitest';
 import { activateScope, clearActiveScope, remoteScope, localScope } from '../../src/js/store/atlas-namespace.js';
 import {
     holdLogoutBarrier,
+    holdLogoutBarriers,
     enterCoordinatedWrite,
     logoutBarrierBlocks,
     logoutBarrierLockName,
@@ -41,6 +42,14 @@ import { StoreErrorEvents, setStoreErrorEventBus } from '../../src/js/store/stor
 const ATLAS = 'aaaa1111-1111-4111-8111-111111111111';
 /** O nome escrito à mão, não derivado (ver o cabeçalho). */
 const NOME = 'ebgeo-atlas-logout:#remote-aaaa1111-1111-4111-8111-111111111111';
+
+/** Os outros dois namespaces do censo, com os nomes de lock também escritos à mão. */
+const ATLAS_B = 'bbbb1111-1111-4111-8111-111111111111';
+const NOME_B = 'ebgeo-atlas-logout:#remote-bbbb1111-1111-4111-8111-111111111111';
+const ATLAS_C = 'cccc1111-1111-4111-8111-111111111111';
+const NOME_C = 'ebgeo-atlas-logout:#remote-cccc1111-1111-4111-8111-111111111111';
+/** O que NÃO está no censo, e por isso continua escrevendo. */
+const ATLAS_FORA = 'dddd1111-1111-4111-8111-111111111111';
 
 /** Eventos de erro de store emitidos, na ordem. */
 let emitidos = [];
@@ -105,6 +114,10 @@ describe('o diálogo de logout contra a escrita de outra aba', () => {
             payload: {
                 operation: 'transaction',
                 reason: LOGOUT_BARRIER_NOTICE,
+                // A frase viaja TAMBÉM em `message`: é esse campo que o ouvinte de erro de store
+                // mostra à pessoa; só com `reason` o toast caía na sentença genérica de papel,
+                // falsa para um bloqueio que é ESTADO (medido em 2026-09-19).
+                message: LOGOUT_BARRIER_NOTICE,
                 timestamp: expect.any(Number)
             }
         }]);
@@ -228,6 +241,18 @@ describe('o que a barreira NÃO alcança, por desenho', () => {
         await barreira.release();
     });
 
+    it('a barreira de UM atlas não recusa a escrita de OUTRO (a regra continua sendo o endereço)', async () => {
+        // O ENDEREÇAMENTO NÃO MUDOU EM 2026-09-19, e é fácil ler a cobertura nova como se tivesse
+        // mudado: o que passou a ser plural é a LISTA que o diálogo cobre, não a regra de quem cada
+        // nome recusa. Um atlas fora daquela lista segue escrevendo.
+        const barreira = await holdLogoutBarriers([remoteScope(ATLAS), remoteScope(ATLAS_B)]);
+        const escrita = await enterCoordinatedWrite(remoteScope(ATLAS_FORA));
+        expect(escrita.blocked).toBe(false);
+        expect(await logoutBarrierBlocks(remoteScope(ATLAS_FORA))).toBe(false);
+        escrita.release();
+        await barreira.release();
+    });
+
     it('duas escritas simultâneas nunca esperam uma pela outra', async () => {
         // `shared` é compatível com `shared`: a barreira só existe para o logout, e uma fila de
         // escritores seria uma interface congelada em toda edição concorrente.
@@ -236,5 +261,112 @@ describe('o que a barreira NÃO alcança, por desenho', () => {
         expect([a.blocked, b.blocked]).toEqual([false, false]);
         a.release();
         b.release();
+    });
+});
+
+describe('a cobertura é TODO namespace do censo, e o prazo é UM só (2026-09-19)', () => {
+    /**
+     * O DEFEITO QUE ESTE BLOCO FECHA, medido com duas abas reais em
+     * `tests/e2e-ui/browser-logout-barrier-two-tabs.spec.js` antes de existir conserto: o diálogo
+     * tomava a barreira do escopo ATIVO e só dele, enquanto o censo contava e o descarte marcava
+     * TODO namespace de servidor do navegador. Cruzado com a regra do dono do tab-lock, isso
+     * apontava a guarda para o lado errado: duas abas no MESMO atlas colidem, então a irmã que a
+     * barreira recusava era sempre a BLOQUEADA, atrás de um overlay de tela inteira e sem gesto
+     * possível, e a que ela deixava passar era a que continuava VIVA em outro atlas de servidor,
+     * com barra de ferramentas. Hoje a cobertura é a lista inteira.
+     */
+
+    it('recusa a escrita em TODOS os namespaces cobertos, e solta todos ao cancelar', async () => {
+        const cobertos = [remoteScope(ATLAS), remoteScope(ATLAS_B), remoteScope(ATLAS_C)];
+        const barreira = await holdLogoutBarriers(cobertos);
+        expect(barreira).toMatchObject({ held: true, drained: true, supported: true });
+
+        for (const escopo of cobertos) {
+            const recusada = await enterCoordinatedWrite(escopo);
+            expect(recusada.blocked, `a escrita em ${escopo.dbSuffix} é recusada`).toBe(true);
+            expect(await logoutBarrierBlocks(escopo)).toBe(true);
+        }
+
+        // CANCELAR SOLTA TODOS, e não só o primeiro: uma soltura parcial deixaria um namespace
+        // recusando escrita para sempre, sem diálogo nenhum de pé para explicar por quê.
+        await barreira.release();
+        for (const escopo of cobertos) {
+            expect(await logoutBarrierBlocks(escopo), `${escopo.dbSuffix} foi solto`).toBe(false);
+            const liberada = await enterCoordinatedWrite(escopo);
+            expect(liberada.blocked).toBe(false);
+            liberada.release();
+        }
+    });
+
+    it('um escritor em QUALQUER namespace coberto tira o censo do conjunto, e o ATIVO sozinho não veria', async () => {
+        // O CONTROLE NEGATIVO DA COBERTURA, e é ele que mede a decisão: a irmã está escrevendo no
+        // SEGUNDO namespace, não no ativo. Cobrindo a lista, o conjunto não drena e a contagem vira
+        // desconhecida; cobrindo só o ativo (o desenho anterior), a MESMA cena drena e o diálogo
+        // teria impresso um número contado enquanto alguém escrevia.
+        const soltarIrma = await outraAbaEscrevendo(NOME_B);
+
+        const doConjunto = await holdLogoutBarriers(
+            [remoteScope(ATLAS), remoteScope(ATLAS_B)], { timeoutMs: 300 }
+        );
+        expect(doConjunto).toMatchObject({ held: false, drained: false, supported: true });
+
+        const soDoAtivo = await holdLogoutBarrier(remoteScope(ATLAS), { timeoutMs: 300 });
+        expect(
+            soDoAtivo,
+            'a cobertura antiga (só o escopo ativo) DRENA nesta mesma cena, que é exatamente o '
+            + 'censo otimista que a mudança de 2026-09-19 fecha'
+        ).toMatchObject({ held: true, drained: true });
+        await soDoAtivo.release();
+
+        await soltarIrma();
+    });
+
+    it('o prazo é ÚNICO para o conjunto, e não N prazos em série', async () => {
+        // A PROPRIEDADE É DE TEMPO, então ela se mede com relógio, e o discriminante é largo de
+        // propósito: em paralelo o conjunto estoura UM prazo; em série ele estouraria três, e a
+        // pessoa esperaria o diálogo por tanto tempo quanto atlas de servidor tiver na máquina.
+        const soltar = await Promise.all(
+            [NOME, NOME_B, NOME_C].map(nome => outraAbaEscrevendo(nome))
+        );
+
+        const inicio = Date.now();
+        const barreira = await holdLogoutBarriers(
+            [remoteScope(ATLAS), remoteScope(ATLAS_B), remoteScope(ATLAS_C)], { timeoutMs: 400 }
+        );
+        const gasto = Date.now() - inicio;
+
+        expect(barreira).toMatchObject({ held: false, drained: false, supported: true });
+        expect(gasto, 'o prazo do conjunto foi de fato esperado').toBeGreaterThanOrEqual(400);
+        expect(
+            gasto,
+            `três nomes em série custariam 1200 ms; foram ${gasto} ms, isto é, um prazo só`
+        ).toBeLessThan(800);
+
+        // E O PEDIDO ABANDONADO NÃO PODE SER HERDADO EM NENHUM DOS TRÊS: um exclusivo concedido
+        // depois do prazo e segurado para sempre travaria a escrita daquele namespace em toda aba.
+        for (const solta of soltar) await solta();
+        await new Promise(resolve => setTimeout(resolve, 20));
+        for (const escopo of [remoteScope(ATLAS), remoteScope(ATLAS_B), remoteScope(ATLAS_C)]) {
+            expect(await logoutBarrierBlocks(escopo), `${escopo.dbSuffix} ficou livre`).toBe(false);
+        }
+    });
+
+    it('lista vazia, lista só de locais e nome repetido não produzem barreira nem espera', async () => {
+        // O NOME REPETIDO É O CASO QUE MORDE: o escopo ativo normalmente TAMBÉM está no censo, e um
+        // segundo pedido exclusivo do mesmo nome esperaria pelo primeiro, isto é, a função esperaria
+        // por si mesma até o prazo e devolveria "não drenou" com ninguém escrevendo.
+        expect(await holdLogoutBarriers([])).toMatchObject({ supported: false, drained: true });
+        expect(await holdLogoutBarriers([localScope('slot-1', 'local-1')]))
+            .toMatchObject({ supported: false, drained: true });
+
+        const inicio = Date.now();
+        const repetida = await holdLogoutBarriers(
+            [remoteScope(ATLAS), remoteScope(ATLAS)], { timeoutMs: 400 }
+        );
+        const gasto = Date.now() - inicio;
+        expect(repetida).toMatchObject({ held: true, drained: true, supported: true });
+        expect(gasto, 'o nome repetido não fez a barreira esperar por ela mesma').toBeLessThan(200);
+        await repetida.release();
+        expect(await logoutBarrierBlocks(remoteScope(ATLAS))).toBe(false);
     });
 });

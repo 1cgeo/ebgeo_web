@@ -45,11 +45,13 @@ O import cai no parser JSON global, `express.json({ limit: '10mb' })` (`backend/
 
 ## Feições que somem em silêncio
 
-`buildFeatures` (`frontend/src/js/import_export/local-atlas-to-server.js`) descarta sem erro a feição sem `geometry` ou com tipo fora da allowlist, apenas incrementando `stats.droppedFeatures`. O bucket `coordenadas` (leituras efêmeras de azimute e coordenada) não tem tipo no servidor e some **por design**.
+`buildFeatures` (`frontend/src/js/import_export/local-atlas-to-server.js`) descarta a feição sem `geometry` ou com tipo fora da allowlist, apenas incrementando `stats.droppedFeatures`. O bucket `coordenadas` (leituras efêmeras de azimute e coordenada) não tem tipo no servidor e some **por design**.
+
+**O silêncio do título acabou em 2026-09-19, e só nas três portas.** O descarte continua acontecendo dentro de `buildFeatures`, mas `stats.droppedFeatures` diferente de zero passou a RECUSAR o envio inteiro, antes de qualquer escrita de rede, nas três portas que criam atlas de servidor a partir de um acervo local. O contador deixou de ser um número sem consumidor de interface e virou a condição de uma frase que diz que nenhum atlas foi criado. O que segue abaixo continua valendo inteiro para as outras três cópias da lista de tipos, e a última delas continua sendo a pior.
 
 A lista de 20 tipos existe em **quatro cópias manuais** que precisam mudar juntas. Esta página contou três até 2026-08-16, e a que faltava é justamente a de dano mais silencioso. As quatro, com o que cada omissão custa:
 
-- `frontend/src/js/import_export/local-atlas-to-server.js` (o cliente): a feição é descartada **antes da rede** e só incrementa `droppedFeatures`, que não tem consumidor de interface. O usuário vê um import bem-sucedido.
+- `frontend/src/js/import_export/local-atlas-to-server.js` (o cliente): a feição é descartada **antes da rede** e incrementa `droppedFeatures`. Até 2026-09-19 esse contador não tinha consumidor de interface e o usuário via um import bem-sucedido; hoje ele recusa o envio nas três portas, e a perda silenciosa que sobra é a de quem chama `buildFeatures` por outro caminho.
 - `VALID_FEATURE_TYPES` no Joi (`backend/src/modules/atlas/atlas.schemas.js`): o import inteiro toma 400 e o atlas não nasce ([[erros-api]]). É a falha barulhenta, e por isso a benigna.
 - o CHECK `features.valid_feature_type` (`backend/src/database/migrations/003_atlas.sql`): a escrita é recusada pelo próprio banco.
 - `typeToCollection` e o esqueleto de `transformFeaturesToFrontend` (`backend/src/modules/sync/sync.service.js`): **a pior das quatro**. A linha é gravada, o servidor confirma, e ela **nunca aparece em snapshot nenhum**. Invisível para todo cliente, para sempre, sem erro em lugar algum. Um atlas importado com um tipo fora deste mapa sobe inteiro e volta sem aquelas feições.
@@ -69,9 +71,21 @@ O que os dois compartilham (`buildServerImportPayload` + `atlas-image-upload.js`
 
 O nome do atlas vem do **nome do arquivo** (`atlasNameFromFilename`): o formato `.ebgeo` não tem campo de nome de atlas: ele nomeia MAPAS, e é anterior aos atlas de servidor.
 
-## Imagens: importar ANTES de subir os blobs, e por quê
+## A ordem INVERTEU em 2026-09-19: prepara tudo, publica uma vez
 
-O truque está no backend: `bulkUploadImages` usa `INSERT_IMAGE_WITH_ID` na primeira ocorrência de cada `localId` (`backend/src/modules/images/images.service.js`), ou seja, o id que o cliente manda **vira** o id de servidor. Por isso o orquestrador importa **antes** de subir os blobs e não precisa de fase de rewrite: as refs já importadas continuam válidas, e nenhuma operação de UPDATE é emitida para reescrever `properties.imageId`.
+`POST /atlas/import` continua existindo e continua sendo transação única, mas as três portas do produto não o chamam mais quando o acervo cita imagem original: elas registram uma tentativa, mandam os bytes para uma área privada da conta e só então confirmam (`commitImport`, `backend/src/modules/atlas/import-attempt.service.js`). O atlas aparece na listagem depois de atlas, entidades, descritores, recibo e trilha terem commitado juntos.
+
+O que isso aposenta, e é a parte que engana quem ler a versão anterior desta página: **não existe mais o desfecho "atlas criado, imagens faltando"**. A etapa `'images'` de `sendFailureNotice` (`frontend/src/js/projects/local-atlas-notices.js`) ficou inalcançável por estas portas e o `imageStats` delas sempre traz `failed` zerado. A rota de LOTE sobrevive para outro assunto: a figura colada, por `frontend/src/js/store/sync/blob-upload-queue.js`.
+
+**A rota antiga recusa payload com imagem, e o discriminante é a função de transação recebida**, não a rota nem uma bandeira: `importAtlas` lança quando `importImageIds` acha referência e a transação é a padrão. A frase manda atualizar a página porque o alvo é a aba aberta antes da implantação.
+
+**Nada parcial sobe.** `stats.droppedFeatures`, original ausente e imagem fora da allowlist recusam o envio inteiro nas três portas, antes de qualquer escrita de rede. É o inverso do regime anterior, em que cada perda virava um número num toast.
+
+**O ícone personalizado em SVG foi a exceção que essa regra criou, e ele é CONVERTIDO em vez de recusado.** Ele caía em `skipped` por `buildImageUploads` (`frontend/src/js/import_export/atlas-image-upload.js`), de modo que um atlas com um deles não tinha caminho nenhum para o servidor enquanto o ícone estivesse lá. Desde 2026-09-19 a preparação rasteriza o SVG para PNG no navegador (`rasterizeSvgToPng`, `frontend/src/js/import_export/svg-to-png.js`) e o envia como PNG sob o MESMO id, que é o que mantém válida a referência `markerSymbol` já gravada na feição. A allowlist do servidor NÃO mudou, e não vai mudar: ela é png/jpeg/webp por causa do XSS armazenado. O registro local também não muda, então o disco de quem enviou continua com o vetor. O que continua recusando o envio inteiro é o SVG que não decodifica, agora com motivo em `skippedReasons`. Guardas: `frontend/tests/unit/icone-svg-rasteriza-no-envio.test.js` e o caso "ícone personalizado em SVG" de `frontend/tests/e2e-ui/browser-save-local-to-server.spec.js`.
+
+## A identidade da imagem ainda é escolhida pelo cliente
+
+O truque está no backend: `bulkUploadImages` usa `INSERT_IMAGE_WITH_ID` na primeira ocorrência de cada `localId` (`backend/src/modules/images/images.service.js`), ou seja, o id que o cliente manda **vira** o id de servidor. É isso que dispensa uma fase de rewrite: as refs já montadas continuam válidas, e nenhuma operação de UPDATE é emitida para reescrever `properties.imageId`.
 
 O id que o cliente manda, porém, **não é mais o id local**. Desde 2026-08-25 `frontend/src/js/import_export/save-local-atlas.service.js` roda `buildServerImportPayload` **duas vezes**: a primeira só descobre quais blobs o atlas cita, e a segunda recebe um `meta.imageIdMap` com um UUID novo por blob, que reescreve de uma vez as quatro superfícies de referência (id de feição de imagem, `markerSymbol` de ícone próprio, `images[]` de 3D/360 e `settings.customIcons`). A leitura cara do IndexedDB continua sendo uma só.
 
@@ -82,7 +96,7 @@ A razão da assimetria com o resto do atlas: `images.id` é global igual, mas o 
 Onde isso morde:
 
 - **`localId` duplicado no mesmo lote**: a segunda ocorrência não pode reusar a PK, recebe id novo e o `mapping` colapsa em last-wins (`backend/src/modules/images/images.service.js`). A ref da feição correspondente fica pendurada.
-- **SVG é perdido sem erro**: `ALLOWED_IMAGE_MIME` é png/jpeg/webp (`frontend/src/js/import_export/atlas-image-upload.js`), porque SVG é vetor de XSS armazenado (o CHECK do banco também o recusa). Ícone customizado em SVG entra como `skipped`.
+- **SVG não sobe como SVG, e desde 2026-09-19 sobe como PNG**: `ALLOWED_IMAGE_MIME` é png/jpeg/webp (`frontend/src/js/import_export/atlas-image-upload.js`), porque SVG é vetor de XSS armazenado (o CHECK do banco também o recusa). O ícone customizado em SVG já foi perdido em silêncio (o atlas subia sem ele) e já bloqueou o atlas inteiro (quando `skipped` virou recusa); hoje `buildImageUploads` o rasteriza para PNG sob o mesmo id e ele atravessa. Só o SVG que não decodifica continua em `skipped`, e aí a recusa do envio inteiro continua valendo.
 - **Magic bytes têm que bater com o mime declarado** (`backend/src/modules/images/images.service.js`). Confiar cegamente em `blob.type` reprova a imagem.
 - O blob só vai para disco **depois** do INSERT (`backend/src/modules/images/images.service.js`), deliberadamente, para que a colisão de PK global acima não deixe arquivo órfão.
 
@@ -92,7 +106,7 @@ O import não conecta nada. A troca do store acontece em `frontend/src/js/accoun
 
 Entre o upload e o wipe entram duas linhas que não são cerimônia: a reivindicação do tab lock sob o id do atlas NOVO e `activateRemoteAtlas`. Sem a segunda, tudo abaixo rodava contra o slot LOCAL: o wipe esvaziava o atlas do próprio usuário (não o novo) e o pull do `connect` escrevia o snapshot do SERVIDOR nos bancos locais, fora do registro remoto, onde nenhum expurgo de logout o encontra. A ordem também compra uma segunda coisa: o upload de imagens é best-effort, e a versão que apagava o original local descartava a fonte das imagens que acabaram de falhar. **A adoção do namespace no sentido local→remoto foi rejeitada**, por isso o caminho é COPIAR: ver [[namespace-por-atlas]].
 
-O toast final soma `imageStats.skipped + failed`. É a **única** sinalização de perda parcial que o usuário recebe, e ela não cobre `droppedFeatures` nem os vínculos de grupo.
+**O toast de perda parcial deixou de ter o que somar.** Ele somava `imageStats.skipped + failed` e era a única sinalização de perda que o usuário recebia; desde 2026-09-19 `skipped` e `droppedFeatures` recusam o envio ANTES da rede e `failed` sempre chega zerado por estas portas, então o que sobra ali é um contador que não conta nada. O que continua sem sinalização própria são os vínculos de grupo.
 
 ## Contrato congelado
 

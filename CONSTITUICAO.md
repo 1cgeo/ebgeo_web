@@ -307,16 +307,19 @@ causou bug real duas vezes, nos dois pacotes. **[vigente]** Preso por
 `backend/tests/integration/permission-hierarchy-matrix.test.js`, que percorre os 25 pares de (nível resolvido,
 nível exigido) em vez de amostrar.
 
-A edição do texto de um comentário ou resposta é exclusiva do seu autor, inclusive diante de um
-administrador ou dono do atlas. A hierarquia continua regendo a moderação (resolver, reabrir e excluir).
-**[vigente]** Preso por `backend/tests/integration/comments-manage-tier.test.js` e
-`frontend/tests/unit/collaboration-fp.test.js`.
+**O TEXTO de um comentário é do autor, e a hierarquia não o alcança.** A edição do texto de um comentário
+ou resposta é exclusiva do seu autor, inclusive diante de um administrador ou dono do atlas. A hierarquia
+continua regendo a MODERAÇÃO (resolver, reabrir e excluir), que é outra capacidade: moderar é decidir o que
+fica visível; reescrever é falar pela boca de outra pessoa. **[vigente]** Preso por
+`backend/tests/integration/comments-manage-tier.test.js` e `frontend/tests/unit/collaboration-fp.test.js`.
 
-Bloquear ou desbloquear mapas remotos exige gestão ou nível superior (gestor e dono). O cadeado fica
-oculto para níveis inferiores, inclusive após mudança de permissão com o atlas aberto. O servidor
-também rejeita a criação de mapas já bloqueados por editores. Mapas locais permanecem sob controle
-integral do usuário. **[vigente]** Preso por `backend/tests/integration/sync-authz-lock.test.js`,
-`backend/tests/integration/sync-manage-tier.test.js` e `frontend/tests/e2e-ui/browser-collab-lock.spec.js`.
+**Travar um mapa remoto é ato de GESTÃO.** Bloquear ou desbloquear exige gestão ou acima (gestor e dono),
+e não mais a exceção anterior de dono estrito, que era a lista fechada proibida pela 5.2 na forma mais
+cara. O cadeado fica OCULTO para níveis inferiores, inclusive depois de uma mudança de permissão com o
+atlas já aberto, e o servidor recusa também a CRIAÇÃO de mapa já bloqueado por editor, que é a segunda
+porta. Mapas locais permanecem sob controle integral do usuário. **[vigente]** Preso por
+`backend/tests/integration/sync-authz-lock.test.js`, `backend/tests/integration/sync-manage-tier.test.js` e
+`frontend/tests/e2e-ui/browser-collab-lock.spec.js`.
 
 **5.3** O compartilhamento por grupo alcança os **quatro níveis concedíveis**, gestão inclusive. Dono não é
 concedível por caminho nenhum. Duas salvaguardas são parte da regra, não detalhe de implementação: só se
@@ -610,11 +613,13 @@ privada uma linha cujo endereço aponte para servidor de terceiro.
 espera que revogar de um concedente corte todo mundo vai se surpreender: quem tem dois caminhos mantém o
 acesso por um deles.
 
-**10.3** A revogação não recolhe dados já entregues. Mudanças de compartilhamento de atlas e de grupos
-reconciliam os sockets do processo antes da resposta HTTP; outros processos e alterações administrativas
-dependem do heartbeat. Recursos privados continuam sujeitos ao memo de autorização dos assets (até 30 s)
-e ao cache dos bytes no navegador. A tela pode conservar conteúdo já carregado até uma nova leitura.
-Limites e provas: `docs/auditoria-compartilhamento-privacidade-2026-09-19.md`.
+**10.3** **A revogação não recolhe o que já foi entregue**, e isso é limite aceito, não pendência. O que
+mudou em 2026-09-19 foi a LATÊNCIA, não a natureza: mudanças de compartilhamento de atlas e de composição
+de grupo reconciliam os sockets do próprio processo antes da resposta HTTP, e o resto (outro processo,
+alteração administrativa) continua dependendo do heartbeat de ~30 s. Recursos privados seguem sujeitos ao
+memo de autorização dos assets, com teto de 30 s, e ao cache de bytes do navegador. Quem perde acesso pode,
+portanto, continuar vendo na tela conteúdo já carregado até a leitura seguinte. Não é vazamento (o servidor
+recusa os bytes novos na hora), e a tela pode mostrar camada quebrada em vez de camada ausente até lá.
 
 **10.4** **A desativação de uma conta propaga por predicado, não por varredura**, e isso significa que ela
 é imediata na leitura seguinte, mas não deixa rastro de "quando" na trilha. Quem quiser saber a data em que
@@ -667,9 +672,13 @@ aberto não deixa nada reservado.
 o endereço ao qual foi enviado, enquanto a conta estiver ativa. O código de recuperação exige
 o mesmo endereço ainda confirmado e o mesmo corte de sessões da emissão; alteração de senha
 ou revogação geral de sessões o invalida. Emissão e resgate de recuperação são serializados por
-conta, e substituir o código é transacional. As migrações 017/018 preservam contas e credenciais;
-links de confirmação e códigos de recuperação anteriores, sem esses vínculos, exigem novo envio.
-Essas proteções não alteram a reserva indefinida do cadastro pendente.
+conta, e substituir o código é transacional. As duas migrações que trazem esses vínculos
+(`backend/src/database/migrations/017_confirmacao_email_destinatario.sql` e
+`backend/src/database/migrations/018_recuperacao_senha_sessoes.sql`) preservam contas e credenciais;
+links de confirmação e códigos de recuperação anteriores, que nasceram sem esses vínculos, não têm como
+ser reconstruídos e exigem novo envio. Essas proteções não alteram a reserva indefinida do cadastro
+pendente. **[vigente]** Preso por `backend/tests/integration/self-registration-audit.test.js` e
+`backend/tests/integration/password-recovery-audit.test.js`.
 
 **10.7** **A chave de API ganhou as três amarras em 2026-08-24, e o ENDPOINT que o nginx vai consultar; o `location` continua por fazer.**
 Até aquela data ela era o usuário inteiro: resolvia para a linha de `users`, carregava o papel global,

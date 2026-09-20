@@ -173,6 +173,11 @@ describe('F16 — grupo de acesso: CRUD e o eixo de posse', () => {
       await chamar('comum', rota).expect(rota.dono);
     }
 
+    // O CURINGA PERCORRE AS CINCO, e não três. Até 2026-09-19 ele era exercido só em
+    // PATCH, GET members e DELETE do grupo; as DUAS rotas de MEMBRESIA, que são
+    // justamente o "adiciona e remove pessoas" da cláusula 4.2, nunca eram chamadas como
+    // administrador. É a metade da cláusula que fica de fora quando a lista de rotas é
+    // escrita à mão num lugar e exercida à mão noutro: o censo acima já as contava.
     const doComum = (await criar('comum', nomeDeGrupo('curinga')).expect(201)).body.data;
     await supertest(app)
       .patch(`/api/v1/access-groups/${doComum.id}`)
@@ -183,10 +188,61 @@ describe('F16 — grupo de acesso: CRUD e o eixo de posse', () => {
       .get(`/api/v1/access-groups/${doComum.id}/members`)
       .set('Authorization', `Bearer ${tokens.admin}`)
       .expect(200);
+    const posto = await supertest(app)
+      .post(`/api/v1/access-groups/${doComum.id}/members`)
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({ userId: atores.membro.id })
+      .expect(200);
+    assert.equal(
+      posto.body.data.added, true,
+      'o administrador PÕE pessoa no grupo alheio, e o efeito é a linha nova — não só o 200',
+    );
+    const tirado = await supertest(app)
+      .delete(`/api/v1/access-groups/${doComum.id}/members/${atores.membro.id}`)
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .expect(200);
+    assert.equal(tirado.body.data.removed, true, 'e TIRA, que é a outra metade da cláusula');
+    const { rows } = await db.query(
+      'SELECT COUNT(*)::int AS n FROM access_group_members WHERE group_id = $1', [doComum.id],
+    );
+    assert.equal(rows[0].n, 0, 'o roster volta ao que era: o par pôr/tirar fecha em si mesmo');
+
     await supertest(app)
       .delete(`/api/v1/access-groups/${doComum.id}`)
       .set('Authorization', `Bearer ${tokens.admin}`)
       .expect(200);
+  });
+
+  it('4.4 — o administrador VÊ os grupos de todo mundo em `GET /`, e o estranho não', async () => {
+    // "O administrador vê todos" nunca era exercido: nenhum caso chamava a listagem com
+    // token de administrador. É verdade no SQL, pelo segundo ramo de
+    // `fn_can_administer_group`, e verdade-no-SQL sem chamada é exatamente o que a tabela
+    // de provas parciais de `docs/wiki/permissoes-atlas.md` existia para não deixar passar
+    // como coberto.
+    const doComum = (await criar('comum', nomeDeGrupo('visivel-ao-admin')).expect(201)).body.data;
+    const doForasteiro = (await criar('forasteiro', nomeDeGrupo('tambem-do-admin')).expect(201)).body.data;
+
+    const listar = async (quem) => {
+      const res = await supertest(app)
+        .get('/api/v1/access-groups')
+        .set('Authorization', `Bearer ${tokens[quem]}`)
+        .expect(200);
+      return res.body.data.map((g) => g.id);
+    };
+
+    const doAdmin = await listar('admin');
+    assert.ok(doAdmin.includes(doComum.id), 'o administrador enxerga o grupo do usuário comum');
+    assert.ok(doAdmin.includes(doForasteiro.id), 'e o de um terceiro, sem ser dono de nenhum dos dois');
+
+    // A DISCRIMINAÇÃO: o MESMO par de grupos, visto por quem não é dono nem administrador.
+    // Sem ela, "a listagem devolve os dois" seria compatível com uma consulta sem recorte.
+    const doTerceiro = await listar('credenciado');
+    assert.equal(doTerceiro.includes(doComum.id), false, 'o credenciado não administra grupo alheio');
+    assert.equal(doTerceiro.includes(doForasteiro.id), false, 'e o papel global de dado não muda isso');
+    // E o dono de UM deles continua vendo só o dele, que é o recorte por posse de 4.4.
+    const doDono = await listar('comum');
+    assert.ok(doDono.includes(doComum.id));
+    assert.equal(doDono.includes(doForasteiro.id), false, 'ser dono de um não é ver o do vizinho');
   });
 
   it('`GET /` é recortado por posse, e `GET /:id/members` continua fechado', async () => {

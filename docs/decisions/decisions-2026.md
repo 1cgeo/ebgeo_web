@@ -2417,7 +2417,7 @@ A linha de integração deste backend nunca foi implantada, e o dono confirmou i
 
 O congelamento entra em código já, e não na data da implantação: `backend/src/database/migrate.js` grava o sha256 do conteúdo de cada arquivo aplicado em `_migrations` e recusa, nomeando arquivo e os dois hashes, um arquivo já aplicado cujo conteúdo mudou. Em desenvolvimento a recusa se resolve recriando o banco; a partir do SHA implantado ela é o congelamento, e toda mudança de schema passa a entrar por arquivo numerado novo. Linha rastreada antes desta data não tem checksum e adota o do disco na primeira rodada, porque reprová-la criaria trabalho sem proteger banco nenhum.
 
-A alternativa recusada foi escrever agora uma migração numerada de transição que acrescentasse o que `backend/src/database/migrations/004_sync.sql` ganhou depois da consolidação. Ela custaria um degrau permanente no histórico e um caminho de upgrade a manter, para reparar um único banco de desenvolvimento que se recria em minutos. Sem banco a transitar, o degrau seria só dívida. O que a motivou foi real: o rastreio por nome pulava a baseline editada em silêncio, e é essa classe que o checksum fecha. Contexto e achados no commit `841e1539`, que trouxe a auditoria de 2026-09-13 com os vinte e seis achados; o que dela continua aberto está em [pendências abertas](../reviews/pendencias-abertas.md).
+A alternativa recusada foi escrever agora uma migração numerada de transição que acrescentasse o que `backend/src/database/migrations/004_sync.sql` ganhou depois da consolidação. Ela custaria um degrau permanente no histórico e um caminho de upgrade a manter, para reparar um único banco de desenvolvimento que se recria em minutos. Sem banco a transitar, o degrau seria só dívida. O que a motivou foi real: o rastreio por nome pulava a baseline editada em silêncio, e é essa classe que o checksum fecha. Contexto e achados no commit `841e1539`, que trouxe a auditoria de 2026-09-13 com os vinte e seis achados; o que dela continuava aberto foi resolvido ou realocado em 2026-09-19, na entrada "as pendências do lançamento saem de docs/reviews", adiante neste arquivo.
 
 ### 2026-09-13: as quatro decisões de condução do lançamento, e a pendente do reuso de imagem por conteúdo
 
@@ -2507,7 +2507,7 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
 - **Por quê:** cada item troca uma auditoria recorrente sobre código sem dono por um custo único, e o que não dá para fechar fica ESCRITO em vez de invisível. O inventário existe para que a conferência seguinte seja um diff.
 - **Alternativa recusada:** declarar `semver` e `fflate` no lockfile para que o audit os veja (V5, opção 4): verde que não verifica, porque a cópia que roda é a vendorizada dentro do viewer, não a do lockfile.
 - **Status:** aceita; V1, V2, V6 e V7 em execução; V3, V4 e V5 são declarações no inventário; V8 espera o SHA candidato.
-- **V5 SUPERADO em 2026-09-15, por decisão do dono:** não existe pedido de manifesto ao fornecedor, e o texto que estava pronto foi apagado; os dois pontos cegos ou se resolviam pela internet ou ficavam declarados como aceitos. Os dois FECHARAM, por hash contra os artefatos publicados, que é o mesmo método que já havia fechado o Turf e os 392 arquivos do Cesium. **Draco é a 1.5.7** (285.948 bytes, sha256 `2516a4e43526d71787bf2f678f951329f7f858f8f15f42d4bc9e370b31a0da3a`, idêntico ao decodificador da release 1.5.7 de google/draco e ao do pacote npm `draco3d@1.5.7`, por quatro caminhos, um deles o blob SHA-1 que o próprio GitHub calcula; a 1.5.6 tem outro hash, então o hash discrimina). **O Basis é um intervalo de commits, não um número:** os 613.861 bytes são idênticos ao transcodificador de BinomialLLC/basis_universal nas tags v1_60_snapshot e v1_60_snapshot_final, nascidos no commit 5179a06343 e substituídos no a6bf1c00f2, e não são nem a release 1.60 nem a v2.0. Nenhum dos dois carrega remendo local no WebAssembly, e os dois módulos de cola JavaScript divergem do upstream por exatamente duas edições de empacotamento cada. **O que fica ACEITO sem fechar é a ausência de automação**: isto é a medição de UMA versão, a 1.8.1, feita à mão, e um 1.8.2 do fornecedor não deixaria teste nenhum vermelho. O que fechou os dois não foi o hash, foi o sourcemap que o pacote publica, e a leitura de 2026-09-14 tinha caminhado o binário certo sem abrir o mapa ao lado dele. Detalhe em [inventário de vendors](../wiki/inventario-de-vendors.md), item 4, e no bloco `aholoViewerDeclarado` do manifesto.
+- **V5 SUPERADO em 2026-09-15, por decisão do dono:** não existe pedido de manifesto ao fornecedor, e o texto que estava pronto foi apagado; os dois pontos cegos ou se resolviam pela internet ou ficavam declarados como aceitos. Os dois FECHARAM, por hash contra os artefatos publicados, que é o mesmo método que já havia fechado o Turf e os 392 arquivos do Cesium. **Draco é a 1.5.7** (285.948 bytes, sha256 `2516a4e43526d71787bf2f678f951329f7f858f8f15f42d4bc9e370b31a0da3a`, idêntico ao decodificador da release 1.5.7 de google/draco e ao do pacote npm `draco3d@1.5.7`, por quatro caminhos, um deles o blob SHA-1 que o próprio GitHub calcula; a 1.5.6 tem outro hash, então o hash discrimina). **O Basis é um intervalo de commits, não um número:** os 613.861 bytes são idênticos ao transcodificador de BinomialLLC/basis_universal nas tags v1_60_snapshot e v1_60_snapshot_final, nascidos no commit 5179a06343 e substituídos no a6bf1c00f2, e não são nem a release 1.60 nem a v2.0. Nenhum dos dois carrega remendo local no WebAssembly, e os dois módulos de cola JavaScript divergem do upstream por exatamente duas edições de empacotamento cada. **O que fica ACEITO sem fechar é a ausência de automação**: isto é a medição de UMA versão, a 1.8.1, feita à mão, e um 1.8.2 do fornecedor não deixaria teste nenhum vermelho. O que fechou os dois não foi o hash, foi o sourcemap que o pacote publica, e a leitura de 2026-09-14 tinha caminhado o binário certo sem abrir o mapa ao lado dele. Detalhe em [inventário de vendors](../wiki/inventario-de-vendors.md), item 4, que desde 2026-09-19 é o único lugar onde os dois veredictos moram: o bloco do manifesto que os declarava saiu com ele naquela data.
 
 ### 2026-09-14: recibos de sync são retidos pela versão mínima do atlas, e a expiração do JWT não derruba socket
 
@@ -2636,55 +2636,337 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
   "Botão do meio+Arrastar", com a descrição "Inclinar e rotacionar, sem tecla".
 - **Status:** aceita.
 
+---
 
-### 2026-09-19: first-person collaboration and one sidebar entry point
+### 2026-09-19: o comentário da cena caminhável reusa a entidade do mapa, e a barra lateral vira a porta única
 
-At the user's request, comments in the first-person museum use the existing map comment entity and shared card. The new `fp` surface carries local x/y/z metres and the existing tilesetId resource reference, preserving resource pruning and sync permissions. Presence is ephemeral and carries the walker camera position, never the mouse hit. Peers are filtered by atlas socket, map and scene. Close or context changes dispose the overlay and clear the advertised pose.
+- **Contexto (do dono):** presença e comentário dentro da cena de primeira pessoa, como já existiam no mapa,
+  no 3D e no 360.
+- **Decisão 1, a entidade:** o comentário da cena caminhável é o MESMO comentário espacial do mapa, com o
+  mesmo cartão compartilhado. A superfície nova de primeira pessoa (`SUPERFICIE`,
+  `frontend/src/js/comment_tool/comment-card.js`) carrega `x`, `y`, `z` em METROS no referencial da cena, e
+  a referência de recurso continua sendo o `tilesetId` do catálogo.
+- **Por quê, e é o ponto que decide tudo:** a cena É uma linha do catálogo de modelos, então apontar para
+  ela pelo `tilesetId` faz o comentário entrar de graça na poda de recurso privado da exportação e do
+  compartilhamento, e nas permissões de sync. Metro no referencial da cena não é coordenada geográfica
+  disfarçada: reprocessar o museu mudando o referencial exige outro recurso ou transformação explícita das
+  âncoras, e trocar os bytes não transforma âncora nenhuma.
+- **Alternativa recusada (1):** uma chave de cena própria, fora do catálogo. Ela escaparia da poda de
+  recursos privados nas duas saídas (o `.ebgeo` e o clone), que é exatamente o que o registro de referências
+  existe para impedir.
+- **Decisão 2, a porta única:** o botão de novo comentário da barra lateral passa a atender a superfície
+  ABERTA (2D, Cesium, 360 ou primeira pessoa), e os botões separados de comentário do 360 e do Cesium
+  saíram. A primeira pessoa não ganhou botão próprio nem atalho de teclado.
+- **Alternativa recusada (2):** um botão por visualizador, que era o desenho anterior. Com quatro
+  superfícies ele vira quatro cópias do mesmo gesto, cada uma com o próprio caminho de recusa; a barra
+  lateral já sabe qual superfície está aberta.
+- **Decisão 3, a presença:** o quadro de presença da cena carrega a câmera da CAMINHADA, inclusive com o
+  usuário parado, e nunca o ponto que o mouse acerta. Os pares são filtrados por socket de atlas, mapa e
+  cena; fechar a cena ou trocar de contexto descarta a sobreposição e limpa a pose anunciada.
+- **Por quê:** é a mesma razão da decisão de 2026-09-16 sobre o cursor por superfície: cada par olha a cena
+  de uma câmera própria, então o que só faz sentido compartilhar é a posição do observador. O comentário, ao
+  contrário, usa o raio contra a colisão, porque ali o alvo é um ponto do mundo e não um ponto de vista.
+- **Guardas:** `frontend/tests/unit/collaboration-fp.test.js`.
+- **Status:** aceita; detalhe em [primeira pessoa 3D](../wiki/primeira-pessoa-3d.md).
 
-The existing sidebar new-comment button now routes to the open surface (2D, Cesium, 360 or first person). The separate 360/Cesium comment buttons were removed; first person adds no button or keyboard shortcut. Failed persistence keeps the composer text and rejects concurrent submissions. The local museum registration was already present; its installed 82-file manifest was verified against its registered SHA-256 signature, without overwriting catalog data.
+### 2026-09-19: a etiqueta de presença passa a dizer posto e nome de guerra
 
-Position labels on all four surfaces use abbreviated rank and war name (for example, Maj Diniz). The optional `users.nome_guerra` field preserves the full name separately; older accounts fall back to the existing name until edited. Authentication and both live and initial presence rosters carry this field. Clicking the scene closes the comment card; switching to another drawing tool cancels comment placement before the next click.
+- **Decisão:** as etiquetas de posição das QUATRO superfícies passam a mostrar posto abreviado mais nome de
+  guerra (por exemplo, "Maj Diniz"), com o nome de guerra numa coluna opcional própria
+  (`backend/src/database/migrations/016_nome_de_guerra.sql`), separada do nome completo. A autenticação e as
+  duas listas de presença (a viva e a inicial) passam a carregar o campo.
+- **Por quê separar a coluna, em vez de derivar do nome completo:** não existe regra que extraia nome de
+  guerra de nome completo, e toda heurística erraria de forma constrangedora numa etiqueta que o colega lê.
+- **Degradação declarada:** conta antiga cai no nome que já existia até alguém editar o cadastro. Não há
+  backfill, e ele seria adivinhação.
+- **Status:** aceita.
 
-### 2026-09-19: comment text belongs exclusively to its author
+### 2026-09-19: o TEXTO de um comentário é do autor, e a hierarquia não o alcança
 
-At the user's request, atlas editors, managers, owners and global administrators cannot edit another author's comment or reply. The shared card and local store enforce authorship; sync refuses foreign edits before operation logging and broadcast, using the server author column, after revision patches are prepared. Existing moderation rights remain separate. Status moderation preserves the stored body, including for older clients sending a full comment object.
+- **Contexto (do dono):** pedido explícito de que editar o texto alheio não fosse capacidade de ninguém.
+- **Decisão:** editor, gestor, dono do atlas e administrador global NÃO editam o texto de um comentário ou
+  de uma resposta de outra pessoa. A hierarquia continua regendo a MODERAÇÃO (resolver, reabrir, excluir),
+  que é outra capacidade.
+- **Por quê a separação, e não um nível a mais na escada:** moderar é decidir o que fica visível, e isso é
+  gestão do atlas; reescrever o texto é falar pela boca de outra pessoa, e nenhum nível de atlas compra
+  isso. Juntar as duas numa capacidade só daria ao gestor uma autoridade que o produto nunca quis conceder.
+- **Alternativa recusada:** deixar a escada reger também o texto, como regia antes. Ela é uma linha mais
+  curta de código e transforma todo co-Gestor num revisor invisível do que os outros escreveram.
+- **Onde o gate mora:** o cartão compartilhado e a store local impõem a autoria no cliente; o servidor
+  recusa a edição alheia em `commentEditDenialReason` (`backend/src/modules/sync/sync.service.js`), ANTES
+  do log da operação e do broadcast, comparando com a coluna de autor guardada, depois de os patches de
+  revisão estarem preparados. A moderação de status preserva o corpo guardado, inclusive para cliente
+  antigo que mande o objeto de comentário inteiro.
+- **Guardas:** `backend/tests/integration/comments-manage-tier.test.js` e
+  `frontend/tests/unit/collaboration-fp.test.js`.
+- **Status:** aceita.
 
-### 2026-09-19: polygon outlines can become lines or boundaries
+### 2026-09-19: o contorno de um polígono vira linha ou limite, e o que se perde é nomeado
 
-The feature gear offers polygon-to-line and polygon-to-boundary conversion through the existing conversion executor, with its permission checks, undo batch and sync gesture. The outline keeps the closing segment, name, description, layer, attributes, segment observations and temporal interval. Attached photos are deep-copied for every conversion instead of being silently dropped. Fill, hatch and area labels are removed with the existing conversion notice; polygon label sources are refreshed. Line conversion retains the dash style. Outline opacity stays at 1, matching polygon rendering, independently of fill opacity. Holes and multipolygons are refused explicitly instead of silently dropping rings or parts.
+- **Decisão:** a engrenagem da feição passa a oferecer conversão de polígono para linha e para limite, pelo
+  executor de conversão que já existia, com as permissões, o lote de desfazer e o gesto de sync dele. O
+  contorno conserva o segmento de fechamento, o nome, a descrição, a camada, os atributos, as observações
+  de segmento e o intervalo temporal; a conversão para linha conserva o estilo tracejado.
+- **Decisão 2, a foto:** as fotos anexadas são copiadas em profundidade a cada conversão, em vez de
+  descartadas em silêncio. Descartar era o comportamento anterior e é a forma de perda que ninguém percebe
+  na hora, porque a feição nova desenha certa.
+- **O que sai, e sai nomeado:** preenchimento, hachura e rótulo de área, pelo aviso de conversão que já
+  existia; as fontes de rótulo de polígono são reconstruídas.
+- **Por quê a opacidade do contorno fica em 1:** é o que o desenho de polígono já fazia, e ela é
+  independente da opacidade de preenchimento. Herdar a do preenchimento produziria uma linha quase
+  invisível a partir de um polígono translúcido, sem nada explicando.
+- **Alternativa recusada:** aceitar buraco e multipolígono, descartando anéis ou partes. Eles são recusados
+  EXPLICITAMENTE, porque a conversão silenciosa de uma geometria composta numa simples perde dado sem
+  nenhum ponto da tela onde a pessoa pudesse notar.
+- **Guardas e controle negativo:** regressão com Turf real, que confere o perímetro menos a folga do símbolo
+  e a cobertura da aresta de fechamento, e reprova na implementação anterior; verificação em navegador da
+  conversão pela engrenagem, da chegada num segundo cliente e do desfazer.
+- **Status:** aceita.
 
-Visual verification exposed a boundary renderer defect: point-based Turf slicing confused a closed ring's final vertex with its start, duplicating earlier edges and omitting the closing edge. Distance-based slicing preserves traversal order. A real-Turf regression checks perimeter minus the symbol gap and coverage of the closing edge; it fails on the previous implementation. Browser checks cover conversion through the gear, arrival at a second client and undo.
+### 2026-09-19: a tecla à esquerda do 1 cicla os mapas base
 
-The physical Backquote key (left of 1, apostrophe on ABNT2) cycles the current enabled basemaps through the selector's existing change handler, wrapping at the end. Text focus, modifiers, composition, key repeat, changes in progress and the existing map-edit gate suppress the shortcut.
+- **Decisão:** a tecla FÍSICA Backquote (à esquerda do 1, apóstrofo no ABNT2) cicla os mapas base
+  habilitados pelo manipulador de troca que o seletor já tinha, voltando ao primeiro no fim da lista.
+- **Por quê a tecla física e não o caractere:** o caractere que ela produz muda com o layout, e o gesto é
+  posicional ("a tecla à esquerda do 1"), não alfabético.
+- **O que suprime o atalho:** foco em campo de texto, modificador, composição, repetição de tecla, troca já
+  em andamento, e o mesmo gate de edição do mapa que os outros atalhos consultam.
+- **Status:** aceita.
 
-### 2026-09-19: map locks require atlas management
+### 2026-09-19: travar um mapa remoto é ato de GESTÃO, e não mais exceção do dono
 
-At the user's request, managers and owners can lock and unlock remote maps. This replaces the previous owner-only exception with the existing management hierarchy, in the controller, store capability and server sync authorization. Lower roles never see the padlock button; session changes refresh its visibility. Local maps remain fully controlled by their user. Editor map creation cannot smuggle a locked state. If the store refuses a toggle after an asynchronous permission change, the controller keeps the previous state instead of reporting a fabricated success.
+- **Contexto (do dono):** pedido de que gestor e dono pudessem travar e destravar mapas remotos.
+- **Decisão:** bloquear e desbloquear mapa remoto passa a exigir gestão ou acima, pela hierarquia que já
+  existe, nos TRÊS pontos: o controlador, a capacidade da store e a autorização de sync do servidor
+  (`operationDenialReason`, `backend/src/modules/sync/sync.service.js`, que compara por posto e nunca por
+  igualdade). O cadeado NÃO é desenhado para quem está abaixo, e a visibilidade dele é refeita a cada
+  mudança de sessão. Mapa local continua inteiramente sob controle de quem o tem.
+- **Alternativa recusada:** a exceção anterior, `owner` estrito. Ela é a lista fechada que a constituição
+  proíbe, na forma mais cara: excluía o co-Gestor em silêncio de um ato que é a definição de gestão.
+- **A ponta que o gate de update sozinho não fecha:** a CRIAÇÃO de mapa por editor não pode contrabandear
+  um estado já travado, e por isso o gate olha o campo nas duas portas (create com `locked === true` e
+  update com `locked` presente).
+- **Por que o controlador conserva o estado anterior na recusa:** a permissão pode mudar entre o desenho do
+  botão e o clique, e a op de store devolve o mesmo valor no sucesso e na recusa; sem conservar, a tela
+  anunciaria um sucesso fabricado sobre uma trava que não foi gravada.
+- **Guardas:** `backend/tests/integration/sync-authz-lock.test.js`,
+  `backend/tests/integration/sync-manage-tier.test.js` e
+  `frontend/tests/e2e-ui/browser-collab-lock.spec.js`.
+- **Status:** aceita.
 
-### 2026-09-19: choose the new map base before journaling
+### 2026-09-19: referência de mapa base vazia continua vazia
 
-A fresh map resolves its base against the current accessible catalog before its create operation is journaled. Falling back only while rendering was too late: the queued create still named the inaccessible historical default. Imported documents keep their explicit data. The sync insert now honors both base-layer spellings used by its authorization gate, and an empty or absent reference stays empty instead of acquiring an unchecked private default. An empty catalog therefore does not invent access to any resource. The browser regression makes the historical default private, creates through the editor's Maps tab, and checks database, peer and reload.
+- **Decisão:** ao gravar a criação de um mapa, uma referência de base ausente ou vazia permanece vazia, em
+  vez de receber o padrão histórico. Catálogo vazio, portanto, não inventa acesso a recurso nenhum.
+- **Por quê:** o padrão histórico pode ser um recurso PRIVADO, e escrevê-lo por omissão concede, por
+  default, um acesso que ninguém conferiu. A falha correta aqui é FECHADA: mapa sem base desenha vazio e a
+  pessoa escolhe; mapa com base que ela não enxerga desenha quebrado e não diz por quê.
+- **Status:** aceita.
 
-### 2026-09-19: remote selections resolve lazy tools
+### 2026-09-19: a seleção remota CARREGA a ferramenta, e não a ativa
 
-Receiving the presence frame did not guarantee a visible selection: the remote overlay searched instantiated controls only, so an arrow selected by a colleague disappeared on a client that had never loaded that tool. Resolution now includes the registered source descriptors, reads the feature first, and loads only the matching tool to build its outline. It does not activate the tool or select anything for the receiving user. Legacy frames without a recognized type follow the same source-first lookup. The render generation guard still discards a late load after deselection or teardown; a later source refresh retries a selection received before its feature.
+- **Decisão:** ao receber a seleção de um colega sobre uma feição cuja ferramenta ainda não foi carregada,
+  o cliente resolve o tipo pelos descritores de fonte registrados, lê a FEIÇÃO primeiro e carrega apenas a
+  ferramenta correspondente, só para construir o contorno. Ele NÃO ativa a ferramenta e NÃO seleciona nada
+  para o usuário que recebe.
+- **Por quê:** presença é informação sobre o outro, nunca comando sobre mim. Ativar a ferramenta do colega
+  trocaria o gesto em andamento de quem só estava olhando, que é a regressão que a decisão de 2026-09-16 já
+  recusou no 3D pelo mesmo argumento.
+- **Quadro legado:** quadro sem tipo reconhecido segue a MESMA busca pela fonte primeiro, em vez de ganhar
+  um caminho próprio que envelheceria sozinho.
+- **O que a guarda de geração preserva:** carga que chegue TARDE, depois de a seleção ser desfeita ou a
+  cena desmontada, é descartada; e uma seleção que chegue ANTES da feição dela é retentada na próxima
+  atualização de fonte.
+- **Guardas:** `frontend/tests/e2e-ui/browser-collab-selection-tools.spec.js` (varredura derivada dos tipos
+  selecionáveis, conferindo a CAMADA desenhada do MapLibre e não a entrada no store de presença),
+  `frontend/tests/unit/remote-selections-passe-de-zoom.test.js` e
+  `frontend/tests/unit/selection-box-legacy-lines.test.js`.
+- **Status:** aceita.
 
-The browser regression derives its sweep from all 19 selectable feature types and checks the rendered MapLibre layer after selection through the layers tree, instead of accepting a presence-store entry as proof. The audit also found the fallback of coordination-line and LOS selection boxes returning bbox numbers instead of a GeoJSON polygon; both now return the padded polygon expected by local and remote highlights.
+### 2026-09-19: quem desativa um controle solta o cursor DELE, nunca o da tela
 
-### 2026-09-19: 360 tool cancellation belongs to the viewer
+- **Decisão:** a limpeza de um controle de mapa libera apenas as interações que ele mesmo tomou e preserva
+  o cursor da ferramenta que já está ativa; o arrasto só devolve a panorâmica quando cancela um arrasto
+  PRÓPRIO. Sobreposição de catálogo (modelo 3D, rota 360, pino de panorama, pino de foto salva) cede a
+  posse do cursor à ferramenta de mapa ativa.
+- **Por quê:** `toolActivated` chega DEPOIS de a ferramenta nova já ter posto o cursor dela, então um
+  controle inativo que "limpe o cursor" nesse evento apaga o da ferramenta que acabou de assumir. A regra
+  que resolve não é de ordem de evento, é de posse: cada um solta o que tomou.
+- **Consequência para escrita assíncrona:** ouvintes e cursor se liberam de forma SÍNCRONA. Um salvamento
+  que espere por um nome antes de soltá-los apaga o cursor de uma ferramenta escolhida durante a espera.
+- **Guardas:** `frontend/tests/e2e-ui/toolbar-cursors.spec.js` e
+  `frontend/tests/unit/trajectory-cursor-ownership.test.js`.
+- **Status:** aceita.
 
-Escape and the active-tool chip's close button were wired to a sidebar variable that was never set, followed by a DOM event with no receiver. Both now call the viewer's existing cancellation command. The keyboard checks actual marker/comment modes instead of chip visibility, and cancellation stops navigator placement before awaiting the lazy marker module. Help and point-selection priorities remain unchanged. Hiding the chip is immediate so an old delayed hide cannot conceal a tool reactivated after cancellation. Browser coverage checks that cancellation keeps the panorama open and that the next canvas click creates nothing, with successful placement after reactivation as its positive control.
+### 2026-09-19: o token de confirmação prova a CAIXA POSTAL, não a conta
 
-### 2026-09-19: MapLibre cursor ownership survives activation, hover and pending brush saves
+- **Contexto:** o token de confirmação referenciava apenas a conta, enquanto o fluxo dizia provar posse de
+  um endereço. Corrigir o endereço depois da emissão fazia uma prova antiga aprovar OUTRO destinatário.
+- **Decisão 1, confirmação:** o link de confirmação só confirma o endereço para o qual foi enviado, e só
+  enquanto a conta estiver ativa.
+- **Decisão 2, recuperação:** o código de recuperação exige o mesmo endereço ainda confirmado E o mesmo
+  corte de sessões da emissão, de modo que trocar a senha ou revogar todas as sessões o invalida. Emissão e
+  resgate são serializados por conta antes de travar o código, e substituir um código é TRANSACIONAL.
+- **Por quê a atomicidade, e não só uso único no resgate:** uso único no resgate protege contra reuso e não
+  contra duas emissões concorrentes, que é o caso em que a segunda sobrescreve a primeira no meio e as duas
+  se anunciam válidas. Falha de emissão preserva uma resposta externa uniforme, para não transformar o
+  endpoint num oráculo de existência de conta.
+- **Custo declarado da migração:** `backend/src/database/migrations/017_confirmacao_email_destinatario.sql`
+  e `backend/src/database/migrations/018_recuperacao_senha_sessoes.sql` preservam contas e credenciais, mas
+  links de confirmação e códigos de recuperação ANTERIORES não têm como ter o vínculo original
+  estabelecido, e exigem novo envio.
+- **O que NÃO muda:** a reserva indefinida do cadastro pendente e a política de organização auto-declarada
+  continuam como estavam.
+- **Decisão 3, produção:** habilitar o autocadastro em tempo de execução, pelo painel, passa a exigir a
+  MESMA configuração de SMTP e URL base que a inicialização já exigia. Um override antigo não contorna.
+- **Guardas:** `backend/tests/integration/self-registration-audit.test.js` e
+  `backend/tests/integration/password-recovery-audit.test.js`.
+- **Status:** aceita.
 
-An inactive trajectory editor reset the canvas cursor on every `toolActivated` event, after the new tool had already set its crosshair. Its cleanup now releases only its own interactions and preserves the next active tool. It only restores drag-pan when cancelling its own drag. Magnetic declination explicitly sets and releases its placement crosshair, which its base class never supplied. Catalog overlays for 3D models, 360 routes, panorama pins and saved-photo pins defer cursor ownership to active map tools.
+### 2026-09-19: a importação de atlas com imagem prepara antes de publicar, e a rota antiga recusa quem trouxer imagem
 
-Screenshot inspection also exposed missing active-tool chips for sector and magnetic declination. Both now appear in the existing chip's type/name table; the toolbar sweep verifies its label and waits for the popup animation to finish before capturing each tool.
+- **Decisão:** as três portas que criam atlas de servidor a partir de um acervo local (o `.ebgeo` na lista
+  de atlas, o envio de um cartão local e "Salvar atlas local no servidor") deixaram de subir o atlas e só
+  depois os blobs. Elas registram uma tentativa, mandam os bytes para uma área privada por conta e
+  confirmam num commit só, que publica atlas, entidades, descritores de imagem, recibo e trilha juntos
+  (`backend/src/database/migrations/015_importacoes_atomicas.sql`, `commitImport` em
+  `backend/src/modules/atlas/import-attempt.service.js`). A identidade da tentativa é do cliente e o que
+  ele persiste é só a chave de recuperação (`atomicServerImport`,
+  `frontend/src/js/import_export/atomic-server-import.js`), de modo que resposta perdida se resolve LENDO o
+  recibo em vez de criar um segundo atlas. A importação LOCAL de `.ebgeo`, substitutiva e aditiva, ganhou a
+  mesma forma no navegador: prepara num namespace que nenhum registro nomeia e publica por UMA escrita
+  (`importLocalAtlasAtomically`, `frontend/src/js/store/local-atlas.api.js`).
+- **Por quê:** medido em 2026-09-07 cortando a rede na subida, o import respondia 201 com o atlas inteiro e
+  ZERO imagens, e o usuário ficava com um acervo mudo na lista do servidor e a frase "Failed to fetch" na
+  tela. Quem separa criação de conteúdo compra, por construção, um desfecho que nenhuma mensagem conserta,
+  porque reenviar cria um SEGUNDO atlas.
+- **Isto SUPERA metade da decisão D4 de 2026-09-13**, que recusou a preparação durável no servidor para o
+  lote de sync e a deixou escrita como "fica para importação grande, fora do lançamento". Ela é exatamente
+  esta e foi feita. O lote lógico do sync continua resolvido por savepoint, sem preparação: a troca vale
+  onde o gesto é um acervo inteiro, não onde é um punhado de ops.
+- **A rota antiga recusa quem trouxer imagem, e o discriminante não é a rota.** `importAtlas`
+  (`backend/src/modules/atlas/atlas.service.js`) lança quando `importImageIds` acha referência a original E
+  a função de transação recebida é a padrão, isto é, quando a chamada não veio de dentro do commit da
+  preparação. A frase manda atualizar a página porque o alvo é a ABA VELHA, aberta antes da implantação,
+  que de outro modo seguiria publicando atlas pela metade. A consequência de implantação é simétrica nos
+  dois sentidos, então migre e publique juntos.
+- **Nada parcial sobe, e o preço tem nome.** Feição que o transform descartaria, original ausente e imagem
+  fora da allowlist do servidor recusam o envio INTEIRO, antes de qualquer escrita de rede, nas três
+  portas. O caso que surpreende é o ícone personalizado em SVG: ele cai em `skipped` por `buildImageUploads`
+  (`frontend/src/js/import_export/atlas-image-upload.js`), e um atlas que tenha um deles passou a não ter
+  caminho nenhum para o servidor até que o ícone saia. Antes ele subia sem o ícone.
+- **E O ÍCONE EM SVG PASSOU A SER CONVERTIDO, NÃO RECUSADO** (decisão do dono, no mesmo dia, sobre o
+  efeito acima). Na preparação do envio o SVG é rasterizado para PNG no navegador
+  (`rasterizeSvgToPng`, `frontend/src/js/import_export/svg-to-png.js`, alcançado só por `import()` de
+  dentro de `buildImageUploads`) e sobe como PNG **sob o mesmo id**, porque a rota bulk preserva o
+  `localId` como id no servidor e toda feição referencia o ícone por esse id em `markerSymbol`. O
+  servidor continua SEM SVG: a allowlist é png/jpeg/webp e a razão dela (XSS armazenado) não mudou. O
+  registro LOCAL não é reescrito, então o disco de quem enviou continua guardando o vetor; só o blob
+  que VIAJA muda de formato. O tamanho sai do `width`/`height` ou do `viewBox`, com teto de 256 px no
+  maior lado e piso de 16, e entre os dois é verbatim, que é o que faz o par desenhar do mesmo tamanho
+  que o autor. SVG que não decodifica (marcação quebrada, referência externa que contamina o canvas)
+  continua em `skipped`, agora com motivo, e o envio segue recusado: a conversão falha ALTO, porque um
+  PNG em branco subiria sob um id válido e nada a jusante o distinguiria de um ícone de verdade.
+- **Alternativas recusadas para o SVG:** manter a recusa nomeando o ícone, que troca a perda por uma
+  instrução ("apague o ícone e refaça o marcador") sobre um acervo que a pessoa não montou para isso; e
+  subir sem o ícone avisando, que é o regime anterior com uma frase em cima e contraria "nada parcial
+  sobe", a propriedade que esta entrada inteira comprou.
+- **Guardas do SVG:** `frontend/tests/unit/icone-svg-rasteriza-no-envio.test.js` (a conversão com
+  rasterizador injetado, a aritmética do tamanho e o controle negativo sem rasterizador) e o caso
+  "ícone personalizado em SVG" de `frontend/tests/e2e-ui/browser-save-local-to-server.spec.js`, que lê
+  do Postgres a linha de `images` do atlas publicado e exige `image/png` sob o id que a feição nomeia.
+- **Limites declarados:** um encerramento abrupto do processo do servidor pode deixar arquivo no disco sem
+  linha que o referencie, e não há coleta; é o mesmo custo que este módulo já aceita no blob órfão. Atlas
+  parciais criados por versões anteriores não são reparados. A aditiva continua recusada dentro de atlas
+  remoto.
+- **Alternativa recusada:** manter o envio em duas etapas e melhorar a frase de erro. Ela troca uma perda
+  por uma explicação, e a explicação certa seria "reenvie e aceite dois atlas".
+- **Guardas:** `backend/tests/integration/atomic-atlas-import.test.js`,
+  `frontend/tests/unit/atomic-server-import.test.js`, `frontend/tests/e2e-ui/atomic-import.spec.js`.
+- **Status:** aceita; detalhe em [import de atlas offline](../wiki/atlas-import-offline.md) e
+  [namespace por atlas](../wiki/namespace-por-atlas.md).
 
-The brush also reset the next tool's cursor after awaiting stroke completion. Input listeners and the cursor are now released synchronously. A completed stroke captures its geometry and layer before awaiting its name, clears its drawing buffer before the await, and only changes selection/tool state if the same activation still owns it. A slow save therefore cannot erase a later stroke or deactivate a tool selected while saving.
+### 2026-09-19: abrir atlas de servidor deixa de apagar o cache, e a falha de abertura não rebaixa mais a origem
 
-`toolbar-cursors.spec.js` sweeps the 25 toolbar tools using real buttons, checks computed cursor after pointer movement, Escape and direct replacement, and covers remote-atlas comments, actual hover over a rendered 3D catalog pin, and delayed brush saves followed by point/brush activation. The terrain prerequisite uses a real MapLibre DEM source with no tiles; terrain analysis accuracy is outside this cursor test. Negative controls reproduced the idle-trajectory reset, missing declination cursor, catalog hover override and brush-to-sector reset. Browser screenshots document the interface; ordinary Playwright screenshots do not include the system pointer. Native desktop capture was unavailable in this session, so actual pointer-glyph visual confirmation remains a stated limitation.
+- **Decisão:** o caminho normal de `openRemoteAtlas` (`frontend/src/js/account/open-atlas.service.js`)
+  deixou de chamar `clearAllDataStore` e passou a chamar `resetAtlasView`
+  (`frontend/src/js/store/store.js`), que zera apresentação e caches em memória e não toca IndexedDB
+  nem a fila. O wipe sobrevive num ramo só, o descarte EXPLICITAMENTE confirmado de trabalho
+  resgatado (`confirmDiscardingRescuedWork`), e ali com `clearQueue: true`. No `catch`, o
+  `markStoreLocal()` saiu: a origem continua REMOTA e o que se desfaz é a conexão
+  (`disconnect({ forgetAtlas: true })`) mais a reivindicação da aba (`retractAtlasClaim`).
+- **Por quê, metade um:** o wipe acontecia ANTES do `connect`, então um 403, um 404 ou uma queda de
+  rede apagava a última projeção completa e os bytes de imagem ainda recuperáveis, e a pessoa ficava
+  sem o atlas de servidor e sem o cache dele. Apagar deixou de ser necessário quando o retrato passou
+  a entrar numa GERAÇÃO: `applyRemoteSnapshot` prepara os nove bancos de dado sob
+  `__generation-<uuid>` e só ao fim publica `{active, cursor}`, de modo que a geração nova já é a
+  substituição e a anterior continua sendo o que todo leitor resolve enquanto o pull não terminar. O
+  que o wipe ainda fazia era destruir a rede de segurança antes de saber se havia rede nova.
+- **Por quê, metade dois:** rebaixar a origem para LOCAL num erro de rede transformava dado de
+  servidor em área de trabalho irrestrita, onde a edição não passa por gate de permissão nenhum e
+  depois tenta subir. Retentar um atlas morto a cada F5, que era o motivo declarado do rebaixamento,
+  custa um pedido; o rebaixamento custa o contrato de permissão.
+- **Preço declarado:** o atalho de "esta geração já contém este retrato" (`activeGenerationHolds`)
+  passou a ser derrotado quando a fila tem intenção PREPARADA, senão uma intenção gravada e não
+  materializada antes do fechamento ficava fora de replay para sempre, já que ela não move a versão
+  do servidor. É a condição `hasPrepared` no topo de `applyRemoteSnapshot`
+  (`frontend/src/js/store/sync/remote-operation-handler.js`).
+- **Alternativa recusada:** manter o wipe e reconstruir a projeção depois de um erro. Ela reintroduz
+  a janela inteira entre apagar e receber, que é exatamente onde a rede falha.
+- **Guardas:** `frontend/tests/integration/tab-lock-atlas-integration.test.js` (a ordem
+  `activateRemoteAtlas`, `resetAtlasView`, `markStoreRemote`, `connect`) e
+  `frontend/tests/integration/namespace-remoto-fiacao.test.js`.
+- **Status:** aceita.
 
-### 2026-09-19: bind self-registration and password recovery to the recipient
+### 2026-09-19: a barreira de logout passa a cobrir TODO namespace do censo, sob um prazo só
 
-Confirmation tokens now prove only the mailbox they were sent to. Password recovery also binds to the session cutoff, and issuance/redemption serialize on the account before locking codes. Replacing a recovery code is transactional; issuance failures retain a uniform external response. Incremental migrations 017/018 preserve accounts but require resending historical confirmation/recovery credentials whose original bindings cannot be established. Runtime enabling in production requires the same SMTP/base URL configuration as boot. Pending-account reservation and self-declared organization policy remain unchanged. Evidence and operational limits: [audit](../auditoria-autocadastro-recuperacao-2026-09-19.md).
+- **Decisão:** `confirmLogoutWithPendingWork` (`frontend/src/js/session/confirm-logout.js`) deixou de
+  tomar a barreira do escopo ATIVO e passa a tomá-la de CADA atlas de servidor que o censo cobre. A
+  lista é derivada antes do pedido (`remoteEntriesToDiscard`, o mesmo conjunto que a contagem usa e
+  que `requestRemoteAtlasDiscard` marca) e convertida em escopos por `barrierScopesFor`, que mantém o
+  ativo dentro mesmo quando um atlas local reivindica o namespace dele. Quem pede é
+  `holdLogoutBarriers` (`frontend/src/js/store/write-coordinator.js`): exclusivos em PARALELO, com um
+  prazo ÚNICO de `BARRIER_DRAIN_TIMEOUT_MS` para o conjunto, nomes deduplicados, e soltura de todos
+  ao cancelar. `holdLogoutBarrier` continua existindo como a forma de um escopo só.
+  `enterCoordinatedWrite` não mudou: ela já toma o nome do escopo em que a escrita acontece.
+- **Por quê:** a guarda estava apontada para o lado errado, e isso só apareceu medindo com duas abas
+  reais. A barreira é nomeada por escopo, mas o censo conta `listRemoteAtlases()` inteiro e o descarte
+  marca todos, e a regra do dono do tab-lock diz que duas abas no MESMO atlas colidem. Logo, a irmã
+  que a barreira recusava era sempre uma aba BLOQUEADA, atrás de um overlay de tela inteira e sem
+  gesto possível, enquanto a irmã que ela deixava passar era a que seguia VIVA em outro atlas de
+  servidor, com barra de ferramentas. Medido: com o diálogo aberto, essa aba desenhava um ponto pela
+  UI e a fila dela crescia DEPOIS do censo que o diálogo acabara de imprimir. O `fileoverview` do
+  coordenador justificava a barreira exatamente com o fato que ela não cobria.
+- **Por que o prazo é UM só:** N prazos em série fariam a espera do diálogo crescer com o número de
+  atlas de servidor que a pessoa tenha na máquina, num diálogo cujo trabalho é responder depressa
+  quanto se perde. O conjunto drena dentro da janela ou a contagem vira desconhecida, que é o mesmo
+  veredito honesto de antes.
+- **Preço declarado:** a lista é lida ANTES da barreira, então entre a pausa por aba e o pedido
+  exclusivo passam as duas leituras de registro que o censo faria de qualquer jeito. A contagem
+  continua acontecendo DEPOIS da concessão, que é a ordem que a torna crível. E a deduplicação não é
+  higiene: o escopo ativo costuma estar no censo, e pedir o mesmo nome duas vezes faria a barreira
+  esperar por ela mesma até o prazo e relatar "não drenou" sem ninguém escrevendo.
+- **Alternativa recusada:** manter a cobertura só do escopo ativo e reescrever a justificativa do
+  `fileoverview` para descrever o que o código fazia. Ela deixaria de pé uma barreira que recusa quem
+  não consegue escrever e libera quem consegue, isto é, o custo do mecanismo sem a propriedade.
+- **Guardas:** o caso L3 de `frontend/tests/e2e-ui/browser-logout-barrier-two-tabs.spec.js`, que era o
+  achado e virou a guarda (a irmã viva em outro atlas agora tem de ser recusada), com 5 de 5 rodadas
+  em série sob `--retries=0`; e quatro casos em
+  `frontend/tests/integration/barreira-de-logout-entre-abas.test.js` (N namespaces com soltura de
+  todos, um escritor em qualquer um deles tirando o censo do conjunto com o contraste do ativo sozinho
+  drenando, o prazo único medido a relógio contra o custo em série, e lista vazia, só local e nome
+  repetido). Controle negativo em duas mutações: a cobertura de volta ao ativo reprova L3 nomeando o
+  namespace descoberto e deixa L1 e L2 verdes; `holdLogoutBarriers` cortada ao primeiro nome reprova
+  os quatro casos de node.
+- **Status:** aceita.
+
+
+### 2026-09-19: as pendências do lançamento saem de docs/reviews, e o que continua aberto fica aqui
+
+- **Contexto (do dono):** o documento de trabalho de pendências abertas, que morava em docs/reviews (posição de 2026-09-13, atualizada até 2026-09-16) foi lido item a item; o que estava aberto e cabia nesta máquina foi RESOLVIDO no mesmo dia, e o arquivo saiu do repositório. O que fechou está no `git log` e na wiki; esta entrada guarda só o que continua aberto e por quê.
+- **Fechado em 2026-09-19, por bloco:** B5 (os dois achados visuais já estavam fechados desde 2026-09-15, a tabela é que envelhecera); B7.2 (a barreira de logout medida com duas abas REAIS, `frontend/tests/e2e-ui/browser-logout-barrier-two-tabs.spec.js`, 5 de 5 em série sem retry, e a cobertura ampliada para todos os namespaces do censo, na entrada anterior); B7.5 (a matriz de BroadcastChannel repetida em série, 3 de 3, e o caso de corrida sem retry); B10.1 (o inventário de vendors saiu com a pasta que inventariava, ver [[inventario-de-vendors]]); B10.2 (`npm audit` zero nos três lockfiles, medido em 2026-09-19); B10.3 e B10.4 (o pino da imagem base subido para o índice de 2026-09-19, build sem cache, ver [[deploy-backend]]); B10.5 (os três itens "ficam para o dono" já haviam sido fechados em 2026-09-14, D10 a D12); B10.7 (o teto de 72 bytes da senha passou a valer nos cinco campos que definem senha, regra única em `backend/src/modules/auth/password-rule.js`, guarda `backend/tests/unit/senha-teto-de-bytes-em-todo-schema.test.js`); as dez cláusulas de prova PARCIAL de [[permissoes-atlas]] viraram provadas (vinte casos, sete controles negativos medidos); o defeito de opacidade de `browser-default-layer.spec.js` já estava fechado no candidato por dois commits de 2026-09-13 (8 de 8 em série; o vermelho da homologação era sobre uma base que não é ancestral desta linha); os specs `browser-multi-tab-namespace`, `browser-multi-tab-teardown-queue`, `aparencia-atravessa-trocas-de-atlas` e `envio-do-acervo-herdado` remedidos em série (dois consertos de instrumento no último); §30.2 de `vazamento-viewers.spec.js` medindo com o acervo 3D local; e o ícone SVG rasterizado no envio (entrada própria, acima).
+- **Continua aberto, e depende de REDE INTERNA (responsável com acesso ao servidor):** B9.1 e B9.2 (validação com telemetria real e instalação da sonda de disponibilidade em host separado, decisão do dono de 2026-09-15: depois da implantação); B11, as três premissas de origem real (Web Locks e `isSecureContext` na origem interna, cabeçalhos efetivos do NGINX sem `Clear-Site-Data` e com os assets das releases retidas servidos a aba pré-implantação, e o ensaio local não substitui a conferência na origem); B12 inteiro (versões compatíveis fixadas, backup e restauração ensaiados em ambiente separado inclusive dos arquivos referenciados, proxy e limites verificados, retorno definido ANTES de abrir escrita, piloto observado, aceite pelo responsável interno). Backup do servidor não protege dado que só existe no navegador.
+- **Continua aberto, e depende do SHA de publicação (executável aqui quando o dono o fixar):** repetir o `npm audit` e o ensaio de troca de builds sobre o SHA candidato (o critério de preservação admite exatamente três diferenças e está em `frontend/tests/helpers/main-profile-upgrade.mjs`; construir a main exige `npm ci --legacy-peer-deps` sem editar o lockfile dela); reconfirmar a referência de produção, que é a main REMOTA.
+- **Continua aberto, e é decisão do dono:** B5.6, linha que não existe acked como aplicada num update (aceite declarado: só muda junto com uma fronteira durável por entidade, ver [[modelo-conflito-lww]]); B6.1, o conjunto acima de `LOTE_MAX_OPS` fora de escopo por D4; B7.4, a remoção da chave de época não fecha todo escritor e duas tentativas já foram revertidas (o freio de desmontagem é a guarda, e qualquer conserto novo mantém o controle negativo dele reproduzindo); B8.1, a chave de tentativa da rota única de imagem sem chamador no cliente (porta de servidor sem usuário, não defeito); a matriz completa de homologação (documento 09: perfis envelhecidos, descarte de armazenamento injetado na fronteira nativa do IndexedDB, dois e três clientes com disputa e falha injetada, comparação por conteúdo e por relações), que é ensaio de liberação e não teste de suíte.
+- **O que NÃO é pendência, e volta a parecer:** a queda do renderizador do Chromium ao bootar o mapa (`Target crashed`, 3,3% em 480 boots, nenhuma bandeira ajuda) está medida em `.claude/rules/testing.md` e não é trabalho de produto; o flake de `logoutUI` em B3 deu 0 de 8 em 2026-09-19 contra 3 de 7 em 2026-09-14 e ficou sem causa porque não reproduziu.
+- **Status:** aceita; o documento saiu, e pendência nova se registra aqui, nunca numa lista de furos na wiki.

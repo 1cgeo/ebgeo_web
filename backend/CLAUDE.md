@@ -222,8 +222,10 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   se leem ao contrário: os FILHOS ficam de fora (um mapa é as colunas dele), com uma exceção
   declarada, a membresia do grupo, porque o par substitui o documento inteiro; e o serializador não
   filtra túmulo, porque "foi excluído no servidor" é justamente a recusa que mais precisa do outro
-  lado. O painel de resolução existe desde a mesma data; o que ainda falta está em
-  [`../docs/reviews/pendencias-abertas.md`](../docs/reviews/pendencias-abertas.md), e o modelo
+  lado. O painel de resolução existe desde a mesma data; o único limite aceito que sobrou dele
+  (linha que não existe é acked como aplicada, porque o log é expurgável) está na entrada de
+  2026-09-19 sobre as pendências do lançamento, em
+  [`../docs/decisions/decisions-2026.md`](../docs/decisions/decisions-2026.md), e o modelo
   inteiro em [`../docs/wiki/modelo-conflito-lww.md`](../docs/wiki/modelo-conflito-lww.md). A
   decisão que abriu a expansão é a [de 12/09/2026](../docs/decisions/decisions-2026.md).
 - **O serviço 3D publica DUAS formas, e só uma é 3D Tiles.** O MODELO é `.3dtiles` por modelo,
@@ -433,10 +435,14 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   amarra fica do lado estrito: `authVia` deixou de carimbar `'jwt'` nos dois ramos e hoje diz
   `'cookie'` ou `'bearer'`, e o `auth` recusa com 401 o principal vindo de cookie nos métodos que
   ESCREVEM. A condição olha TAMBÉM `temBearer`, a PRESENÇA do cabeçalho à parte de quem RESOLVEU, e
-  essa segunda metade preserva o cliente que manda as duas credenciais. Desde 2026-09-19 o Bearer
-  explícito vence o cookie: um cabeçalho de outra conta jamais autoriza escrita como a conta do cookie.
-  As claims vivas e o corte de sessão são conferidos também nas leituras só-flexíveis. Nos assets 3D,
-  essa conferência fica dentro do memo de autorização privada (teto de 30 s), evitando SQL por fragmento.
+  essa segunda metade não é refinamento: o cliente logado manda Bearer **e** carrega o cookie (mesma
+  origem, o navegador o envia sozinho), e uma amarra que olhasse só `authVia` recusaria toda escrita de
+  todo usuário. Foi MEDIDO: a primeira versão dela derrubou a criação de atlas na captura de UI, e quem
+  pegou foi a captura, não a suíte, porque cada caso da suíte manda UMA credencial por vez. Desde
+  2026-09-19 o Bearer explícito vence o cookie na resolução, o que fecha o caso inverso: um cabeçalho de
+  outra conta jamais autoriza escrita como a conta do cookie. As claims vivas e o corte de sessão são
+  conferidos também nas leituras só-flexíveis; nos assets 3D essa conferência fica dentro do memo de
+  autorização privada (teto de 30 s), evitando SQL por fragmento.
 - **Lifecycle de socket de colaboração é CLIENT-DRIVEN** (contrato p/ o frontend): `auth.logout` só revoga o
   refresh token, e **não** fecha sockets de `collab` nem limpa presença. Um socket só cai (a) quando o cliente
   fecha a conexão / envia `leave`, ou (b) quando a reconciliação encontra perda de autorização ou

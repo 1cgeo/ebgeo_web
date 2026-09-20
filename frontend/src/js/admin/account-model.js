@@ -44,6 +44,13 @@ export const MIN_PASSWORD_LENGTH = 6;
 /** Maximum length of a new password. Mirrors `updatePasswordSchema.newPassword.max`. */
 export const MAX_PASSWORD_LENGTH = 100;
 
+/**
+ * Maximum size of a new password in UTF-8 BYTES. Mirrors `PASSWORD_MAX_BYTES` of the server's
+ * shared rule (`backend/src/modules/auth/password-rule.js`): bcrypt silently ignores everything
+ * past the 72nd byte, and an accented letter costs two, so the character cap above is not enough.
+ */
+export const MAX_PASSWORD_BYTES = 72;
+
 /** Maximum length of `nome`. Mirrors `updateProfileSchema.nome.max`. */
 export const MAX_NAME_LENGTH = 255;
 
@@ -62,6 +69,10 @@ export const EDITABLE_PROFILE_FIELDS = Object.freeze(['nome', 'nome_guerra', 'ra
 /** The password rule, stated before the attempt instead of after the refusal. */
 export const PASSWORD_RULE_TEXT =
     `A nova senha precisa ter de ${MIN_PASSWORD_LENGTH} a ${MAX_PASSWORD_LENGTH} caracteres.`;
+
+/** The refusal for a password that fits the character cap and overflows the byte cap. */
+export const PASSWORD_BYTES_TEXT =
+    `A senha deve ter no máximo ${MAX_PASSWORD_BYTES} bytes em UTF-8; caracteres acentuados ocupam mais de um byte.`;
 
 /**
  * What changing the password costs, said before the button is pressed.
@@ -236,6 +247,9 @@ export function validatePasswordForm(form) {
     }
     if (next.length < MIN_PASSWORD_LENGTH || next.length > MAX_PASSWORD_LENGTH) {
         return { valid: false, message: PASSWORD_RULE_TEXT };
+    }
+    if (new TextEncoder().encode(next).length > MAX_PASSWORD_BYTES) {
+        return { valid: false, message: PASSWORD_BYTES_TEXT };
     }
     if (next !== confirm) {
         return { valid: false, message: 'A confirmação não confere com a nova senha.' };

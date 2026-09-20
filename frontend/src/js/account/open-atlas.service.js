@@ -11,8 +11,9 @@
  * Until 2026-08-16 the first thing this function did was ask a three-way question titled "Você tem
  * trabalho local não salvo", whose red button read "Descartar e abrir" — wording inherited from the
  * single-address era, when the wipe really did land on the databases holding local work. With a
- * namespace per atlas, `activateRemoteAtlas` runs BEFORE `clearAllDataStore` and the wipe empties
- * `remote-<atlasId>`; the local slot keeps every byte. Measured, not reasoned: a point drawn on the
+ * namespace per atlas, `activateRemoteAtlas` runs BEFORE anything destructive, so the wipe could
+ * only ever empty `remote-<atlasId>`; since 2026-09-19 the ordinary open does not wipe at all (see
+ * `openRemoteAtlasNow`). The local slot keeps every byte. Measured, not reasoned: a point drawn on the
  * local map survives "Descartar e abrir" and is still there afterwards. A destructive-looking button
  * that destroys nothing is worse than no button, because it teaches people to click through
  * warnings — and the branch worth keeping ("upload my local work to the server") already exists as
@@ -37,8 +38,9 @@
  * else is how the URL and the lock end up disagreeing about the same tab.
  *
  * The pre-flights are the load-bearing calls, and there are two of them, because there are two
- * shapes of wipe. `claimRemoteAtlas` answers "may I open THAT atlas" before `openRemoteAtlas`
- * clears the store on its way in. `clearMountedAtlasIfGranted` answers "may I erase the atlas I
+ * shapes of wipe. `claimRemoteAtlas` answers "may I open THAT atlas" before the one branch of
+ * `openRemoteAtlas` that still wipes (the confirmed discard of a rescued slot) runs, and before
+ * any write lands in the destination. `clearMountedAtlasIfGranted` answers "may I erase the atlas I
  * ALREADY have" for the boot paths, which used to call `clearAllDataStore()` outright: with a
  * namespace per atlas, that wipe lands on the exact databases another tab may be writing to,
  * and a duplicated tab inherits the sessionStorage intent that takes it there.
@@ -581,9 +583,11 @@ async function confirmDiscardingRescuedWork(rescued) {
 /**
  * Opens a remote atlas, optionally landing on a specific map.
  *
- * Mounts and empties THAT ATLAS'S namespace, never the local one — so an ordinary local workspace
- * is asked nothing and loses nothing. The single question left is for the rescued slot, which
- * really does share these databases.
+ * Mounts THAT ATLAS'S namespace, never the local one, and does NOT empty it: the ordinary open
+ * resets the view and leaves IndexedDB, the outbound queue and the image bytes in place, so a
+ * failed pull still has the last complete projection to fall back on. The one branch that still
+ * wipes is the confirmed discard of a rescued slot, which really does share these databases, and
+ * it is also the only question left to ask.
  *
  * @param {string} atlasId - Atlas UUID.
  * @param {{ mapId?: string|null }} [options] - mapId: a specific map UUID to activate (else initial/last).
@@ -598,11 +602,12 @@ export async function openRemoteAtlas(atlasId, { mapId = null } = {}) {
 }
 
 async function openRemoteAtlasNow(atlasId, { mapId = null } = {}) {
-    // PRE-FLIGHT, and it has to come FIRST. `clearAllDataStore()` below empties the databases this
-    // tab has mounted, which is another tab's LIVE data whenever the two hold the same atlas:
-    // asking after the wipe is asking after the damage. It also has to precede the rescue question,
-    // because there is no point asking what to do with work we are not going to be allowed to
-    // replace.
+    // PRE-FLIGHT, and it has to come FIRST. The rescued branch below still calls
+    // `clearAllDataStore()`, which empties the databases this tab has mounted, and those are
+    // another tab's LIVE data whenever the two hold the same atlas: asking after the wipe is
+    // asking after the damage. It also has to precede the rescue question, because there is no
+    // point asking what to do with work we are not going to be allowed to replace. Even on the
+    // ordinary path, which no longer wipes, the claim precedes every write into the destination.
     if (!await claimRemoteAtlas(atlasId)) {
         // Stay claimed and BLOCKED: the overlay is the answer to the user, and its "Usar aqui" is
         // the way through. Nothing is wiped — the outbound queue is global and holds work from BOTH
@@ -644,11 +649,13 @@ async function openRemoteAtlasNow(atlasId, { mapId = null } = {}) {
     // skips the registration and produces a namespace no logout wipe can find, forever and without
     // an error (`remote-atlas.api.js`, property 1).
     //
-    // IT PRECEDES `clearAllDataStore`, and that is not cosmetic. The wipe empties the ACTIVE scope,
-    // and by this line the tab-lock claim already names the atlas being OPENED: emptying under the
-    // previous scope would erase databases this tab no longer holds the claim for, which with one
-    // namespace per atlas is another tab's live data. Activating first aims the wipe at the
-    // namespace this tab has just claimed, which is the only one it may destroy.
+    // IT PRECEDES THE WIPE BRANCH, and that is not cosmetic. `clearAllDataStore` empties the ACTIVE
+    // scope, and by this line the tab-lock claim already names the atlas being OPENED: emptying
+    // under the previous scope would erase databases this tab no longer holds the claim for, which
+    // with one namespace per atlas is another tab's live data. Activating first aims that wipe at
+    // the namespace this tab has just claimed, which is the only one it may destroy. Since
+    // 2026-09-19 only the confirmed discard of a rescued slot reaches it; the ordinary path resets
+    // the view instead, and activating first is what aims the WRITES as well.
     try {
         await activateRemoteAtlas(atlasId);
         // AND ONLY NOW the rescue's claim goes away, never before. Registering the remote claim

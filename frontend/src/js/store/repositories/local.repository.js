@@ -99,12 +99,13 @@ export function getScopedStore(storeId) {
 /**
  * Normalise a map document coming OUT of IndexedDB.
  *
- * This is one of the three read paths that `ensureMapDataShape` covers, and the one that
+ * This is one of the four read paths that `ensureMapDataShape` covers, and the one that
  * matters most: a map written before the Coordination Line tool existed carries no
  * `coordination_lines` bucket, no migration will ever run for it (the schema version did
  * not move, by decision of 2026-09-03), and without the bucket the layer setup builds no
- * source, so the tool activates, accepts clicks and draws nothing. The other two are the
- * `.ebgeo` importer and the server snapshot.
+ * source, so the tool activates, accepts clicks and draws nothing. The other three are
+ * `import-normalize.js` (the `.ebgeo` importer), `local-atlas-to-server.js` (the reader
+ * that feeds a server import) and `remote-operation-handler.js` (the server snapshot).
  *
  * NOTHING IS WRITTEN BACK. The shaped document is what the caller gets; the stored one
  * keeps whatever shape it had until the next save. That is deliberate: a read that

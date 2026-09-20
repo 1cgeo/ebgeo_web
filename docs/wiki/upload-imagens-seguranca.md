@@ -36,6 +36,8 @@ MIME fora da allowlist **não** vira falha por item: o `validate({ body: bulkUpl
 
 Consequência: filtre o MIME **no cliente** antes de montar o lote. Um item ruim não custa um item, custa a requisição inteira. Contrato de erros em [[erros-api]] e [[sintese-contrato-erros-http]].
 
+Quem faz esse filtro é `buildImageUploads` (`frontend/src/js/import_export/atlas-image-upload.js`), e desde 2026-09-19 ele CONVERTE o único SVG que o produto produz legitimamente, o ícone personalizado de ponto: o vetor vira PNG no navegador antes de entrar no lote ([[imagens-atlas]]). Isso não reabre nada desta página. O servidor continua recusando SVG nos quatro lugares, e é ele que continua tendo a última palavra: os bytes que chegam são PNG de verdade, conferidos por magic bytes como quaisquer outros.
+
 ## O lote responde 201 mesmo com itens rejeitados
 
 `bulkUploadImages` empurra motivos para `failed[]` sem abortar e o controller devolve **201**. **Código 2xx não é sucesso aqui.** O cliente precisa ler `failed[]`: um `localId` ausente de `mapping` é uma referência de feição apontando para blob inexistente no servidor.

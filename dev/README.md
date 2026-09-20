@@ -4,6 +4,16 @@ Ferramentas de operação que não são nem do `frontend/` nem do `backend/`: ro
 contra um banco, e não fazem parte de nenhum build. Não têm `package.json` próprio, elas
 resolvem as dependências a partir de `backend/node_modules`.
 
+**Esta é a ÚNICA pasta de script solto na raiz do monorepo**, por decisão do dono em
+2026-09-19: a antiga `scripts/` foi dissolvida nesse dia, e os dois scripts que moravam lá
+SAÍRAM em vez de migrar. O contador de relatórios de auditoria contava três arquivos que não
+existem desde 2026-07-25; o inventário de vendors conferia uma pasta de cópias de terceiro que
+fechou em zero em 2026-09-15, junto com o manifesto que ele regravava e o teste que os prendia
+um ao outro. O método e as armadilhas de medição do segundo sobrevivem em prosa, em
+[`docs/wiki/inventario-de-vendors.md`](../docs/wiki/inventario-de-vendors.md). Script que sirva
+ao repositório inteiro entra aqui, com seção neste README; script que sirva a um pacote entra
+no `scripts/` daquele pacote.
+
 ## `tile-privado/`
 
 O ÚNICO item desta pasta que não é um script solto: um ambiente Docker completo (nginx,

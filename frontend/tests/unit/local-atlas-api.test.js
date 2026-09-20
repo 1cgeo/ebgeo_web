@@ -40,6 +40,20 @@ const { databases, makeStore, resetFake, uuidCounter } = vi.hoisted(() => {
             getItem: vi.fn(async (k) => (backing.has(k) ? backing.get(k) : null)),
             removeItem: vi.fn(async (k) => { backing.delete(k); }),
             keys: vi.fn(async () => [...backing.keys()]),
+            // `iterate` com a semântica do localforage, inclusive a PARADA ANTECIPADA:
+            // devolver qualquer coisa diferente de `undefined` no callback encerra a
+            // varredura e vira o valor da promessa. `copyAtlasDatabases` a usa para ler um
+            // banco numa passada só, e sem ela a cópia morre com `iterate is not a function`
+            // em vez de medir o que o teste pediu.
+            iterate: vi.fn(async (callback) => {
+                let n = 1;
+                for (const [k, v] of [...backing.entries()]) {
+                    const parada = await callback(v, k, n);
+                    if (parada !== undefined) return parada;
+                    n += 1;
+                }
+                return undefined;
+            }),
             clear: vi.fn(async () => { backing.clear(); })
         };
     }
@@ -511,6 +525,86 @@ describe('local-atlas.api :: criar e listar', () => {
         vi.resetModules();
         const fresco = await import('../../src/js/store/local-atlas.api.js');
         expect(() => fresco.listLocalAtlases()).toThrow(/initLocalAtlases/);
+    });
+});
+
+/**
+ * `duplicateLocalAtlas`: A IDENTIDADE DA CÓPIA (cláusula 7.4).
+ *
+ * `copia-de-atlas-local.test.js` mede `copyAtlasDatabases`, que é a metade que move bytes.
+ * A OUTRA metade nunca teve caso próprio, e é ela que a pessoa vê: os dez bancos copiados
+ * trazem junto o registro de atlas da ORIGEM, com o `id` e o `name` dela, e sem a reescrita
+ * final a lista mostraria DOIS cartões com o mesmo nome e o cabeçalho do mapa diria o nome
+ * errado. Medir só a cópia de bytes passa idêntico com a reescrita apagada.
+ */
+describe('local-atlas.api :: duplicar atlas local', () => {
+    beforeEach(async () => {
+        await api.initLocalAtlases();
+    });
+
+    it('a cópia recebe identidade PRÓPRIA no registro do destino, e a origem não se move', async () => {
+        const { atlas: origem } = await api.createLocalAtlas('Operação Delta');
+        const escopoOrigem = api.scopeOfLocalAtlas(origem);
+        await ns.getStoreFor(ns.StoreName.MAPS, escopoOrigem).setItem('mapa-1', { name: 'Mapa da origem' });
+
+        // O PISO: o registro da origem diz o que se espera que a cópia NÃO diga. Sem ele, a
+        // asserção de baixo seria compatível com um registro que nunca teve id nem nome.
+        const registroDaOrigem = await ns.getStoreFor(ns.StoreName.ATLAS, escopoOrigem).getItem('current_atlas');
+        expect(registroDaOrigem.id).toBe(origem.id);
+        expect(registroDaOrigem.name).toBe('Operação Delta');
+
+        const copia = await api.duplicateLocalAtlas(origem.id, 'Operação Delta (cópia)');
+        expect(copia.ok).toBe(true);
+        expect(copia.atlas.id).not.toBe(origem.id);
+
+        const escopoCopia = api.scopeOfLocalAtlas(copia.atlas);
+        const registroDaCopia = await ns.getStoreFor(ns.StoreName.ATLAS, escopoCopia).getItem('current_atlas');
+        // A REESCRITA, campo a campo. `id` é o que impede dois cartões de disputarem o
+        // mesmo slot, e `name` é o que a pessoa lê na lista e no cabeçalho do mapa.
+        expect(registroDaCopia.id).toBe(copia.atlas.id);
+        expect(registroDaCopia.name).toBe('Operação Delta (cópia)');
+        expect(registroDaCopia.id).not.toBe(registroDaOrigem.id);
+        expect(registroDaCopia.name).not.toBe(registroDaOrigem.name);
+
+        // O DADO veio junto: sem esta linha, "a identidade está certa" também seria o que se
+        // mede num destino que recebeu só o registro e nenhum mapa.
+        expect(await ns.getStoreFor(ns.StoreName.MAPS, escopoCopia).getItem('mapa-1'))
+            .toEqual({ name: 'Mapa da origem' });
+
+        // E a ORIGEM continua dizendo o que dizia: a reescrita é do destino, em nome dele.
+        const origemDepois = await ns.getStoreFor(ns.StoreName.ATLAS, escopoOrigem).getItem('current_atlas');
+        expect(origemDepois.id).toBe(origem.id);
+        expect(origemDepois.name).toBe('Operação Delta');
+
+        // A LISTA mostra dois cartões DISTINGUÍVEIS, que é a consequência que a cláusula
+        // nomeia. Comparar os registros no disco não basta: é a lista que a pessoa lê.
+        const nomes = api.listLocalAtlases().map(a => a.name);
+        expect(nomes).toContain('Operação Delta');
+        expect(nomes).toContain('Operação Delta (cópia)');
+        expect(new Set(nomes).size).toBe(nomes.length);
+    });
+
+    it('duplicar não monta o destino nem move o ponteiro de atlas corrente', async () => {
+        // A decisão declarada no `fileoverview` de `duplicateLocalSlot`: copiar é operação
+        // sobre o REGISTRO, não uma entrada no atlas. O caminho recusado (round-trip de
+        // `.ebgeo`) arrastava o wipe do import e um reload para desfazê-lo.
+        const { atlas: origem } = await api.createLocalAtlas('Operação Eco');
+        const correnteAntes = api.getCurrentLocalAtlasId();
+        const escopoAntes = ns.getActiveScope();
+
+        const copia = await api.duplicateLocalAtlas(origem.id, 'Operação Eco (cópia)');
+        expect(copia.ok).toBe(true);
+
+        expect(api.getCurrentLocalAtlasId()).toBe(correnteAntes);
+        expect(ns.getActiveScope()).toEqual(escopoAntes);
+    });
+
+    it('origem inexistente é recusa NOMEADA, e não cria slot nenhum', async () => {
+        const antes = api.listLocalAtlases().length;
+        const resultado = await api.duplicateLocalAtlas('nao-existe', 'Cópia órfã');
+        expect(resultado.ok).toBe(false);
+        expect(resultado.error).toBeTruthy();
+        expect(api.listLocalAtlases()).toHaveLength(antes);
     });
 });
 

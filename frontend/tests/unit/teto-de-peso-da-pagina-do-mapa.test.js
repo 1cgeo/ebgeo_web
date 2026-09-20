@@ -563,7 +563,12 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // One lazy builder prepares complete imports without mounting their namespace.
         // Two lazy modules implement additive preparation and resumable server import.
         // One lazy layer adds first-person comments and walker presence.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(716);
+        // 2026-09-19: 717 com `import_export/svg-to-png.js` (cerca de 6 kB), que rasteriza o
+        // ícone personalizado em SVG na preparação do envio, para que um atlas que tenha um deles
+        // volte a ter caminho para o servidor. Ele entra SÓ por `import()`, de dentro de
+        // `buildImageUploads`: a metade (b) deste arquivo continua contando 15 módulos ansiosos em
+        // `import_export`, que é o outro lado desta mesma linha.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(717);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);

@@ -10,6 +10,23 @@
  * has no map. Keep this file store-free — that property is the reason it exists.
  */
 
+/**
+ * The SVG to PNG conversion, loaded ON DEMAND.
+ *
+ * DYNAMIC AND NOT STATIC, because this module is in the EAGER graph of the map page (`map_sig.js`
+ * reaches it through `account.control.js` → `save-local-atlas.service.js`), and
+ * `tests/unit/teto-de-peso-da-pagina-do-mapa.test.js` budgets that folder module by module. An SVG
+ * icon is rare and only matters while packaging an atlas, so its converter has no business in the
+ * boot payload.
+ *
+ * @param {Blob} blob
+ * @returns {Promise<Blob>}
+ */
+async function rasterizeSvgOnDemand(blob) {
+    const { rasterizeSvgToPng } = await import('@js/import_export/svg-to-png.js');
+    return rasterizeSvgToPng(blob);
+}
+
 /** Backend bulk-upload batch cap. */
 const CHUNK_SIZE = 50;
 /** MIME types the server accepts (SVG custom icons are deliberately excluded). */
@@ -69,27 +86,52 @@ async function sniffImageMime(blob) {
  * The filename extension follows the type that was actually decided, so the server never gets a
  * `.png` holding JPEG bytes.
  *
+ * SVG IS CONVERTED HERE, NOT REFUSED (owner's decision, 2026-09-19). The server allowlist stays
+ * png/jpeg/webp and SVG will never be added to it, but a custom point icon saved as SVG used to
+ * land in `skipped`, and since the three send ports turned `skipped` into a refusal of the WHOLE
+ * atlas, such an atlas had no path to the server at all. The bytes that travel are rasterized to
+ * PNG in the browser (`svg-to-png.js`) under the SAME id, because the bulk route preserves the
+ * `localId` as the server id and every feature references its icon by that id. The local record is
+ * NOT rewritten: the disk may keep the SVG.
+ *
+ * THE DECISION IS RE-TAKEN ON THE PRODUCED BLOB, never assumed: the rasterization result goes back
+ * through the same type question and the same allowlist, so a converter that returns something
+ * other than an image still ends in `skipped` instead of uploading bytes under a lying MIME.
+ *
+ * `rasterizeSvg` is injected so the conversion is exercisable without a DOM; passing `null`
+ * restores the pre-2026-09-19 behaviour, which is the negative control of the unit test.
+ *
  * @param {Map<string, Blob>|Array<[string, Blob]>} blobsById
- * @returns {Promise<{ uploads: Array<{localId: string, filename: string, mimeType: string, data: string}>, skipped: string[] }>}
+ * @param {Object} [options]
+ * @param {((blob: Blob) => Promise<Blob>)|null} [options.rasterizeSvg] - SVG to PNG converter.
+ * @returns {Promise<{ uploads: Array<{localId: string, filename: string, mimeType: string, data: string}>, skipped: string[], skippedReasons: Array<{id: string, reason: string}> }>}
  */
-export async function buildImageUploads(blobsById) {
+export async function buildImageUploads(blobsById, { rasterizeSvg = rasterizeSvgOnDemand } = {}) {
     const uploads = [];
     const skipped = [];
+    const skippedReasons = [];
+    const skip = (id, reason) => { skipped.push(id); skippedReasons.push({ id, reason }); };
+
     for (const [id, blob] of blobsById) {
         try {
             if (!blob) continue;
-            const mimeType = blob.type || (await sniffImageMime(blob)) || 'image/png';
+            let bytes = blob;
+            let mimeType = blob.type || (await sniffImageMime(blob)) || 'image/png';
+            if (mimeType === 'image/svg+xml' && typeof rasterizeSvg === 'function') {
+                bytes = await rasterizeSvg(blob);
+                mimeType = bytes?.type || (await sniffImageMime(bytes)) || 'image/png';
+            }
             if (!ALLOWED_IMAGE_MIME.has(mimeType)) {
-                skipped.push(id);
+                skip(id, `O servidor não aceita imagens do tipo ${mimeType}.`);
                 continue;
             }
-            const data = await blobToBase64(blob);
+            const data = await blobToBase64(bytes);
             uploads.push({ localId: id, filename: `${id}.${IMAGE_EXT_BY_MIME[mimeType]}`, mimeType, data });
-        } catch {
-            skipped.push(id);
+        } catch (error) {
+            skip(id, error?.message || 'Esta imagem não pôde ser preparada para o envio.');
         }
     }
-    return { uploads, skipped };
+    return { uploads, skipped, skippedReasons };
 }
 
 /**

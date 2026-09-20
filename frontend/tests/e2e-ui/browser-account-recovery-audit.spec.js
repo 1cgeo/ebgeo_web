@@ -2,6 +2,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createDb, closeDb } from './helpers/db.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -96,15 +97,14 @@ describeOrSkip('Signup and password recovery audit', () => {
         expect(requests).toBe(0);
     });
 
-    test('recovery survives a lost response, refuses reuse and allows login with the new password', async ({ page, request }, testInfo) => {
-        const username = `recover_ui_${Math.random().toString(36).slice(2, 10)}`;
-        const email = `${username}@example.mil`;
-        const registered = await request.post(`${state.baseUrl}/api/v1/auth/register`, {
-            data: { username, email, nome: 'Recovery UI', password: 'Original-123' },
-        });
-        expect(registered.status()).toBe(201);
+    test('recovery survives a lost response, refuses reuse and allows login with the new password', async ({ page }, testInfo) => {
+        // The account is born through the public routes (register + verify-email), never by
+        // flipping the verified flag in SQL: the harness census in
+        // `tests/unit/e2e-ui-conta-nasce-no-node.test.js` forbids the shortcut because it would
+        // keep this spec green even if POST /auth/verify-email stopped working.
+        const user = await createVerifiedUser({ prefix: 'recover_ui', nome: 'Recovery UI', password: 'Original-123' });
+        const { username, email } = user;
         const db = createDb(state.dbName).raw;
-        const user = await db.one('UPDATE users SET email_verified = TRUE WHERE username = $1 RETURNING id', [username]);
         await field(page, 'account-login-btn').click();
         await field(page, 'login-forgot-password').click();
         await field(page, 'login-recovery-email').fill(email);

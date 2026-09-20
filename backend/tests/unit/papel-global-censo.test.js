@@ -25,6 +25,18 @@
 //   `'admin'`, mais toda linha com `role IN (`, precisa aparecer no censo abaixo.
 //   Sítio novo não classificado reprova.
 //
+//   O TERCEIRO GATILHO NASCEU EM 2026-09-19, e ele fecha a única forma que este
+//   cabeçalho NOMEAVA como o perigo e a varredura NÃO alcançava: `if (role !== 'user')`
+//   não cita `'admin'`, então os dois gatilhos acima passavam ao largo dela. Era o buraco
+//   declarado da cláusula 1.1 em `docs/wiki/permissoes-atlas.md` — a forma não existe em
+//   lugar nenhum (P18), e até esta data quem garantia isso era a leitura, não o guarda.
+//   O gatilho novo é por COMPARAÇÃO, nunca pela simples presença do literal, e a diferença
+//   foi MEDIDA: `role` mais qualquer um dos três literais acusa NOVE sítios que são
+//   DEFAULT (`role: payload.role || 'user'`), isto é, nove classificações de ruído num
+//   censo de comparações; exigindo um operador ao lado do literal, os novos são ZERO nesta
+//   árvore, que é o resultado que a cláusula previa. Censo que cobra classificação de
+//   linha inócua é censo que alguém desliga.
+//
 //   O CENSO. Uma entrada por sítio, com motivo escrito, em exatamente uma de TRÊS
 //   classes:
 //     - PODER: gate de ADMINISTRAÇÃO DO SISTEMA. Nem o credenciado nem o produtor
@@ -274,6 +286,28 @@ function arquivosDoInventario(pathspec = 'src') {
   return saida.split('\n').map((s) => s.trim()).filter((s) => s.endsWith('.js'));
 }
 
+/**
+ * The three global roles that are NOT the shared word.
+ *
+ * `admin` is out on purpose: it already has its own trigger, and adding it here would
+ * only duplicate the sweep it already drives.
+ */
+const PAPEL_SEM_ADMIN = String.raw`(?:user|producer|credenciado)`;
+
+/**
+ * A COMPARISON against one of those three, in either operand order.
+ *
+ * WHY A COMPARISON AND NOT THE BARE LITERAL, measured before it was written: `role`
+ * plus a bare `'user'` matches nine DEFAULT assignments in `src/` (`role: p.role ||
+ * 'user'`), none of which decides anything. The lookbehind on the single `=` keeps
+ * `>=`, `!=`, `+=` and friends from being read twice; the alternation puts the
+ * multi-character operators first, so `===` never degrades into the bare-`=` branch.
+ */
+const COMPARA_PAPEL_SEM_ADMIN = new RegExp(
+  String.raw`(?:===|!==|==|!=|<>|(?<![<>!=+\-*/%&|^])=(?!=))\s*'${PAPEL_SEM_ADMIN}'`
+  + String.raw`|'${PAPEL_SEM_ADMIN}'\s*(?:===|!==|==|!=|<>)`
+);
+
 /** Todo sítio de comparação de papel global, por arquivo e linha. */
 function sitios(arquivos) {
   const achados = [];
@@ -293,7 +327,12 @@ function sitios(arquivos) {
       // (`globalRole`) não mudou.
       const falaDePapel = /role/i.test(linha) && /'admin'|"admin"/.test(linha);
       const listaSql = /\brole\s+IN\s*\(/i.test(linha);
-      if (falaDePapel || listaSql) achados.push({ arquivo, n: i + 1, texto: linha.trim() });
+      // O gatilho de 2026-09-19: a forma que o cabeçalho deste arquivo nomeia como o
+      // perigo (`if (role !== 'user')`) não cita `'admin'` e escapava dos dois de cima.
+      const comparaSemAdmin = /role/i.test(linha) && COMPARA_PAPEL_SEM_ADMIN.test(linha);
+      if (falaDePapel || listaSql || comparaSemAdmin) {
+        achados.push({ arquivo, n: i + 1, texto: linha.trim() });
+      }
     });
   }
   return achados;
@@ -391,6 +430,50 @@ describe('Censo do papel global (fase F0 de recursos privados)', () => {
     } finally {
       fs.rmSync(abs, { force: true });
     }
+  });
+
+  it('a varredura ACUSA `role !== \'user\'` e IGNORA o default `|| \'user\'`', () => {
+    // O BURACO DECLARADO DA CLÁUSULA 1.1, fechado em 2026-09-19. O cabeçalho deste
+    // arquivo sempre nomeou `if (role !== 'user')` como o perigo desta fase, e a
+    // varredura exigia o literal `'admin'` na linha: a forma nomeada passaria inteira.
+    // Ela não existe em `src/` (P18), e é justamente por isso que o controle precisa ser
+    // INJETADO — uma varredura que não acusa nada é indistinguível de uma que não varre.
+    //
+    // AS DUAS DIREÇÕES NO MESMO CORPO. Acusar a comparação é metade; a outra é NÃO acusar
+    // o default, que aparece nove vezes em `src/` e não decide nada. Um censo que cobrasse
+    // classificação daquelas nove linhas seria ruído, e ruído é o que faz alguém desligar
+    // um guarda.
+    const dir = 'tests/fixtures';
+    const relativo = `${dir}/tmp-comparacao-sem-admin.js`;
+    const abs = path.join(RAIZ, relativo);
+    fs.writeFileSync(abs, [
+      `// Path: ${relativo}`,
+      '// Temporário: criado e apagado pelo controle negativo de `papel-global-censo.test.js`.',
+      "export const mapear = (u) => ({ role: u.role || 'user' });",
+      "export const promoveEmSilencio = (u) => u.role !== 'user';",
+      '',
+    ].join('\n'));
+
+    try {
+      const achados = sitios(arquivosDoInventario(dir))
+        .filter((a) => a.arquivo === relativo);
+      const linhas = achados.map((a) => a.texto);
+      assert.deepEqual(
+        linhas, ["export const promoveEmSilencio = (u) => u.role !== 'user';"],
+        'a varredura precisa acusar a COMPARAÇÃO e deixar o DEFAULT de fora, exatamente'
+      );
+      assert.ok(
+        naoClassificados(achados).some((a) => a.includes('promoveEmSilencio')),
+        'e o sítio acusado precisa chegar à lista de não classificados, que é quem reprova'
+      );
+    } finally {
+      fs.rmSync(abs, { force: true });
+    }
+
+    // DISCRIMINAÇÃO sobre o código REAL: o gatilho novo não acrescentou um sítio sequer.
+    // Se acrescentasse, este arquivo estaria cobrando classificação de linha inócua, e o
+    // caso acima teria comprado a acusação com o preço que o cabeçalho recusa pagar.
+    assert.deepEqual(naoClassificados(sitios(arquivosDoInventario())), []);
   });
 
   it('todo sítio de comparação de papel global está no censo, com classe e motivo', () => {

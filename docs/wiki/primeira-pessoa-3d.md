@@ -6,7 +6,7 @@ Vizinhas: [[resources-catalogo]] (a outra descoberta 3D, que o cliente nunca uso
 
 ## Colaboração em coordenadas locais
 
-Desde 2026-09-19, presença e comentários usam a superfície `fp`. A referência continua sendo `tilesetId`, porque a cena é um recurso desse catálogo: criar outra chave escaparia da poda de recursos privados na exportação e no compartilhamento. As coordenadas `x`, `y`, `z` são metros no referencial da cena, nunca coordenadas geográficas disfarçadas. Reprocessar o museu alterando o referencial exige outro recurso ou transformação explícita das âncoras; substituir os bytes não transforma comentários antigos.
+Desde 2026-09-19, presença e comentários usam a superfície de primeira pessoa (`SUPERFICIE`, `frontend/src/js/comment_tool/comment-card.js`). A referência continua sendo `tilesetId`, porque a cena É um recurso desse catálogo: criar outra chave escaparia da poda de recursos privados na exportação e no compartilhamento, que é a propriedade que o registro de referências existe para dar de graça. As coordenadas `x`, `y`, `z` são metros no referencial da cena, nunca coordenadas geográficas disfarçadas. Reprocessar o museu alterando o referencial exige outro recurso ou transformação explícita das âncoras; substituir os bytes não transforma comentário antigo. Preso por `frontend/tests/unit/collaboration-fp.test.js`.
 
 A presença usa a câmera da caminhada, inclusive parado, e nunca o raio do mouse. Os comentários usam o raio contra a colisão, mantendo o cartão e as permissões comuns. O botão de novo comentário da barra lateral atende mapa, 360, Cesium e primeira pessoa; não há botão adicional nessas barras de visualização. Comentários exigem um atlas do servidor e sessão com permissão, como no mapa.
 

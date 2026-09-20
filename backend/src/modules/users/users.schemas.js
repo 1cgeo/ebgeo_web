@@ -1,6 +1,7 @@
 // Path: src/modules/users/users.schemas.js
 import Joi from 'joi';
 import { API_KEY_SCOPES, API_KEY_SCOPE_DEFAULT } from './api-key-terms.js';
+import { newPassword } from '../auth/password-rule.js';
 
 // Self-service profile edit. Deliberately accepts NEITHER `organization_id` NOR
 // `producer_org_id`, e os dois pelo mesmo motivo com pesos diferentes.
@@ -24,7 +25,7 @@ export const updateProfileSchema = Joi.object({
 
 export const updatePasswordSchema = Joi.object({
   currentPassword: Joi.string().required(),
-  newPassword: Joi.string().required().min(6).max(100),
+  newPassword,
 });
 
 /**
@@ -88,7 +89,7 @@ export const createUserAdminSchema = Joi.object({
     .messages({
       'string.pattern.base': 'Usuário aceita apenas letras, números, ponto, hífen e sublinhado.',
     }),
-  password: Joi.string().required().min(6).max(100),
+  password: newPassword,
   nome: Joi.string().required().max(255),
   nome_guerra: Joi.string().trim().max(100).allow(null, ''),
   rank_id: Joi.string().uuid().allow(null, ''),
@@ -187,7 +188,7 @@ export const updateUserAdminSchema = Joi.object({
 });
 
 export const resetPasswordSchema = Joi.object({
-  newPassword: Joi.string().required().min(6).max(100),
+  newPassword,
 });
 
 export const userIdParamsSchema = Joi.object({

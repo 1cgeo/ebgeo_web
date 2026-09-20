@@ -21,6 +21,27 @@
  * abriu" dá respostas diferentes em rodadas iguais, que foi o que a homologação de 2026-09-13
  * mediu (uma rodada pulou, a seguinte reprovou, mesmo ambiente e mesmo 404).
  *
+ * HOW TO ACTUALLY RUN §30.2, in English because it is an operating instruction and not prose
+ * about the product. Point `MODELS_3D_DIR` at an ABSOLUTE directory that holds
+ * `serra_dourada.3dtiles` before invoking Playwright, from inside `frontend/`:
+ *
+ *   MODELS_3D_DIR=/abs/path/to/ebgeo_web/backend/data/models3d npx playwright test vazamento-viewers
+ *
+ * Two facts make that work and neither is guessable from here: `tests/e2e-ui/backend.js` spreads
+ * the harness process environment into the backend `spawn` and overrides no model path, and
+ * `backend/src/modules/models3d/models3d.store.js` resolves each model against that directory, so
+ * an absolute value is independent of the backend's working directory. Measured on 2026-09-19 on
+ * the main checkout, which has the file: with the variable pointed at `backend/data/models3d`,
+ * §30.2 EXECUTES instead of skipping and is green 3 of 3 in series under `--retries=0`, at roughly
+ * 36 s per execution.
+ *
+ * THE CONTROL IS THE HALF THAT IS READ BACKWARDS. On that same checkout the case ALSO executes
+ * with no variable set, because the default model directory resolves against the backend of the
+ * checkout being run. So the skip is never about the machine or the product: it is about WHICH
+ * checkout drives Playwright, and the variable is the fix for driving it from one that lacks the
+ * file (a git worktree, a fresh clone). A skip is zero coverage over the 3D viewer leak, so read
+ * the run for a skip before counting this case as passed.
+ *
  * A ORDEM DOS DOIS TESTES NÃO É ARBITRÁRIA. §30.1 exercita o PIOR CASO num vazador deliberado e
  * exige que a régua o reprove; só então §30.2 deixa a régua julgar o app. Régua vista só passar
  * em código bom não foi vista funcionar, e uma sonda que conte errado devolve verde silencioso,

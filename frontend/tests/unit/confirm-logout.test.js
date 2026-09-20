@@ -11,10 +11,17 @@ vi.mock('@store/remote-atlas.api.js', () => ({
     requestRemoteAtlasDiscard: fake.discard,
     noteRemoteNamespaceTeardown: fake.note,
 }));
-vi.mock('@store/atlas-namespace.js', () => ({ readLocalAtlasRegistry: fake.locals, getActiveScope: () => ({ kind: 'remote' }) }));
+vi.mock('@store/atlas-namespace.js', () => ({
+    readLocalAtlasRegistry: fake.locals,
+    getActiveScope: () => ({ kind: 'remote', dbSuffix: 'remote-A' }),
+    // O ESCOPO É CONSTRUÍDO A PARTIR DO ID, como a fábrica real faz, porque desde 2026-09-19 a
+    // barreira é pedida sobre a LISTA do censo e não sobre o escopo ativo: sem este duplo, o
+    // arquivo mediria a cobertura por um objeto que ninguém deriva.
+    remoteScope: (atlasId) => ({ kind: 'remote', atlasId, dbSuffix: `remote-${atlasId}` }),
+}));
 vi.mock('@store/write-coordinator.js', () => ({
     pauseStoreWrites: fake.pauseWrites,
-    holdLogoutBarrier: fake.holdBarrier,
+    holdLogoutBarriers: fake.holdBarrier,
 }));
 vi.mock('@store/sync/auto-flush-pause.js', () => ({ pauseAutoFlush: fake.pauseSends }));
 vi.mock('@utils/tab-lock.js', () => ({ announceTabLockTeardown: fake.announce }));
@@ -148,20 +155,51 @@ describe('confirmed voluntary logout', () => {
         expect(await confirmLogoutWithPendingWork()).toBe(true);
         expect(fake.quarantine).not.toHaveBeenCalled();
     });
-    it('a barreira entre abas é tomada ANTES de qualquer contagem', async () => {
-        // A ordem é o conteúdo desta guarda: contar com a irmã ainda escrevendo é a contagem
-        // otimista do achado F5. A barreira é pedida sobre o escopo REMOTO montado, e o pedido
-        // exclusivo é o que já recusa a próxima escrita da irmã.
+    it('a barreira entre abas é tomada ANTES de qualquer contagem, sobre TODO o censo', async () => {
+        // A ordem é metade do conteúdo desta guarda: contar com a irmã ainda escrevendo é a
+        // contagem otimista do achado F5, e o pedido exclusivo é o que já recusa a próxima escrita
+        // da irmã.
+        //
+        // A COBERTURA É A OUTRA METADE, desde 2026-09-19: a barreira é pedida sobre a MESMA lista
+        // que o censo conta e que o descarte marca, e não sobre o escopo ativo. Enquanto foi só o
+        // ativo, a guarda ficava apontada para a irmã BLOQUEADA (que não tem gesto possível) e
+        // liberava a que seguia viva em outro atlas de servidor.
         fake.count.mockResolvedValue(1);
         await confirmLogoutWithPendingWork();
         expect(fake.holdBarrier).toHaveBeenCalledOnce();
-        expect(fake.holdBarrier.mock.calls[0][0]).toEqual({ kind: 'remote' });
+        expect(
+            fake.holdBarrier.mock.calls[0][0].map(s => s.dbSuffix).sort(),
+            'os dois namespaces do censo entram na barreira',
+        ).toEqual(['remote-A', 'remote-B']);
         expect(fake.holdBarrier.mock.invocationCallOrder[0])
             .toBeLessThan(fake.count.mock.invocationCallOrder[0]);
         // CONTROLE NEGATIVO do próprio caso: a pausa por aba continua vindo antes da barreira,
         // senão haveria uma janela entre as duas em que esta aba ainda aceitaria escrita.
         expect(fake.pauseWrites.mock.invocationCallOrder[0])
             .toBeLessThan(fake.holdBarrier.mock.invocationCallOrder[0]);
+    });
+
+    it('o namespace que um atlas LOCAL reivindica fica fora da barreira, como fica fora do censo', async () => {
+        // A LISTA TEM DE SER A MESMA NOS DOIS USOS, e este é o lado que uma implementação
+        // apressada erra: barrar um namespace que o descarte poupa custaria recusar a escrita de
+        // um atlas resgatado que ninguém vai destruir. O ativo continua dentro por outro motivo,
+        // que é esta aba escrever nele.
+        fake.locals.mockResolvedValue([{ dbSuffix: 'remote-B' }]);
+        fake.count.mockResolvedValue(1);
+        await confirmLogoutWithPendingWork();
+        expect(fake.holdBarrier.mock.calls[0][0].map(s => s.dbSuffix).sort())
+            .toEqual(['remote-A']);
+        expect(fake.count.mock.calls.map(c => c[0])).toEqual(['A']);
+    });
+
+    it('registro ilegível deixa a barreira no escopo ATIVO, em vez de não barrar nada', async () => {
+        // DEGRADA PARA A COBERTURA ANTIGA, e não para nenhuma: uma listagem que falhou não sabe
+        // quais namespaces existem, mas esta aba ainda sabe em qual está escrevendo.
+        fake.list.mockRejectedValue(new Error('disk unavailable'));
+        expect(await confirmLogoutWithPendingWork()).toBe(false);
+        expect(fake.holdBarrier.mock.calls[0][0].map(s => s.dbSuffix)).toEqual(['remote-A']);
+        expect(fake.count).not.toHaveBeenCalled();
+        expect(fake.confirm.mock.calls[0][1].message).toContain('Não foi possível verificar');
     });
     it('cancelar solta a barreira, e confirmar também', async () => {
         fake.count.mockResolvedValue(1);

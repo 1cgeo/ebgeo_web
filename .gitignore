@@ -75,13 +75,6 @@ dev/tile-privado/seed/ebgeo_zero.sql
 *.bak-*
 *.bak.*
 
-# Saídas avulsas dos ensaios; relatórios curados em docs/ continuam versionáveis.
-/frontend-audit-*.json
-/frontend-release-*.json
-/assets-audit.json
-/assets-backup.json
-/.audit-artifacts/
-
 # Cache Python dos helpers e dumps locais (fixtures SQL continuam versionáveis).
 __pycache__/
 *.py[cod]

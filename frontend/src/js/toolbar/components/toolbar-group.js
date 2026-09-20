@@ -325,10 +325,12 @@ export class ToolbarGroup {
             const toolConfig = this._config.tools.find(t => t.id === toolId);
             if (!toolConfig) return;
 
-            // O tipo vem da TABELA, não da instância. Duas consequências, e as duas importam:
-            // o botão sabe se acender antes de a ferramenta existir, e o tipo deixa de depender
-            // de `control.constructor.name`, que só funcionava porque o build mantém
-            // `keepNames: true`.
+            // The type comes from the TABLE, not from the instance. Two consequences, both load
+            // bearing: the button knows whether to light up before the tool exists, and the type
+            // stops depending on `control.constructor.name`, which is MANGLED in the production
+            // bundle (`keepNames: true` is an esbuild flag and the final pass is terser, whose
+            // `mangle` does not ask for `keep_classnames`). Reading the class name here shipped a
+            // toolbar whose buttons never lit up; see `tool-registry.js`, contract 1.
             const isActive = controlType(toolConfig.controlKey) === activeToolType;
 
             button.setActive(isActive);

@@ -1,9 +1,7 @@
 // Path: src/modules/auth/auth.schemas.js
 import Joi from 'joi';
 
-const newPassword = Joi.string().required().min(6).max(100).custom((value, helpers) =>
-  Buffer.byteLength(value, 'utf8') > 72 ? helpers.error('password.bytes') : value
-).messages({ 'password.bytes': 'A senha deve ter no máximo 72 bytes em UTF-8; caracteres acentuados ocupam mais de um byte.' });
+import { newPassword } from './password-rule.js';
 
 /**
  * LOGIN DELIBERATELY HAS NO PASSWORD LENGTH RULE, unlike every schema below.

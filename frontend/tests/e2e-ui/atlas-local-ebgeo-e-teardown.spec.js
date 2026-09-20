@@ -322,6 +322,11 @@ describeOrSkip('atlas local: abrir .ebgeo pela tela', () => {
 });
 
 describeOrSkip('atlas local: excluir avisa a aba irmã', () => {
+    // Two real tabs racing over BroadcastChannel: the race IS the subject, so a retry would turn a
+    // lost interleaving into a green "flaky" (the launch audit of 2026-09-14 saw exactly that, a
+    // transient failure that "passed on rerun"). Same opt-out as browser-multi-tab-namespace.spec.js.
+    test.describe.configure({ retries: 0 });
+
     test('a irmã congela com a frase do atlas local, não com a da sessão encerrada', async ({ browser }) => {
         test.setTimeout(180000);
         const context = await browser.newContext();

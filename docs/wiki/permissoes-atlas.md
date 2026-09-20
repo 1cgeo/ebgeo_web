@@ -96,20 +96,31 @@ Papel decide **se** a op entra; a ordem de chegada no servidor decide **quem ven
 
 A revisão de lançamento do eixo de permissão (achados P1 a P25, todos corrigidos, decididos ou conferidos até 2026-09-14; o relatório foi absorvido por testes e decisões e apagado em 2026-09-15) deixou esta lista, que é o que impede a próxima revisão de ler o verde como cobertura completa.
 
-**Continuam com prova parcial, e ficam declaradas aqui em vez de silenciosas:**
+**As DEZ foram fechadas em 2026-09-19, e a tabela fica aqui com o "antes" ao lado do "depois"**, porque
+apagar a linha destruiria a única resposta para "isto já foi olhado?" e convidaria a próxima revisão a
+reabrir cada uma do zero:
 
-| cláusula | o que não é provado |
-|---|---|
-| 1.1 | o predicado do inventário do censo global exige um literal `'admin'` na linha, então a forma que o próprio cabeçalho nomeia como o perigo (`if (role !== 'user')`) não entraria na varredura. Hoje ela não existe em lugar nenhum (P18), mas o guarda não é quem garante isso |
-| 1.2 | "deslogado não é papel, é modo" segue sem prova: o teste citado assere o domínio do CHECK da coluna, e nada impediria alguém de representar o deslogado por um pseudo-papel fora dela. A própria cláusula já admitia isto |
-| 1.2 (adendo) | que a chave de API resolva carregando o papel global **admin**, e que o corte de sessão em massa não a alcance, não são asseridos; o teste citado mede só a precedência |
-| 1.3 | o controle negativo de "só o administrador promove" usa apenas o `user` comum; nenhum caso tenta um `producer` ou um `credenciado` promovendo alguém |
-| 4.2 | o curinga do administrador é exercido em três das cinco rotas; as duas de MEMBRESIA, que são justamente o "adiciona e remove pessoas" da cláusula, nunca são chamadas como administrador |
-| 4.4 | "o administrador vê todos" não é asserido: nenhum caso chama `GET /access-groups` com token de administrador (é verdade no SQL, pelo segundo ramo de `fn_can_administer_group`) |
-| 7.2 | a porta do MAPA ("o store local É o atlas que sobe, e o wipe posterior é a troca de atlas") não é medida por nenhum dos três arquivos citados; o comportamento existe e é coberto por arquivos não citados |
-| 7.4 | `duplicateLocalAtlas`, a metade que dá identidade própria à cópia no registro (sem a qual a lista mostra dois cartões iguais), não tem caso próprio |
-| 8.5 (bullet 1) | a DESATIVAÇÃO como gatilho nunca é medida na superfície de empréstimo: o arquivo que mede empréstimo não contém uma única ocorrência de `is_active`, e os gatilhos que ele mede são revogação e transferência |
-| 5.8 | a recusa ao dono nomeia "transferir a posse ou mandar à lixeira", e o teste cobra só a primeira metade |
+| cláusula | o que não era provado | onde passou a ser |
+|---|---|---|
+| 1.1 | o predicado do inventário do censo global exigia um literal `'admin'` na linha, então a forma que o próprio cabeçalho nomeia como o perigo (`if (role !== 'user')`) não entraria na varredura. Ela não existe em lugar nenhum (P18), mas o guarda não era quem garantia isso | [`backend/tests/unit/papel-global-censo.test.js`](../../backend/tests/unit/papel-global-censo.test.js): um TERCEIRO gatilho varre comparação contra os outros três papéis. Ele é por COMPARAÇÃO e não por presença do literal, e a diferença foi medida: a forma larga acusa nove DEFAULT (`role: p.role \|\| 'user'`) e a estreita acusa zero nesta árvore. O controle injeta a forma perigosa num arquivo não rastreado e exige a acusação |
+| 1.2 | "deslogado não é papel, é modo" seguia sem prova: o teste citado assere o domínio do CHECK da coluna, e nada impediria alguém de representar o deslogado por um pseudo-papel fora dela | [`backend/tests/integration/permissoes-atlas-clausulas-parciais.test.js`](../../backend/tests/integration/permissoes-atlas-clausulas-parciais.test.js), em três camadas: a coluna recusa os seis nomes que alguém inventaria, `flexibleAuth` sem credencial deixa `req.user` AUSENTE em vez de sintetizar papel, e os quatro predicados de acesso leem o principal NULO como "ninguém" |
+| 1.2 (adendo) | que a chave de API resolva carregando o papel global **admin** não era asserido; o teste citado mede só a precedência | o mesmo arquivo, numa rota SÓ-FLEXÍVEL (`GET /api/v1/sv360/projects`), porque o `auth` estrito adota o papel vivo do banco e mascararia o defeito. A chave do administrador recebe o campo de administração e a de um comum não. **A segunda metade daquela linha estava VENCIDA:** "o corte de sessão em massa não a alcança" descreve 2026-08-23, e a terceira amarra da cláusula 10.7 (2026-08-24) fez o corte alcançar a chave pelo NASCIMENTO dela, asserido em [`backend/tests/integration/chave-de-api-tres-amarras.test.js`](../../backend/tests/integration/chave-de-api-tres-amarras.test.js) |
+| 1.3 | o controle negativo de "só o administrador promove" usava apenas o `user` comum; nenhum caso tentava um `producer` ou um `credenciado` promovendo alguém | o mesmo arquivo: os dois levam 403, o alvo não se move, e o MESMO corpo aplicado pelo administrador passa |
+| 4.2 | o curinga do administrador era exercido em três das cinco rotas; as duas de MEMBRESIA, que são justamente o "adiciona e remove pessoas" da cláusula, nunca eram chamadas como administrador | [`backend/tests/integration/access-groups-crud.test.js`](../../backend/tests/integration/access-groups-crud.test.js): o administrador PÕE e TIRA pessoa do grupo alheio, com o efeito medido na tabela de composição e não só no status |
+| 4.4 | "o administrador vê todos" não era asserido: nenhum caso chamava `GET /access-groups` com token de administrador (é verdade no SQL, pelo segundo ramo de `fn_can_administer_group`) | o mesmo arquivo, com caso próprio: o administrador enxerga os grupos de dois donos diferentes, e o credenciado e cada dono não enxergam o do vizinho |
+| 7.2 | a porta do MAPA ("o store local É o atlas que sobe, e o wipe posterior é a troca de atlas") não era medida por nenhum dos três arquivos citados | [`frontend/tests/unit/enviar-atlas-local-ao-servidor.test.js`](../../frontend/tests/unit/enviar-atlas-local-ao-servidor.test.js), que já usava a porta do mapa como contraste em PROSA. A medição é ESTRUTURAL e prende a ORDEM (ler antes de apagar, montar o namespace antes do wipe, declarar a origem depois dele), com a porta da lista como discriminação: ela não cita `clearAllDataStore` nenhuma vez |
+| 7.4 | `duplicateLocalAtlas`, a metade que dá identidade própria à cópia no registro (sem a qual a lista mostra dois cartões iguais), não tinha caso próprio | [`frontend/tests/unit/local-atlas-api.test.js`](../../frontend/tests/unit/local-atlas-api.test.js): o registro do destino sai com o id e o nome DA CÓPIA, o da origem não se move, o dado veio junto, e a lista mostra dois cartões de nomes distintos |
+| 8.5 (bullet 1) | a DESATIVAÇÃO como gatilho nunca era medida na superfície de empréstimo: o arquivo que mede empréstimo não contém uma única ocorrência de `is_active`, e os gatilhos que ele mede são revogação e transferência | [`backend/tests/integration/permissoes-atlas-clausulas-parciais.test.js`](../../backend/tests/integration/permissoes-atlas-clausulas-parciais.test.js), com os QUATRO gatilhos que o predicado tem: a conta do dono, a OM de LOTAÇÃO do dono, a conta de quem CONCEDEU a ele, e a OM PRODUTORA quando o empréstimo se sustenta por produção. Cada um com o piso antes, a queda depois e a REATIVAÇÃO como controle |
+| 5.8 | a recusa ao dono nomeia "transferir a posse ou mandar à lixeira", e o teste cobrava só a primeira metade | [`backend/tests/integration/sair-do-atlas.test.js`](../../backend/tests/integration/sair-do-atlas.test.js), que passou a cobrar as duas saídas: pela regra da 4.7, negativa sem saída é um muro, e com metade das saídas manda a pessoa procurar a que sobrou |
 
-Nenhuma dessas é uma afirmação falsa sobre o código: são lugares onde o verde prova menos do que a cláusula
-diz. Deixá-las escritas é o que impede a próxima revisão de ler o verde como cobertura completa.
+**Os controles negativos foram MEDIDOS, não afirmados.** Desligar `fn_principal_vivo` no ramo de
+empréstimo, o termo de concedente vivo e a checagem de OM produtora derruba os quatro casos de 8.5;
+alargar o CHECK de `users.role` derruba o de 1.2; fixar o papel em `'user'` no ramo de chave de API
+derruba o de 1.2 (adendo); tirar `requireAdmin` de `PUT /users/:userId` derruba o de 1.3; apagar a
+reescrita de identidade derruba o de 7.4; e trocar a ordem do wipe derruba o de 7.2.
+
+**O que NÃO se fechou, e por quê.** A prova de 7.2 é estrutural (ela lê o código-fonte da porta), então
+ela prende a ORDEM contra uma reescrita distraída e não substitui o comportamento com navegador, que
+mora em [`frontend/tests/e2e-ui/browser-save-local-to-server.spec.js`](../../frontend/tests/e2e-ui/browser-save-local-to-server.spec.js)
+e fica FORA do `npm test`. E a varredura de 1.1 continua textual: papel montado por concatenação sai
+dela, como o cabeçalho daquele arquivo já declarava antes desta rodada.

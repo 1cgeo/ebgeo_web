@@ -165,6 +165,22 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   | `test:backend` | nenhuma | `ebgeo_test` (`TEST_DB_NAME` sobrepõe) | SIM, sob c8 |
   | `test:e2e` (contrato, 3ª perna da raiz) | 3911 | `ebgeo_e2e` | não |
   | `test:e2e:ui` e `test:e2e:mega` (Playwright) | 3912 **e 4321** | `ebgeo_ui_e2e` | não |
+  | os quatro configs de cenário (Playwright) | as MESMAS 3912 e 4321 | o MESMO | não |
+
+  **A ÚLTIMA LINHA É QUATRO CONFIGS E NÃO UMA CAMADA NOVA, e é por isso que ela não ganha coluna
+  própria.** `playwright.atlas-safety.config.js`, `playwright.migration-data.config.js`,
+  `playwright.release-checks.config.js` e `playwright.release-production.config.js` (todos em
+  `frontend/`) fazem spread do `playwright.config.js` base e trocam só `testMatch`, `retries` e
+  `timeout`, de modo que herdam o `globalSetup`, a porta do backend, a do Vite e o banco: uma
+  rodada de cenário colide com uma rodada de `test:e2e:ui` exatamente como duas rodadas de
+  `test:e2e:ui` colidem entre si, e as três variáveis de isolamento do parágrafo adiante são as
+  mesmas. Três coisas que não se leem na tabela e cada uma já custou uma leitura errada: só dois
+  deles têm script (`test:e2e:atlas` e `test:e2e:migracao`), os outros dois se rodam nomeando o
+  config; o de dados de migração **lança na importação** se `EBGEO_MIGRATION_DATA_DIR` não estiver
+  no ambiente, de propósito, porque nenhuma rodada normal pode depender do acervo externo de
+  alguém; e o de produção é o único que troca o `webServer`, por um HTTPS em 127.0.0.1:44431 com
+  `reuseExistingServer: false`, mas o `globalSetup` PRÓPRIO dele sobe o mesmo backend na 3912 e no
+  mesmo banco, então trocar o servidor do app não o isola de nada.
 
   **A COLUNA DA PORTA DO PLAYWRIGHT TEM DOIS NÚMEROS, e o segundo é o que morde calado.**
   A 3912 é o backend, e ela GRITA (ver adiante). A 4321 é o Vite que serve o APP, e
@@ -370,6 +386,25 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   dimensão dela já está coberta pelas specs `browser-collab-*` focadas), e é
   legítima; o que não é legítimo é ler "`test:e2e:ui` verde" como "a pasta
   `tests/e2e-ui/` inteira passou". Não passou: um arquivo dela não rodou.
+
+  **E UM CASO SÓ MEDE COM O ASSET APONTADO POR AMBIENTE.**
+  `frontend/tests/e2e-ui/vazamento-viewers.spec.js` §30.2 abre e fecha o visualizador 3D
+  contra um modelo REAL, e `backend/.gitignore` exclui `data/models3d/`: um checkout limpo e
+  todo worktree do git ficam sem o arquivo, a rota do tileset responde 404 e o caso PULA,
+  nomeando a saída. O pulo não aparece como vermelho em lugar nenhum, e enquanto ele acontece
+  a cobertura sobre o vazamento de listener do visualizador 3D é ZERO. A saída é apontar
+  `MODELS_3D_DIR` (caminho ABSOLUTO) para um diretório que TENHA o arquivo antes de chamar o
+  Playwright: `frontend/tests/e2e-ui/backend.js` espalha o ambiente do processo no `spawn` do
+  backend e não sobrescreve essa variável, e
+  `backend/src/modules/models3d/models3d.store.js` resolve o caminho do modelo contra ela, de
+  modo que um absoluto vale de qualquer diretório de trabalho. Medido em 19/09/2026 na árvore
+  principal, que tem o arquivo: com a variável apontada, §30.2 EXECUTA e dá 3 de 3 verdes em
+  série com `--retries=0`, a cerca de 36 s por execução. **E o controle mede a metade que a
+  homologação leu ao contrário:** na MESMA árvore o caso executa TAMBÉM sem a variável, porque
+  o padrão resolve contra o `backend/` do próprio checkout. Ou seja, o pulo nunca foi do produto
+  nem da máquina: ele é de QUAL checkout roda o Playwright, e a variável é o conserto de quem
+  roda de um que não tem o arquivo. Antes de contar aquela célula como aprovada, confira que o
+  caso RODOU em vez de ter pulado.
 - **O Playwright lê `aria-disabled` como desabilitado, e isso colide de frente com a regra "o
   ESTADO recusa o clique"** (medido em 2026-09-02, três rodadas perdidas num spec do menu de camada).
   O comando bloqueado por estado é desenhado com `aria-disabled` e NUNCA com a propriedade

@@ -350,12 +350,25 @@ describeOrSkip('enviar ao servidor o acervo herdado', () => {
         // evidência que ela imprime: contra o leitor de antes esta linha reprova mostrando a frase
         // com "2 mapas, 33 feições", que é o achado inteiro, enquanto um `waitForURL` sozinho
         // reprovaria com um timeout de navegação que não diz nada sobre o que se perdeu.
+        //
+        // A FRASE É GUARDADA PELO PRÓPRIO `poll`, e não relida depois dele. A releitura que morava
+        // aqui era uma SEGUNDA amostra, desprotegida, no meio exato da navegação que o ramo de
+        // sucesso dispara: `lerToasts` engole o "Execution context was destroyed" e devolve lista
+        // vazia (o que é certo para uma amostra do poll, que simplesmente vale zero e é
+        // reamostrada), então a linha seguinte lia `''` e reprovava dizendo "a frase do envio foi
+        // dita ... Received string: ''", isto é, acusando o produto de não ter dito a frase que o
+        // poll ACABARA de ver. Medido em 19/09/2026: verde 3 de 3 numa série e vermelho na rodada
+        // seguinte do mesmo commit, 1 em 4. Guardar o que a amostra vencedora leu remove a segunda
+        // leitura e com ela a corrida.
+        let frase = '';
         await expect.poll(
-            async () => (await lerToasts(page)).find((t) => t.includes('foi enviado ao servidor')) ?? '',
+            async () => {
+                const achada = (await lerToasts(page)).find((t) => t.includes('foi enviado ao servidor')) ?? '';
+                if (achada) frase = achada;
+                return achada;
+            },
             { timeout: 120000 },
         ).toContain('foi enviado ao servidor');
-        const toasts = await lerToasts(page);
-        const frase = toasts.find((t) => t.includes('foi enviado ao servidor')) ?? '';
         await testInfo.attach('a frase do envio', { body: frase, contentType: 'text/plain' });
         expect(frase, 'a frase do envio foi dita').toContain('Acervo Herdado H1');
         expect(frase).toContain('14 mapas');
@@ -411,14 +424,43 @@ describeOrSkip('enviar ao servidor o acervo herdado', () => {
         // caminhos independentes, e duas medidas que discordam indicam defeito, nunca uma escolha
         // entre elas. Sem esta rota o backend do arnês nunca discorda de si mesmo, e o ramo ficaria
         // sem exercício no navegador.
-        await page.route('**/atlas/import', async (route) => {
+        //
+        // SÃO DOIS ENDEREÇOS, E O SEGUNDO É O QUE ESTE GESTO USA HOJE. Até 2026-09-19 havia só
+        // `POST /atlas/import`, e a partir da importação atômica `apiClient.importAtlas` delega ao
+        // `atomicServerImport` (`frontend/src/js/import_export/atomic-server-import.js`) sempre que
+        // o envio leva imagens, que é sempre neste caminho: ele prepara em `POST /atlas/imports` e
+        // publica em `POST /atlas/imports/<id>/commit`, e é o commit que devolve o atlas com
+        // `summary`. A rota antiga deixou de casar, o `summary` chegava intacto, o envio caía no
+        // ramo de SUCESSO e navegava. Medido em 2026-09-19: vermelho 3 de 3, sempre em
+        // `.toast--warning` não encontrado, ou seja, apontando para o produto quando o defasado era
+        // o instrumento. A rota legada fica porque o ramo sem imagens ainda a usa.
+        //
+        // E O CONTADOR É O QUE IMPEDE A PRÓXIMA TROCA DE ENDEREÇO DE ACUSAR A PESSOA ERRADA: sem
+        // ele, "a forja não rodou" e "o produto não avisa" produzem a MESMA falha, na mesma linha.
+        let forjas = 0;
+        const forjarDivergencia = async (route) => {
             const resposta = await route.fetch();
             const corpo = await resposta.json();
-            if (corpo?.data?.summary) corpo.data.summary.mapsImported = 13;
+            if (corpo?.data?.summary) {
+                corpo.data.summary.mapsImported = 13;
+                forjas += 1;
+            }
             await route.fulfill({ response: resposta, body: JSON.stringify(corpo) });
-        });
+        };
+        await page.route('**/atlas/import', forjarDivergencia);
+        await page.route(/\/atlas\/imports\/[^/]+\/commit(\?|$)/, forjarDivergencia);
 
         await enviarPeloCartao(page, nomeDoCartao, 'Acervo Divergente H1');
+
+        // A PREMISSA ANTES DA MEDIÇÃO: a resposta do envio passou por um endereço interceptado e
+        // trazia `summary`. Zero aqui é instrumento defasado, nunca produto mudo.
+        await expect
+            .poll(() => forjas, {
+                timeout: 120000,
+                message: 'a divergência foi mesmo forjada na resposta do envio; zero significa que '
+                    + 'o endereço do import mudou de novo e este caso mediria o nada',
+            })
+            .toBe(1);
 
         // O AVISO FICA NA TELA, e é a única coisa que denuncia a divergência.
         const toast = page.locator('.toast--warning');

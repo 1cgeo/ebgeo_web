@@ -201,10 +201,15 @@ describe('B3-2: a subida fareja a assinatura quando o blob nao tem tipo', () => 
         expect(uploads[0].filename).toBe('id-a.jpg');
     });
 
-    it('SVG sem tipo vira recusa declarada, nao um PNG mentiroso que o servidor derruba', async () => {
+    it('SVG SEM rasterizador vira recusa declarada, nao um PNG mentiroso que o servidor derruba', async () => {
+        // `rasterizeSvg: null` E' EXPLICITO DE PROPOSITO, e nao um detalhe: desde 2026-09-19 o
+        // padrao de `buildImageUploads` CONVERTE o SVG em PNG no navegador. Em node nao ha DOM,
+        // entao o padrao falharia sozinho e este caso ficaria verde medindo a ausencia de canvas
+        // em vez da allowlist. A conversao e a decisao inteira estao em
+        // `tests/unit/icone-svg-rasteriza-no-envio.test.js`.
         const blobs = new Map([['id-svg', new Blob([BYTES_SVG])]]);
 
-        const { uploads, skipped } = await buildImageUploads(blobs);
+        const { uploads, skipped } = await buildImageUploads(blobs, { rasterizeSvg: null });
 
         expect(uploads).toEqual([]);
         expect(skipped).toEqual(['id-svg']);

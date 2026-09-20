@@ -77,6 +77,14 @@ Três limites declarados, porque ausência se confunde com esquecimento:
 
 **Sem `localStorage`, e dentro de um documento de navegador, o fence passou a responder FECHADO.** Fora de um documento (node) ele continua aberto, porque ali não há aba nem consentimento, e é isso que mantém a suíte medindo o produto em vez de medir a guarda.
 
+## A importação local publica por UMA escrita, e a atomicidade é observável
+
+A substituição por `.ebgeo` apagava o atlas montado antes de gravar o arquivo inteiro, então falta de espaço, imagem ilegível ou um recarregamento deixavam o destino pela metade sem o original para onde voltar. Desde 2026-09-19 ela prepara num namespace `import-<uuid>` que registro nenhum nomeia e publica trocando o `dbSuffix` da entrada (`importLocalAtlasAtomically`, `frontend/src/js/store/local-atlas.api.js`). A entrada guarda o `id` e o nome, então o cartão continua o mesmo e a vaga não é consumida, o que importa no teto de dez.
+
+**Não existe transação atravessando os bancos, e é disso que a propriedade depende:** o que se publica é um resultado já COMPLETO, e cada gravação da preparação é relida e comparada antes (`prepareEbgeoScope`, com `sameStorageValue`). O preço é espaço: original e preparação coexistem, e na importação ADITIVA a preparação começa copiando o atlas montado inteiro (`copyAtlasDatabases`, dentro de `prepareAdditiveScope`).
+
+A preparação abandonada sai por diário no registro global, e a recuperação pergunta ao REGISTRO COMMITADO em vez de a uma segunda marca de conclusão, que poderia ficar atrás do commit. Ela degrada como o resto desta página: sem `navigator.locks` só o escritor que falhou limpa, e resíduo cuja exclusão não se consegue arbitrar fica no disco. Sufixo legado e namespace de resgate remoto nunca são apagados por aqui, porque a retenção deles tem outro dono.
+
 ## O REGISTRO DE QUARENTENA é o que o expurgo não alcança
 
 A fila é por atlas, então a op RECUSADA pelo servidor, ou escrita por um protocolo que este build não reenvia, morava no banco que o logout confirmado destrói. E ela **não é pendência**: ela não está esperando envio, está esperando DECISÃO. O usuário concordava em perder pendências e perdia, calado, também o que já tinha sido posto de lado.
@@ -112,7 +120,7 @@ A lista do que é global à instalação está em código (`GlobalKey`, mais `pe
 
 **A fila é o único banco por atlas que NÃO é dado do atlas** (`atlasData: false`), e essa distinção decide duas listas que parecem uma só:
 
-- o **wipe de entrada** (`clearAllAtlasStores`, derivado de `listAtlasStores`) **não** a alcança. `openRemoteAtlas` ativa o namespace do atlas que está abrindo e esvazia três linhas depois: uma fila dentro daquela lista seria o trabalho pendente DO ATLAS QUE ABRE, destruído segundos antes do `connect` que o drenaria;
+- o **wipe de entrada** (`clearAllAtlasStores`, derivado de `listAtlasStores`) **não** a alcança. Os caminhos que ainda esvaziam antes de montar um atlas remoto ativam o namespace de destino primeiro, então uma fila dentro daquela lista seria o trabalho pendente DO ATLAS QUE ABRE, destruído segundos antes do `connect` que o drenaria. `openRemoteAtlas` saiu dessa lista em 2026-09-19 e não esvazia mais nada no caminho normal, mas a razão continua valendo para caminho novo;
 - a **destruição de namespace** (`clearAtlasDatabases` e `dropAtlasDatabases`, tudo que é `perAtlas`) a alcança, e precisa: uma op carrega o payload da entidade, então fila de pé depois do logout é dado de servidor legível, que é o invariante desta página;
 - a **cópia de um atlas local** (`copyAtlasDatabases`, desde 2026-08-16) NÃO a alcança, pelo motivo mais direto dos três: operação pendente descreve trabalho que o atlas ORIGINAL ainda deve ao servidor, e uma cópia que a levasse junto tentaria empurrar as mesmas ops de novo, com os mesmos `op_id`, a partir de um atlas que nunca as gerou. É a mesma lista do wipe de entrada, e por isso a distinção `atlasData` tem três leitores, não dois.
 

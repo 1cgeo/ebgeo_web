@@ -136,8 +136,16 @@ describe('sair do atlas · DELETE /sharing/me', () => {
     const atlas = await createAtlas(db, dono.id, { name: `Sai ${U()}` });
 
     const res = await sair(donoTok, atlas.id).expect(409);
-    assert.match(res.body.error?.message ?? '', /transfira a posse/i,
+    const mensagem = res.body.error?.message ?? '';
+    assert.match(mensagem, /transfira a posse/i,
       'a recusa precisa nomear o caminho, senão ela só informa que não dá');
+    // AS DUAS SAÍDAS, e não uma. A cláusula 5.8 diz que a recusa nomeia "transferir a posse
+    // OU mandar à lixeira", e até 2026-09-19 só a primeira metade era cobrada: apagar a
+    // segunda do texto deixava este arquivo verde e a pessoa com uma saída a menos. São as
+    // duas rotas que de fato existem, e a regra da 4.7 vale igual aqui — negativa sem saída
+    // é só um muro, e um muro com metade das saídas manda a pessoa procurar a que sobrou.
+    assert.match(mensagem, /lixeira/i,
+      'a segunda saída (mandar o atlas para a lixeira) também precisa ser nomeada');
 
     const { rows } = await db.query('SELECT owner_id FROM atlas WHERE id = $1', [atlas.id]);
     assert.equal(rows.length, 1);

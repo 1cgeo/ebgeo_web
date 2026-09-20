@@ -30,21 +30,28 @@
 # image whose two stages come from different base images, silently.
 #
 # Updating it is docs/wiki/deploy-backend.md, section "Trocar o digest da imagem base".
-# Pinned on 2026-09-14 (decision D9, item V8), digest read by three independent paths
-# on that date: `docker manifest inspect`, `docker buildx imagetools inspect`, and the
-# registry HTTP API (`docker-content-digest` header, content type
-# `application/vnd.oci.image.index.v1+json`). All three agreed with each other and with
-# the digest recorded in the inventory on 2026-09-13.
+#
+# RAISED ON 2026-09-19, by the owner's decision, from
+# sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 (pinned on
+# 2026-09-14, decision D9 item V8) to the index the tag carries today. The tag had been
+# republished on 2026-09-19, so the old pin and the tag had diverged; the old one stays
+# written here because a pin with no predecessor cannot answer "since when", and because
+# the previous digest is what a rollback needs. Read back with `docker buildx imagetools
+# inspect node:22-bookworm-slim@<digest>`: the reply has to be the index media type
+# (`application/vnd.oci.image.index.v1+json`) with one entry per platform, never a single
+# manifest. Proof build of the new pin ran on the same date with `--no-cache`, so the
+# `npm ci --omit=dev` below actually executed instead of being restored from a layer:
+# exit 0, Node v22.23.2, npm 10.9.8, Debian 12.15 (bookworm).
 
 # ---- deps: install production dependencies only ----
-FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS deps
+FROM node:22-bookworm-slim@sha256:48e4b67d85f87bd551df43704e24d252f56cc5f8e9718841aace50f19948f0f9 AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 # ---- runtime ----
 # Same index digest as the `deps` stage above, on purpose. See the block before it.
-FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS runtime
+FROM node:22-bookworm-slim@sha256:48e4b67d85f87bd551df43704e24d252f56cc5f8e9718841aace50f19948f0f9 AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 

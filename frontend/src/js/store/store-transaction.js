@@ -144,9 +144,14 @@ export async function runTransaction(workFn) {
     // (STORE_OPERATION_BLOCKED), not a persistence failure, and the catch would relabel it.
     const barrier = await enterCoordinatedWrite(tx.scope);
     if (barrier.blocked) {
+        // `message` is what reaches the person: the store-error listener shows a block's own
+        // sentence when it ships one and otherwise falls back to a role sentence, which would be
+        // false here (the refusal is a STATE, another window leaving the account, not a role).
+        // `reason` keeps the constant for whoever recognises the refusal programmatically.
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
             operation: 'transaction',
             reason: LOGOUT_BARRIER_NOTICE,
+            message: LOGOUT_BARRIER_NOTICE,
             timestamp: Date.now()
         });
         throw new Error(LOGOUT_BARRIER_NOTICE);

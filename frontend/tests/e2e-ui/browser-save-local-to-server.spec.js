@@ -25,6 +25,7 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { loginUI, goToLocalMapUI, drawPointUI } from './helpers/collab-helpers.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { createDb, closeDb } from './helpers/db.js';
 import {
     idbDatabaseNames, readIdbFeatureIds, mapsDbOf, activeMapsDbOf, remoteSuffix,
 } from './helpers/two-tabs.js';
@@ -35,11 +36,16 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 /**
  * Drives the whole UI flow: register → login → local map → draw a point → account menu →
  * "Enviar ao servidor" → name + confirm → the app is LIVE on the new atlas.
+ * @param {import('@playwright/test').Browser} browser
+ * @param {string} baseUrl
+ * @param {Object} [options]
+ * @param {(page: import('@playwright/test').Page, featureId: string) => Promise<void>} [options.seed]
+ *   Runs on the LOCAL store, after the point exists and before "Enviar ao servidor" is clicked.
  * @returns {Promise<{ctx: import('@playwright/test').BrowserContext,
  *   page: import('@playwright/test').Page, creds: {username:string,password:string},
  *   featureId: string}>}
  */
-async function driveSaveLocalToServer(browser, baseUrl) {
+async function driveSaveLocalToServer(browser, baseUrl, { seed } = {}) {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
     await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${baseUrl}/api/v1`);
@@ -75,6 +81,11 @@ async function driveSaveLocalToServer(browser, baseUrl) {
     expect(localCount.points).toBeGreaterThan(0);
     expect(localCount.connected).toBe(false);
 
+    // O acervo local ganha o que o caso quiser ANTES da rede, porque é exatamente a preparação do
+    // envio que se está exercitando: o que entra aqui tem de atravessar as duas verificações que
+    // recusam o atlas inteiro (feição descartável e imagem fora da allowlist).
+    if (seed) await seed(page, featureId);
+
     // Open the account menu → "Enviar ao servidor" (visible only when logged in + local).
     await page.locator('[data-testid="account-control"] .account-control__identity').click();
     const saveBtn = page.locator('[data-testid="account-save-server-btn"]');
@@ -102,6 +113,15 @@ async function driveSaveLocalToServer(browser, baseUrl) {
 
     return { ctx, page, creds, featureId, atlasId };
 }
+
+/**
+ * Um SVG de verdade, com tamanho declarado, desenho visível e nada de externo: é o ícone que o
+ * atlas leva. A cor é berrante de propósito, para que a captura de tela de quem investigar este
+ * caso mostre o marcador sem ambiguidade.
+ */
+const SVG_DO_ICONE = '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">'
+    + '<circle cx="24" cy="24" r="22" fill="#ff00aa" stroke="#1a0033" stroke-width="4"/>'
+    + '</svg>';
 
 describeOrSkip('Salvar atlas local no servidor (UI, item 2)', () => {
     test('logged-in local user packages the local store into a new server atlas and goes live', async ({ browser }) => {
@@ -246,6 +266,103 @@ describeOrSkip('Salvar atlas local no servidor (UI, item 2)', () => {
                     expect(local.featureIds, `${db} (local) não recebeu a edição feita no atlas de servidor`)
                         .not.toContain(liveId);
                 }
+            } finally {
+                await ctx.close();
+            }
+        });
+    });
+
+    /**
+     * O ÍCONE PERSONALIZADO EM SVG, que é o caso que a decisão de 2026-09-19 abriu e a de
+     * 2026-09-19 (segunda) fechou.
+     *
+     * O QUE ESTE CASO REPROVA. A allowlist do servidor é png/jpeg/webp e nunca ganhará SVG. Quando
+     * `skipped` virou recusa do envio INTEIRO, um atlas local com um ícone em SVG deixou de ter
+     * caminho nenhum para o servidor: a modal de criação falhava e nada era publicado. A decisão do
+     * dono foi CONVERTER na preparação, e é essa conversão que se mede aqui, de ponta a ponta.
+     *
+     * A MEDIDA É DO POSTGRES, e não do snapshot: o snapshot passa pelo cliente que acabou de
+     * escrever, e o que se quer saber é o que o servidor GUARDOU. A linha de `images` tem de
+     * existir sob o id que a feição nomeia e tem de ser `image/png`, porque a referência viaja
+     * dentro de `markerSymbol` e o par busca o blob por ela.
+     *
+     * E O DISCO LOCAL CONTINUA SVG, asserido no fim: só o blob ENVIADO muda de formato. Sem essa
+     * metade, uma implementação que reescrevesse o registro local passaria igual, e o autor
+     * perderia o vetor que ele escolheu guardar.
+     */
+    test.describe('ícone personalizado em SVG', () => {
+        test.afterAll(async () => { await closeDb(); });
+
+        test('o SVG é rasterizado na preparação e sobe como PNG, sob o mesmo id', async ({ browser }) => {
+            test.setTimeout(120000);
+
+            let iconId = null;
+            const { ctx, page, atlasId } = await driveSaveLocalToServer(browser, state.baseUrl, {
+                seed: async (p, featureId) => {
+                    iconId = await p.evaluate(async ({ svg, fid }) => {
+                        const store = await import('/src/js/store/index.js');
+                        const { generateUUID } = await import('/src/js/utilities/uuid.js');
+                        const id = generateUUID();
+                        // O BLOB VAI PARA O DISCO COMO SVG, que é o estado que este caso existe
+                        // para exercitar: é assim que um ícone chega por um `.ebgeo` antigo e é
+                        // assim que ele ficava preso.
+                        await store.storeImage(id, new Blob([svg], { type: 'image/svg+xml' }));
+                        await store.restoreCustomIconsFromImport(
+                            [{ id, name: 'Círculo SVG', thumbnail: '', type: 'image/svg+xml', createdAt: Date.now() }],
+                            { replace: true },
+                        );
+                        await store.updateFeatureProperty('points', fid, 'markerSymbol', `custom:${id}`);
+                        return id;
+                    }, { svg: SVG_DO_ICONE, fid: featureId });
+                },
+            });
+
+            try {
+                expect(iconId, 'o ícone em SVG foi semeado no acervo local').toBeTruthy();
+                // O PRIMEIRO FATO É QUE O ATLAS NASCEU: antes desta decisão o fluxo parava na
+                // modal, com "Há imagens ou feições que não podem ser convertidas".
+                expect(atlasId, 'o atlas foi publicado apesar do ícone em SVG').toBeTruthy();
+
+                // O id do ícone é RECUNHADO no envio (`imageIdMap`), então o servidor não guarda o
+                // id local. O que tem de casar é o par (referência da feição, linha de `images`), e
+                // é ele que se lê do Postgres.
+                const db = createDb(state.dbName);
+                const pontos = await db.raw.any(
+                    `SELECT f.properties->>'markerSymbol' AS simbolo
+                       FROM features f JOIN maps m ON m.id = f.map_id
+                      WHERE m.atlas_id = $1 AND f.deleted_at IS NULL
+                        AND f.properties->>'markerSymbol' LIKE 'custom:%'`,
+                    [atlasId],
+                );
+                const simbolos = pontos.map((linha) => linha.simbolo).filter(Boolean);
+                expect(simbolos, 'o ponto chegou ao servidor nomeando um ícone personalizado')
+                    .toHaveLength(1);
+                expect(simbolos[0].startsWith('custom:')).toBe(true);
+                const idNoServidor = simbolos[0].slice('custom:'.length);
+
+                const imagens = await db.raw.any(
+                    'SELECT id, mime_type, size_bytes FROM images WHERE atlas_id = $1',
+                    [atlasId],
+                );
+                expect(imagens, 'o atlas publicado guarda exatamente o blob do ícone').toHaveLength(1);
+                expect(imagens[0].id, 'o blob está sob o id que a feição nomeia').toBe(idNoServidor);
+                // O CORAÇÃO DO CASO: os bytes que viajaram são PNG, e o servidor confere magic
+                // bytes contra o tipo declarado, então `image/png` aqui prova que os bytes também são.
+                expect(imagens[0].mime_type, 'o SVG virou PNG na preparação do envio').toBe('image/png');
+                expect(Number(imagens[0].size_bytes), 'o PNG não está vazio').toBeGreaterThan(0);
+
+                // E O DISCO LOCAL NÃO FOI REESCRITO.
+                const tipoLocal = await page.evaluate(async (id) => {
+                    const { getStoreFor, StoreName } = await import('/src/js/store/atlas-namespace.js');
+                    const { scopeOfLocalAtlas, listLocalAtlases } = await import('/src/js/store/local-atlas.api.js');
+                    for (const entrada of listLocalAtlases()) {
+                        const blob = await getStoreFor(StoreName.IMAGES, scopeOfLocalAtlas(entrada)).getItem(id);
+                        if (blob) return blob.type;
+                    }
+                    return null;
+                }, iconId);
+                expect(tipoLocal, 'o registro local continua sendo o SVG que o autor guardou')
+                    .toBe('image/svg+xml');
             } finally {
                 await ctx.close();
             }

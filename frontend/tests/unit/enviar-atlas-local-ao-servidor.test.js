@@ -568,6 +568,105 @@ describe('sendLocalAtlasToServer', () => {
 });
 
 // ============================================================================
+// 6 — A PORTA DO MAPA, que é a metade da cláusula 7.2 que este arquivo DESCREVIA
+//     em prosa e não media
+// ============================================================================
+
+describe('a OUTRA porta (o mapa): o store local É o atlas que sobe', () => {
+    /**
+     * A cláusula 7.2 tem DUAS portas, e a tabela de provas parciais de
+     * `docs/wiki/permissoes-atlas.md` registrava que nenhum dos três arquivos citados media a do
+     * MAPA. O cabeçalho deste arquivo já a usava como CONTRASTE ("o irmão do mapa, que apaga o
+     * store porque o store É o atlas que subiu") sem uma asserção em lugar nenhum: contraste em
+     * prosa envelhece do lado que ninguém mede.
+     *
+     * A MEDIÇÃO É ESTRUTURAL, e a escolha é a mesma de
+     * `tests/integration/wipe-de-salvar-no-servidor-sem-testemunha.repro.test.js`: montar o
+     * `AccountControl` arrasta MapLibre, modais e a store inteira, e o que se quer prender é a
+     * ORDEM de três chamadas, que é o contrato. O comportamento com navegador de verdade é
+     * `tests/e2e-ui/browser-save-local-to-server.spec.js`, fora do `npm test`.
+     */
+    const SRC = new URL('../../src/js/', import.meta.url);
+
+    /** O código de um arquivo de `src/js`, sem comentário (bloco e linha), preservando as linhas. */
+    async function codigoDe(rel) {
+        const { readFileSync } = await import('node:fs');
+        return readFileSync(new URL(rel, SRC), 'utf8')
+            .replace(/\/\*[\s\S]*?\*\//g, (bloco) => bloco.replace(/[^\n]/g, ' '))
+            .replace(/^([ \t]*)\/\/.*$/gm, (linha, indent) => indent
+                + ' '.repeat(Math.max(0, linha.length - indent.length)));
+    }
+
+    /**
+     * O corpo de um método ou função, cortado entre dois marcadores SINTÁTICOS.
+     *
+     * Cortar por contagem de caracteres falha nas duas direções e falha calado; por isso o fim é
+     * o início do vizinho seguinte, e as duas posições são asseridas antes do corte.
+     */
+    function corpoEntre(fonte, inicio, fim) {
+        const i = fonte.indexOf(inicio);
+        expect(i, `o marcador de início existe: ${inicio}`).toBeGreaterThan(-1);
+        const f = fonte.indexOf(fim, i);
+        expect(f, `a fronteira seguinte existe: ${fim}`).toBeGreaterThan(i);
+        return fonte.slice(i, f);
+    }
+
+    it('a porta do MAPA sobe o store MONTADO, e o wipe vem DEPOIS da leitura', async () => {
+        const corpo = corpoEntre(
+            await codigoDe('account/account.control.js'),
+            'async saveLocalToServer(',
+            '\n    async _handleDeleteAtlas('
+        );
+
+        // 1. O QUE SOBE É O STORE MONTADO. A chamada de upload não recebe entrada de registro
+        // nenhuma: ela recebe o serviço de exportação e o nome, e lê o escopo ATIVO. É isto que
+        // a cláusula chama de "o store local É o atlas que sobe", e é o que a distingue da porta
+        // da lista, cuja primeira coisa é o `atlas` do cartão clicado.
+        expect(corpo).toMatch(/saveLocalAtlasToServer\(\s*apiClient,\s*exportService,\s*\{\s*name\s*\}\s*\)/);
+
+        // 2. A ORDEM É O CONTRATO, e é o que impede o wipe de apagar o que ainda não subiu.
+        const posUpload = corpo.indexOf('saveLocalAtlasToServer(');
+        const posAtiva = corpo.indexOf('activateRemoteAtlas(');
+        const posWipe = corpo.indexOf('clearAllDataStore(');
+        const posMarca = corpo.indexOf('markStoreRemote(');
+        expect(posUpload).toBeGreaterThan(-1);
+        expect(posAtiva).toBeGreaterThan(-1);
+        expect(posWipe).toBeGreaterThan(-1);
+        expect(posMarca).toBeGreaterThan(-1);
+        // Ler antes de apagar: invertê-los sobe um atlas vazio e destrói o original.
+        expect(posUpload, 'o upload lê o store, então precede o wipe').toBeLessThan(posWipe);
+        // Ativar o namespace antes de apagar: o wipe esvazia o escopo ATIVO, e sem a troca ele
+        // cairia no slot local da pessoa em vez de no do atlas novo.
+        expect(posAtiva, 'o namespace do atlas novo é montado antes do wipe').toBeLessThan(posWipe);
+        // E a marca de origem vem DEPOIS do wipe, porque `clearAllDataStore` recebe
+        // `markLocal: false` e quem declara REMOTE é a linha seguinte.
+        expect(posWipe, 'a marca de origem fecha a troca, depois do wipe').toBeLessThan(posMarca);
+        expect(corpo).toMatch(/clearAllDataStore\(\s*\{\s*markLocal:\s*false\s*\}\s*\)/);
+
+        // 3. O WIPE É A TROCA DE ATLAS, e não um efeito solto: o mesmo bloco conecta em seguida.
+        expect(corpo.indexOf('syncEngine.connect('), 'a troca termina conectando').toBeGreaterThan(posMarca);
+    });
+
+    it('a porta da LISTA não apaga nada: é a DISCRIMINAÇÃO que dá sentido à de cima', async () => {
+        // Sem esta metade, "a porta do mapa apaga" seria compatível com um produto em que as duas
+        // apagam, e a cláusula 7.2 diz justamente que elas se comportam DIFERENTE. O caso de
+        // comportamento ("NÃO DESTRUTIVO: os dez bancos saem byte a byte como entraram") mede o
+        // serviço; este mede a PORTA, que é onde o wipe entraria se alguém o acrescentasse.
+        const corpo = corpoEntre(
+            await codigoDe('projects/projects-page.js'),
+            'async function sendLocalAtlasToServerFromPage(atlas)',
+            '\nasync function openLocalAtlas('
+        );
+
+        expect(corpo).toMatch(/sendLocalAtlasToServer\(\s*atlas\s*,/);
+        expect(corpo, 'a porta da lista não esvazia banco nenhum').not.toMatch(/clearAllDataStore\(/);
+        expect(corpo, 'nem monta o namespace: ela copia e continua onde está')
+            .not.toMatch(/activateRemoteAtlas\(/);
+        expect(corpo, 'nem troca a marca de origem desta aba').not.toMatch(/markStoreRemote\(/);
+    });
+});
+
+// ============================================================================
 // 5 — A FORMA DO BALDE: `barrier_lines` da 2.2 não pode evaporar no envio
 // ============================================================================
 

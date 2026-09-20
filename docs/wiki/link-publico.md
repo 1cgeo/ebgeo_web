@@ -12,6 +12,8 @@ O empréstimo que o atlas faz de um recurso privado **alcança o visitante do li
 
 Duas consequências que não se adivinham. O aviso **não** conta, nomeia: "3 recursos privados" não permite decidir nada. E um empréstimo **órfão** (a linha de catálogo sumiu) não entra nele, porque não expõe byte nenhum; contá-lo encheria o aviso de fantasmas e treinaria o dono a ignorá-lo.
 
+**E a lista que não carrega não é uma lista vazia.** Até 2026-09-19 a falha em `listAtlasResources` deixava o aviso sumir, com o argumento escrito de que uma caixa de erro diria ao dono que havia algo errado no compartilhamento, quando não havia. O argumento caiu porque o custo estava do outro lado: não conseguir confirmar os empréstimos não torna o link menos capaz de expô-los, e a tela silenciosa é indistinguível de "não há nada privado aqui". Hoje `avisoDeExposicao` (`frontend/src/js/modals/link-publico-phrases.js`) distingue três estados, e só a lista confirmada vazia não desenha nada: a lista desconhecida avisa sem inventar nome nenhum e manda reabrir o compartilhamento antes de publicar.
+
 **O que o visitante NÃO alcança**, e é limite de plataforma e não decisão: a foto de item de uma cena 3D de primeira pessoa emprestada. Ela vira `img.src`, que só o cookie de sessão alcança, e o visitante não tem cookie (o token dele é efêmero e mora só em memória, por contrato do cliente). Um cookie para ele seria pior: cookie é por navegador e não por aba, e sobrescreveria a sessão de quem estivesse logado noutra aba. Ver [[tile-privado]] para os três transportes de credencial.
 
 ## O link não é a autoridade

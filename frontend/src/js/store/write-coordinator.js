@@ -28,6 +28,18 @@
  *     {@link LOGOUT_BARRIER_NOTICE}, because a write parked behind a dialog somebody may leave open
  *     is a frozen interface, and the interface is not what the barrier is protecting.
  *
+ * THE COVERAGE IS EVERY NAMESPACE THE CENSUS COVERS, NOT ONLY THE ACTIVE ONE (2026-09-19). Until
+ * that date the dialog took {@link holdLogoutBarrier} on the scope the leaving tab happened to have
+ * mounted, while the census counted and the discard marked EVERY server namespace on the browser.
+ * Crossed with the tab lock's owner rule, that left the guard pointing away from the danger: two
+ * tabs in the SAME atlas collide, so the sibling the barrier refused was always a BLOCKED tab
+ * behind a full screen overlay with no gesture available, and the sibling it let through was the
+ * one still LIVE in another server atlas, with a toolbar. Measured with two real tabs: with the
+ * dialog open, that sibling drew a point through the UI and its outbound queue grew after the
+ * census the dialog had just printed. So the dialog now takes {@link holdLogoutBarriers} over the
+ * whole list, in PARALLEL and under ONE deadline for the set: N deadlines in series would multiply
+ * the wait a person stares at by the number of atlases they happen to have on the machine.
+ *
  * WHY THE CROSS-TAB CHECK IS NOT INSIDE `beginStoreWrite`: that function is synchronous and every
  * caller of `runTransaction` depends on it being so, while a lock request is not. Caching the
  * answer would reintroduce exactly the thing this replaces, a belief about another tab instead of a
@@ -359,65 +371,86 @@ export async function logoutBarrierBlocks(scope) {
 export const BARRIER_DRAIN_TIMEOUT_MS = 3000;
 
 /**
- * TAKES THE BARRIER FOR THE LOGOUT DIALOG: exclusive, and it waits for the writers.
+ * TAKES THE BARRIER FOR THE LOGOUT DIALOG OVER N NAMESPACES: exclusive on each, in parallel, and
+ * it waits for the writers of all of them.
  *
- * The request is NOT `ifAvailable`, and that is the point: pending is what refuses the siblings,
- * and the grant is what proves they finished. It is raced against a deadline and ABORTED on
- * timeout, because a request left pending would be granted later and then held forever, which
- * would wedge every writer in every tab (measured: after `abort()` the callback never runs and the
- * name is free again).
+ * Each request is NOT `ifAvailable`, and that is the point: pending is what refuses the siblings,
+ * and the grant is what proves they finished. They are raced against ONE deadline for the SET and
+ * ABORTED together on timeout, because a request left pending would be granted later and then held
+ * forever, which would wedge every writer in every tab (measured: after `abort()` the callback
+ * never runs and the name is free again).
  *
- * @param {{kind?: string, dbSuffix?: string}|null} scope - Remote scope being left.
+ * THE SINGLE DEADLINE IS PART OF THE CONTRACT, not an implementation detail. Asking name by name
+ * would make the wait a person stares at grow with the number of server atlases on the machine,
+ * for a dialog whose whole job is to answer "how much am I about to lose" quickly. The set either
+ * drains inside the window or the count is unknown, which is the same honest verdict the single
+ * scope version always produced.
+ *
+ * @param {Array<{kind?: string, dbSuffix?: string}|null|undefined>} scopes - Remote scopes being
+ *   left. Anything that names no barrier (a local scope, a malformed entry) is dropped.
  * @param {{timeoutMs?: number}} [options]
  * @returns {Promise<{held: boolean, drained: boolean, supported: boolean,
  *   release: () => Promise<void>}>} `drained` is the only field a census may believe: true means
- *   every tab's writers finished (or that there is nothing to arbitrate, i.e. a local scope or a
- *   runtime without locks, where the answer is the per-tab one this module always gave). `held`
- *   says whether new writes are being refused right now.
+ *   that EVERY covered namespace drained (or that there is nothing to arbitrate, i.e. only local
+ *   scopes or a runtime without locks, where the answer is the per-tab one this module always
+ *   gave). `held` says whether new writes are being refused right now.
  */
-export async function holdLogoutBarrier(scope, { timeoutMs = BARRIER_DRAIN_TIMEOUT_MS } = {}) {
+export async function holdLogoutBarriers(scopes, { timeoutMs = BARRIER_DRAIN_TIMEOUT_MS } = {}) {
     const manager = lockManager();
-    const name = barrierNameFor(scope);
     const idle = { held: false, drained: true, supported: false, async release() {} };
-    if (!manager || !name) return idle;
+    if (!manager) return idle;
+
+    // Deduplicated: the active scope is normally also one of the census entries, and asking the
+    // same name twice would make this function wait on ITSELF, which never drains.
+    const names = [...new Set((scopes ?? []).map(barrierNameFor).filter(name => name !== null))];
+    if (names.length === 0) return idle;
 
     const controller = new AbortController();
-    let release = () => {};
-    let resolveHeld;
     let abandoned = false;
-    const held = new Promise(resolve => { resolveHeld = resolve; });
-    let settled;
-    try {
-        settled = manager.request(
-            name,
-            { mode: 'exclusive', signal: controller.signal },
-            () => {
-                // THE GRANT CAN RACE THE ABORT, and holding it then would wedge every writer in
-                // every tab forever. A grant that arrives after the deadline is dropped on the
-                // spot: returning nothing releases the lock immediately.
-                if (abandoned) return undefined;
-                const untilReleased = new Promise(resolve => { release = resolve; });
-                resolveHeld(true);
-                return untilReleased;
-            }
-        );
-        settled.catch(() => resolveHeld(false));
-    } catch {
-        return { ...idle, supported: true };
+    const takers = [];
+    for (const name of names) {
+        let release = () => {};
+        let resolveHeld;
+        const held = new Promise(resolve => { resolveHeld = resolve; });
+        try {
+            const settled = manager.request(
+                name,
+                { mode: 'exclusive', signal: controller.signal },
+                () => {
+                    // THE GRANT CAN RACE THE ABORT, and holding it then would wedge every writer in
+                    // every tab forever. A grant that arrives after the deadline is dropped on the
+                    // spot: returning nothing releases the lock immediately.
+                    if (abandoned) return undefined;
+                    const untilReleased = new Promise(resolve => { release = resolve; });
+                    resolveHeld(true);
+                    return untilReleased;
+                }
+            );
+            settled.catch(() => resolveHeld(false));
+            takers.push({ held, settled, release: () => release() });
+        } catch {
+            // A runtime that refuses the request must not refuse the logout: that one name falls
+            // back to the per-tab regime, exactly as the single scope version always did.
+        }
     }
+    if (takers.length === 0) return { ...idle, supported: true };
 
     let timer;
     const drained = await Promise.race([
-        held,
+        Promise.all(takers.map(taker => taker.held)).then(grants => grants.every(Boolean)),
         new Promise(resolve => { timer = setTimeout(() => resolve(false), timeoutMs); }),
     ]);
     clearTimeout(timer);
 
+    const soltarTudo = async () => {
+        for (const taker of takers) taker.release();
+        await Promise.all(takers.map(taker => taker.settled.catch(() => undefined)));
+    };
+
     if (!drained) {
         abandoned = true;
         controller.abort();
-        release();
-        await settled.catch(() => undefined);
+        await soltarTudo();
         return { held: false, drained: false, supported: true, async release() {} };
     }
 
@@ -429,8 +462,19 @@ export async function holdLogoutBarrier(scope, { timeoutMs = BARRIER_DRAIN_TIMEO
         async release() {
             if (released) return;
             released = true;
-            release();
-            await settled.catch(() => undefined);
+            await soltarTudo();
         },
     };
+}
+
+/**
+ * The single scope form of {@link holdLogoutBarriers}, kept for call site stability and because
+ * most of this module's tests are written against one namespace.
+ * @param {{kind?: string, dbSuffix?: string}|null} scope - Remote scope being left.
+ * @param {{timeoutMs?: number}} [options]
+ * @returns {Promise<{held: boolean, drained: boolean, supported: boolean,
+ *   release: () => Promise<void>}>}
+ */
+export function holdLogoutBarrier(scope, options = {}) {
+    return holdLogoutBarriers([scope], options);
 }

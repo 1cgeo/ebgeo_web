@@ -262,22 +262,22 @@ const ISENTOS = new Set([
     // que exige a ausência da pasta e a ausência de qualquer referência a ela em `src/`.
     'frontend/public/vendors/cesium/cesium-viewshed.js',
     'frontend/src/js/3d_models_viewer_tool/services/cesium-compat.js',
-    // APAGADO EM 2026-09-15 (D9, item V5, superado pelo dono na mesma data), e citado por
-    // `docs/reviews/pendencias-abertas.md` dentro de uma linha que começa por "Feito em
-    // 14/09/2026": é o registro datado de que o texto do pedido existia e estava pronto para
-    // enviar naquele dia. Reescrever aquela linha para apontar para o que existe hoje apagaria a
-    // prova do estado que se decidiu mudar, que é a mesma razão das isenções acima.
+    // A ISENÇÃO DE `docs/seguranca/aholo-viewer-pedido-de-manifesto.md` SAIU EM 2026-09-19, e a
+    // razão é a mesma que as isenções acima invocam ao contrário: isenção sem beneficiário é
+    // como um guarda volta a abrir sozinho. Ela nasceu porque documentos de trabalho datados
+    // citavam aquele pedido, apagado em 2026-09-15 (D9, item V5, superado pelo dono na mesma
+    // data). Hoje nenhum markdown do corpus vigiado o cita: a linha que o comentário anterior
+    // apontava, no documento de pendências do lançamento (apagado em 2026-09-19), já não trazia o caminho, e quem o citava
+    // de fato era o manifesto de dependências, que não é markdown e portanto nunca foi varrido
+    // por este teste. Ou seja, a isenção já estava sem sujeito antes desta poda, e o comentário
+    // que a justificava apontava para uma citação que não existe.
     //
-    // O pedido não foi respondido nem esquecido: ele deixou de existir porque os dois pontos
-    // cegos que ele ia perguntar fecharam sozinhos, por hash contra os artefatos publicados
-    // (Draco 1.5.7; o transcodificador Basis num intervalo de commits entre as tags
-    // v1_60_snapshot e v1_60_snapshot_final). O fecho está no bloco `aholoViewerDeclarado` do
-    // manifesto de dependências e no item 4 de `docs/wiki/inventario-de-vendors.md`.
-    //
-    // A isenção não deixa buraco, e o guarda segue o padrão do MapLibre, do Three.js e do
-    // viewshed: quem cobra que o documento NÃO voltou, e que os dois veredictos continuam
-    // escritos no manifesto, é `frontend/tests/unit/inventario-de-vendors.test.js`.
-    'docs/seguranca/aholo-viewer-pedido-de-manifesto.md',
+    // O manifesto, o script de inventário e o teste que prendia os dois foram apagados em
+    // 2026-09-19, porque a pasta de cópias de terceiro que eles cobriam fechou em zero em
+    // 2026-09-15. O que sobrevive daquele fecho é prosa: os dois veredictos (Draco 1.5.7 byte a
+    // byte; o transcodificador Basis num intervalo de commits entre as tags de snapshot da
+    // linha 1.60) moram no item 4 de `docs/wiki/inventario-de-vendors.md`, e nada cobra que
+    // continuem lá.
 ]);
 
 /**

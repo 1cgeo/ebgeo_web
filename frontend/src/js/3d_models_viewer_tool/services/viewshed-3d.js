@@ -7,8 +7,10 @@
  * It replaces `frontend/public/vendors/cesium/cesium-viewshed.js`, 154710 bytes of obfuscated,
  * unlicensed, unattributed UMD that ran with the product page's privileges and was coupled to
  * eleven private `ShadowMap` fields. Decision D15 of 2026-09-15 (`docs/decisions/decisions-2026.md`);
- * the behaviour inventory this file implements is `docs/wiki/viewshed-3d.md`, and the acceptance it
- * answers is `docs/seguranca/cesium-viewshed-reescrita-aceite.md`.
+ * the behaviour inventory this file implements is `docs/wiki/viewshed-3d.md`. The acceptance
+ * document it answered was deleted on 2026-09-15, once it had served its purpose, and the folder
+ * that held it went on 2026-09-19 with the vendor manifest; what survives of both is prose in
+ * `docs/wiki/viewshed-3d.md` and `docs/wiki/inventario-de-vendors.md`.
  *
  * ## THE PRIVATE SURFACE THAT SURVIVED, AND WHY EACH ONE IS UNAVOIDABLE
  *

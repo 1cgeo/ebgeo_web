@@ -18,10 +18,15 @@ import { captureImageContext } from '../store/image-context.js';
  *
  * OS TRES CONTRATOS DESTA TABELA, e cada um fecha um caminho que ACONTECE SEM CLIQUE:
  *
- *   1. `tipoDeUi` — o que `activeTool.type` vale quando a ferramenta esta ativa. Hoje o
- *      ToolManager o deriva de `tool.constructor.name`, o que so funciona porque o build usa
- *      `keepNames: true`. A coluna elimina essa fragilidade E responde sincrono, que e o que o
- *      pintor de botao precisa: ele nao pode esperar por rede.
+ *   1. `tipoDeUi` — what `activeTool.type` is worth while the tool is active. `ensureControl` and
+ *      `seedControl` STAMP it onto every instance they hand out, and that stamp is the only
+ *      reliable source. The ToolManager still falls back to `tool.constructor.name`, and that
+ *      fallback DOES NOT SURVIVE THE PRODUCTION BUNDLE: `esbuild: { keepNames: true }` in
+ *      `vite.config.js` does not reach the final pass, which is terser, whose `mangle` does not
+ *      ask for `keep_classnames` — so `AddPointControl` ships as `a` and every tool button stays
+ *      dark. Measured in 2026-09-19; guard in `tests/unit/tool-types-minified.test.js`. The column
+ *      also answers SYNCHRONOUSLY, which is what the button painter needs: it cannot wait on a
+ *      network round trip.
  *
  *   2. `tipoDeFeicao` / `fontes` / `alcaDeEdicao` — o SelectionManager procura o controle por
  *      tipo ao CLICAR numa feicao ja desenhada, sem gesto de ferramenta nenhum. Ele recebe
