@@ -72,7 +72,10 @@ import { showConfirm, showChoice } from '@modals/confirm.modal.js';
 import { PromptModal } from '@modals/prompt.modal.js';
 import { showLoginModal } from '@modals/login.modal.js';
 // Por ARQUIVO, como os vizinhos: esta página não monta a store, e o barrel `@modals` a arrasta.
-import { showSignupModal } from '@modals/signup.modal.js';
+// E NÃO O MODAL EM SI desde 2026-09-20: o cadastro é tela de uma visita só, então ele é buscado no
+// clique. O launcher é folha de zero imports estáticos; o que deixou de viajar no boot desta
+// página é o modal mais `ui/searchable-select.js`, o modelo dele e `ui/password-match.model.js`.
+import { abrirCadastro } from '@modals/signup-launcher.js';
 // A escada por atlas, de um módulo folha e SEM imports (contrato asserido em
 // `tests/unit/permission-levels.test.js`): esta página boota sem a store, então o barrel está fora
 // de questão. Nunca uma lista fechada de níveis escrita aqui.
@@ -718,7 +721,7 @@ function openLoginDialog() {
             await apiClient.login(username, password);
             window.location.reload();
         },
-        onRegister: signupEnabled ? () => openSignupDialog() : undefined,
+        onRegister: signupEnabled ? (abertura) => openSignupDialog(abertura) : undefined,
     });
 }
 
@@ -727,9 +730,16 @@ function openLoginDialog() {
  * DEPOIS de o formulário fechar (senão ele fica montado atrás do diálogo, com a senha digitada), e
  * usa `showChoice`, cujo `Enter` é inerte — com `showConfirm` a tecla que todo mundo usa para
  * dispensar um diálogo disparava o reenvio do e-mail.
+ *
+ * DEVOLVE A PROMESSA e NÃO captura a falha, de propósito: desde 2026-09-20 o código do cadastro é
+ * buscado no clique, e quem foi clicado é o comando de `login.modal.js`, o único ponto que pode
+ * nomear a falha e oferecer a nova tentativa no mesmo lugar. Engolir aqui deixaria aquele comando
+ * esperando para sempre, sem uma palavra.
+ * @param {{aindaQuerido?: function(): boolean}} [abertura] - O portão de cancelamento do login.
+ * @returns {Promise<*>}
  */
-function openSignupDialog() {
-    showSignupModal({
+function openSignupDialog(abertura) {
+    return abrirCadastro({
         onSubmit: (data) => apiClient.register(data),
         onRegistered: async ({ email }) => {
             const choice = await showChoice('Confira sua caixa de entrada', {
@@ -750,7 +760,7 @@ function openSignupDialog() {
             }
         },
         onBackToLogin: () => openLoginDialog(),
-    });
+    }, abertura);
 }
 
 /**

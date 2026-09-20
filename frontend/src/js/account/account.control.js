@@ -1,7 +1,10 @@
 // Path: js/account/account.control.js
 import { confirmLogoutWithPendingWork } from '@js/session/confirm-logout.js';
 import { showLoginModal } from '@modals/login.modal.js';
-import { showSignupModal } from '@modals/signup.modal.js';
+// NOT `@modals/signup.modal.js` ITSELF since 2026-09-20: the signup dialog is a screen of one
+// visit, so it is fetched on the click. The launcher is a leaf with zero static imports; what used
+// to ride here was the modal plus the searchable select, its model and the password-match model.
+import { abrirCadastro } from '@modals/signup-launcher.js';
 import config from '@js/config.js';
 import { showConfirm, showChoice } from '@modals/index.js';
 import { clearLocalMapIntent } from '@js/deep-link/local-intent.js';
@@ -1151,7 +1154,7 @@ export class AccountControl {
                 // (`helpers/collab-helpers.js` espera `**\/atlas.html` logo após o login).
                 await this.openProjectPicker();
             },
-            onRegister: signupEnabled ? () => this._handleRegister() : undefined
+            onRegister: signupEnabled ? (abertura) => this._handleRegister(abertura) : undefined
         });
     }
 
@@ -1164,14 +1167,21 @@ export class AccountControl {
      * criada": it does not know, and must not imply it. Both outcomes end in an e-mail, and the
      * message says exactly that. (The "Reenviar e-mail" affordance keeps working either way:
      * /auth/resend-verification is non-leaking by the same rule.)
+     *
+     * IT IS ASYNCHRONOUS SINCE 2026-09-20 and it deliberately does NOT catch: the dialog's code is
+     * fetched on the click, and the command that was clicked lives in `login.modal.js`, which is
+     * the only place that can both name the failure and offer the retry. Swallowing the rejection
+     * here would leave that command waiting forever with nothing said.
      * @private
+     * @param {{aindaQuerido?: function(): boolean}} [abertura] - The login dialog's cancel gate.
+     * @returns {Promise<*>}
      */
-    _handleRegister() {
-        showSignupModal({
+    _handleRegister(abertura) {
+        return abrirCadastro({
             onSubmit: (data) => syncEngine.register(data),
             onRegistered: ({ email }) => this._announceRegistration(email),
             onBackToLogin: () => this._handleLogin()
-        });
+        }, abertura);
     }
 
     /**

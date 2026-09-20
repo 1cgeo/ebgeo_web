@@ -598,20 +598,26 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // `password-match.model.js` (o veredicto ao vivo da confirmação). A sessão que os
         // escreveu mediu por controle, trocando o modal pela versão do HEAD: 720 sem eles.
         //
-        // PASSAR O CADASTRO PARA `import()` FOI AVALIADO E RECUSADO, com número: o modal mais os
-        // três módulos que só ele usa (o olho fica, porque o login também o usa) somam 52 kB de
-        // FONTE, que é o que este arquivo conta e é quase todo comentário, mas 19,6 kB minificados
-        // e 6,7 kB em gzip, contra 4139 kB e 1085 kB do que o `index.html` referencia: 0,6% do que
-        // a pessoa baixa. O preço seria um caminho de falha novo no clique de "Criar conta" (chunk
-        // que não chega) nas DUAS páginas que abrem o modal, e o CSS continuaria ansioso de
-        // qualquer forma. Contagem de módulo é procuração de peso, e aqui ela exagera.
+        // O CADASTRO PASSOU A ENTRAR POR `import()` NO MESMO DIA, por autorização do dono, depois
+        // de ter sido avaliado e recusado aqui de manhã. O que a recusa dizia continua verdadeiro e
+        // é o que dimensiona o ganho: o modal mais os três módulos que só ele usa (o olho fica,
+        // porque o login também o usa) são 52 kB de FONTE, quase todo comentário, 19,6 kB
+        // minificados e 6,7 kB em gzip. Contagem de módulo é procuração de peso, e aqui ela
+        // exagera. O preço previsto também se confirmou, e foi maior: o caminho de falha do clique
+        // de "Criar conta" NÃO PODE oferecer "tente de novo", porque um `import()` que falha fica
+        // gravado como falho no mapa de módulos da página (medido no Chromium e no Firefox), então
+        // a saída é recarregar. Ver `modals/signup-launcher.js`.
         //
         // 2026-09-20, terceiro lote do dia: 725 com `utilities/quill-image-paste.model.js`
         // (cerca de 6 kB), a folha pura das portas de colagem de imagem do editor Quill. A sessão
         // que a escreveu mediu por controle: comentada a aresta em `utilities/quill-helpers.js`,
         // 724; reposta, 725. O lote de nomes do mesmo dia acrescentou ZERO módulos, também por
         // controle: `utilities/person-label.js` já estava no grafo pelo modal de compartilhamento.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(725);
+        //
+        // 2026-09-20, quarto lote do dia: 726 com `modals/signup-launcher.js`, a folha que carrega
+        // o cadastro sob demanda. O grafo COMPLETO ganha um módulo; o ANSIOSO perde quatro e ganha
+        // um (534 -> 531 módulos, 7547 -> 7508 kB), medido por controle pela sessão que o escreveu.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(726);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);
@@ -631,6 +637,29 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
 
     it('as dependências externas do grafo ansioso são exatamente as declaradas', () => {
         expect([...ansioso.externos].sort()).toEqual([...EXTERNOS_ANSIOSOS].sort());
+    });
+
+    it('o cadastro entra só por `import()`, e os três módulos que só ele usa vão junto', () => {
+        // A lista acima é de PACOTES externos; o cadastro é módulo da casa, e sem este caso o
+        // import estático voltaria no commit seguinte com só 16 kB de peso construído para acusar,
+        // bem dentro da folga do teto. Os DOIS lados, pela mesma razão dos pacotes: ausente do
+        // grafo ansioso e PRESENTE no completo, senão um caminhador cego passaria verde.
+        const soDoCadastro = [
+            'src/js/modals/signup.modal.js',
+            'src/js/ui/searchable-select.js',
+            'src/js/ui/searchable-select.model.js',
+            'src/js/ui/password-match.model.js',
+        ];
+        const tem = (grafo, sufixo) => [...grafo.arquivos]
+            .some((f) => f.replace(/\\/g, '/').endsWith(sufixo));
+        for (const modulo of soDoCadastro) {
+            expect(tem(ansioso, modulo), `${modulo} voltou para o payload ansioso do mapa`).toBe(false);
+            expect(tem(completo, modulo), `${modulo} sumiu do grafo: a afirmação virou vazia`).toBe(true);
+        }
+        // O carregador, esse sim, é ansioso, e é ele que guarda a aresta dinâmica.
+        expect(tem(ansioso, 'src/js/modals/signup-launcher.js')).toBe(true);
+        // E o olho FICA: o diálogo de login também o usa.
+        expect(tem(ansioso, 'src/js/ui/password-visibility.js')).toBe(true);
     });
 
     for (const pacote of EXTERNOS_SO_DINAMICOS) {
@@ -935,11 +964,17 @@ const PAGINAS_DIST = Object.freeze([
     //
     // O QUE NÃO TEM DONO É O RESTO, de novo: de 4098 em 2026-09-14 a 4134 no HEAD são 36 kB que
     // entraram sem remedição, e o HEAD já estava a 16 kB do teto. A folga nova é a de sempre,
-    // cerca de 52 kB sobre a medida. Uma saída AVALIADA e não tomada: carregar o cadastro por
-    // `import()` devolveria a esta conta cerca de 40 kB (19,6 kB minificados, duas passadas), mais
-    // que o dia inteiro, ao preço de um caminho de falha novo no clique de "Criar conta" nas duas
-    // páginas que o abrem. Em gzip são 6,7 kB de 1085. Fica registrado como a primeira alavanca
-    // a puxar se este teto voltar a apertar.
+    // cerca de 52 kB sobre a medida.
+    //
+    // O CADASTRO SOB DEMANDA FOI FEITO NO MESMO DIA, e a estimativa que morava aqui ERROU POR MAIS
+    // DE DUAS VEZES. Ela dizia "cerca de 40 kB" (19,6 kB minificados, contados nas duas passadas).
+    // Medido com build fresco dos dois lados e esta mesma régua: `index.html` de 4167 para 4151 kB
+    // e `atlas.html` de 669 para 653, isto é, 16 kB em cada, com a contagem de arquivos parada em
+    // 84 e 39. O modal e as três folhas viraram um par de chunks que HTML nenhum referencia
+    // (19 kB cada, moderno e legacy), e o resto da diferença esperada voltou por deslocamento de
+    // fronteira entre chunks. Estimar peso construído somando o minificado dos módulos ignora que
+    // o bundler redesenha as fronteiras: o número só existe depois do build. O teto NÃO desceu
+    // por isso, de propósito: 4151 já é maior que o teto antigo de 4150, e a folga é a de sempre.
     { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 86, minKb: 3600, maxKb: 4220 },
     { html: 'atlas.html', entrada: 'atlas', minArq: 18, maxArq: 44, minKb: 320, maxKb: 700 },
     // admin.html: 800 -> 950 -> 720 em 2026-09-02, com a medida na mao: 670 kB em 24 arquivos, build

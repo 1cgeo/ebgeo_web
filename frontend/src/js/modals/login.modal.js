@@ -42,6 +42,10 @@ import { addDomListener } from '@utils/event-cleanup.js';
 import { attachPasswordVisibility } from '@ui/password-visibility.js';
 import { apiClient } from '@store/sync/api-client.js';
 import { loginFailureMessage } from './login-failure.model.js';
+// THE SIGNUP DIALOG ARRIVES OVER THE NETWORK since 2026-09-20, and this file is where the wait is
+// shown and where a chunk that never comes is named. The launcher is a leaf with zero static
+// imports, so it costs this dialog nothing on either of the pages that draw it.
+import { cadastroIndisponivelTexto } from './signup-launcher.js';
 import config from '@js/config.js';
 import {
     ADMIN_ONLY_RECOVERY_TEXT,
@@ -76,6 +80,20 @@ const BACK_ARROW_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" heig
 /** The id of the recovery view's own heading, which names the dialog while that view is up. */
 const RECOVERY_TITLE_ID = 'login-modal-recovery-title';
 
+/** The resting label of the door to the signup dialog. */
+const REGISTER_LABEL = 'Não tem conta? Criar conta';
+
+/**
+ * The same door while its code is on the wire.
+ *
+ * IT IS THE ACCESSIBLE NAME THAT CHANGES, not a spinner beside an unchanged one: the label IS the
+ * state, so a screen reader that lands on the command reads what it is doing, and `aria-busy`
+ * carries the same fact to anything that watches attributes. Nothing is `disabled`, by the house
+ * rule that a blocked command still takes the click: a disabled button fires none, and a second
+ * click here has to re-state the notice rather than land on silence.
+ */
+const REGISTER_LOADING_LABEL = 'Abrindo o cadastro…';
+
 /**
  * Login modal.
  * @extends ModalBase
@@ -86,8 +104,10 @@ export class LoginModal extends ModalBase {
      * @param {function({username: string, password: string}): Promise<*>} options.onSubmit
      *   Submission handler. Resolve to close the modal; reject to keep it open
      *   and display the rejection message inline.
-     * @param {function(): void} [options.onRegister]
-     *   Called when the user clicks "Criar conta"; opens the signup flow.
+     * @param {function({aindaQuerido: function(): boolean}): Promise<*>} [options.onRegister]
+     *   Called when the user clicks "Criar conta"; loads and opens the signup flow. It receives
+     *   the gate this dialog uses to cancel a load the person walked away from, and it must
+     *   REJECT when the dialog's code does not arrive, so the click can say so and be retried.
      */
     constructor(options = {}) {
         super({
@@ -100,6 +120,8 @@ export class LoginModal extends ModalBase {
         this._onSubmit = options.onSubmit || (() => Promise.resolve());
         this._onRegister = options.onRegister || null;
         this._submitting = false;
+        /** @private Whether the signup dialog's code is on the wire right now. */
+        this._registering = false;
 
         /** @private Which of the two mutually exclusive views is on screen. */
         this._view = LoginView.LOGIN;
@@ -245,6 +267,21 @@ export class LoginModal extends ModalBase {
         this._errorActionEl = errorAction;
         addDomListener(this, errorAction, 'click', () => this._resendVerification());
 
+        // A SEGUNDA SAÍDA INLINE, e a única que serve quando o código do cadastro não chega. Ela é
+        // um COMANDO e não uma frase porque a frase não tem como ser cumprida por um clique no
+        // mesmo botão: o mapa de módulos do navegador guarda a falha, e recarregar é literalmente
+        // o único gesto que a desfaz (ver o `@fileoverview` de `signup-launcher.js`, com a
+        // medição). Fica escondido até esse desfecho, pelo mesmo motivo do irmão acima.
+        const reloadAction = document.createElement('button');
+        reloadAction.type = 'button';
+        reloadAction.className = 'login-modal__link';
+        reloadAction.dataset.testid = 'login-reload-app';
+        reloadAction.textContent = 'Atualizar a página';
+        reloadAction.hidden = true;
+        form.appendChild(reloadAction);
+        this._reloadActionEl = reloadAction;
+        addDomListener(this, reloadAction, 'click', () => { window.location.reload(); });
+
         // Actions
         const actions = document.createElement('div');
         actions.className = 'login-modal__actions';
@@ -291,7 +328,7 @@ export class LoginModal extends ModalBase {
             registerBtn.type = 'button';
             registerBtn.className = 'login-modal__link';
             registerBtn.dataset.testid = 'login-register';
-            registerBtn.textContent = 'Não tem conta? Criar conta';
+            registerBtn.textContent = REGISTER_LABEL;
             secondary.appendChild(registerBtn);
 
             form.appendChild(secondary);
@@ -645,6 +682,16 @@ export class LoginModal extends ModalBase {
             'aria-labelledby',
             recovery ? RECOVERY_TITLE_ID : `${this._config.id}-title`
         );
+        // A VISÃO DE UMA FRASE SÓ NÃO PODE OCUPAR UMA TELA INTEIRA DE CELULAR. A regra de
+        // `responsive.css` dá `height: 100vh` a TODO `.modal-container` abaixo de 480px, o que é
+        // certo para um formulário e é o que se vê ao abrir esta visão numa implantação sem
+        // entrega de e-mail: o parágrafo do administrador no alto de uma tela branca inteira, que
+        // se lê como tela que não carregou (capturado em 390x844 em 2026-09-20). O modificador
+        // existe para que a exceção no CSS seja estreita: só esta visão, só sem o formulário.
+        this._container?.classList.toggle(
+            'login-modal__container--recuperacao-curta',
+            recovery && !this._emailRecovery
+        );
 
         if (entering) this._enterRecovery();
         this._focusFor(next.focus)?.focus();
@@ -830,11 +877,86 @@ export class LoginModal extends ModalBase {
             { capture: true });
 
         if (this._registerBtn) {
-            addDomListener(this, this._registerBtn, 'click', () => {
-                this._close();
-                if (this._onRegister) this._onRegister();
-            });
+            addDomListener(this, this._registerBtn, 'click', () => { this._handleRegister(); });
         }
+    }
+
+    /**
+     * Opens the signup dialog, whose code is fetched on the click.
+     *
+     * FIVE THINGS HAPPEN HERE THAT DID NOT HAVE TO EXIST WHILE THE IMPORT WAS STATIC, and each one
+     * is a way the gesture could go wrong once it takes time:
+     *
+     *   1. THE DIALOG STAYS OPEN WHILE THE CODE TRAVELS. Closing first (which is what this did
+     *      until 2026-09-20) would leave the screen with no dialog at all for as long as the
+     *      download takes, and with NOTHING at all if it never arrives.
+     *   2. THE COMMAND SAYS IT IS WORKING, through its own label plus `aria-busy`. On a slow link
+     *      a link-styled button that answers nothing for 300 ms reads as dead.
+     *   3. A SECOND CLICK IS SWALLOWED WHILE IT FLIES, by the in-flight flag rather than by
+     *      `disabled` (see `REGISTER_LOADING_LABEL`). The memo in `signup-launcher.js` would
+     *      already share one download between two clicks; this stops the second gesture from also
+     *      queueing a second `showSignupModal`.
+     *   4. THE FAILURE OFFERS A RELOAD, which is the exit rather than a second click: a module
+     *      whose fetch failed stays recorded as failed in the page's module map, so importing the
+     *      same specifier again is rejected without a request. Measured; see the `@fileoverview`
+     *      of `signup-launcher.js`.
+     *   5. LEAVING CANCELS. `aindaQuerido` is asked on the other side of the wait, so pressing
+     *      `Escape` (or cancelling) while the chunk is in flight means no dialog appears later.
+     *      The refusal to speak afterwards is the same rule: a person who left this screen is not
+     *      told about a form they no longer wanted.
+     * @private
+     * @returns {Promise<void>}
+     */
+    async _handleRegister() {
+        if (this._registering || !this._onRegister) return;
+        this._registering = true;
+        this._clearError();
+        this._paintRegistering(true);
+        // STILL WANTED means still open AND still on the login view. `_isOpen` alone missed the
+        // person who clicked "Esqueci minha senha" while the code travelled: the dialog stays
+        // open, so the sign-up form opened over the recovery view they had just asked for, and a
+        // failure was written inside the `form` that view had hidden, where nobody reads it.
+        const aindaQuerido = () => this._isOpen && this._view === LoginView.LOGIN;
+        try {
+            await this._onRegister({
+                aindaQuerido,
+                // THIS DIALOG CLOSES IMMEDIATELY BEFORE THE OTHER OPENS, in the same tick, so there
+                // is still no paint between the two. The order matters and was the other way
+                // round: closing AFTER the sign-up form was shown ran `hide()` of this dialog
+                // last, which clears `document.body.style.overflow` and so undid the scroll lock
+                // the form had just set; and the form had recorded, as the element to give focus
+                // back to, the "Criar conta" link this close removes from the page.
+                antesDeAbrir: () => this._close(),
+            });
+        } catch (error) {
+            console.warn('[LoginModal] the signup dialog did not load:', error);
+            // `navigator.onLine` and not the connection state machine: this dialog is drawn on
+            // pages that never open a collaboration socket, where that machine reads OFFLINE for
+            // everyone and would blame the network for every failure.
+            if (aindaQuerido()) {
+                // The reload command is offered only WITH a network. Offline the sentence says
+                // "when the network is back", and a reload of the map without one trades this
+                // dialog for the "EBGeo indisponível" screen, which is the harm it warns about.
+                const semRede = navigator.onLine === false;
+                this._showError(cadastroIndisponivelTexto(navigator.onLine), { canReload: !semRede });
+            }
+        } finally {
+            this._registering = false;
+            this._paintRegistering(false);
+        }
+    }
+
+    /**
+     * Writes the waiting state of the "Criar conta" command.
+     * @private
+     * @param {boolean} carregando
+     */
+    _paintRegistering(carregando) {
+        const botao = this._registerBtn;
+        if (!botao) return;
+        botao.textContent = carregando ? REGISTER_LOADING_LABEL : REGISTER_LABEL;
+        if (carregando) botao.setAttribute('aria-busy', 'true');
+        else botao.removeAttribute('aria-busy');
     }
 
     /**
@@ -993,14 +1115,17 @@ export class LoginModal extends ModalBase {
      * Shows an inline error message.
      * @private
      * @param {string} message
+     * @param {{canResendVerification?: boolean, canReload?: boolean}} [options] - Which of the two
+     *   inline exits this particular refusal offers.
      */
-    _showError(message, { canResendVerification = false } = {}) {
+    _showError(message, { canResendVerification = false, canReload = false } = {}) {
         if (!this._errorEl) return;
         this._errorEl.textContent = message;
         this._errorEl.hidden = false;
         // Escrito em TODA passada, nunca só quando aparece: um botão que só sabe se revelar fica
         // na tela depois do erro seguinte, oferecendo uma saída que já não é a desta recusa.
         if (this._errorActionEl) this._errorActionEl.hidden = !canResendVerification;
+        if (this._reloadActionEl) this._reloadActionEl.hidden = !canReload;
     }
 
     /**
@@ -1012,6 +1137,7 @@ export class LoginModal extends ModalBase {
         this._errorEl.textContent = '';
         this._errorEl.hidden = true;
         if (this._errorActionEl) this._errorActionEl.hidden = true;
+        if (this._reloadActionEl) this._reloadActionEl.hidden = true;
     }
 }
 
@@ -1020,7 +1146,11 @@ export class LoginModal extends ModalBase {
  * @param {Object} options
  * @param {function({username: string, password: string}): Promise<*>} options.onSubmit
  *   Submission handler. Resolve to close; reject to keep open with an inline error.
- * @param {function(): void} [options.onRegister] Opens the signup flow ("Criar conta").
+ * @param {function({aindaQuerido: function(): boolean, antesDeAbrir: function(): void}): Promise<*>}
+ *   [options.onRegister] Opens the signup flow ("Criar conta"). ASYNCHRONOUS, and it MUST REJECT when
+ *   the form cannot be loaded: this dialog owns the clicked command, so it is the one that says so.
+ *   A caller that swallows the failure leaves the command silent. It receives the gate to ask
+ *   before opening (`aindaQuerido`) and the hook to run right before it (`antesDeAbrir`).
  * @returns {LoginModal} The modal instance.
  */
 /** The instance currently on screen, so a second request reuses it instead of stacking. */
