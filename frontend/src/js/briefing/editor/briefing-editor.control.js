@@ -62,6 +62,7 @@ import {
 } from '@store/index.js';
 import { resolveSlideView } from '../slide-view.js';
 import { slideViewFromScreen } from '../screen-view.js';
+import { SLIDE_CONTROLS, normalizeSlideControls } from '../slide-controls.js';
 import { deepClone } from '@utils/deep-utils.js';
 import { generateUUID } from '@utils/uuid.js';
 import { createQuillEditor, sanitizeQuillHtml } from '@utils/quill-helpers.js';
@@ -830,6 +831,9 @@ export class BriefingEditorControl {
 
         this._slideEditorEl.appendChild(contentGroup);
 
+        // BELOW the content, by request of the owner: what the slide lets the audience touch.
+        this._slideEditorEl.appendChild(this._createSlideControlsGroup(slide));
+
         this._initQuillEditor(quillContainer, slide);
 
         // Restore scroll position after re-render
@@ -864,6 +868,49 @@ export class BriefingEditorControl {
         } catch (error) {
             console.warn('Error loading map names:', error);
         }
+    }
+
+    /**
+     * The map controls the slide shows WHILE PRESENTED: six checkboxes, all off by default,
+     * placed below the content on purpose (the owner asked for that order: what the slide says
+     * first, what it lets the audience touch last). The editor itself is never affected; only
+     * the presenter hides and shows controls.
+     * @private
+     * @param {Object} slide - Selected slide
+     * @returns {HTMLElement}
+     */
+    _createSlideControlsGroup(slide) {
+        const group = document.createElement('div');
+        group.className = 'briefing-editor-form-group briefing-editor-controls-group';
+
+        const title = document.createElement('label');
+        title.textContent = 'Controles visíveis na apresentação';
+        group.appendChild(title);
+
+        const flags = normalizeSlideControls(slide.controls);
+        for (const { key, label } of SLIDE_CONTROLS) {
+            const row = document.createElement('label');
+            row.className = 'briefing-editor-view-check';
+
+            const check = document.createElement('input');
+            check.type = 'checkbox';
+            check.className = 'briefing-editor-control-check';
+            check.dataset.control = key;
+            check.checked = flags[key];
+            addDomListener(this, check, 'change', () => {
+                // Rewritten whole, from the normalized flags: the stored object then never
+                // carries a key outside the closed list, whatever it held before.
+                slide.controls = { ...normalizeSlideControls(slide.controls), [key]: check.checked };
+                this._scheduleAutosave();
+            });
+            row.appendChild(check);
+
+            const text = document.createElement('span');
+            text.textContent = label;
+            row.appendChild(text);
+            group.appendChild(row);
+        }
+        return group;
     }
 
     /**

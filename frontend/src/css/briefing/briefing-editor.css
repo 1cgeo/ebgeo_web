@@ -402,7 +402,8 @@
 }
 
 /* The view of a slide: base layer select + temporal switch, below the position. */
-.briefing-editor-view-group .briefing-editor-view-check {
+.briefing-editor-view-group .briefing-editor-view-check,
+.briefing-editor-controls-group .briefing-editor-view-check {
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -415,9 +416,19 @@
     cursor: pointer;
 }
 
-.briefing-editor-view-temporal {
+.briefing-editor-view-temporal,
+.briefing-editor-control-check {
     flex: none;
     accent-color: var(--primary);
+}
+
+/* The controls group sits below the Quill editor, which grows to fill the panel. */
+.briefing-editor-controls-group {
+    margin-top: var(--space-4);
+}
+
+.briefing-editor-controls-group .briefing-editor-view-check {
+    margin-top: var(--space-2);
 }
 
 /* Info Text */

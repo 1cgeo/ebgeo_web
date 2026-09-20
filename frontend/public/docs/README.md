@@ -481,6 +481,7 @@ Na aba **Briefings** do painel lateral esquerdo, crie um novo briefing. No edito
 - Adicione slides; ao criar um slide, a **posição atual** é capturada automaticamente (enquadramento do mapa 2D, câmera 3D ou orientação 360°, conforme o que estiver ativo).
 - Abaixo de **Salvar Posição**, escolha o **mapa base do slide** e se o **controle temporal** fica ligado nele. Salvar Posição preenche os dois com o que está na sua tela; a opção "O do mapa" faz o slide usar o mapa base salvo com o mapa. Ao sair da apresentação, o mapa base e o controle temporal voltam ao que você tinha antes.
 - Escreva o texto de cada slide em um editor de texto formatado.
+- Abaixo do conteúdo, em **Controles visíveis na apresentação**, marque o que o público pode ver e usar naquele slide: seletor de mapa base, modelos 3D, imagens 360, terreno, controle de coordenadas e utilitários. Todos começam desmarcados, ou seja, a apresentação mostra só o mapa e o texto. O botão de entrar, a área do usuário e o botão de compartilhar a vista nunca aparecem durante a apresentação.
 - Reordene os slides arrastando, renomeie ou exclua.
 - Importe a nota do mapa para o conteúdo do slide atual, ou importe slides de outro briefing.
 

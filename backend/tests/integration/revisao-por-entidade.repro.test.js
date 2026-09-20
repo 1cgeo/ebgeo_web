@@ -172,11 +172,12 @@ describe('F8 — base observada e revisão por ENTIDADE, não só por feição',
       'coluna em duas unidades: a recusa nomearia duas coisas para uma escrita só');
     // Controle absoluto: a varredura acima passaria verde sobre uma tabela vazia.
     const total = Object.values(porAlvo).reduce((n, campos) => n + campos.length, 0);
-    // 43 desde 2026-09-20: as duas colunas da VISTA do slide (`base_layer` e `temporal_enabled`),
+    // 44 desde 2026-09-20: as duas colunas da VISTA do slide (`base_layer` e `temporal_enabled`)
+    // e a dos controles que ele mostra ao ser apresentado (`controls`),
     // que entraram na unidade `camera`, porque sao o que o slide mostra junto com a posicao.
-    assert.equal(total, 43,
-      'a varredura cobriu as 43 colunas escrevíveis das seis entidades com unidades '
-      + '(mapa 13, camada 6, grupo 5, briefing 4, slide 13, comentário 2)');
+    assert.equal(total, 44,
+      'a varredura cobriu as 44 colunas escrevíveis das seis entidades com unidades '
+      + '(mapa 13, camada 6, grupo 5, briefing 4, slide 14, comentário 2)');
   });
 
   it('ESTRUTURAL: as colunas de sub-tipo de mapa são um subconjunto das do mapa, e caem em unidades', () => {

@@ -120,7 +120,7 @@ export const DISPUTE_UNITS = {
             { unit: 'conteudo', fields: ['content'] },
             { unit: 'alvo', fields: ['mode', 'map_id', 'mapId', 'model_id', 'modelId', 'photo_id', 'photoId'] },
             { unit: 'camera', fields: ['position', 'orientation', 'temporal_cursor', 'temporalCursor',
-                'base_layer', 'baseLayer', 'temporal_enabled', 'temporalEnabled'] },
+                'base_layer', 'baseLayer', 'temporal_enabled', 'temporalEnabled', 'controls'] },
             { unit: 'defeito', fields: ['is_broken', 'isBroken', 'broken_reason', 'brokenReason'] },
         ],
     },

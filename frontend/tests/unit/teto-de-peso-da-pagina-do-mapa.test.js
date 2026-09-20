@@ -301,7 +301,9 @@ const ORCAMENTO = Object.freeze({
     // mostra, e `briefing/screen-view.js`, a leitura IMPURA da tela do autor, separada justamente
     // para a primeira continuar sem import. As duas sao ansiosas porque o servico de transicao, o
     // editor e a aba de briefings as leem, e os tres ja eram ansiosos.
-    briefing: 10,
+    // 11 no mesmo dia: `briefing/slide-controls.js`, a lista FECHADA (zero imports) dos controles que
+    // um slide mostra ao ser apresentado, lida pelo editor, pelo apresentador e pelo envio ao servidor.
+    briefing: 11,
     measurement_tool: 3,
     analysis_tools: 0,
     '3d_models_viewer_tool': 5,
@@ -638,7 +640,10 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // contra 730 quando entrou `briefing/screen-view.js`, a leitura da tela do autor. Os dois de
         // `briefing` o orçamento da pasta acima conta também. Nenhum é pesado: os três somam menos
         // de 11 kB de fonte.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(731);
+        //
+        // 2026-09-20, sétimo lote do dia: 732, com `briefing/slide-controls.js` (folha de zero imports,
+        // cerca de 4 kB), medido do mesmo jeito: este caso acusou 732 contra 731 com um arquivo novo.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(732);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);

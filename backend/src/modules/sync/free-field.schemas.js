@@ -257,7 +257,7 @@ const FIELD_RULES = {
   layer: { style: keepMatching },
   group: { style: keepMatching },
   briefing: { settings: keepMatching },
-  slide: { position: keepMatching, orientation: keepMatching },
+  slide: { position: keepMatching, orientation: keepMatching, controls: keepMatching },
 };
 
 /**

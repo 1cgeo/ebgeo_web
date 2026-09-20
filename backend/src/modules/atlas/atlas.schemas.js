@@ -265,6 +265,9 @@ const slideSchema = Joi.object({
   // como os dois acima, com a largura da coluna.
   base_layer: Joi.string().max(100).allow(null),
   temporal_enabled: Joi.boolean().allow(null),
+  // Os controles que o slide mostra ao ser apresentado: objeto de booleanos, e o serviço o
+  // reescreve pela lista fechada (`SLIDE_CONTROL_KEYS`), então chave desconhecida não é gravada.
+  controls: Joi.object().pattern(Joi.string().max(40), Joi.boolean()).allow(null),
   position: scalarObjectSchema.default({}),
   orientation: scalarObjectSchema.default({}),
 });

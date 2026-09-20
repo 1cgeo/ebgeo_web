@@ -19,6 +19,7 @@
 import { generateUUID, isValidUUID } from '@utils/uuid.js';
 import { pruneCatalogLayerDefinitions } from '@catalog/catalog-layer.ref.js';
 import { normalizeLegacyDeclinationProperties, ensureMapDataShape } from '@store/repository.utils.js';
+import { normalizeSlideControls } from '@js/briefing/slide-controls.js';
 
 /** Server-accepted feature types (mirror of backend `VALID_FEATURE_TYPES`). */
 const VALID_FEATURE_TYPES = new Set([
@@ -405,6 +406,7 @@ export function buildServerImportPayload(exportData, meta = {}) {
             // null is a full state of both: "inherit what was saved with the map".
             base_layer: slideResourceRef(s.baseLayer),
             temporal_enabled: typeof s.temporalEnabled === 'boolean' ? s.temporalEnabled : null,
+            controls: normalizeSlideControls(s.controls),
             position: s.position || {},
             orientation: s.orientation || {},
         })),

@@ -46,6 +46,7 @@ import {
     deactivateKeyboardServiceBriefing
 } from '../services/keyboard-service-briefing.js';
 import { createTransitionService } from './transition.service.js';
+import { PRESENTING_BODY_CLASS, ALL_SLIDE_CONTROL_CLASSES, slideControlClasses } from '../slide-controls.js';
 import { createPresentationTextPanel } from '../components/presentation-text-panel.js';
 import { createTilePreloader } from './tile-preloader.js';
 import { validateBriefing } from '../validation/reference-validator.js';
@@ -181,6 +182,10 @@ export class BriefingPresenterControl {
 
             // Offset map/3D/360 containers so the panel doesn't overlap them
             document.body.classList.add('briefing-panel-active');
+            // A presentation is a clean stage: under this class the map controls are hidden
+            // unless the slide on screen asks for them (`briefing/slide-controls.js`), and the
+            // account area and "share this view" are hidden for every slide.
+            document.body.classList.add(PRESENTING_BODY_CLASS);
 
             // Create transition service
             this._transitionService = createTransitionService(this._map);
@@ -266,6 +271,7 @@ export class BriefingPresenterControl {
 
         // Remove layout offset from map/3D/360 containers
         document.body.classList.remove('briefing-panel-active');
+        document.body.classList.remove(PRESENTING_BODY_CLASS, ...ALL_SLIDE_CONTROL_CLASSES);
 
         // MapLibre needs a resize to fill the restored space
         if (this._map) {
@@ -635,6 +641,7 @@ export class BriefingPresenterControl {
         if (success && this._briefing) {
             // Update visibility profile based on slide mode
             this._updateVisibilityProfile(slide.mode);
+            this._applySlideControls(slide);
 
             // Emit slide changed event
             this._eventBus.emit(EventTypes.BRIEFING_SLIDE_CHANGED, {
@@ -643,6 +650,18 @@ export class BriefingPresenterControl {
                 slideId: slide.id
             });
         }
+    }
+
+    /**
+     * Shows on the stage exactly the controls the slide ticked, and hides the rest.
+     * Every class is removed first: the previous slide may have asked for more.
+     * @private
+     * @param {Object} slide - Slide now on screen
+     */
+    _applySlideControls(slide) {
+        document.body.classList.remove(...ALL_SLIDE_CONTROL_CLASSES);
+        const wanted = slideControlClasses(slide?.controls);
+        if (wanted.length > 0) document.body.classList.add(...wanted);
     }
 
     /**

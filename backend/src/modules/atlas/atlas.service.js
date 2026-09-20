@@ -18,6 +18,7 @@ import { ensureMapLayers, readMapLayers } from '../maps/default-layer.js';
 // `sync/structural-marker.js`: sem ele o par offline reconecta, o pull incremental responde
 // vazio e ele conclui que esta em dia.
 import { STRUCTURAL_MARKER, recordStructuralMarker } from '../sync/structural-marker.js';
+import { normalizeSlideControls } from '../sync/slide-controls.js';
 // A PODA DE COPIA (clone e import). O predicado NAO e reimplementado aqui: quem decide e
 // `classifyResourceRefs`, que chama `fn_can_see_resource` uma vez para o atlas inteiro.
 import { ResourcePruner, refsFromCollectedRows, refsFromImportPayload } from './atlas-resource-prune.js';
@@ -93,7 +94,7 @@ const CS = {
   ),
   slides: new pgp.helpers.ColumnSet(
     ['id', 'briefing_id', 'title', 'content', 'mode', 'map_id', 'model_id', 'photo_id',
-      'base_layer', 'temporal_enabled', jsonb('position'), jsonb('orientation')],
+      'base_layer', 'temporal_enabled', jsonb('controls'), jsonb('position'), jsonb('orientation')],
     { table: 'slides' }
   ),
 };
@@ -1026,6 +1027,7 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
       map_id: slide.map_id ? (mapIdMapping[slide.map_id] || null) : null,
       ...pruner.slide(slide),
       temporal_enabled: typeof slide.temporal_enabled === 'boolean' ? slide.temporal_enabled : null,
+      controls: JSON.stringify(normalizeSlideControls(slide.controls) ?? {}),
       position: JSON.stringify(slide.position || {}),
       orientation: JSON.stringify(slide.orientation || {}),
       // Not a column: the ColumnSet only reads the columns it declares. Kept on the row so
@@ -1696,6 +1698,7 @@ export async function importAtlas(userId, data, { transaction = tx } = {}) {
       map_id: importedMapIds.has(slide.map_id) ? novoMapa(slide.map_id) : null,
       ...pruner.slide(slide),
       temporal_enabled: typeof slide.temporal_enabled === 'boolean' ? slide.temporal_enabled : null,
+      controls: JSON.stringify(normalizeSlideControls(slide.controls) ?? {}),
       position: JSON.stringify(slide.position || {}),
       orientation: JSON.stringify(slide.orientation || {}),
     })));

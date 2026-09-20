@@ -1,6 +1,7 @@
 // Path: src/modules/sync/sync.service.js
 import { query, tx } from '../../database/index.js';
 import { isDeepStrictEqual } from 'node:util';
+import { normalizeSlideControls } from './slide-controls.js';
 import { findReceipt, saveReceipt, operationDigest } from './sync-receipts.js';
 import { assertSyncProtocol } from './sync-protocol.js';
 import { prepareFeatureMutation, finishFeatureMutation } from './feature-conflicts.js';
@@ -451,6 +452,9 @@ function normalizeSlidePayload(rawData, envelopeMapId) {
   if (temporalEnabled !== undefined && temporalEnabled !== null && typeof temporalEnabled !== 'boolean') {
     patch.temporal_enabled = null;
   }
+  // `controls` is rewritten from the closed list whenever it is present, create and update alike.
+  if (rawData.controls !== undefined) patch.controls = normalizeSlideControls(rawData.controls);
+
   const baseLayer = viewValue('base_layer');
   if (baseLayer !== undefined && baseLayer !== null
       && !(typeof baseLayer === 'string' && baseLayer.length > 0 && baseLayer.length <= 100)) {
@@ -1259,6 +1263,7 @@ export async function getAtlasSnapshot(atlasId, permission = 'owner', userId = n
         temporalCursor: slide.temporal_cursor ?? null,
         baseLayer: slide.base_layer ?? null,
         temporalEnabled: slide.temporal_enabled ?? null,
+        controls: slide.controls ?? {},
         order: order.indexOf(slide.id),
         sync: buildSyncMetadata(slide),
       }));
@@ -3078,6 +3083,7 @@ export const UPDATE_FIELDS = {
     { column: 'temporal_cursor', jsonb: true },
     { column: 'base_layer' },
     { column: 'temporal_enabled' },
+    { column: 'controls', jsonb: true },
     { column: 'is_broken' },
     { column: 'broken_reason' },
   ],
@@ -3959,8 +3965,8 @@ async function applyOperation(t, atlasId, op, userId, permission) {
         // Guard the insert: only attach the slide when its briefing belongs to the
         // route's atlas. A cross-atlas briefing_id yields zero inserted rows.
         rowsAffected = (await t.result(`
-          INSERT INTO slides (id, briefing_id, title, content, mode, map_id, model_id, photo_id, position, orientation, temporal_cursor, base_layer, temporal_enabled)
-          SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $13, $14
+          INSERT INTO slides (id, briefing_id, title, content, mode, map_id, model_id, photo_id, position, orientation, temporal_cursor, base_layer, temporal_enabled, controls)
+          SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $13, $14, $15::jsonb
           WHERE EXISTS (SELECT 1 FROM briefings WHERE id = $2 AND atlas_id = $12)
           ON CONFLICT (id) DO UPDATE
             SET briefing_id      = EXCLUDED.briefing_id,
@@ -3975,6 +3981,7 @@ async function applyOperation(t, atlasId, op, userId, permission) {
                 temporal_cursor  = EXCLUDED.temporal_cursor,
                 base_layer       = EXCLUDED.base_layer,
                 temporal_enabled = EXCLUDED.temporal_enabled,
+                controls         = EXCLUDED.controls,
                 deleted_at       = NULL,
                 updated_at       = NOW(),
                 version          = slides.version + 1
@@ -3994,6 +4001,7 @@ async function applyOperation(t, atlasId, op, userId, permission) {
           atlasId,
           typeof data.base_layer === 'string' && data.base_layer ? data.base_layer : null,
           typeof data.temporal_enabled === 'boolean' ? data.temporal_enabled : null,
+          data.controls ? JSON.stringify(data.controls) : null,
         ])).rowCount;
       } else if (target === 'cesium3d' && op.data && op.mapId) {
         const data = op.data;

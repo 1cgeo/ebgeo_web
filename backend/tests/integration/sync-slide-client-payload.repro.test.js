@@ -293,6 +293,69 @@ describe('slide sync accepts the payload the real client emits (repro)', () => {
     assert.deepEqual(rows.map((r) => r.id), [irma], 'só a irmã foi gravada');
   });
 
+  // OS CONTROLES QUE O SLIDE MOSTRA AO SER APRESENTADO (2026-09-20): JSONB de booleanos sobre uma
+  // lista FECHADA (`src/modules/sync/slide-controls.js`). O padrão de todos é falso.
+  it('`controls` chega à coluna, VOLTA no snapshot e o slide antigo lê como objeto vazio', async () => {
+    const briefing = await createBriefing(db, atlas.id, { name: 'Briefing com controles' });
+    const comControles = randomUUID();
+    const antigo = randomUUID();
+
+    await push([
+      clientSlideOp(comControles, briefing.id, { controls: { basemap: true, terrain: true, utilities: false } }),
+      clientSlideOp(antigo, briefing.id, { title: 'Sem o campo' }),
+    ]).expect(200);
+
+    const { rows } = await db.query('SELECT id, controls FROM slides WHERE id = ANY($1::uuid[])', [[comControles, antigo]]);
+    const gravado = rows.find((r) => r.id === comControles).controls;
+    assert.deepEqual(gravado, {
+      basemap: true, models3d: false, views360: false, terrain: true, coordinates: false, utilities: false,
+    }, 'o servidor grava as SEIS chaves, e só `true` liga');
+    assert.equal(rows.find((r) => r.id === antigo).controls, null, 'cliente antigo não inventa o campo');
+
+    const snap = await supertest(app)
+      .get(`/api/v1/atlas/${atlas.id}/sync/0`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const slides = snap.body.data.snapshot.briefings.find((b) => b.id === briefing.id).slides;
+    assert.equal(slides.find((sl) => sl.id === comControles).controls.basemap, true);
+    assert.deepEqual(slides.find((sl) => sl.id === antigo).controls, {}, 'nulo volta como objeto vazio: nada marcado');
+  });
+
+  it('chave FORA da lista fechada e valor que não é `true` não são gravados', async () => {
+    // O campo é JSONB: sem a lista fechada ele seria um depósito de forma livre dentro do slide.
+    const briefing = await createBriefing(db, atlas.id, { name: 'Briefing hostil de controles' });
+    const slideId = randomUUID();
+
+    const res = await push([
+      clientSlideOp(slideId, briefing.id, {
+        controls: { basemap: 'true', terrain: 1, segredo: true, utilities: true, aninhado: { x: 1 } },
+      }),
+    ]);
+    assert.equal(res.status, 200);
+
+    const { rows } = await db.query('SELECT controls FROM slides WHERE id = $1', [slideId]);
+    assert.equal(rows.length, 1);
+    assert.deepEqual(rows[0].controls, {
+      basemap: false, models3d: false, views360: false, terrain: false, coordinates: false, utilities: true,
+    });
+  });
+
+  it('o UPDATE dos controles regrava a coluna inteira pela lista fechada', async () => {
+    const briefing = await createBriefing(db, atlas.id, { name: 'Briefing de controles editado' });
+    const slideId = randomUUID();
+    await push([clientSlideOp(slideId, briefing.id, { controls: { basemap: true } })]).expect(200);
+
+    await push([{ protocolVersion: 2,
+      id: randomUUID(), entityType: 'slide', operationType: 'update', entityId: slideId,
+      mapId: briefing.id, data: { id: slideId, controls: { coordinates: true } },
+      timestamp: Date.now(), clientId: 'real-client',
+    }]).expect(200);
+
+    const { rows } = await db.query('SELECT controls FROM slides WHERE id = $1', [slideId]);
+    assert.equal(rows[0].controls.coordinates, true);
+    assert.equal(rows[0].controls.basemap, false, 'desmarcar no cliente desliga no servidor');
+  });
+
   it('o UPDATE da vista muda as duas colunas de um slide que já existia', async () => {
     const briefing = await createBriefing(db, atlas.id, { name: 'Briefing editado' });
     const slideId = randomUUID();

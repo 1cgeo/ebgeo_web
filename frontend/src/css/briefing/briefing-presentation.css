@@ -360,3 +360,29 @@
 :fullscreen .briefing-text-panel {
     z-index: var(--z-modal);
 }
+
+/* =========================================================================
+   A CLEAN STAGE (owner's rule, 2026-09-20)
+   While a briefing is PRESENTED (`body.briefing-presenting`, set by the presenter and never by
+   the editor) the map controls below are hidden, and each one comes back only when the slide on
+   screen ticked it: the presenter mirrors `slide.controls` into the `briefing-show-*` classes
+   (`js/briefing/slide-controls.js` is the closed list, and the two must move together).
+
+   The account area ("Entrar", or the signed-in identity with its menu) and "share this view" are
+   NOT a choice of the author: they are never shown while presenting, for any slide.
+   ========================================================================= */
+
+body.briefing-presenting .account-control,
+body.briefing-presenting .toolbar-standalone-btn[data-tool-id="share-view"] {
+    display: none !important;
+}
+
+body.briefing-presenting:not(.briefing-show-basemap) #base-layer-selector,
+body.briefing-presenting:not(.briefing-show-models3d) #feature-toggle-models3d,
+body.briefing-presenting:not(.briefing-show-views360) #feature-toggle-panorama,
+body.briefing-presenting:not(.briefing-show-terrain) #feature-toggle-terrain,
+body.briefing-presenting:not(.briefing-show-coordinates) .coordinates-control,
+body.briefing-presenting:not(.briefing-show-coordinates) .coordinates-control-3d,
+body.briefing-presenting:not(.briefing-show-utilities) .toolbar-group[data-group-id="utility"] {
+    display: none !important;
+}

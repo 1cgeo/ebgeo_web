@@ -278,7 +278,7 @@ export const GET_ATLAS_GROUP_FEATURES = `
 export const GET_ATLAS_SLIDES = `
   SELECT s.id, s.briefing_id, s.title, s.content, s.mode, s.map_id, s.model_id,
          s.photo_id, s.position, s.orientation, s.temporal_cursor, s.base_layer,
-         s.temporal_enabled, s.is_broken,
+         s.temporal_enabled, s.controls, s.is_broken,
          s.broken_reason, s.created_at, s.updated_at, s.version
   FROM slides s
   JOIN briefings b ON b.id = s.briefing_id
@@ -332,7 +332,7 @@ export const GET_ATLAS_BRIEFINGS = `
 
 export const GET_BRIEFING_SLIDES = `
   SELECT id, briefing_id, title, content, mode, map_id, model_id, photo_id,
-         position, orientation, temporal_cursor, base_layer, temporal_enabled, is_broken, broken_reason,
+         position, orientation, temporal_cursor, base_layer, temporal_enabled, controls, is_broken, broken_reason,
          created_at, updated_at, version
   FROM slides
   WHERE briefing_id = $1 AND deleted_at IS NULL

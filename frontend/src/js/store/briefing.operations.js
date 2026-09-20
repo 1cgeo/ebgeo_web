@@ -100,7 +100,11 @@ export function createEmptySlide(order = 0) {
         // what was saved with the map", which is also what a slide older than these fields
         // reads as, so it keeps presenting exactly as before.
         baseLayer: null,
-        temporalEnabled: null
+        temporalEnabled: null,
+        // WHICH MAP CONTROLS THE SLIDE SHOWS WHILE PRESENTED. Absent/empty means none, which
+        // is the default of the owner for every one of them; the closed list and the reader
+        // are in `briefing/slide-controls.js`.
+        controls: {}
     };
 }
 
