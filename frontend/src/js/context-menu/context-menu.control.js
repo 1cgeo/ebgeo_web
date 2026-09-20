@@ -26,6 +26,7 @@ import {
     ClipboardMenuAction,
     clipboardMenuActions
 } from './clipboard-menu-actions.js';
+import { canExportQAN } from './qan-menu-gate.js';
 // STATIC, and it does not contradict the note below: the boundary's cut predicate lives in
 // `tool_manager/helpers/`, which is `core`, not in `military_tools`, which this file must keep
 // at zero eager modules. Its header says why it sits there.
@@ -262,7 +263,7 @@ class ContextMenuControl {
             }
         }
 
-        // QAN export option (lines and polygons)
+        // QAN export option (polygons only; see `qan-menu-gate.js`)
         if (hasSelectedFeatures) {
             const qanAdded = this._addQANExportOption(groupingAnalysis.selectedFeatures);
             if (qanAdded) {
@@ -404,14 +405,14 @@ class ContextMenuControl {
     }
 
     /**
-     * Add QAN export option for line/polygon features.
+     * Add QAN export option for polygon features. The decision is `canExportQAN`, and
+     * the reason a line no longer gets it (plus the panel door that a line still has)
+     * is written in `qan-menu-gate.js`.
      * @param {Array} selectedFeatures - Currently selected features
      * @returns {boolean} Whether the option was added
      */
     _addQANExportOption(selectedFeatures) {
-        if (selectedFeatures.length !== 1) return false;
-        const source = selectedFeatures[0].properties?.source;
-        if (source !== 'line' && source !== 'polygon') return false;
+        if (!canExportQAN(selectedFeatures)) return false;
 
         const item = this._createMenuItem(
             'Exportar QAN',
