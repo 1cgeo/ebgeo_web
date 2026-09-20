@@ -431,6 +431,33 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   do monorepo o runner carrega os specs com outra instância de `@playwright/test`, acusa
   "did not expect test.beforeEach() to be called here" e termina com "No tests found", sem
   executar nada, com cara de rodada.
+- **"Test timed out in 5000ms" NUM ARQUIVO QUE NINGUÉM TOCOU, E QUE PASSA SOZINHO, QUASE NUNCA É O
+  CÓDIGO SOB TESTE: É O `import()` A FRIO** (medido em 2026-09-20, três flakes do mesmo dia com esta
+  raiz). O vitest dá 5 s a cada caso, e um caso que faz `await import(...)` de um grafo grande paga
+  ali dentro a TRANSFORMAÇÃO dos módulos na primeira vez que o worker os vê. Medido em
+  `frontend/tests/integration/migracao-main-riscos-abertos.repro.test.js`, com a máquina em repouso
+  e com 96 processos ocupando 32 núcleos: a migração leva de 9 a 19 ms nas DUAS condições; o import
+  a frio vai de 175 ms para 7,7 a 11,2 s, e cai a 320 ms com o cache do worker quente. Taxa antes do
+  conserto, em série sob carga: 8 de 10 verdes; depois, 12 de 12.
+
+  Três coisas que a medição ensinou e a intuição erra:
+
+  - **carga "moderada" não reproduz.** Trinta processos numa máquina de 32 núcleos deram 8 de 8
+    verdes, porque sobrava núcleo. Só a sobrecarga (três vezes os núcleos) reproduziu, e é ela que
+    corresponde a duas ou três sessões rodando suíte e Playwright ao mesmo tempo;
+  - **a primeira hipótese estava errada.** O arquivo tem um caso com folga de 50 ms sobre um
+    temporizador e uma janela de 50 ms de `BroadcastChannel`, que é onde o olho vai. Nenhum dos
+    dois falhou em 28 execuções; quem falhou foram os dois casos que IMPORTAM;
+  - **o segundo vermelho era cascata.** O caso seguinte ao que estoura também estoura, sem ter
+    defeito próprio. Leia o PRIMEIRO vermelho do arquivo.
+
+  O conserto é tirar o import a frio do orçamento do caso, não subir o orçamento às cegas: um
+  `beforeAll` com tempo próprio que importa os módulos uma vez. O `vi.resetModules()` de cada caso
+  continua valendo, porque ele refaz a AVALIAÇÃO, que é barata, e o que se paga uma vez é a
+  transformação. Caso que carrega uma ferramenta inteira (o ESLint, em
+  `frontend/tests/unit/maplibre-construtores-regua.test.js`) leva orçamento próprio no terceiro
+  argumento do `it`. O que NÃO foi feito, e é decisão do dono: subir o tempo limite global de caso do vitest, que
+  calaria a classe inteira e também atrasaria em todo caso a denúncia de um travamento de verdade.
 - There is **no CI of any kind and no git hooks**: everything is run manually.
   (The GitHub Pages workflow was removed on 2026-07-18 along with the dead
   `prepare-deploy.js` it depended on; see [[deploy-web]].)

@@ -227,7 +227,11 @@ describe('(c) a régua que proíbe o global está LIGADA no lint', () => {
         expect(Object.keys(config.rules)).toEqual(
             expect.arrayContaining(['ebgeo/require-path-comment', 'ebgeo/no-json-clone'])
         );
-    });
+        // ORÇAMENTO PRÓPRIO, e a razão foi medida: este caso importa o ESLint inteiro a frio e
+        // resolve a configuração do pacote, e reprovou por "Test timed out in 5000ms" em 1 de 6
+        // rodadas completas em série, numa máquina SEM outra carga. Os 5 s padrão medem o
+        // carregador, não a asserção.
+    }, 60000);
 
     it('e o ponto único é o único arquivo de `src/js/` que pode nomear o global', async () => {
         // O outro lado: a exceção existe, é por CAMINHO, e vale para este repositório e não só

@@ -1,7 +1,7 @@
 // Auditoria da transicao main -> integracao_backend, 2026-09-12.
 // As assercoes expressam preservacao de dados. Falhas sao bloqueadores abertos,
 // nao devem ser convertidas em skips nem em expectativas do comportamento defeituoso.
-import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
+import { beforeAll, beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { seedDatabase, readKey, resetIndexedDB } from '../helpers/idb-helpers.js';
@@ -27,6 +27,23 @@ async function seedV1() {
         } }
     });
 }
+
+// O IMPORT A FRIO FICA FORA DO ORÇAMENTO DOS CASOS. Medido em 2026-09-20, com a mesma máquina em
+// repouso e com 96 processos ocupando 32 núcleos: a migração leva de 9 a 19 ms nas DUAS condições,
+// e o `import()` a frio do grafo atrás de `migration.service.js` vai de 175 ms para 7,7 a 11,2 s,
+// caindo a 320 ms quando o cache de transformação do worker aquece. Com o import DENTRO do caso, o
+// orçamento padrão de 5 s era gasto pelo empacotador e não pelo código sob teste: 2 de 10 rodadas
+// reprovavam sob carga, com "Test timed out in 5000ms" no primeiro caso que importa e no seguinte
+// por cascata. Isolado dava 5 de 5, e foi assim que uma sessão o relatou como flake alheio.
+// O `vi.resetModules()` de cada caso continua valendo: ele refaz a AVALIAÇÃO dos módulos, que é
+// barata; o que este aquecimento paga uma vez é a TRANSFORMAÇÃO, que é a cara.
+beforeAll(async () => {
+    await import('@store/migration/migration.service.js');
+    await import('@store/migration/v1-to-v2.migration.js');
+    await import('@store/migration/migration-scope.js');
+    await import('@store/atlas-namespace.js');
+    await import('@utils/tab-lock.js');
+}, 120000);
 
 beforeEach(async () => {
     vi.resetModules();
