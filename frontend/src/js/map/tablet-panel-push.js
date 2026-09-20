@@ -11,12 +11,18 @@
  * pessoa acabou de selecionar fica atrás dele em quase todo caso: ela edita o atributo de uma
  * coisa que não consegue ver.
  *
- * O EMPURRÃO É `padding-left` NO CONTÊINER, e não um `easeTo` com `padding` da câmera. Os dois
- * resolvem esconder a feição; só o primeiro resolve o resto. Com `easeTo` o canvas continua
- * inteiro debaixo do painel, então o controle de zoom, a escala, a atribuição e metade do
- * desenho seguem em cima de uma faixa que a pessoa não alcança com o dedo. Com o padding, o
- * MapLibre passa a viver na faixa visível inteira, e o `.maplibregl-map` respeita a caixa de
- * conteúdo do `#map-sig`, de modo que os controles vão junto sem uma linha a mais.
+ * O EMPURRÃO ENCOLHE A CAIXA (margem mais largura), e não um `easeTo` com `padding` da câmera.
+ * Os dois resolvem esconder a feição; só o primeiro resolve o resto. Com `easeTo` o canvas
+ * continua inteiro debaixo do painel, então o controle de zoom, a escala, a atribuição e metade
+ * do desenho seguem em cima de uma faixa que a pessoa não alcança com o dedo.
+ *
+ * E NÃO É `padding-left`, QUE FOI A PRIMEIRA TENTATIVA E NÃO FUNCIONOU. `Element.clientWidth`
+ * inclui o padding, e é essa a medida que o MapLibre usa para dimensionar o canvas: com padding,
+ * o mapa continuava com a largura inteira, só deslocado para dentro da própria caixa, e o
+ * `map.resize()` colhia o mesmo número de antes. O defeito sobreviveu a uma revisão de código e
+ * a uma mensagem de commit que afirmava o contrário; quem o pegou foi a primeira rodada sob um
+ * contexto de toque de verdade (`playwright.tablet.config.js`), que comparou a largura do canvas
+ * antes e depois de abrir o painel e achou o mesmo valor.
  *
  * O NÚMERO VEM DO EVENTO, nunca de uma cópia das larguras: `UI_LAYOUT_CHANGED` já carrega
  * `contentLeftOffset`, que é o que a barra de busca e os chips usam para se posicionar. Ler

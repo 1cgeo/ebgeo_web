@@ -123,13 +123,20 @@
    número aqui é `installTabletPanelPush`, a partir do `contentLeftOffset` que o evento de
    leiaute já carregava. O zero de reserva mantém o mapa inteiro se o JS não tiver rodado.
 
+   MARGEM MAIS LARGURA, E NÃO `padding-left`: esta regra JÁ FOI padding e não funcionava, o que
+   só se descobriu ao medir sob um contexto de toque de verdade. `Element.clientWidth` INCLUI o
+   padding, e é por ele que o MapLibre dimensiona o canvas, então o mapa continuava com a
+   largura inteira, apenas deslocado para dentro da própria caixa. Encolher a caixa de BORDA é
+   o que faz a medida do MapLibre mudar; o `map.resize()` do módulo é que a colhe.
+
    A NOTAÇÃO DIVERGE DO JS DE PROPÓSITO, e os VALORES é que são o espelho: aqui a folha usa
    intervalo (`width >= 481px`) porque o stylelint da casa o exige, e lá o módulo usa
    `min-width`, que todo navegador entende. A sintaxe de intervalo só chegou ao Safari na
    16.4, e um `matchMedia` que não casa desliga a faixa em silêncio num iPad mais velho. */
 @media (pointer: coarse) and (width >= 481px) and (height >= 441px) {
     body[data-tablet-panel="open"] #map-sig {
-        padding-left: var(--tablet-map-inset, 0);
+        margin-left: var(--tablet-map-inset, 0);
+        width: calc(100% - var(--tablet-map-inset, 0px));
     }
 }
 
