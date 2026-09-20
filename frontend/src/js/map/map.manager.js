@@ -5,7 +5,8 @@ import {
     removeMap,
     renameMap,
     setCurrentMap,
-    updateMapPosition,
+    saveMapView,
+    isMapTemporalEnabledSync,
     hasMapSavedPosition,
     clearMapPosition,
     getAllMapNamesStore,
@@ -184,14 +185,27 @@ class MapManager {
         try {
             if (!this.map) return { success: false, message: 'Mapa não disponível' };
 
+            // THE SAVED VIEW IS THREE THINGS, read off the SCREEN of whoever is saving: camera,
+            // base layer and temporal switch. The last two are view state of the person since
+            // 2026-09-20 and travel only through this gesture (`store/map-view.operations.js`).
+            // The base is asked of the control because it is the only one that knows what is
+            // drawn after a fallback took over.
             const center = this.map.getCenter();
-            await updateMapPosition(center.lat, center.lng, this.map.getZoom(), this.map.getBearing(), this.map.getPitch());
+            await saveMapView({
+                center_lat: center.lat,
+                center_long: center.lng,
+                zoom: this.map.getZoom(),
+                bearing: this.map.getBearing(),
+                pitch: this.map.getPitch(),
+                baseLayer: this.baseLayerControl?.currentLayer ?? null,
+                temporalEnabled: isMapTemporalEnabledSync(),
+            });
 
             const resolvedName = mapName || await getCurrentMapName();
             const hadSavedPosition = await hasMapSavedPosition(resolvedName);
             const verb = hadSavedPosition ? 'atualizada' : 'salva';
 
-            return { success: true, message: `Posição ${verb} para ${resolvedName}` };
+            return { success: true, message: `Vista ${verb} para ${resolvedName}: posição, mapa base e controle temporal` };
         } catch (error) {
             console.error('Erro ao salvar posição:', error);
             return { success: false, message: 'Erro ao salvar posição' };

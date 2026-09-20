@@ -10,6 +10,27 @@
  * authoritative list is `DEFAULT_TEMPORAL_CONFIG` (`temporal/temporal.constants.js:49`).
  * `modo` and `origem` are the display lens (absoluto vs relativo D+N and its
  * D-origin); they never mutate feature times.
+ *
+ * `ativo` HAS TWO VALUES SINCE 2026-09-20, AND ONLY ONE OF THEM TRAVELS (owner's decision,
+ * registered in docs/decisions/decisions-2026.md). The switch on the screen is VIEW state of
+ * this person, exactly like the camera and the base layer: it lives in
+ * `memoryStore.temporalView`, is never persisted and never enqueues an op, so a reader and a
+ * locked map keep it, and a colleague flipping theirs does not flip anyone else's. The `ativo`
+ * inside the stored config is the SAVED value, part of the saved view of the map, and exactly
+ * one function writes it: `setMapTemporalSaved`, called by the "save view" gesture
+ * (`map-view.operations.js`). Everything else of the config (window, unit, lens) stays a synced
+ * map setting.
+ *
+ * THE VIEW IS PINNED ON ENTRY, by `setCurrentMap` (`store-state-manager.js`, inline there because
+ * this module imports that one). Without an entry the readers below answer the saved value, so a
+ * colleague saving THEIR view of a map would flip the timeline of everyone who is on it and never
+ * touched the switch. Pinning freezes what the person saw when they came in; a saved value that
+ * arrives later is picked up on the NEXT entry, like a saved camera.
+ *
+ * THE TRAP THIS SPLIT CLOSES BY CONSTRUCTION: the server replaces `temporal_config` with the
+ * keys the op carries, so the payload must KEEP carrying `ativo`, and it must be the SAVED one.
+ * `setMapTemporalConfig` therefore drops any `ativo` from the patch it receives: no caller of
+ * the config op can leak the on-screen switch into the shared document, not even by accident.
  */
 
 import { getSettingCompat, setSettingCompat } from './repositories/index.js';
@@ -67,33 +88,128 @@ export function getMapTemporalConfigSync(mapName = null) {
 }
 
 /**
- * Whether temporal control is enabled for a map (synchronous).
+ * The SAVED switch of a map, from the synchronous cache: what the "save view" gesture wrote.
+ * @param {string} target - Resolved map name.
+ * @returns {boolean}
+ * @private
+ */
+function savedEnabledSync(target) {
+    return withDefaults(memoryStore.temporalConfigs.get(target)).ativo === true;
+}
+
+/**
+ * Whether temporal control is ON THE SCREEN for a map (synchronous).
+ *
+ * The answer is the VIEW state of this session when the map has one, and the saved value
+ * otherwise. Every consumer (timeline, 3D markers, 360 markers, PDF export, the maps tab) asks
+ * what the person is looking at, which is why the name did not change when the meaning did.
  * @param {string} [mapName=null] - Map name (null = current).
  * @returns {boolean}
  */
 export function isMapTemporalEnabledSync(mapName = null) {
-    return getMapTemporalConfigSync(mapName).ativo === true;
+    const target = resolveMapName(mapName);
+    const view = memoryStore.temporalView.get(target);
+    return typeof view === 'boolean' ? view : savedEnabledSync(target);
 }
 
 /**
- * Whether temporal control is enabled for a map (async, from IndexedDB).
+ * Whether temporal control is ON THE SCREEN for a map (async: warms the config cache first).
  * @param {string} [mapName=null] - Map name (null = current).
  * @returns {Promise<boolean>}
  */
 export async function isMapTemporalEnabled(mapName = null) {
+    const target = resolveMapName(mapName);
+    const config = await getMapTemporalConfig(target);
+    const view = memoryStore.temporalView.get(target);
+    return typeof view === 'boolean' ? view : config.ativo === true;
+}
+
+/**
+ * The SAVED switch of a map (async, from IndexedDB): part of the saved view of the map.
+ * @param {string} [mapName=null] - Map name (null = current).
+ * @returns {Promise<boolean>}
+ */
+export async function isMapTemporalSavedEnabled(mapName = null) {
     return (await getMapTemporalConfig(mapName)).ativo === true;
 }
 
 /**
- * Persists a (partial) temporal config for a map, updates the cache and emits
- * change events. Emits MAP_TEMPORAL_CHANGED when the `ativo` flag changes and
- * always emits TEMPORAL_CONFIG_CHANGED.
+ * Sets the ON-SCREEN switch of a map. View state: no permission gate, no lock gate, no
+ * persistence and no sync op, by design (see the file overview).
  *
  * @param {string|null} mapName - Map name (null = current).
- * @param {Partial<{ativo: boolean, unidade: string, inicio: (number|null), fim: (number|null)}>} patch
+ * @param {boolean} enabled - The switch the person wants on their own screen.
+ * @param {{automatico?: boolean}} [options] - `automatico` when no gesture asked for the flip.
+ * @returns {boolean} The state now on screen.
+ */
+export function setMapTemporalView(mapName, enabled, { automatico = false } = {}) {
+    const target = resolveMapName(mapName);
+    const next = enabled === true;
+    const previous = isMapTemporalEnabledSync(target);
+    memoryStore.temporalView.set(target, next);
+    if (next !== previous) {
+        // `automatico` MARKS A FLIP NOBODY CLICKED (the saved view applied on entering a map, a
+        // briefing slide). One subscriber reads it: usage telemetry counts `temporal.ativado` on
+        // this event, and an applied saved view is not a person turning the timeline on.
+        const payload = { mapName: target, enabled: next };
+        if (automatico) payload.automatico = true;
+        getEventBus()?.emit(EventTypes.MAP_TEMPORAL_CHANGED, payload);
+    }
+    return next;
+}
+
+/**
+ * Applies the SAVED switch to the screen: the temporal third of "entering a map that has a
+ * saved view", next to the camera and the base layer (`BaseLayerControl.switchMap`).
+ *
+ * @param {string} [mapName=null] - Map name (null = current).
+ * @returns {Promise<boolean>} The state now on screen.
+ */
+export async function applySavedMapTemporalView(mapName = null) {
+    const target = resolveMapName(mapName);
+    return setMapTemporalView(target, await isMapTemporalSavedEnabled(target), { automatico: true });
+}
+
+/**
+ * Persists a (partial) temporal config for a map, updates the cache and emits
+ * TEMPORAL_CONFIG_CHANGED.
+ *
+ * `ativo` IS NOT ACCEPTED HERE: it is dropped from the patch, and the merged document keeps the
+ * SAVED value it already had (see the file overview for why the payload must still carry it).
+ * The on-screen switch is `setMapTemporalView`; the saved one is `setMapTemporalSaved`.
+ *
+ * @param {string|null} mapName - Map name (null = current).
+ * @param {Partial<{unidade: string, inicio: (number|null), fim: (number|null), modo: string, origem: (number|null)}>} patch
  * @returns {Promise<Object|null>} The merged, persisted config, or null when the write was refused.
  */
 export async function setMapTemporalConfig(mapName, patch) {
+    const { ativo: _viewSwitchNeverTravelsHere, ...settings } = patch || {};
+    return writeMapTemporalConfig(mapName, settings, 'setMapTemporalConfig');
+}
+
+/**
+ * Writes the SAVED switch of a map. One caller by design: the "save view" gesture
+ * (`saveMapView`, `map-view.operations.js`), which runs it inside the same logical batch as the
+ * camera and the base layer. It does NOT touch the on-screen switch: the person saving is
+ * already looking at the value being saved.
+ *
+ * @param {string|null} mapName - Map name (null = current).
+ * @param {boolean} enabled - The switch to save with the view.
+ * @returns {Promise<Object|null>} The merged, persisted config, or null when the write was refused.
+ */
+export async function setMapTemporalSaved(mapName, enabled) {
+    return writeMapTemporalConfig(mapName, { ativo: enabled === true }, 'setMapTemporalSaved');
+}
+
+/**
+ * The single write path of the stored config, shared by the two functions above.
+ * @param {string|null} mapName - Map name (null = current).
+ * @param {Object} patch - Keys to merge over the stored document.
+ * @param {string} operation - Name reported by the blocked event.
+ * @returns {Promise<Object|null>}
+ * @private
+ */
+async function writeMapTemporalConfig(mapName, patch, operation) {
     // Gate BEFORE the local write, exactly like the sibling map ops (`renameMap`,
     // `toggleMapLock`). The tail of this function enqueues a `mapTemporal` op, and the server
     // refuses a map-setting write from a reader (`assertOperationAllowed`, backend
@@ -116,7 +232,7 @@ export async function setMapTemporalConfig(mapName, patch) {
     const perm = checkPermission(GuardAction.UPDATE_MAP);
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
-            operation: 'setMapTemporalConfig',
+            operation,
             reason: perm.reason,
             required: perm.required
         });
@@ -135,7 +251,7 @@ export async function setMapTemporalConfig(mapName, patch) {
     // `applyRemoteMapSettingOp` (EntityType.MAP_TEMPORAL). Os dois lados nomeiam o mapa
     // pelo NOME, entao caem na mesma chave. Sem isso, a config do colega chegando no meio
     // do merge local seria sobrescrita pelo estado velho mais o patch.
-    const next = await withSideDocument('temporal', target, 'setMapTemporalConfig', async () => {
+    const next = await withSideDocument('temporal', target, operation, async () => {
         let previous, merged;
         await runTransaction(async tx => {
             const mapId = mapManager.getMapId(target);
@@ -151,15 +267,11 @@ export async function setMapTemporalConfig(mapName, patch) {
         });
         return { merged, previous };
     });
-    const { merged: config, previous } = next;
+    const { merged: config } = next;
 
-    const bus = getEventBus();
-    if (bus) {
-        if (config.ativo !== previous.ativo) {
-            bus.emit(EventTypes.MAP_TEMPORAL_CHANGED, { mapName: target, enabled: config.ativo });
-        }
-        bus.emit(EventTypes.TEMPORAL_CONFIG_CHANGED, { mapName: target, config });
-    }
+    // `MAP_TEMPORAL_CHANGED` IS NOT EMITTED FROM HERE ANY MORE: it announces the ON-SCREEN switch,
+    // and this function only ever writes the stored document (`setMapTemporalView` is its emitter).
+    getEventBus()?.emit(EventTypes.TEMPORAL_CONFIG_CHANGED, { mapName: target, config });
 
     // Emit as a sync op so the per-map temporal config travels to collaborators.
     // No-op unless operation logging is enabled (safe offline). Backend maps
@@ -171,17 +283,12 @@ export async function setMapTemporalConfig(mapName, patch) {
 }
 
 /**
- * Toggles temporal control on/off for a map.
+ * Toggles the ON-SCREEN temporal switch of a map. View state, so it cannot be refused.
  * @param {string} [mapName=null] - Map name (null = current).
- * @returns {Promise<boolean>} The new enabled state.
+ * @returns {Promise<boolean>} The new on-screen state.
  */
 export async function toggleMapTemporal(mapName = null) {
     const target = resolveMapName(mapName);
     const current = await isMapTemporalEnabled(target);
-    const next = await setMapTemporalConfig(target, { ativo: !current });
-    // A refused write returns null (the blocked event is already out). Report the UNCHANGED
-    // state: reading `.ativo` off null would throw a TypeError out of a refusal that is not an
-    // error, and the caller announces whatever comes back.
-    if (!next) return current;
-    return next.ativo;
+    return setMapTemporalView(target, !current);
 }

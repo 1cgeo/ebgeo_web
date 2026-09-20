@@ -27,8 +27,9 @@
 //      caso que a correcao nao pode quebrar: linha do tempo, notas e grade continuam
 //      inteiras para quem trabalha sozinho, e e tambem o que mantem o import de `.ebgeo`
 //      funcionando, ja que um import de projeto e uma restauracao local;
-//   5. `toggleMapTemporal` sobrevive a recusa: ela devolve o estado INALTERADO em vez de
-//      estourar TypeError ao ler `.ativo` de null.
+//   5. `toggleMapTemporal` NAO PASSA MAIS PELO GATE (2026-09-20): o interruptor virou estado de
+//      vista da pessoa, nao grava e nao enfileira, entao o leitor o alterna. O caso ficou aqui
+//      INVERTIDO de proposito, porque este arquivo e onde alguem viria procurar a recusa.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -132,7 +133,7 @@ vi.mock('../../src/js/store/store-state-manager.js', () => ({
 }));
 
 vi.mock('../../src/js/store/memory-store.js', () => ({
-    memoryStore: { temporalConfigs: new Map() }
+    memoryStore: { temporalConfigs: new Map(), temporalView: new Map() }
 }));
 
 let barramento;
@@ -172,7 +173,9 @@ import { StoreErrorEvents, setStoreErrorEventBus } from '../../src/js/store/stor
 
 const NOTAS = { title: 'Ordem', description: 'texto' };
 const GRADE = { format: 'utm', visible: true };
-const PATCH = { ativo: true, unidade: 'horas' };
+// SEM `ativo`: desde 2026-09-20 a config do mapa descarta essa chave do patch (ela e o valor
+// SALVO com a vista do mapa, e so o gesto de salvar a vista a escreve).
+const PATCH = { origem: 777, unidade: 'horas' };
 
 /** Eventos capturados do barramento, em ordem. */
 let eventos;
@@ -302,16 +305,15 @@ describe('atlas remoto com permissao de leitura (o defeito)', () => {
         await expect(setGridStyle(MAPA, GRADE)).resolves.toBeUndefined();
     });
 
-    it('toggleMapTemporal devolve o estado INALTERADO em vez de ler .ativo de null', async () => {
-        // Estado de partida: desligado (nada no disco). A recusa nao pode inventar um "ligado".
-        await expect(toggleMapTemporal(MAPA)).resolves.toBe(false);
-        expect(opsEnfileiradas()).toBe(0);
-
-        // E com a config ja ligada no disco, a recusa devolve `true`, que continua sendo o
-        // estado real: o que a funcao NAO pode fazer e relatar uma troca que nao houve.
-        disco.settings.set(`temporal_${MAPA}`, { ativo: true });
+    it('toggleMapTemporal NAO e recusado: o interruptor e estado de vista e nao enfileira nada', async () => {
+        // O leitor liga e desliga a PROPRIA linha do tempo. O que prova que isto nao e uma
+        // escrita disfarcada e a fila vazia, o disco intocado e nenhuma recusa emitida.
         await expect(toggleMapTemporal(MAPA)).resolves.toBe(true);
+        await expect(toggleMapTemporal(MAPA)).resolves.toBe(false);
+
         expect(opsEnfileiradas()).toBe(0);
+        expect(disco.settings.has(`temporal_${MAPA}`)).toBe(false);
+        expect(recusas()).toEqual([]);
     });
 });
 

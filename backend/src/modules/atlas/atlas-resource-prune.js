@@ -91,6 +91,7 @@ const TIPO_POR_ORIGEM = Object.freeze({
   'briefing.slide.modelId': 'tileset',
   sv360: 'sv360_project',
   'briefing.slide.photoId': 'sv360_project',
+  'briefing.slide.baseLayer': 'basemap',
   'settings.basemaps': 'basemap',
   'settings.default_basemap': 'basemap',
   'settings.available_data_layers': 'data_layer',
@@ -210,6 +211,7 @@ export function refsFromImportPayload(data) {
     for (const slide of (briefing?.slides || [])) {
       if (slide?.model_id) refs.push({ type: 'tileset', resourceId: String(slide.model_id) });
       if (slide?.photo_id) refs.push({ type: 'sv360_project', resourceId: String(slide.photo_id) });
+      if (slide?.base_layer) refs.push({ type: 'basemap', resourceId: String(slide.base_layer) });
     }
   }
   return refs;
@@ -308,13 +310,18 @@ export class ResourcePruner {
    * REBAIXA, NÃO APAGA: título e prosa são escritos à mão e não existem em lugar nenhum
    * além do slide. `createEmptySlide` nasce exatamente no estado resultante (modo 2D,
    * `map_id` nulo), o que é a evidência de que ele é legítimo.
-   * @param {{mode: string, model_id: string|null, photo_id: string|null}} slide
-   * @returns {{mode: string, model_id: string|null, photo_id: string|null}}
+   *
+   * A BASE DO SLIDE VOLTA A NULO, e nulo não é buraco: é "herda a base salva com o mapa", o
+   * estado em que todo slide nasce. É a decisão de `mapa.baseLayer` (cai para o padrão em vez
+   * de sumir) com o padrão que o slide tem.
+   * @param {{mode: string, model_id: string|null, photo_id: string|null, base_layer?: string|null}} slide
+   * @returns {{mode: string, model_id: string|null, photo_id: string|null, base_layer: string|null}}
    */
   slide(slide) {
     let mode = slide?.mode || '2d';
     let modelId = slide?.model_id || null;
     let photoId = slide?.photo_id || null;
+    let baseLayer = slide?.base_layer || null;
 
     if (modelId && !this._ve('tileset', String(modelId))) {
       this._perdeu('briefing.slide.modelId');
@@ -326,7 +333,11 @@ export class ResourcePruner {
       photoId = null;
       if (mode === '360') mode = '2d';
     }
-    return { mode, model_id: modelId, photo_id: photoId };
+    if (baseLayer && !this._ve('basemap', String(baseLayer))) {
+      this._perdeu('briefing.slide.baseLayer');
+      baseLayer = null;
+    }
+    return { mode, model_id: modelId, photo_id: photoId, base_layer: baseLayer };
   }
 
   /**

@@ -51,7 +51,7 @@ Após criar uma feição com vértices (linha, polígono, elipse, seta, etc.), s
 
 #### Seletor de mapa base
 
-No canto inferior esquerdo há um seletor de mapa de fundo. Clique para expandir e escolher entre as opções disponíveis (carta topográfica, ortoimagem e BDGEx, entre outras). O seletor fica oculto quando o mapa está travado.
+No canto inferior esquerdo há um seletor de mapa de fundo. Clique para expandir e escolher entre as opções disponíveis (carta topográfica, ortoimagem e BDGEx, entre outras). A escolha vale só para a sua tela: ela não muda o mapa base dos outros usuários do atlas, e por isso fica disponível também para quem só tem leitura e em mapa travado. Para definir o mapa base que o mapa mostra a quem chega, use **Salvar Posição** no menu do mapa.
 
 ### Módulo 2: Painel Lateral Esquerdo
 
@@ -93,7 +93,7 @@ No canto inferior esquerdo há um seletor de mapa de fundo. Clique para expandir
 
 <img src="./images/todos_mapas.png" alt="Painel Todos os Mapas" width="30%"/>
 
-- Salvar Posição: a posição atual do mapa é salva, quando o arquivo .ebgeo for aberto em outra máquina ou o mapa for selecionado no painel, a posição central do mapa vai para a posição salva.
+- Salvar Posição: salva a vista atual do mapa, que são três coisas: a posição, o mapa base que está na tela e se o controle temporal está ligado. Quando o arquivo .ebgeo for aberto em outra máquina ou o mapa for selecionado no painel, o mapa vai para a posição salva, com o mapa base e o controle temporal salvos. Em atlas compartilhado, é este o gesto que define o que os outros usuários veem ao entrar no mapa.
 - Duplicar: duplicar o mapa atual, para edição em outro mapa com as informações do mapa anterior.
 - Renomear: alterar o nome do mapa atual.
 - Puxar outros mapas: puxa as camadas de outro mapa para o mapa atual, permitindo a mescla de dois mapas distintos.
@@ -104,7 +104,7 @@ No canto inferior esquerdo há um seletor de mapa de fundo. Clique para expandir
 
 <img src="./images/controle_temporal.png" alt="Botão de relógio no card do mapa e barra de linha do tempo" width="60%"/>
 
-O ícone de **relógio** no card do mapa ativa e desativa o controle temporal daquele mapa: com ele ativo, apenas as feições válidas no instante selecionado ficam visíveis, e a **barra de linha do tempo** aparece na parte inferior da tela. A **engrenagem** da barra abre as configurações temporais.
+O ícone de **relógio** no card do mapa ativa e desativa o controle temporal daquele mapa na sua tela (os outros usuários do atlas não são afetados): com ele ativo, apenas as feições válidas no instante selecionado ficam visíveis, e a **barra de linha do tempo** aparece na parte inferior da tela. A **engrenagem** da barra abre as configurações temporais.
 
 Consulte o Módulo 11 para o passo a passo completo (validade das feições, trajetórias e configurações temporais).
 
@@ -479,6 +479,7 @@ O Briefing permite montar apresentações navegáveis (story maps) combinando ma
 Na aba **Briefings** do painel lateral esquerdo, crie um novo briefing. No editor:
 
 - Adicione slides; ao criar um slide, a **posição atual** é capturada automaticamente (enquadramento do mapa 2D, câmera 3D ou orientação 360°, conforme o que estiver ativo).
+- Abaixo de **Salvar Posição**, escolha o **mapa base do slide** e se o **controle temporal** fica ligado nele. Salvar Posição preenche os dois com o que está na sua tela; a opção "O do mapa" faz o slide usar o mapa base salvo com o mapa. Ao sair da apresentação, o mapa base e o controle temporal voltam ao que você tinha antes.
 - Escreva o texto de cada slide em um editor de texto formatado.
 - Reordene os slides arrastando, renomeie ou exclua.
 - Importe a nota do mapa para o conteúdo do slide atual, ou importe slides de outro briefing.
@@ -515,7 +516,7 @@ O EBGeo permite dar uma dimensão temporal ao mapa: cada feição pode ter uma *
 
 #### Ativar o controle temporal
 
-No card do mapa atual (aba **Mapas**), clique no botão de **relógio** para ativar o controle temporal daquele mapa. Uma **barra de linha do tempo** aparece na parte inferior da tela. O botão fica desabilitado quando o mapa está travado.
+No card do mapa atual (aba **Mapas**), clique no botão de **relógio** para ativar o controle temporal daquele mapa. Uma **barra de linha do tempo** aparece na parte inferior da tela. Ligar e desligar vale só para a sua tela, assim como reproduzir, pausar, a velocidade e mostrar feições ocultas; as configurações da engrenagem (janela, unidade e modo) são do mapa e valem para todos. Para que o mapa abra com o controle temporal ligado para quem chega, ligue-o e use **Salvar Posição**.
 
 <img src="./images/controle_temporal.png" alt="Botão de relógio no card do mapa e barra de linha do tempo" width="60%"/>
 

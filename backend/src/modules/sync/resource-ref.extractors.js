@@ -83,9 +83,12 @@ export const RESOURCE_REF_EXTRACTORS = Object.freeze({
     ...resourceRef('sv360_project', payload.photo_name ?? payload.photoName),
   ],
   // A briefing slide points at a 3D model AND/OR a 360 view; the two legs are independent.
+  // Since 2026-09-20 a 2D slide may also name the BASE LAYER it shows (null = the one saved
+  // with the map): a third catalog id, judged like the map's own `base_layer`.
   slide: (payload) => [
     ...resourceRef('tileset', payload.model_id ?? payload.modelId),
     ...resourceRef('sv360_project', payload.photo_id ?? payload.photoId),
+    ...resourceRef('basemap', payload.base_layer ?? payload.baseLayer),
   ],
   // The map's base layer, whether it arrives as the `baseLayer` sub-typed op (what the client
   // emits) or inside a whole-map create/update (what a rename emits).

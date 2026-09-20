@@ -35,18 +35,27 @@ describeOrSkip('§13 Base layer selector (real browser, local panel + selection)
         });
         expect(layers.length).toBeGreaterThan(1);
 
-        // Real key events traverse the document listener, debounce, store and MapLibre switch.
+        // Real key events traverse the document listener, debounce and MapLibre switch. The STORE is
+        // deliberately NOT part of the chain since 2026-09-20: the base layer on screen is view
+        // state of the person, so cycling it draws and writes nothing. The saved base of the map
+        // is read once here and asserted unchanged after every press.
+        const savedBase = await page.evaluate(async () => {
+            const { getCurrentBaseLayer } = await import('/src/js/store/index.js');
+            return getCurrentBaseLayer();
+        });
         let current = initial;
         for (let i = 0; i < layers.length; i++) {
             current = layers[(layers.indexOf(current) + 1) % layers.length];
             await page.keyboard.press('Backquote');
             await expect.poll(() => page.evaluate(async () => {
                 const { getControl } = await import('/src/js/store/control.registry.js');
-                const { getCurrentBaseLayer } = await import('/src/js/store/index.js');
                 const control = getControl('BaseLayerControl');
-                return !control.isChanging && control.currentLayer === await getCurrentBaseLayer()
-                    ? control.currentLayer : null;
+                return !control.isChanging ? control.currentLayer : null;
             })).toBe(current);
+            expect(await page.evaluate(async () => {
+                const { getCurrentBaseLayer } = await import('/src/js/store/index.js');
+                return getCurrentBaseLayer();
+            }), 'cycling the base layer must not rewrite the base saved with the map').toBe(savedBase);
             await expect(page.locator(`.base-layer-option[data-layer-id="${current}"]`))
                 .toHaveAttribute('data-selected', 'true');
         }

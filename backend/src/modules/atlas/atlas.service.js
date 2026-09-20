@@ -93,7 +93,7 @@ const CS = {
   ),
   slides: new pgp.helpers.ColumnSet(
     ['id', 'briefing_id', 'title', 'content', 'mode', 'map_id', 'model_id', 'photo_id',
-      jsonb('position'), jsonb('orientation')],
+      'base_layer', 'temporal_enabled', jsonb('position'), jsonb('orientation')],
     { table: 'slides' }
   ),
 };
@@ -1025,6 +1025,7 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
       content: slide.content,
       map_id: slide.map_id ? (mapIdMapping[slide.map_id] || null) : null,
       ...pruner.slide(slide),
+      temporal_enabled: typeof slide.temporal_enabled === 'boolean' ? slide.temporal_enabled : null,
       position: JSON.stringify(slide.position || {}),
       orientation: JSON.stringify(slide.orientation || {}),
       // Not a column: the ColumnSet only reads the columns it declares. Kept on the row so
@@ -1694,6 +1695,7 @@ export async function importAtlas(userId, data, { transaction = tx } = {}) {
       content: slide.content || null,
       map_id: importedMapIds.has(slide.map_id) ? novoMapa(slide.map_id) : null,
       ...pruner.slide(slide),
+      temporal_enabled: typeof slide.temporal_enabled === 'boolean' ? slide.temporal_enabled : null,
       position: JSON.stringify(slide.position || {}),
       orientation: JSON.stringify(slide.orientation || {}),
     })));

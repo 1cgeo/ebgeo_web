@@ -46,6 +46,9 @@ const PAR = {
     'comments.modelo3d': ['tileset-cm-publico', 'tileset-cm-privado'],
     'briefing.slide.modelId': ['tileset-slide-publico', 'tileset-slide-privado'],
     'briefing.slide.photoId': ['foto-slide-publica', 'foto-slide-privada'],
+    // 2026-09-20: o slide 2D passou a dizer qual mapa base ELE mostra (a base na tela virou estado
+    // de vista da pessoa). É id de catálogo como os dois acima, e pode ser privado.
+    'briefing.slide.baseLayer': ['basemap-slide-publico', 'basemap-slide-privado'],
 };
 
 const PUBLICOS = Object.values(PAR).map(([p]) => p);
@@ -150,6 +153,8 @@ function documentoDourado() {
                 { id: 'sl2', title: 'Com modelo privado', mode: '3d', modelId: PAR['briefing.slide.modelId'][1] },
                 { id: 'sl3', title: 'Com foto pública', mode: '360', photoId: PAR['briefing.slide.photoId'][0] },
                 { id: 'sl4', title: 'Com foto privada', mode: '360', photoId: PAR['briefing.slide.photoId'][1] },
+                { id: 'sl5', title: 'Com base pública', mode: '2d', baseLayer: PAR['briefing.slide.baseLayer'][0], temporalEnabled: true },
+                { id: 'sl6', title: 'Com base privada', mode: '2d', baseLayer: PAR['briefing.slide.baseLayer'][1], temporalEnabled: true },
             ],
         }],
     };
@@ -160,14 +165,14 @@ describe('poda de saída sobre o documento dourado', () => {
         // Sem este caso, uma superfície nova no registro entraria sem prova nenhuma e os
         // outros casos continuariam verdes sobre uma fixture incompleta.
         expect(Object.keys(PAR).sort()).toEqual(prunableSurfaceIds().sort());
-        expect(prunableSurfaceIds().length).toBe(12);  // 12 desde 2026-09-17: os comentarios do 360 e do 3D
+        expect(prunableSurfaceIds().length).toBe(13);  // 13 desde 2026-09-20 (a base do slide); eram 12 desde 2026-09-17: os comentarios do 360 e do 3D
     });
 
-    it('PISO: os vinte e quatro ids estão no documento antes da poda', () => {
+    it('PISO: os vinte e seis ids estão no documento antes da poda', () => {
         const json = JSON.stringify(documentoDourado());
         const ausentes = [...PUBLICOS, ...PRIVADOS].filter((id) => !json.includes(id));
         expect(ausentes).toEqual([]);
-        expect(new Set([...PUBLICOS, ...PRIVADOS]).size).toBe(24);
+        expect(new Set([...PUBLICOS, ...PRIVADOS]).size).toBe(26);
     });
 
     it('perde TODA referência privada e mantém TODA pública', () => {
@@ -180,9 +185,9 @@ describe('poda de saída sobre o documento dourado', () => {
         const privadosSobreviventes = PRIVADOS.filter((id) => json.includes(id));
         expect(privadosSobreviventes, 'privado não pode ficar').toEqual([]);
 
-        // Uma perda por superfície, e o relatório nomeia exatamente as doze.
+        // Uma perda por superfície, e o relatório nomeia exatamente as treze.
         expect(Object.keys(relatorio.porSuperficie).sort()).toEqual(prunableSurfaceIds().sort());
-        expect(relatorio.total).toBe(12);
+        expect(relatorio.total).toBe(13);
     });
 
     it('A CONVERSA CAI INTEIRA: a resposta de uma raiz podada sai junto', () => {
@@ -223,7 +228,7 @@ describe('poda de saída sobre o documento dourado', () => {
         const { documento } = podarDocumentoDeExportacao(documentoDourado(), resolverDeTeste);
         const slides = documento.briefings[0].slides;
 
-        expect(slides).toHaveLength(4);
+        expect(slides).toHaveLength(6);
         expect(slides[1].title).toBe('Com modelo privado');
         expect(slides[1].modelId).toBeNull();
         expect(slides[1].mode).toBe('2d');
@@ -233,6 +238,14 @@ describe('poda de saída sobre o documento dourado', () => {
         // DISCRIMINAÇÃO: os slides cuja referência sobreviveu NÃO são rebaixados.
         expect(slides[0].mode).toBe('3d');
         expect(slides[2].mode).toBe('360');
+
+        // A BASE DO SLIDE volta a NULO, que não é buraco: é "herda a base salva com o mapa". O
+        // slide, o modo e o interruptor temporal dele ficam como estavam, e a base pública fica.
+        expect(slides[5].baseLayer).toBeNull();
+        expect(slides[5].mode).toBe('2d');
+        expect(slides[5].temporalEnabled).toBe(true);
+        expect(slides[5].title).toBe('Com base privada');
+        expect(slides[4].baseLayer).toBe(PAR['briefing.slide.baseLayer'][0]);
     });
 
     it('não muta o documento de entrada', () => {

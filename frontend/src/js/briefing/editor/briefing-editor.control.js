@@ -55,8 +55,13 @@ import {
     hasMapNotes,
     getMapPosition,
     getAllCameraPositions,
-    getAllOrientations
+    getAllOrientations,
+    getCurrentBaseLayer,
+    isMapTemporalSavedEnabled,
+    setMapTemporalView
 } from '@store/index.js';
+import { resolveSlideView } from '../slide-view.js';
+import { slideViewFromScreen } from '../screen-view.js';
 import { deepClone } from '@utils/deep-utils.js';
 import { generateUUID } from '@utils/uuid.js';
 import { createQuillEditor, sanitizeQuillHtml } from '@utils/quill-helpers.js';
@@ -698,9 +703,13 @@ export class BriefingEditorControl {
                 slide.mode = SlideMode.MAP_2D;
                 slide.modelId = null;
                 slide.photoId = null;
+                // The view belonged to the old map too: back to "inherit what the new map saved".
+                slide.baseLayer = null;
+                slide.temporalEnabled = null;
             }
 
             await this._handleMapChange(slide.mapId);
+            await this._applySlideViewToScreen(slide);
 
             this._scheduleAutosave();
             this._renderSlideEditor();
@@ -790,6 +799,8 @@ export class BriefingEditorControl {
 
         this._slideEditorEl.appendChild(positionGroup);
 
+        this._slideEditorEl.appendChild(await this._createSlideViewGroup(slide));
+
         // Content editor with Quill
         const contentGroup = document.createElement('div');
         contentGroup.className = 'briefing-editor-form-group briefing-editor-content-group';
@@ -852,6 +863,108 @@ export class BriefingEditorControl {
             }
         } catch (error) {
             console.warn('Error loading map names:', error);
+        }
+    }
+
+    /**
+     * The VIEW of the slide besides the camera: which base layer it shows (2D slides only) and
+     * whether the timeline is on. Both are view state of each person since 2026-09-20, so the
+     * slide has to say what IT shows; the capture button fills them from the screen and these two
+     * controls let the author change them without capturing again.
+     * @private
+     * @param {Object} slide - Selected slide
+     * @returns {Promise<HTMLElement>}
+     */
+    async _createSlideViewGroup(slide) {
+        const group = document.createElement('div');
+        group.className = 'briefing-editor-form-group briefing-editor-view-group';
+
+        const saved = {
+            baseLayer: await getCurrentBaseLayer(slide.mapId || null).catch(() => null),
+            temporalEnabled: await isMapTemporalSavedEnabled(slide.mapId || null).catch(() => false),
+        };
+
+        if ((slide.mode || SlideMode.MAP_2D) === SlideMode.MAP_2D) {
+            const baseLabel = document.createElement('label');
+            baseLabel.textContent = 'Mapa base do slide';
+            group.appendChild(baseLabel);
+
+            const baseSelect = document.createElement('select');
+            baseSelect.className = 'briefing-editor-select briefing-editor-view-base';
+
+            const inherit = document.createElement('option');
+            inherit.value = '';
+            const savedName = config.basemaps?.[saved.baseLayer]?.name || saved.baseLayer;
+            inherit.textContent = savedName ? `O do mapa (${savedName})` : 'O do mapa';
+            baseSelect.appendChild(inherit);
+
+            const offered = config.getEnabledBasemaps().map(([id, cfg]) => [id, cfg?.name || id]);
+            // A base the author chose and this editor cannot draw (a private one, without the
+            // grant) still has to be SHOWN as the choice, or opening the slide would silently
+            // rewrite it on the next autosave.
+            if (slide.baseLayer && !offered.some(([id]) => id === slide.baseLayer)) {
+                offered.push([slide.baseLayer, `${slide.baseLayer} (indisponível para você)`]);
+            }
+            for (const [id, name] of offered) {
+                const option = document.createElement('option');
+                option.value = id;
+                option.textContent = name;
+                baseSelect.appendChild(option);
+            }
+            baseSelect.value = slide.baseLayer || '';
+
+            addDomListener(this, baseSelect, 'change', async () => {
+                slide.baseLayer = baseSelect.value || null;
+                this._scheduleAutosave();
+                await this._applySlideViewToScreen(slide);
+            });
+            group.appendChild(baseSelect);
+        }
+
+        const temporalRow = document.createElement('label');
+        temporalRow.className = 'briefing-editor-view-check';
+
+        const temporalCheck = document.createElement('input');
+        temporalCheck.type = 'checkbox';
+        temporalCheck.className = 'briefing-editor-view-temporal';
+        temporalCheck.checked = typeof slide.temporalEnabled === 'boolean'
+            ? slide.temporalEnabled
+            : saved.temporalEnabled;
+        addDomListener(this, temporalCheck, 'change', async () => {
+            slide.temporalEnabled = temporalCheck.checked;
+            this._scheduleAutosave();
+            await this._applySlideViewToScreen(slide);
+        });
+        temporalRow.appendChild(temporalCheck);
+
+        const temporalText = document.createElement('span');
+        temporalText.textContent = 'Controle temporal ligado neste slide';
+        temporalRow.appendChild(temporalText);
+        group.appendChild(temporalRow);
+
+        return group;
+    }
+
+    /**
+     * Shows on the screen of the AUTHOR what the slide now asks for, so the editor stays
+     * what-you-see-is-what-is-presented. Draw-only, like every other path of the view.
+     * @private
+     * @param {Object} slide - Selected slide
+     */
+    async _applySlideViewToScreen(slide) {
+        try {
+            const baseLayerControl = getControl('BaseLayerControl');
+            const view = resolveSlideView(slide, {
+                baseLayer: await getCurrentBaseLayer(),
+                temporalEnabled: await isMapTemporalSavedEnabled(),
+            }, baseLayerControl?.availableBasemaps);
+
+            if (view.baseLayer && baseLayerControl && view.baseLayer !== baseLayerControl.currentLayer) {
+                await baseLayerControl.applySharedBasemap(view.baseLayer);
+            }
+            setMapTemporalView(null, view.temporalEnabled, { automatico: true });
+        } catch (error) {
+            console.warn('Failed to apply the slide view to the screen:', error);
         }
     }
 
@@ -1209,6 +1322,11 @@ export class BriefingEditorControl {
 
             // Auto-capture current map
             slide.mapId = getCurrentMapNameSync();
+
+            // AND THE VIEW, read off the screen of the author: the base layer (2D only) and the
+            // temporal switch. They are view state of each person since 2026-09-20, so the slide
+            // is the only place left that can say what the audience should see.
+            Object.assign(slide, slideViewFromScreen(slide.mode));
 
             this._scheduleAutosave();
             this._renderSlideEditor();
@@ -1580,6 +1698,10 @@ export class BriefingEditorControl {
             const emptySlide = createEmptySlide();
             // Pre-select the current map so the slide is ready for position capture
             emptySlide.mapId = getCurrentMapNameSync();
+            // A new slide is BORN showing what the author is looking at. Left null it would inherit
+            // the view saved with the map, and selecting it right below would repaint the screen of
+            // the author with a base layer they did not choose.
+            Object.assign(emptySlide, slideViewFromScreen(emptySlide.mode));
             const newSlide = await addSlide(this._briefing.id, emptySlide);
             if (!this._briefing) return;
 

@@ -31,7 +31,18 @@
  * @module briefing/presentation/transition.service
  */
 
-import { SlideMode, getCurrentMapNameSync, setCurrentMap, getEventBus, getControl } from '@store/index.js';
+import {
+    SlideMode,
+    getCurrentMapNameSync,
+    setCurrentMap,
+    getEventBus,
+    getControl,
+    getCurrentBaseLayer,
+    isMapTemporalSavedEnabled,
+    isMapTemporalEnabledSync,
+    setMapTemporalView
+} from '@store/index.js';
+import { resolveSlideView } from '@js/briefing/slide-view.js';
 import { EventTypes } from '@events/event_types.js';
 import { flyTo } from '@js/map/animation.service.js';
 
@@ -257,7 +268,8 @@ class TransitionService {
     }
 
     /**
-     * Switches the active map if the slide's mapId differs from the current map.
+     * Switches the active map if the slide's mapId differs from the current map, then applies the
+     * VIEW of the slide (base layer and temporal switch) either way.
      * Sets _mapChangedDuringTransition flag for downstream handlers.
      * @private
      * @param {Object} slide - Target slide
@@ -265,24 +277,92 @@ class TransitionService {
     async _switchMapIfNeeded(slide) {
         this._mapChangedDuringTransition = false;
 
-        if (!slide.mapId) return;
-
-        const currentMap = getCurrentMapNameSync();
-
-        if (currentMap === slide.mapId) return;
-
-        await setCurrentMap(slide.mapId);
-        const baseLayerControl = getControl('BaseLayerControl');
-        if (baseLayerControl) {
-            // false = don't apply saved map position (briefing controls position)
-            await baseLayerControl.switchMap(false);
+        const mapChanged = !!slide.mapId && getCurrentMapNameSync() !== slide.mapId;
+        if (mapChanged) {
+            await setCurrentMap(slide.mapId);
         }
+
+        await this._applySlideView(slide, mapChanged);
+
+        if (!mapChanged) return;
 
         // Notify listeners (e.g. 360 viewer reloads markers for new map)
         getEventBus().emit(EventTypes.LAYERS_CHANGED, { mapName: slide.mapId });
 
         this._currentMapId = slide.mapId;
         this._mapChangedDuringTransition = true;
+    }
+
+    /**
+     * Applies what the slide shows besides the camera: base layer and temporal switch.
+     *
+     * BOTH ARE VIEW STATE OF THE PERSON SINCE 2026-09-20, so nothing here writes: the base goes
+     * through the two draw-only paths of `BaseLayerControl`, and the switch through
+     * `setMapTemporalView`. It runs for EVERY slide and not only on a map change, because two
+     * slides of the same map may now ask for different bases (`briefing/slide-view.js`).
+     *
+     * WHAT THE PERSON HAD IS REMEMBERED THE FIRST TIME SOMETHING IS ABOUT TO CHANGE, and given
+     * back by `resetTo2D`, which the presenter, the editor and the PDF export all call on exit.
+     * @private
+     * @param {Object} slide - Target slide
+     * @param {boolean} mapChanged - Whether the active map was just switched for this slide
+     */
+    async _applySlideView(slide, mapChanged) {
+        const baseLayerControl = getControl('BaseLayerControl');
+        const mapName = getCurrentMapNameSync();
+        const view = resolveSlideView(slide, {
+            baseLayer: await getCurrentBaseLayer(),
+            temporalEnabled: await isMapTemporalSavedEnabled(),
+        }, baseLayerControl?.availableBasemaps);
+
+        this._rememberPersonView(baseLayerControl, mapName);
+
+        if (baseLayerControl) {
+            if (mapChanged) {
+                // false = don't apply saved map position (briefing controls position)
+                await baseLayerControl.switchMap(false, view.baseLayer ? { baseLayer: view.baseLayer } : {});
+            } else if (view.baseLayer && view.baseLayer !== baseLayerControl.currentLayer) {
+                await baseLayerControl.applySharedBasemap(view.baseLayer);
+            }
+        }
+
+        setMapTemporalView(mapName, view.temporalEnabled, { automatico: true });
+    }
+
+    /**
+     * Remembers the base layer of the person once, and the temporal switch of each map the first
+     * time a slide touches it.
+     * @private
+     * @param {Object|null} baseLayerControl
+     * @param {string} mapName - Map whose temporal switch is about to be set
+     */
+    _rememberPersonView(baseLayerControl, mapName) {
+        if (!this._personView) {
+            this._personView = { baseLayer: baseLayerControl?.currentLayer ?? null, temporal: new Map() };
+        }
+        if (mapName && !this._personView.temporal.has(mapName)) {
+            this._personView.temporal.set(mapName, isMapTemporalEnabledSync(mapName));
+        }
+    }
+
+    /**
+     * Gives the screen back to the person: the base layer and the temporal switches they had
+     * before the first slide was applied. Draw-only, like everything else about the view.
+     * @private
+     */
+    async _restorePersonView() {
+        const saved = this._personView;
+        this._personView = null;
+        if (!saved) return;
+
+        for (const [mapName, enabled] of saved.temporal) {
+            setMapTemporalView(mapName, enabled, { automatico: true });
+        }
+
+        const baseLayerControl = getControl('BaseLayerControl');
+        if (saved.baseLayer && baseLayerControl?.map && saved.baseLayer !== baseLayerControl.currentLayer) {
+            await baseLayerControl.applySharedBasemap(saved.baseLayer);
+        }
     }
 
     /**
@@ -891,6 +971,10 @@ class TransitionService {
 
         this._currentViewerMode = SlideMode.MAP_2D;
         this._currentModelId = null;
+
+        // The three callers (presenter, editor, PDF export) call this on the way out, so it is
+        // also where the base layer and the temporal switches go back to the person.
+        await this._restorePersonView();
     }
 
     /**

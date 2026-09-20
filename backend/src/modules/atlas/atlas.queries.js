@@ -476,6 +476,12 @@ export const COLLECT_ATLAS_RESOURCE_REFS = `
      WHERE b.atlas_id = $1 AND b.deleted_at IS NULL AND sl.deleted_at IS NULL
        AND sl.photo_id IS NOT NULL
     UNION ALL
+    SELECT 'briefing.slide.baseLayer', sl.base_layer, NULL, NULL
+      FROM slides sl
+      JOIN briefings b ON b.id = sl.briefing_id
+     WHERE b.atlas_id = $1 AND b.deleted_at IS NULL AND sl.deleted_at IS NULL
+       AND sl.base_layer IS NOT NULL
+    UNION ALL
     -- A FAMILIA DE atlas.settings, a que o inventario por NOME DE CAMPO nao enxergava:
     -- cinco allowlists e um padrao, todos ids de catalogo, todos copiados verbatim pelo
     -- clone ate esta onda. jsonb_typeof guarda cada perna porque jsonb_array_elements_text
@@ -549,6 +555,7 @@ export const REF_COUNT_SURFACES = Object.freeze([
   }),
   Object.freeze({ origem: 'comments.modelo3d', registro: ['comments.modelo3d'] }),
   Object.freeze({ origem: 'briefing.slide.modelId', registro: ['briefing.slide.modelId'] }),
+  Object.freeze({ origem: 'briefing.slide.baseLayer', registro: ['briefing.slide.baseLayer'] }),
   Object.freeze({ origem: 'settings.basemaps', registro: ['settings.basemaps'] }),
   Object.freeze({ origem: 'settings.default_basemap', registro: ['settings.default_basemap'] }),
   Object.freeze({
@@ -633,6 +640,13 @@ export const COUNT_ATLAS_REFS_TO_RESOURCE = `
       JOIN briefings b ON b.id = sl.briefing_id
       JOIN atlas a ON a.id = b.atlas_id
      WHERE $2 = 'tileset' AND sl.model_id = $1
+       AND sl.deleted_at IS NULL AND b.deleted_at IS NULL AND a.deleted_at IS NULL
+    UNION ALL
+    SELECT 'briefing.slide.baseLayer', b.atlas_id, NULL, NULL
+      FROM slides sl
+      JOIN briefings b ON b.id = sl.briefing_id
+      JOIN atlas a ON a.id = b.atlas_id
+     WHERE $2 = 'basemap' AND sl.base_layer = $1
        AND sl.deleted_at IS NULL AND b.deleted_at IS NULL AND a.deleted_at IS NULL
     UNION ALL
     SELECT 'settings.basemaps', a.id, NULL, NULL

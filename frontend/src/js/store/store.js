@@ -1063,9 +1063,16 @@ export {
     getMapTemporalConfigSync,
     isMapTemporalEnabled,
     isMapTemporalEnabledSync,
+    isMapTemporalSavedEnabled,
     setMapTemporalConfig,
+    setMapTemporalView,
+    applySavedMapTemporalView,
     toggleMapTemporal
 } from './temporal.operations.js';
+
+// ===== RE-EXPORTS FROM MAP VIEW OPERATIONS =====
+
+export { saveMapView } from './map-view.operations.js';
 
 // ===== RE-EXPORTS FROM CUSTOM ICON OPERATIONS =====
 

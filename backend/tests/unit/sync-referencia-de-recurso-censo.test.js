@@ -107,6 +107,11 @@ const CENSO = {
   'briefing.slide.photoId': {
     classe: GATEADA, target: 'slide', chaves: ['photo_id', 'photoId'], tipo: 'sv360_project',
   },
+  // 2026-09-20: o slide 2D passou a dizer qual mapa base ELE mostra (a base na tela virou estado de
+  // vista de cada pessoa). E a TERCEIRA perna do mesmo target, independente das outras duas.
+  'briefing.slide.baseLayer': {
+    classe: GATEADA, target: 'slide', chaves: ['base_layer', 'baseLayer'], tipo: 'basemap',
+  },
 
   // ------------------------------------------------------------------------
   // As sete que NÃO viajam em op. As seis primeiras são a família `atlas.settings`, que o

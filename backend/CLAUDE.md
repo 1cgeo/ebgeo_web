@@ -90,7 +90,7 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
 
     **`atlas.settings` é superfície de referência, e é a que se esquece.** Além das colunas
     óbvias (`maps.base_layer`, `cesium3d_data.tileset_id`, `streetview360_data.photo_name`,
-    `slides.model_id`/`photo_id`, `catalog_layers.data`), o documento `settings` carrega SEIS
+    `slides.model_id`/`photo_id` e, desde 2026-09-20, `slides.base_layer`, `catalog_layers.data`), o documento `settings` carrega SEIS
     ids de catálogo: `basemaps`, `default_basemap` e os quatro `available_*`. Eles passam pelo
     mesmo `ResourcePruner`, e a armadilha é o SENTIDO: lista vazia significa **sem restrição**
     no cliente, então podar uma allowlist até zero e escrever a lista vazia ALARGA a cópia;
@@ -187,7 +187,7 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   como UMA unidade, porque uma panorâmica é um gesto), mapa-base, notas, grade, temporal, travado;
   **camada** nome, visível, travado, opacidade, ordem, estilo; **grupo** nome, visível, travado,
   estilo, pai; **briefing** nome, descrição, settings, ordem dos slides; **slide** título,
-  conteúdo, alvo, câmera, defeito; **comentário** texto, resolvido; **camada de catálogo**, **3D**
+  conteúdo, alvo, câmera (que desde 2026-09-20 inclui a VISTA do slide: `base_layer` e `temporal_enabled`), defeito; **comentário** texto, resolvido; **camada de catálogo**, **3D**
   e **360** com o documento inteiro como unidade única. Três coisas que não se adivinham: ordem de
   SLIDE não é unidade de slide, é `briefings.slide_order`; entidade de uma unidade só não guarda
   linha de fronteira (com uma unidade, a comparação é idêntica a comparar `version`, e a linha

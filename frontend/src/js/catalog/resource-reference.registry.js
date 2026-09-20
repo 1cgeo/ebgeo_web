@@ -251,6 +251,18 @@ export const RESOURCE_REF_SURFACES = Object.freeze([
             + 'entrada, e é por isso que a resolução do servidor tenta as quatro formas.',
     }),
     Object.freeze({
+        id: 'briefing.slide.baseLayer',
+        grupos: [RESOURCE_REF_GROUP.BASEMAPS],
+        documento: 'briefings[].slides[]',
+        campo: 'baseLayer',
+        banco: 'slides.base_layer',
+        acao: REF_ACTION.PADRAO,
+        motivo: 'O mapa base que o slide mostra (2026-09-20), desde que a base na tela virou '
+            + 'estado de vista de cada pessoa. O padrão dele é NULO, que significa herdar a base '
+            + 'salva com o mapa: a mesma decisão de `mapa.baseLayer`, que volta ao padrão em vez '
+            + 'de sumir, com o padrão que o slide tem. O slide e o modo dele ficam intactos.',
+    }),
+    Object.freeze({
         id: 'settings.basemaps',
         grupos: [RESOURCE_REF_GROUP.BASEMAPS],
         documento: '(não viaja no documento do cliente)',

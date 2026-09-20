@@ -159,7 +159,7 @@ export const DISPUTE_UNITS = {
       { unit: 'titulo', columns: ['title'] },
       { unit: 'conteudo', columns: ['content'] },
       { unit: 'alvo', columns: ['mode', 'map_id', 'model_id', 'photo_id'] },
-      { unit: 'camera', columns: ['position', 'orientation', 'temporal_cursor'] },
+      { unit: 'camera', columns: ['position', 'orientation', 'temporal_cursor', 'base_layer', 'temporal_enabled'] },
       { unit: 'defeito', columns: ['is_broken', 'broken_reason'] },
     ],
   },

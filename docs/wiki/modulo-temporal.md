@@ -1,6 +1,6 @@
 # Módulo temporal (linha do tempo)
 
-Dimensão de tempo por mapa: a config é estado compartilhado com LWW, o cursor e a reprodução são estritamente locais por usuário, e as lentes de exibição nunca movem os tempos das feições.
+Dimensão de tempo por mapa: a config é estado compartilhado com LWW, o interruptor, o cursor e a reprodução são estritamente locais por usuário, e as lentes de exibição nunca movem os tempos das feições.
 
 ## A tripartição que não pode se misturar
 
@@ -8,7 +8,7 @@ Três categorias com donos diferentes, e confundi-las é o erro estrutural do m�
 
 1. **Dado canônico, por feição, viaja no sync:** `temporalInicio`/`temporalFim` (ausente = permanente) e `trajetoria`.
 2. **Config por mapa, compartilhada, LWW:** `DEFAULT_TEMPORAL_CONFIG` (`frontend/src/js/temporal/temporal.constants.js`). `modo`, `unidade` e `origem` são **lentes de exibição**: mudá-las só re-rotula a régua.
-3. **Estado local por usuário, nunca persistido nem sincronizado:** cursor, `playing`, velocidade e modo revelar vivem apenas em campos do controller (`frontend/src/js/temporal/temporal-controller.js`). São análogos a pan/zoom.
+3. **Estado local por usuário, nunca persistido nem sincronizado:** cursor, `playing`, velocidade e modo revelar vivem apenas em campos do controller (`frontend/src/js/temporal/temporal-controller.js`). São análogos a pan/zoom. **Desde 2026-09-20 o LIGA/DESLIGA também mora aqui**, em `memoryStore.temporalView`: o `ativo` que continua dentro da config da categoria 2 deixou de ser o interruptor e passou a ser o valor SALVO com a vista do mapa, escrito só pelo gesto de salvar posição. São dois valores com o mesmo nome de campo, e a armadilha que isso cria (o payload da config tem de levar o salvo, nunca o da tela) está em [[vista-da-pessoa-e-vista-salva]].
 
 A única forma de mover tempos de feição é a ação explícita "Reagendar". Se você se pegar escrevendo `temporalInicio` ao trocar `unidade` ou `origem`, está errado.
 

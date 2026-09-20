@@ -15,7 +15,6 @@ import {
     cleanup,
     removeElement
 } from '@utils/event-cleanup.js';
-import { assinarEdicaoIndisponivel, semEdicaoSync } from '@store/edicao-indisponivel.js';
 import {
     canShareResource,
     isPrivateResource,
@@ -81,9 +80,6 @@ export class BaseLayerSelectorControl {
 
         // Sync initial state
         this._syncCurrentLayer();
-
-        // Apply initial lock state
-        this._applyMapLockState();
     }
 
     /**
@@ -356,10 +352,10 @@ export class BaseLayerSelectorControl {
         subscribe(this, this._eventBus, EventTypes.BASE_LAYER_CHANGED,
             (payload) => this._setActiveLayer(payload.layer));
 
-        // TUDO O QUE MUDA A RESPOSTA, e nao so a trava: papel no atlas, conexao, troca de atlas e
-        // troca de mapa entram junto, por uma assinatura so (`@store/edicao-indisponivel.js`). Ela
-        // ja chama o callback uma vez, o que dispensa o `_applyMapLockState()` do `init`.
-        this._soltarEdicao = assinarEdicaoIndisponivel(() => this._applyMapLockState());
+        // NO GATE BY ROLE OR BY MAP LOCK ANY MORE. The selector was hidden for a reader and on a
+        // locked map (2026-09-17) because choosing a base layer was a WRITE that repainted everyone
+        // else. Since 2026-09-20 the choice is view state of the person and writes nothing, so
+        // there is no role and no state left that could refuse it.
 
         // Per-atlas config changed (Gestor restricted the basemaps, or connect/disconnect) —
         // rebuild the available-basemaps grid and switch off any now-unavailable selection.
@@ -397,24 +393,6 @@ export class BaseLayerSelectorControl {
         } else {
             this._syncCurrentLayer();
         }
-    }
-
-    /**
-     * Shows or hides the selector based on map lock state.
-     * @private
-     */
-    _applyMapLockState() {
-        if (!this._container) return;
-        // OS DOIS EIXOS, E NAO SO A TRAVA (relato do dono, 2026-09-17: "testei aqui um mapa somente
-        // leitura e ele ainda está exibindo a escolha de basemap"). Trocar de mapa base e ESCRITA:
-        // `setBaseLayer` pede `GuardAction.UPDATE_MAP`, grava uma op `baseLayer` no documento do
-        // mapa e PROPAGA a troca aos outros usuarios do atlas. Perguntando so por
-        // `isCurrentMapLockedSync`, o leitor via o seletor, clicava, e a escrita morria no guarda,
-        // que e o "desenha e recusa" que o dono mandou eliminar.
-        //
-        // A ACAO E A QUE O COMANDO EXERCE, e nao o padrao: citar `UPDATE_FEATURE` aqui daria a
-        // resposta certa por acaso hoje e a errada no dia em que os dois niveis divergirem.
-        this._container.style.display = semEdicaoSync('UPDATE_MAP') ? 'none' : '';
     }
 
     /**
@@ -571,11 +549,6 @@ export class BaseLayerSelectorControl {
      */
     destroy() {
         this._thumbnails.clear();
-
-        // A assinatura da edição indisponível não passa pelo `subscribe`/`cleanup` deste arquivo:
-        // ela é feita pelo helper da store, que devolve o próprio desassinar.
-        this._soltarEdicao?.();
-        this._soltarEdicao = null;
 
         cleanup(this);
         removeElement(this._container);

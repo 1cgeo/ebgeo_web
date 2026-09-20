@@ -248,7 +248,13 @@ const CENSO = [
             + 'nada: o resultado aparece numa lista, e um modelo concedido ausente dali parece '
             + '"não achei" e não "não recebi".',
     },
-    { arquivo: 'src/js/briefing/editor/briefing-editor.control.js', gatilho: 'catalogo', n: 4, classe: BASELINE, motivo: LE_TILESETS },
+    {
+        arquivo: 'src/js/briefing/editor/briefing-editor.control.js', gatilho: 'catalogo', n: 5,
+        classe: BASELINE,
+        motivo: `${LE_TILESETS} A quinta leitura é de 2026-09-20 e é de \`config.basemaps\`: o seletor de `
+            + 'mapa base do slide nomeia a base salva do mapa, lida do mesmo singleton que o seletor '
+            + 'do mapa lê, de modo que uma base concedida aparece nos dois e uma retirada some dos dois.',
+    },
     {
         arquivo: 'src/js/briefing/validation/reference-validator.js', gatilho: 'catalogo', n: 2,
         classe: BASELINE,

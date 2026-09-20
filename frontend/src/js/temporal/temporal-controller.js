@@ -21,6 +21,7 @@ import {
     getCurrentMapNameSync,
     getCurrentMapFeatures,
     getMapTemporalConfig,
+    isMapTemporalEnabledSync,
     shiftMapTemporalTimes,
 } from '../store';
 import { DEFAULT_TEMPORAL_SPEED, TEMPORAL_RENDER_SUBSTEPS } from './temporal.constants.js';
@@ -225,7 +226,10 @@ export class TemporalController {
         const config = await getMapTemporalConfig(mapName);
         if (token !== this._syncToken) return;
         this._config = config;
-        this._enabled = config.ativo === true;
+        // THE ON-SCREEN SWITCH, never `config.ativo`: that key is the value SAVED with the view of
+        // the map, and reading it here is what made a colleague's gesture flip this timeline.
+        // `getMapTemporalConfig` above has just warmed the cache the sync reader falls back to.
+        this._enabled = isMapTemporalEnabledSync(mapName);
 
         if (!this._enabled) {
             this._stopPlayback();

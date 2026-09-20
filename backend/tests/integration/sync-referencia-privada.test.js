@@ -152,7 +152,7 @@ describe('sync — referência a recurso privado: o gate de escrita nas quatro s
 
   const linha3d = async (id) => (await db.query('SELECT tileset_id, deleted_at FROM cesium3d_data WHERE id = $1', [id])).rows[0];
   const linha360 = async (id) => (await db.query('SELECT photo_name, deleted_at FROM streetview360_data WHERE id = $1', [id])).rows[0];
-  const linhaSlide = async (id) => (await db.query('SELECT model_id, photo_id, deleted_at FROM slides WHERE id = $1', [id])).rows[0];
+  const linhaSlide = async (id) => (await db.query('SELECT model_id, photo_id, base_layer, deleted_at FROM slides WHERE id = $1', [id])).rows[0];
   const baseLayerDoMapa = async () => (await db.query('SELECT base_layer FROM maps WHERE id = $1', [mapa.id])).rows[0].base_layer;
 
   before(async () => {
@@ -413,6 +413,34 @@ describe('sync — referência a recurso privado: o gate de escrita nas quatro s
     const linha = await linhaSlide(id);
     assert.equal(linha.model_id, TS_PUBLICO);
     assert.equal(linha.photo_id, projeto.publica);
+  });
+
+  it('SLIDE PISO — o `baseLayer` privado do slide é recusado pelo MESMO gate, na TERCEIRA perna', async () => {
+    // 2026-09-20: o slide 2D passou a dizer qual mapa base ELE mostra, porque a base na tela
+    // virou estado de vista de cada pessoa. É id de catálogo como o modelo e a foto, e sem esta
+    // perna no extrator o autor gravaria no atlas o id de uma base que ele não enxerga.
+    const id = randomUUID();
+    const { alvo, irma } = await pushComIrma(tokenMembro, opSlide(id, { mode: '2d', baseLayer: BM_PRIVADO }));
+
+    assert.equal(alvo.rejected, true, 'o slide que pede uma base invisível precisa ser recusado');
+    assert.match(alvo.reason, /slide/, 'a razão precisa nomear a superfície');
+    assert.equal(await linhaSlide(id), undefined, 'nada pode ter sido escrito');
+    assert.equal(irma.rejected, undefined, 'a irmã do mesmo lote precisa ter passado');
+  });
+
+  it('SLIDE DISCRIMINAÇÃO 3 — a base que o ATLAS empresta passa, e a base nula também', async () => {
+    const comBase = randomUUID();
+    const semBase = randomUUID();
+    const { acks } = await push(tokenMembro, [
+      opSlide(comBase, { mode: '2d', baseLayer: BM_EMPRESTADO }),
+      opSlide(semBase, { mode: '2d', baseLayer: null }),
+    ]);
+
+    assert.equal(acks[0].rejected, undefined, 'quem enxerga a base por empréstimo não pode ser recusado');
+    assert.equal((await linhaSlide(comBase)).base_layer, BM_EMPRESTADO);
+    // NULO NÃO É REFERÊNCIA: é "herda a base salva com o mapa", e é como todo slide nasce.
+    assert.equal(acks[1].rejected, undefined, 'base nula não tem recurso a julgar');
+    assert.equal((await linhaSlide(semBase)).base_layer, null);
   });
 
   it('SLIDE DISCRIMINAÇÃO 2 — o DELETE do slide com referência morta continua passando', async () => {

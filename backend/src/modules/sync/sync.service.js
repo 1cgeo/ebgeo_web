@@ -436,6 +436,26 @@ function normalizeSlidePayload(rawData, envelopeMapId) {
   fill('model_id', 'modelId');
   fill('photo_id', 'photoId');
   fill('temporal_cursor', 'temporalCursor');
+  // The VIEW of the slide (2026-09-20): the base layer it shows and whether the timeline is
+  // on. Both nullable, and null means "inherit what the map has saved".
+  fill('base_layer', 'baseLayer');
+  fill('temporal_enabled', 'temporalEnabled');
+
+  // THE SAME POISON THE `map_id` BLOCK BELOW EXISTS FOR, on the two new columns. `temporal_enabled`
+  // is BOOLEAN and `base_layer` is VARCHAR(100): a value of the wrong shape raises 22P02 or 22001,
+  // which aborts the transaction around the ENTIRE push batch, and the client replays it forever.
+  // A value that cannot be stored degrades to NULL, which is a legitimate state of both columns
+  // ("inherit what was saved with the map"), never to an error.
+  const viewValue = (key) => (patch[key] !== undefined ? patch[key] : rawData[key]);
+  const temporalEnabled = viewValue('temporal_enabled');
+  if (temporalEnabled !== undefined && temporalEnabled !== null && typeof temporalEnabled !== 'boolean') {
+    patch.temporal_enabled = null;
+  }
+  const baseLayer = viewValue('base_layer');
+  if (baseLayer !== undefined && baseLayer !== null
+      && !(typeof baseLayer === 'string' && baseLayer.length > 0 && baseLayer.length <= 100)) {
+    patch.base_layer = null;
+  }
 
   // `slides.map_id` is `UUID REFERENCES maps(id)`, but the frontend's `slide.mapId`
   // holds the map's DISPLAY NAME, not its id (briefing-editor.control.js sets it from
@@ -1237,6 +1257,8 @@ export async function getAtlasSnapshot(atlasId, permission = 'owner', userId = n
         modelId: slide.model_id ?? null,
         photoId: slide.photo_id ?? null,
         temporalCursor: slide.temporal_cursor ?? null,
+        baseLayer: slide.base_layer ?? null,
+        temporalEnabled: slide.temporal_enabled ?? null,
         order: order.indexOf(slide.id),
         sync: buildSyncMetadata(slide),
       }));
@@ -3054,6 +3076,8 @@ export const UPDATE_FIELDS = {
     { column: 'position', jsonb: true },
     { column: 'orientation', jsonb: true },
     { column: 'temporal_cursor', jsonb: true },
+    { column: 'base_layer' },
+    { column: 'temporal_enabled' },
     { column: 'is_broken' },
     { column: 'broken_reason' },
   ],
@@ -3935,8 +3959,8 @@ async function applyOperation(t, atlasId, op, userId, permission) {
         // Guard the insert: only attach the slide when its briefing belongs to the
         // route's atlas. A cross-atlas briefing_id yields zero inserted rows.
         rowsAffected = (await t.result(`
-          INSERT INTO slides (id, briefing_id, title, content, mode, map_id, model_id, photo_id, position, orientation, temporal_cursor)
-          SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb
+          INSERT INTO slides (id, briefing_id, title, content, mode, map_id, model_id, photo_id, position, orientation, temporal_cursor, base_layer, temporal_enabled)
+          SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $13, $14
           WHERE EXISTS (SELECT 1 FROM briefings WHERE id = $2 AND atlas_id = $12)
           ON CONFLICT (id) DO UPDATE
             SET briefing_id      = EXCLUDED.briefing_id,
@@ -3949,6 +3973,8 @@ async function applyOperation(t, atlasId, op, userId, permission) {
                 position         = EXCLUDED.position,
                 orientation      = EXCLUDED.orientation,
                 temporal_cursor  = EXCLUDED.temporal_cursor,
+                base_layer       = EXCLUDED.base_layer,
+                temporal_enabled = EXCLUDED.temporal_enabled,
                 deleted_at       = NULL,
                 updated_at       = NOW(),
                 version          = slides.version + 1
@@ -3966,6 +3992,8 @@ async function applyOperation(t, atlasId, op, userId, permission) {
           JSON.stringify(data.orientation || {}),
           data.temporal_cursor != null ? JSON.stringify(data.temporal_cursor) : null,
           atlasId,
+          typeof data.base_layer === 'string' && data.base_layer ? data.base_layer : null,
+          typeof data.temporal_enabled === 'boolean' ? data.temporal_enabled : null,
         ])).rowCount;
       } else if (target === 'cesium3d' && op.data && op.mapId) {
         const data = op.data;

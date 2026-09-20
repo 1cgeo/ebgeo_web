@@ -189,6 +189,13 @@ class MapManager {
         } else {
             this.memoryStore.temporalConfigs.delete(mapName);
         }
+        // PIN the on-screen temporal switch of the map being entered, when this session has
+        // none for it yet: from here on a peer saving THEIR view of this map changes the stored
+        // document only, never this screen (see the file overview of temporal.operations.js).
+        // Written inline because that module imports this one.
+        if (!this.memoryStore.temporalView.has(mapName)) {
+            this.memoryStore.temporalView.set(mapName, temporalCfg?.ativo === true);
+        }
 
         // The active map is LOCAL per-client state (each collaborator may view a
         // different map), so it is intentionally NOT synced. Logging it as a `setting`

@@ -167,40 +167,43 @@ describe('MAP_TEMPORAL_CHANGED — o interruptor, e só um dos dois sentidos', (
         expect(contagens(corpos)).toEqual({ [EventoDeUso.TEMPORAL_ATIVADO]: 1 });
     });
 
-    it('o ECO REMOTO não conta, e é ele que faria a métrica medir a equipe', () => {
-        // O `remote-operation-handler.js` emite este evento a CADA op de entrada que carregue a
-        // configuração temporal, sem detecção de mudança: um colega que liga a linha do tempo
-        // UMA vez produz uma emissão em cada aba do atlas. Sem o segundo termo do filtro, o
-        // número cresce com o tamanho da equipe sem ninguém ter ligado nada a mais.
+    it('a troca AUTOMÁTICA não conta: só o gesto de uma pessoa liga a linha do tempo', () => {
+        // Desde 2026-09-20 o interruptor é estado de vista, e ele também vira sem ninguém clicar:
+        // ao entrar num mapa que tem vista salva, e a cada slide de briefing que pede a linha do
+        // tempo. Sem o segundo termo do filtro, abrir um atlas ou apresentar um briefing contaria
+        // como gente ligando a linha do tempo.
         const corpos = acumuladorEspiao();
         soltar = instalarUsoDoBarramento(barramento);
         barramento.emitir(EventTypes.MAP_TEMPORAL_CHANGED, {
-            mapName: 'M', enabled: true, remoto: true,
+            mapName: 'M', enabled: true, automatico: true,
         });
         barramento.emitir(EventTypes.MAP_TEMPORAL_CHANGED, {
-            mapName: 'M', enabled: false, remoto: true,
+            mapName: 'M', enabled: false, automatico: true,
         });
         expect(contagens(corpos)).toEqual({});
-        // E o gesto LOCAL, que é o mesmo evento SEM o carimbo, continua contando.
+        // E o gesto da pessoa, que é o mesmo evento SEM o carimbo, continua contando.
         barramento.emitir(EventTypes.MAP_TEMPORAL_CHANGED, { mapName: 'M', enabled: true });
         expect(contagens(corpos)).toEqual({ [EventoDeUso.TEMPORAL_ATIVADO]: 1 });
     });
 
-    it('o carimbo de procedência existe no emissor remoto, e só nele', () => {
-        // AMARRAÇÃO ENTRE OS DOIS ARQUIVOS: o filtro acima é inútil se o emissor parar de
-        // carimbar, e nada além desta asserção liga os dois. A leitura é da FONTE porque o
-        // manipulador de op remota arrasta a store inteira e não se importa em node.
-        const remoto = readFileSync(new URL(
-            '../../src/js/store/sync/remote-operation-handler.js', import.meta.url,
-        ), 'utf8');
-        expect(remoto).toMatch(/MAP_TEMPORAL_CHANGED,\s*{[^}]*remoto:\s*true/);
+    it('o carimbo existe no emissor, e a op REMOTA não emite mais o evento', () => {
+        // AMARRAÇÃO ENTRE OS ARQUIVOS: o filtro acima é inútil se o emissor parar de carimbar, e
+        // nada além desta asserção liga os dois. A leitura é da FONTE porque o manipulador de op
+        // remota arrasta a store inteira e não se importa em node.
         const local = readFileSync(new URL(
             '../../src/js/store/temporal.operations.js', import.meta.url,
         ), 'utf8');
-        expect(local).toMatch(/MAP_TEMPORAL_CHANGED/);
-        expect(local, 'o emissor LOCAL não pode se carimbar como remoto').not.toMatch(
-            /MAP_TEMPORAL_CHANGED,\s*{[^}]*remoto/,
-        );
+        expect(local).toMatch(/payload\.automatico = true/);
+        expect(local).toMatch(/emit\(EventTypes\.MAP_TEMPORAL_CHANGED, payload\)/);
+
+        // A metade que fecha a propagação: a op de um colega grava o documento e avisa a CONFIG,
+        // nunca o interruptor. Era este emissor que fazia um gesto mudar a tela de todos, e é
+        // por isso que a ausência dele é asserida em vez de só deixada acontecer.
+        const remoto = readFileSync(new URL(
+            '../../src/js/store/sync/remote-operation-handler.js', import.meta.url,
+        ), 'utf8');
+        expect(remoto).toMatch(/emit\(EventTypes\.TEMPORAL_CONFIG_CHANGED/);
+        expect(remoto).not.toMatch(/emit\(EventTypes\.MAP_TEMPORAL_CHANGED/);
     });
 
     it('payload ausente ou hostil não conta e não lança', () => {

@@ -3,10 +3,19 @@
 /**
  * @fileoverview Base layer control for switching map styles.
  * Delegates current layer state to StateManager.
+ *
+ * THE BASE LAYER ON SCREEN IS VIEW STATE OF THE PERSON, LIKE THE CAMERA (decision of the owner,
+ * 2026-09-20, registered in docs/decisions/decisions-2026.md). NOTHING IN THIS FILE WRITES: the
+ * selector, the fallback and every `switchMap` only DRAW. The base stored on the map document is
+ * the SAVED one, written by exactly one gesture, "save view" (`saveMapView`,
+ * `store/map-view.operations.js`), and READ here in two moments only: on entering a map that has
+ * a saved view, and on the first paint after a boot or a wipe. Until then every base-layer
+ * choice enqueued a `baseLayer` op, so the taste of one person in basemaps repainted the screen
+ * of everyone in the atlas, a reader could not choose at all, and an editor WITHOUT access to a
+ * private basemap overwrote it for everybody just by opening the map (the fallback persisted).
  */
 
 import {
-    setBaseLayer,
     getCurrentMapName,
     getCurrentBaseLayer,
     hasMapSavedPosition,
@@ -15,7 +24,7 @@ import {
     getEventBus,
     getStateManager,
     getControl,
-    isCurrentMapLockedSync
+    applySavedMapTemporalView
 } from '../store';
 import { EventTypes } from '../events/event_types.js';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
@@ -82,6 +91,12 @@ class BaseLayerControl {
 
         this.isChanging = false;
         this.changeDebounceTimer = null;
+
+        // False until the first `switchMap` paints, and again after every store wipe: the next
+        // entry then reads the base SAVED on the map document even without a saved position,
+        // because there is no "what is on screen" worth keeping yet (the map is born with
+        // `DEFAULT_LAYER`, and after a wipe the screen belongs to the atlas that just left).
+        this._viewPainted = false;
 
         config.validateBasemapsConfig();
 
@@ -182,37 +197,10 @@ class BaseLayerControl {
         //
         // O PADRÃO É `true` porque o evento tem oito outros ouvintes que não passam argumento nenhum,
         // e um wipe sem opinião sobre isto é o wipe que quer o comportamento antigo.
-        // O MAPA BASE QUE UM PAR TROCOU, aplicado na tela e não só no registro.
-        //
-        // Este controle é o único que chama `setStyle`, e ele era o EMISSOR de
-        // `BASE_LAYER_CHANGED`, nunca um ouvinte: a operação do colega era gravada, o cartão do
-        // seletor passava a mostrar a base nova e o mapa continuava desenhando a antiga até um F5.
-        // `applySharedBasemap` é exatamente o gesto certo aqui, e pela mesma razão do link
-        // compartilhado: troca o estilo, remonta as feições e NÃO persiste nem enfileira op (o
-        // dado já veio do par; reescrevê-lo devolveria a operação ao servidor em laço).
-        //
-        // O FILTRO POR MAPA NÃO É DETALHE: a operação pertence a UM mapa do atlas, e sem ele um
-        // colega editando outro mapa trocaria a base debaixo de quem está em outro lugar. Quando
-        // o mapa não é o ativo, basta o que o handler já fez, porque abrir aquele mapa lê o
-        // registro.
-        if (this._unsubBaseLayerRemote) this._unsubBaseLayerRemote();
-        this._unsubBaseLayerRemote = getEventBus().on(
-            EventTypes.BASE_LAYER_REMOTE_CHANGED,
-            async ({ layer, mapName } = {}) => {
-                if (!layer || !this.map) return;
-                try {
-                    const mapaAtivo = await getCurrentMapName();
-                    if (mapName && mapaAtivo && mapName !== mapaAtivo) return;
-                    if (layer === this.currentLayer) return;
-                    await this.applySharedBasemap(layer);
-                } catch (error) {
-                    console.error('Falha ao aplicar o mapa base trocado por um colega:', error);
-                }
-            },
-        );
-
         if (this._unsubAllCleared) this._unsubAllCleared();
         this._unsubAllCleared = getEventBus().on(EventTypes.ALL_DATA_CLEARED, async ({ rebuild = true } = {}) => {
+            // The screen no longer belongs to any map of the scope that comes next.
+            this._viewPainted = false;
             if (!rebuild) {
                 clearFeatureSources(this.map);
                 return;
@@ -270,13 +258,6 @@ class BaseLayerControl {
             this.changeDebounceTimer = null;
         }
 
-        // Pareado com o `on()` de BASE_LAYER_REMOTE_CHANGED: um ouvinte que sobrevive ao controle
-        // chamaria `applySharedBasemap` sobre um mapa que já não existe.
-        if (this._unsubBaseLayerRemote) {
-            this._unsubBaseLayerRemote();
-            this._unsubBaseLayerRemote = null;
-        }
-
         this.container?.remove();
         this.map = null;
     }
@@ -298,20 +279,23 @@ class BaseLayerControl {
         }, 50);
     }
 
+    /**
+     * The person picked a base layer. DRAW ONLY: nothing is persisted and nothing is enqueued, so
+     * the gesture cannot be refused by role, by map lock or by a recovery in progress.
+     * @param {string} newLayer - Base layer id picked in the selector (desktop or phone).
+     */
     async executeLayerChange(newLayer) {
         this.isChanging = true;
-        const previousLayer = await getCurrentBaseLayer();
+        const previousLayer = this.currentLayer;
 
         try {
-            await setBaseLayer(newLayer);
             // MESMO mapa do atlas, base nova: o que está desenhado sobrevive ao
             // `setStyle` pelo `transformStyle` e NÃO pode ser reescrito. Ver
             // `layers/setup-mode.js` sobre por que reescrever aqui apaga o traço
             // que o despachante de diff ainda não entregou.
-            await this.switchMap(false, { sameMap: true });
+            await this.switchMap(false, { sameMap: true, baseLayer: newLayer });
         } catch (error) {
             console.error('Error changing base layer:', error);
-            await setBaseLayer(previousLayer);
             this.syncVisualState(previousLayer);
             showError('Erro ao trocar camada base');
         } finally {
@@ -319,7 +303,7 @@ class BaseLayerControl {
         }
     }
 
-    async switchLayer(layer, { skipPersist = false } = {}) {
+    async switchLayer(layer) {
         // config.basemaps and the style lists are separate: a basemap can be enabled
         // in config (so getValidBasemapFallback accepts it) and still have no style
         // anywhere. setStyle(undefined) never completes, so fall back to a layer that
@@ -352,10 +336,6 @@ class BaseLayerControl {
             // O PEDIDO RESOLVEU: retirar a acusação vale tanto quanto levantá-la, e um aviso
             // que fica depois de resolvido treina a ignorar aviso.
             getLayerFailureNotice(this.map).clearBasemapFailure();
-        }
-
-        if (!skipPersist) {
-            await setBaseLayer(layer);
         }
 
         this.uiManager?.saveChangesAndClosePanel?.();
@@ -519,31 +499,53 @@ class BaseLayerControl {
     }
 
     /**
-     * @param {boolean} [applyPosition=true] - Restaura a câmera salva do mapa.
-     * @param {{ sameMap?: boolean }} [options] - `sameMap` quando o mapa do atlas NÃO mudou
-     *   (troca só do mapa base), único caso em que o conteúdo desenhado pode ser mantido.
-     *   Ausente é o padrão certo: os outros dez chamadores (desfazer/refazer, troca de mapa,
-     *   import, briefing, busca) mudaram o CONTEÚDO, e ali remontar é a obrigação.
+     * WHICH BASE THIS PAINT DRAWS, in order, and the order is the rule of the product:
+     *
+     *   1. `options.baseLayer`: someone asked for a base by name (the selector, a briefing slide).
+     *   2. ENTERING a map (`applyPosition`) that has a SAVED VIEW: the saved base, together with
+     *      the saved camera and the saved temporal switch. The three are one thing.
+     *   3. The first paint after a boot or a wipe: the base on the map document, because there is
+     *      nothing on screen worth keeping yet.
+     *   4. Everything else (entering a map with no saved view, undo/redo, import, search): what
+     *      is ON SCREEN stays. The base is view state of the person, like the camera, which also
+     *      stays where it is when the map has no saved position.
+     *
+     * The fallback for an id the catalog of this person does not offer is DRAW-ONLY. It used to
+     * be written back to the map document, and that is how an editor without a grant to a private
+     * basemap replaced it for everyone by opening the map
+     * (`tests/integration/mapa-base-e-vista-da-pessoa.repro.test.js`).
+     *
+     * @param {boolean} [applyPosition=true] - Entrada num mapa: restaura a VISTA salva dele.
+     * @param {{ sameMap?: boolean, baseLayer?: string }} [options] - `sameMap` quando o mapa do
+     *   atlas NÃO mudou (troca só do mapa base), único caso em que o conteúdo desenhado pode ser
+     *   mantido. Ausente é o padrão certo: os outros chamadores (desfazer/refazer, troca de
+     *   mapa, import, briefing, busca) mudaram o CONTEÚDO, e ali remontar é a obrigação.
+     *   `baseLayer` pede uma base pelo nome, sem gravar nada.
      */
     async switchMap(applyPosition = true, options = {}) {
         const currentMapName = await getCurrentMapName();
-        const skipPersist = isCurrentMapLockedSync();
+        const hasSavedView = applyPosition && await hasMapSavedPosition(currentMapName);
 
-        let baseLayer = await getCurrentBaseLayer();
+        let baseLayer;
+        if (options.baseLayer) {
+            baseLayer = options.baseLayer;
+        } else if (hasSavedView || !this._viewPainted) {
+            baseLayer = await getCurrentBaseLayer();
+        } else {
+            baseLayer = this.currentLayer;
+        }
+
         const validFallback = config.getValidBasemapFallback(baseLayer);
-
         if (baseLayer !== validFallback) {
             console.warn(`Base layer "${baseLayer}" not available. Using "${validFallback}".`);
             baseLayer = validFallback;
-            if (!skipPersist) {
-                await setBaseLayer(baseLayer);
-            }
         }
 
         this._toolManager.deactivateCurrentTool();
         this._selectionManager.deselectAllFeatures();
 
-        await this.switchLayer(baseLayer, { skipPersist });
+        await this.switchLayer(baseLayer);
+        this._viewPainted = true;
 
         // The saved position comes FIRST, and the order is the point: every tool
         // that re-anchors its features to the zoom (military symbol, brush,
@@ -557,23 +559,25 @@ class BaseLayerControl {
         if (applyPosition) {
             await this.applyMapSavedPosition(currentMapName);
         }
+        // The temporal third of the saved view. Only with a saved view: a map without one keeps
+        // the switch this session pinned for it (`store/temporal.operations.js`).
+        if (hasSavedView) {
+            await applySavedMapTemporalView(currentMapName);
+        }
 
         await setupMapFeatures(this.map, this._analysisLayersManager, this._dataLayersManager, getEventBus(), {
             contentPreserved: options.sameMap === true,
         });
 
-        getEventBus().emit(EventTypes.BASE_LAYER_CHANGED, { layer: baseLayer });
+        getEventBus().emit(EventTypes.BASE_LAYER_CHANGED, { layer: this.currentLayer });
     }
 
     /**
-     * Applies a base layer that came from a SHARED LINK, without writing it down.
+     * Applies a base layer asked for from OUTSIDE the selector (a shared link, the preferred base
+     * of the terrain), keeping the drawn content.
      *
-     * THE WHOLE POINT IS THE `skipPersist`. Opening someone else's link is a visit,
-     * not an edit. A plain `switchLayer` would go through `setBaseLayer`, which in
-     * this package does two things a visitor must not do: it writes the choice into
-     * the map record, and it ENQUEUES a `baseLayer` op, so a reader visiting a
-     * shared atlas would push a mutation the server then refuses, stalling the whole
-     * outbound queue. Nothing here asks the guard, because nothing here writes.
+     * It never wrote anything, and since 2026-09-20 neither does any other path of this control,
+     * so what is left of its reason to exist is the second half:
      *
      * `setupMapFeatures` IS NOT OPTIONAL AFTER A STYLE SWAP, and forgetting it is
      * the trap this method exists to close: `setStyle` drops every source and layer
@@ -584,12 +588,13 @@ class BaseLayerControl {
      * The position is deliberately NOT touched here: the link carries its own
      * camera, and `applyMapSavedPosition` would overwrite it with the stored one.
      *
-     * @param {string} basemapId - Base layer id asked for by the link.
+     * @param {string} basemapId - Base layer id asked for.
      * @returns {Promise<string>} The id actually applied, which differs from the
      *   argument when the requested layer is unavailable and a fallback took over.
      */
     async applySharedBasemap(basemapId) {
-        await this.switchLayer(config.getValidBasemapFallback(basemapId), { skipPersist: true });
+        await this.switchLayer(config.getValidBasemapFallback(basemapId));
+        this._viewPainted = true;
         // `contentPreserved`: o link chega DEPOIS de o atlas estar montado e pintado (ver
         // `deep-link/deep-link.js`, `applySharedView`), então o que está desenhado é o do
         // mapa certo e o `transformStyle` acabou de mantê-lo. Se o MapLibre tiver caído na

@@ -127,7 +127,9 @@ class KeyboardShortcuts {
         if (e.code === 'Backquote') {
             if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || e.isComposing || e.repeat) return;
             const control = this.baseLayerControl;
-            if (!control || control.isChanging || semEdicaoSync('UPDATE_MAP')) return;
+            // No edit gate: since 2026-09-20 cycling the base layer is view state of the person
+            // (it draws and writes nothing), so a reader and a locked map cycle too.
+            if (!control || control.isChanging) return;
             const layers = control.availableBasemaps;
             if (layers.length < 2) return;
             e.preventDefault();

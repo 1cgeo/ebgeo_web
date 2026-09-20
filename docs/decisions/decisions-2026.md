@@ -1153,7 +1153,8 @@ que sobreviveram:
    morde recurso público, que é o caso de hoje; morde no dia em que alguém pedir link de recurso
    privado. Preservar a query nos construtores foi metade do conserto; a outra metade é de ORDEM.
 4. **"Abrir link não escreve" está implementado e NÃO tem teste próprio.** Os casos existentes
-   afirmam que `applySharedBasemap` foi chamada, e o `skipPersist` mora dentro dela. Falta o caso
+   afirmam que `applySharedBasemap` foi chamada, e a bandeira de não persistir morava dentro dela
+   (ela saiu em 2026-09-20, quando nenhum caminho do controle passou a gravar). Falta o caso
    que afirma que a fila de saída não ganhou op de camada base, com o controle negativo de trocar
    por `setBaseLayer`.
 
@@ -2996,3 +2997,38 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
   código". Cruza pacote e não entrou neste lote.
 - **Status:** aceita. Guardas: `frontend/tests/unit/login-recuperacao-modelo.test.js` e
   `frontend/tests/unit/confirmacao-de-senha.test.js`.
+
+### 2026-09-20: mapa base e interruptor temporal viram VISTA DA PESSOA, e salvar posição passa a salvar a vista
+
+- **Decisão:** o mapa base na tela e o liga/desliga da linha do tempo deixam de ser config sincronizada do
+  mapa e passam a ser estado de vista de cada pessoa, em memória, como a câmera. O que viaja é a VISTA
+  SALVA do mapa (câmera, base e interruptor), gravada pelo gesto "salvar posição" num lote só, e aplicada
+  junta quando alguém ENTRA num mapa que tem posição salva. Sem posição salva, o que está na tela fica. O
+  slide de briefing ganha base e interruptor próprios, nulos por padrão (nulo herda o salvo do mapa).
+- **Por quê:** relato do dono. Um colega escolhendo base ou ligando a linha do tempo repintava a tela de
+  todos, que é a forma errada de um gosto pessoal se comportar. A leitura do código achou mais dois custos
+  da mesma raiz: leitor e mapa travado não podiam escolher base nem ligar a linha do tempo (o seletor fora
+  escondido deles em 2026-09-17, porque a escolha era ESCRITA), e abrir um mapa cuja base o catálogo de
+  quem entra não oferece REGRAVAVA a base para o atlas inteiro, porque o fallback era persistido.
+- **O que continua sincronizado no temporal:** toda a CONFIG (janela, unidade, modo, origem). O que é da
+  pessoa é o gesto de reprodução: ligar, desligar, play, stop, velocidade e revelar ocultas. Os quatro
+  últimos já eram locais; o conserto foi só o interruptor.
+- **Onde a escolha pessoal mora:** em memória. Por dispositivo ou por usuário no servidor foram recusados,
+  porque uma preferência persistida disputaria precedência com a base salva, e a regra de entrada já
+  resolve essa disputa a favor do salvo. O custo declarado: um F5 devolve a pessoa à vista salva.
+- **Alternativa recusada para a vista salva:** pôr `base_layer` DENTRO da op de posição. Mexeria na
+  whitelist de colunas por subtipo, na unidade de disputa dos dois espelhos e no extrator do gate de
+  recurso, que só examina o subtipo de mapa base. O caminho adotado não muda o servidor: as três folhas
+  (posição, base, config temporal) saem sob `withGestureBatch`, que o servidor já aplica ou recusa
+  inteiro. Coluna nova só para a base salva também foi recusada: `maps.base_layer` já é a base do mapa.
+- **Alternativa recusada para o slide:** derivar o interruptor do cursor temporal do slide (cursor não
+  nulo = ligado). A captura só grava cursor com o controle ligado, mas um cursor sem janela definida vira
+  nulo, então nulo não distingue desligado de ligado sem janela. Entraram duas colunas nulas em `slides`
+  (`019_vista_do_slide.sql`), e a base é referência de catálogo: registro de referências nos dois pacotes
+  (`briefing.slide.baseLayer`), gate de escrita do sync e as duas podas.
+- **Par conectado:** quando alguém salva a vista, ninguém é movido. O documento converge e o valor vale
+  na próxima entrada, como a câmera salva sempre valeu.
+- **Compatibilidade:** a fila de saída é append-only, então ops de mapa base e de config temporal de
+  builds antigos ainda chegam; o servidor segue aceitando os dois subtipos e o par só grava o documento.
+- **Onde se lê:** [`../wiki/vista-da-pessoa-e-vista-salva.md`](../wiki/vista-da-pessoa-e-vista-salva.md).
+- **Status:** aceita.

@@ -110,7 +110,7 @@ describe('setMapTemporalConfig sync op', () => {
     it('enqueues a mapTemporal UPDATE op with entityId === mapId when logging enabled', async () => {
         enableOperationLogging();
 
-        const next = await setMapTemporalConfig('4a22f7df-df6d-47df-80bb-f26df86d31ec', { ativo: true, unidade: 'DIA' });
+        const next = await setMapTemporalConfig('4a22f7df-df6d-47df-80bb-f26df86d31ec', { origem: 777, unidade: 'DIA' });
 
         const ops = await operationQueue.peek(10);
         expect(ops).toHaveLength(1);
@@ -122,20 +122,22 @@ describe('setMapTemporalConfig sync op', () => {
         expect(op.entityId).toBe('4a22f7df-df6d-47df-80bb-f26df86d31ec');
         expect(op.mapId).toBe('4a22f7df-df6d-47df-80bb-f26df86d31ec');
         expect(op.data).toEqual(next);
-        expect(op.data.ativo).toBe(true);
+        // The SAVED switch travels untouched (false here); the patch cannot set it.
+        expect(op.data.ativo).toBe(false);
+        expect(op.data.origem).toBe(777);
         expect(op.data.unidade).toBe('DIA');
     });
 
     it('still emits TEMPORAL_CONFIG_CHANGED', async () => {
         enableOperationLogging();
 
-        await setMapTemporalConfig('4a22f7df-df6d-47df-80bb-f26df86d31ec', { ativo: true });
+        await setMapTemporalConfig('4a22f7df-df6d-47df-80bb-f26df86d31ec', { origem: 777 });
 
         expect(eventBus.emit).toHaveBeenCalledWith(
             EventTypes.TEMPORAL_CONFIG_CHANGED,
             expect.objectContaining({
                 mapName: '4a22f7df-df6d-47df-80bb-f26df86d31ec',
-                config: expect.objectContaining({ ativo: true })
+                config: expect.objectContaining({ origem: 777 })
             })
         );
     });
@@ -143,7 +145,7 @@ describe('setMapTemporalConfig sync op', () => {
     it('does not enqueue any op when logging is disabled (offline-safe)', async () => {
         disableOperationLogging();
 
-        await setMapTemporalConfig('4a22f7df-df6d-47df-80bb-f26df86d31ec', { ativo: true });
+        await setMapTemporalConfig('4a22f7df-df6d-47df-80bb-f26df86d31ec', { origem: 777 });
 
         const count = await operationQueue.count();
         expect(count).toBe(0);

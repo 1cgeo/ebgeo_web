@@ -401,6 +401,10 @@ export function buildServerImportPayload(exportData, meta = {}) {
             map_id: mapNameToId[s.mapId] || sourceMapIds.get(s.mapId) || (isValidUUID(s.mapId) ? s.mapId : null),
             model_id: slideResourceRef(s.modelId),
             photo_id: slideResourceRef(s.photoId),
+            // The view of the slide (2026-09-20). Same column width as the two ids above, and
+            // null is a full state of both: "inherit what was saved with the map".
+            base_layer: slideResourceRef(s.baseLayer),
+            temporal_enabled: typeof s.temporalEnabled === 'boolean' ? s.temporalEnabled : null,
             position: s.position || {},
             orientation: s.orientation || {},
         })),

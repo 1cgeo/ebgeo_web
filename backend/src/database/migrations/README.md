@@ -23,6 +23,7 @@ Consolidação autorizada em 12/09/2026, antes da primeira implantação deste b
 | [017_confirmacao_email_destinatario.sql](017_confirmacao_email_destinatario.sql) | Vincula a confirmação ao destinatário original. Links anteriores sem vínculo exigem reenvio. |
 | [018_recuperacao_senha_sessoes.sql](018_recuperacao_senha_sessoes.sql) | Vincula a recuperação ao corte de sessões da emissão. Códigos anteriores sem vínculo exigem novo pedido. |
 
+| [019_vista_do_slide.sql](019_vista_do_slide.sql) | A vista de um slide de briefing: o mapa base que ele mostra e o interruptor temporal, duas colunas nulas em `slides`. Nulo herda o que foi salvo com o mapa, e por isso os slides anteriores apresentam como antes. |
 **A contagem não se escreve em prosa aqui, e a tabela acima é a lista.** Esta seção disse "onze bases" e depois "doze", e as duas envelheceram no arquivo seguinte que nasceu, sem nada ficar vermelho: `frontend/tests/unit/docs-integridade.test.js` valida caminho, link e símbolo, nunca aritmética. Quem precisar do número conta a tabela ou roda `ls`.
 
 Colunas, índices e CHECK nascem completos. Não há cadeia de criação seguida de renomeação, remoção de índice ou substituição de CHECK. O nome inicial de identidade foi alterado deliberadamente para distinguir esta base dos históricos anteriores, inclusive os que tinham aplicado apenas parte da sequência antiga.

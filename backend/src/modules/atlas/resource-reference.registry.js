@@ -151,6 +151,15 @@ export const RESOURCE_REF_SURFACES = Object.freeze([
     coluna: 'photo_id',
     acao: REF_ACTION.ZERA_E_REBAIXA,
   }),
+  // A BASE QUE O SLIDE MOSTRA (2026-09-20). O padrão dela é NULO, que significa herdar a base
+  // salva com o mapa: a mesma decisão de `mapa.baseLayer`, que volta ao padrão em vez de sumir.
+  Object.freeze({
+    id: 'briefing.slide.baseLayer',
+    tipos: ['basemap'],
+    tabela: 'slides',
+    coluna: 'base_layer',
+    acao: REF_ACTION.PADRAO,
+  }),
   Object.freeze({
     id: 'settings.basemaps',
     tipos: ['basemap'],

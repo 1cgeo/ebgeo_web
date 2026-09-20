@@ -70,13 +70,6 @@ export const EventTypes = Object.freeze({
     // ===== BASE LAYER =====
     /** Payload: { layer } */
     BASE_LAYER_CHANGED: 'baseLayer:changed',
-    /**
-     * Um PAR trocou o mapa base deste mapa (chega pelo handler de operação remota). Quem aplica é
-     * o BaseLayerControl, que é o único dono do estilo do MapLibre; ele emite BASE_LAYER_CHANGED
-     * depois de o estilo estar na tela, para o cartão do seletor nunca anunciar uma base que o
-     * mapa ainda não desenhou. Payload: { layer, mapId, mapName }
-     */
-    BASE_LAYER_REMOTE_CHANGED: 'baseLayer:remoteChanged',
     BASE_LAYER_SELECTOR_OPENED: 'baseLayerSelector:opened',
     BASE_LAYER_SELECTOR_CLOSED: 'baseLayerSelector:closed',
 

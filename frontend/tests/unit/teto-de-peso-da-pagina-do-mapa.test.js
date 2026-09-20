@@ -296,7 +296,12 @@ const ORCAMENTO = Object.freeze({
     // MapLibre precisa do estilo e da faixa na hora, e o peso que ele traz é o do
     // `baselayers/index.js` (os cinco estilos), que a página do mapa já carrega.
     street_view_tool: 10,
-    briefing: 8,
+    // 10 desde 2026-09-20, com DOIS modulos da vista do slide: `briefing/slide-view.js`, a folha PURA
+    // (zero imports, cerca de 4 kB) que decide qual mapa base e qual interruptor temporal um slide
+    // mostra, e `briefing/screen-view.js`, a leitura IMPURA da tela do autor, separada justamente
+    // para a primeira continuar sem import. As duas sao ansiosas porque o servico de transicao, o
+    // editor e a aba de briefings as leem, e os tres ja eram ansiosos.
+    briefing: 10,
     measurement_tool: 3,
     analysis_tools: 0,
     '3d_models_viewer_tool': 5,
@@ -625,7 +630,15 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // a morar lá, para a faixa do tablet ser derivada dele em vez de escrita de novo), 726.
         // Cada módulo vale exatamente um, e nenhum dos dois é pesado: juntos somam menos de 6 kB
         // de fonte, porque os dois são folha e um deles não tem import nenhum.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(728);
+        //
+        // 2026-09-20, sexto lote do dia: 731, com os TRÊS módulos da vista da pessoa. Medido pela
+        // reprovação deste próprio caso, em dois passos: 730 contra 728 com dois arquivos novos no
+        // grafo, `store/map-view.operations.js` (o gesto composto de salvar a vista do mapa, que
+        // entra pela fachada da store) e `briefing/slide-view.js` (folha de zero imports); e 731
+        // contra 730 quando entrou `briefing/screen-view.js`, a leitura da tela do autor. Os dois de
+        // `briefing` o orçamento da pasta acima conta também. Nenhum é pesado: os três somam menos
+        // de 11 kB de fonte.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(731);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);

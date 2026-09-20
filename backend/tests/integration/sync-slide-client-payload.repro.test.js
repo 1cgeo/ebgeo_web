@@ -70,7 +70,7 @@ import {
 // semeadura é do arquivo inteiro; a limpeza é obrigatória porque as tabelas de catálogo e o
 // schema `sv360` são compartilhados pela suíte.
 // ============================================================================================
-const REFS_DE_CATALOGO = { tilesets: ['modelo-abc'] };
+const REFS_DE_CATALOGO = { tilesets: ['modelo-abc'], basemaps: ['base-do-slide'] };
 const FOTOS_360 = ['foto-xyz'];
 let refs360Semeadas;
 
@@ -189,6 +189,124 @@ describe('slide sync accepts the payload the real client emits (repro)', () => {
       Number(rows[0].temporal_cursor), 1750000000000,
       'camelCase temporalCursor lands in temporal_cursor'
     );
+  });
+
+  // A VISTA DO SLIDE (2026-09-20): o mapa base que ele mostra e o interruptor temporal. O cliente
+  // manda `baseLayer` e `temporalEnabled` em camelCase, e as duas colunas são nulas por padrão
+  // (nulo = herda o que foi salvo com o mapa).
+  it('carrega a vista do slide: baseLayer e temporalEnabled chegam às colunas e VOLTAM no snapshot', async () => {
+    const briefing = await createBriefing(db, atlas.id, { name: 'Briefing com vista' });
+    const slideId = randomUUID();
+
+    const res = await push([
+      clientSlideOp(slideId, briefing.id, { baseLayer: 'base-do-slide', temporalEnabled: true }),
+    ]).expect(200);
+    assert.equal(res.body.data.results[0].success, true);
+
+    const { rows } = await db.query('SELECT base_layer, temporal_enabled FROM slides WHERE id = $1', [slideId]);
+    assert.equal(rows.length, 1, 'o slide chegou ao banco');
+    assert.equal(rows[0].base_layer, 'base-do-slide');
+    assert.equal(rows[0].temporal_enabled, true);
+
+    const snap = await supertest(app)
+      .get(`/api/v1/atlas/${atlas.id}/sync/0`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const slide = snap.body.data.snapshot.briefings
+      .find((b) => b.id === briefing.id).slides.find((sl) => sl.id === slideId);
+    // No vocabulário que o cliente lê: `applyRemoteSnapshot` grava o briefing VERBATIM.
+    assert.equal(slide.baseLayer, 'base-do-slide');
+    assert.equal(slide.temporalEnabled, true);
+  });
+
+  it('`false` explícito é gravado como FALSE, não como nulo: desligado não é o mesmo que herdar', async () => {
+    const briefing = await createBriefing(db, atlas.id, { name: 'Briefing desligado' });
+    const slideId = randomUUID();
+
+    await push([clientSlideOp(slideId, briefing.id, { temporalEnabled: false })]).expect(200);
+
+    const { rows } = await db.query('SELECT temporal_enabled FROM slides WHERE id = $1', [slideId]);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].temporal_enabled, false);
+  });
+
+  it('slide de cliente ANTIGO (sem os campos) grava os dois NULOS', async () => {
+    const briefing = await createBriefing(db, atlas.id, { name: 'Briefing antigo' });
+    const slideId = randomUUID();
+
+    await push([clientSlideOp(slideId, briefing.id, { title: 'De antes' })]).expect(200);
+
+    const { rows } = await db.query('SELECT base_layer, temporal_enabled FROM slides WHERE id = $1', [slideId]);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].base_layer, null);
+    assert.equal(rows[0].temporal_enabled, null);
+  });
+
+  it('valor MALFORMADO na vista degrada para nulo e NÃO envenena o lote (create e update)', async () => {
+    // `temporal_enabled` é BOOLEAN e `base_layer` é VARCHAR(100). Um valor de forma errada levanta
+    // 22P02 ou 22001, que aborta a transação em volta do LOTE INTEIRO, e o cliente o reenvia para
+    // sempre. É a mesma classe do nome de mapa na coluna UUID, que este arquivo já prende.
+    const briefing = await createBriefing(db, atlas.id, { name: 'Briefing hostil' });
+    const hostil = randomUUID();
+    const irma = randomUUID();
+
+    const res = await push([
+      clientSlideOp(hostil, briefing.id, { temporalEnabled: 'sim', baseLayer: 12345 }),
+      clientSlideOp(irma, briefing.id, { title: 'Irmã do mesmo lote' }),
+    ]);
+    assert.equal(res.status, 200, `o lote não pode virar 500 (veio ${res.status})`);
+
+    const { rows } = await db.query(
+      'SELECT id, base_layer, temporal_enabled FROM slides WHERE id = ANY($1::uuid[]) ORDER BY title', [[hostil, irma]]);
+    assert.equal(rows.length, 2, 'os dois slides do lote foram gravados');
+    const gravado = rows.find((r) => r.id === hostil);
+    assert.equal(gravado.base_layer, null);
+    assert.equal(gravado.temporal_enabled, null);
+
+    const upd = await push([{ protocolVersion: 2,
+      id: randomUUID(), entityType: 'slide', operationType: 'update', entityId: hostil,
+      mapId: briefing.id, data: { id: hostil, title: 'Editado', temporalEnabled: 42, baseLayer: { id: 'objeto' } },
+      timestamp: Date.now(), clientId: 'real-client',
+    }]);
+    assert.equal(upd.status, 200, `o update não pode virar 500 (veio ${upd.status})`);
+    const depois = await db.query('SELECT title, base_layer, temporal_enabled FROM slides WHERE id = $1', [hostil]);
+    assert.equal(depois.rows[0].title, 'Editado', 'a parte legítima da edição entrou');
+    assert.equal(depois.rows[0].base_layer, null);
+    assert.equal(depois.rows[0].temporal_enabled, null);
+  });
+
+  it('base de 101 caracteres é RECUSADA POR OPERAÇÃO pelo gate de recurso, e a irmã do lote passa', async () => {
+    // Uma string é candidata a referência de catálogo, então ela nem chega à coluna: o gate a lê
+    // como recurso que o autor não enxerga e recusa SÓ aquela op. O que este caso prende é a
+    // diferença entre recusar uma op e derrubar o lote por 22001 (valor maior que VARCHAR(100)).
+    const briefing = await createBriefing(db, atlas.id, { name: 'Briefing largo' });
+    const largo = randomUUID();
+    const irma = randomUUID();
+
+    const res = await push([
+      clientSlideOp(largo, briefing.id, { baseLayer: 'x'.repeat(101) }),
+      clientSlideOp(irma, briefing.id, { title: 'Irmã' }),
+    ]);
+    assert.equal(res.status, 200, `o lote não pode virar 500 (veio ${res.status})`);
+
+    const { rows } = await db.query('SELECT id FROM slides WHERE id = ANY($1::uuid[])', [[largo, irma]]);
+    assert.deepEqual(rows.map((r) => r.id), [irma], 'só a irmã foi gravada');
+  });
+
+  it('o UPDATE da vista muda as duas colunas de um slide que já existia', async () => {
+    const briefing = await createBriefing(db, atlas.id, { name: 'Briefing editado' });
+    const slideId = randomUUID();
+    await push([clientSlideOp(slideId, briefing.id, { title: 'Antes' })]).expect(200);
+
+    await push([{ protocolVersion: 2,
+      id: randomUUID(), entityType: 'slide', operationType: 'update', entityId: slideId,
+      mapId: briefing.id, data: { id: slideId, baseLayer: 'base-do-slide', temporalEnabled: true },
+      timestamp: Date.now(), clientId: 'real-client',
+    }]).expect(200);
+
+    const { rows } = await db.query('SELECT base_layer, temporal_enabled FROM slides WHERE id = $1', [slideId]);
+    assert.equal(rows[0].base_layer, 'base-do-slide');
+    assert.equal(rows[0].temporal_enabled, true);
   });
 
   it('the slide survives the round trip: it comes back in the snapshot', async () => {

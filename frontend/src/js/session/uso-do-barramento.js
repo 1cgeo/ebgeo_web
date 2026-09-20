@@ -39,7 +39,7 @@ const REGRAS = new Map([
     [EventTypes.BRIEFING_PRESENT_STARTED, { uso: EventoDeUso.BRIEFING_APRESENTADO }],
     [EventTypes.MAP_TEMPORAL_CHANGED, {
         uso: EventoDeUso.TEMPORAL_ATIVADO,
-        quando: (payload) => payload?.enabled === true && !payload?.remoto,
+        quando: (payload) => payload?.enabled === true && !payload?.automatico,
     }],
 ]);
 

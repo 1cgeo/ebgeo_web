@@ -54,6 +54,9 @@ const IDS = [
     'comments.modelo3d',
     'briefing.slide.modelId',
     'briefing.slide.photoId',
+    // 2026-09-20: a base na tela virou estado de vista da pessoa, e o slide passou a dizer qual
+    // base ELE mostra (nulo herda a salva com o mapa).
+    'briefing.slide.baseLayer',
     'settings.basemaps',
     'settings.default_basemap',
     'settings.available_data_layers',
@@ -91,6 +94,7 @@ describe('as duas cópias do registro de referências', () => {
             'comments.modelo3d': 'remove-entrada',
             'briefing.slide.modelId': 'zera-e-rebaixa',
             'briefing.slide.photoId': 'zera-e-rebaixa',
+            'briefing.slide.baseLayer': 'padrao',
             'settings.basemaps': 'filtra-lista',
             'settings.default_basemap': 'padrao',
             'settings.available_data_layers': 'filtra-lista',

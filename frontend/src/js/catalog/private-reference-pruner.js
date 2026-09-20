@@ -319,7 +319,7 @@ function comentarioSobrevive(c, resolver, relatorio) {
 }
 
 /**
- * Poda um briefing: as duas referências de slide.
+ * Poda um briefing: as três referências de slide (modelo 3D, foto 360 e mapa base).
  *
  * O slide é REBAIXADO, nunca removido: título e prosa são escritos à mão e não existem em
  * lugar nenhum além dali. O que sai é a referência e o MODO que a exige — um slide `3d`
@@ -351,6 +351,15 @@ export function podarBriefing(briefing, resolver) {
             if (v !== RefVerdict.PUBLIC) {
                 anotar(relatorio, 'briefing.slide.photoId', RESOURCE_REF_GROUP.VIEWS_360, saida.photoId, v);
                 trocar({ photoId: null, mode: saida.mode === '360' ? '2d' : saida.mode });
+            }
+        }
+        // A base do slide volta a NULO, que não é buraco: é "herda a base salva com o mapa",
+        // o estado em que todo slide nasce. Nada mais do slide muda.
+        if (typeof saida?.baseLayer === 'string' && saida.baseLayer !== '') {
+            const v = vereditoDe(resolver, RESOURCE_REF_GROUP.BASEMAPS, saida.baseLayer);
+            if (v !== RefVerdict.PUBLIC) {
+                anotar(relatorio, 'briefing.slide.baseLayer', RESOURCE_REF_GROUP.BASEMAPS, saida.baseLayer, v);
+                trocar({ baseLayer: null });
             }
         }
         return saida;

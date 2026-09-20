@@ -293,19 +293,43 @@ describe('aplicação da poda de cópia', () => {
 
     assert.deepEqual(
       p.slide({ mode: '3d', model_id: 'SECRETO', photo_id: null }),
-      { mode: '2d', model_id: null, photo_id: null }
+      { mode: '2d', model_id: null, photo_id: null, base_layer: null }
     );
     // DISCRIMINAÇÃO: um slide 3D cujo modelo o destinatário VÊ continua 3D.
     assert.deepEqual(
       p.slide({ mode: '3d', model_id: 'PCL', photo_id: null }),
-      { mode: '3d', model_id: 'PCL', photo_id: null }
+      { mode: '3d', model_id: 'PCL', photo_id: null, base_layer: null }
     );
     // E um slide 2D que carregava um modelo perde a referência sem mudar de modo.
     assert.deepEqual(
       p.slide({ mode: '2d', model_id: 'SECRETO', photo_id: null }),
-      { mode: '2d', model_id: null, photo_id: null }
+      { mode: '2d', model_id: null, photo_id: null, base_layer: null }
     );
     assert.deepEqual(p.report, { 'briefing.slide.modelId': 2 });
+  });
+
+  it('a BASE do slide que o destinatário não vê volta a NULO, e o slide não muda de modo', () => {
+    // 2026-09-20: o slide 2D passou a dizer qual mapa base ELE mostra. Nulo não é buraco, é
+    // "herda a base salva com o mapa", o estado em que todo slide nasce; por isso a poda zera
+    // o campo e deixa o resto do slide como estava, ao contrário do modelo e da foto, cujo
+    // sumiço rebaixa o modo.
+    const p = new ResourcePruner(visiveis);
+
+    assert.deepEqual(
+      p.slide({ mode: '2d', model_id: null, photo_id: null, base_layer: 'bdgex' }),
+      { mode: '2d', model_id: null, photo_id: null, base_layer: null }
+    );
+    // DISCRIMINAÇÃO: a base que o destinatário VÊ atravessa intacta.
+    assert.deepEqual(
+      p.slide({ mode: '2d', model_id: null, photo_id: null, base_layer: 'osm' }),
+      { mode: '2d', model_id: null, photo_id: null, base_layer: 'osm' }
+    );
+    // E o slide sem base própria (todos os anteriores a esta coluna) não perde nada.
+    assert.deepEqual(
+      p.slide({ mode: '2d', model_id: null, photo_id: null }),
+      { mode: '2d', model_id: null, photo_id: null, base_layer: null }
+    );
+    assert.deepEqual(p.report, { 'briefing.slide.baseLayer': 1 });
   });
 
   it('`settings` perde os ids invisíveis e MANTÉM os visíveis', () => {

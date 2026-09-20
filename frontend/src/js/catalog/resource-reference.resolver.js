@@ -144,6 +144,7 @@ const ROTULO_DE_SUPERFICIE = Object.freeze({
     'sv360.markers': 'marcador(es) em foto 360',
     'briefing.slide.modelId': 'slide(s) com modelo 3D (viram slide de mapa)',
     'briefing.slide.photoId': 'slide(s) com foto 360 (viram slide de mapa)',
+    'briefing.slide.baseLayer': 'slide(s) com mapa base próprio (passam a usar o do mapa)',
     // SÓ O SERVIDOR ANOTA ESTA, e ela chegou aqui quando o relato de poda do CLONE passou a ser
     // mostrado. Ela é de `atlas.settings`, superfície que existe apenas do lado do servidor (o
     // cliente a recebe no snapshot e nunca a persiste), e é id ÚNICO, não lista: cai de volta

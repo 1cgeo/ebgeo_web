@@ -28,6 +28,7 @@ import { showSuccess, showError, showWarning } from '@utils/index.js';
 import { showConfirm } from '@modals/index.js';
 import { checkPermission } from '@store/sync/permission-guard.js';
 import { denialNotice } from '@store/denial-phrases.js';
+import { slideViewFromScreen } from '@js/briefing/screen-view.js';
 
 /**
  * Icons specific to briefings tab.
@@ -320,8 +321,12 @@ export class BriefingsTab {
             const name = await generateUniqueBriefingName();
             const briefing = await createBriefing({ name });
 
-            // Add an empty slide
-            await addSlide(briefing.id, createEmptySlide(0));
+            // Add an empty slide, BORN showing what the author is looking at (base layer and
+            // temporal switch are view state of the person since 2026-09-20). Left null it would
+            // inherit the view saved with the map, and opening the editor right below would
+            // repaint the screen of the author with a base layer they did not choose.
+            const firstSlide = createEmptySlide(0);
+            await addSlide(briefing.id, { ...firstSlide, ...slideViewFromScreen(firstSlide.mode) });
 
             showSuccess(`Briefing "${name}" criado`);
 

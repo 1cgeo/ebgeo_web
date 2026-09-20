@@ -519,10 +519,29 @@ class SelectionManager {
 
                 if (clickedFeatures.length > 0) {
                     // Simulate shift+click event for multi-select
+                    //
+                    // `clientX`/`clientY` ENTRARAM EM 2026-09-20, e a falta deles fazia o menu
+                    // de desambiguação sumir da tela no toque de dois dedos. O consumidor
+                    // (`_createContextMenuElement`) posiciona com `Math.min(e.originalEvent
+                    // .clientX, ...)`, e `Math.min(undefined, n)` é `NaN`: a declaração
+                    // `left: "NaNpx"` é inválida e o navegador a descarta, de modo que a caixa
+                    // `position: fixed` ficava na posição estática dela, logo depois de um
+                    // `#map-sig` de 100% de altura, isto é, abaixo da dobra. O menu era criado,
+                    // anexado ao `body` e invisível.
+                    //
+                    // O PONTO MÉDIO JÁ ESTÁ EM COORDENADA DE VIEWPORT, que é o que `clientX`
+                    // significa: o `point` acima é que subtrai o retângulo do canvas para virar
+                    // coordenada de tela do mapa. Usar `point` aqui seria errar de novo, e por
+                    // um deslocamento que só aparece quando o canvas não começa em zero, como
+                    // acontece no tablet desde que o painel passou a empurrar o mapa.
                     const fakeEvent = {
                         point,
                         lngLat: this.map.unproject([point.x, point.y]),
-                        originalEvent: { shiftKey: true }
+                        originalEvent: {
+                            shiftKey: true,
+                            clientX: midpoint.x,
+                            clientY: midpoint.y,
+                        }
                     };
 
                     if (clickedFeatures.length === 1) {
@@ -844,9 +863,22 @@ class SelectionManager {
         const menu = document.createElement('div');
         menu.className = 'feature-selection-menu';
 
-        // Position is dynamic and must be computed at runtime
-        const x = Math.min(e.originalEvent.clientX, window.innerWidth - 220);
-        const y = Math.min(e.originalEvent.clientY, window.innerHeight - 50);
+        // Position is dynamic and must be computed at runtime.
+        //
+        // A RESERVA NÃO É DEFENSIVA À TOA: quem chama aqui nem sempre tem um evento de
+        // ponteiro de verdade. O toque de dois dedos monta um evento SINTÉTICO, e enquanto ele
+        // não carregava posição o `Math.min` devolvia `NaN`, a declaração de estilo era
+        // descartada e o menu ficava fora da tela, sem erro em lugar nenhum. Cair no centro da
+        // janela é pior que a posição certa e muito melhor que a caixa invisível: a pessoa vê o
+        // menu e o defeito vira uma reclamação de posição, não um "não abriu".
+        const cx = Number.isFinite(e.originalEvent?.clientX)
+            ? e.originalEvent.clientX
+            : window.innerWidth / 2;
+        const cy = Number.isFinite(e.originalEvent?.clientY)
+            ? e.originalEvent.clientY
+            : window.innerHeight / 2;
+        const x = Math.max(0, Math.min(cx, window.innerWidth - 220));
+        const y = Math.max(0, Math.min(cy, window.innerHeight - 50));
         menu.style.left = `${x}px`;
         menu.style.top = `${y}px`;
 

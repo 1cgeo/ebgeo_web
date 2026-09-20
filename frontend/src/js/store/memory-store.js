@@ -44,7 +44,8 @@ function createInitialState() {
         cesium3d: getEmptyCesium3dData(),
         streetview360: { ...getEmptyStreetview360Data(), _mapName: null },
         lockedMaps: new Set(),
-        temporalConfigs: new Map()
+        temporalConfigs: new Map(),
+        temporalView: new Map()
     };
 }
 
@@ -66,6 +67,10 @@ function createInitialState() {
  * @property {Set<string>} lockedMaps - Locked (read-only) map names, loaded from IndexedDB for synchronous access.
  * @property {Map<string, {ativo: boolean, unidade: string, inicio: (number|null), fim: (number|null)}>} temporalConfigs
  *   Per-map temporal configuration cache, loaded from IndexedDB for synchronous access.
+ * @property {Map<string, boolean>} temporalView
+ *   Per-map ON-SCREEN temporal switch. It is VIEW state of this session (never persisted, never
+ *   synced): the saved value lives in `temporalConfigs[map].ativo` and only the "save view"
+ *   gesture writes it. See `temporal.operations.js`.
  */
 export const memoryStore = createInitialState();
 

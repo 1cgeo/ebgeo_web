@@ -139,7 +139,7 @@ describe('temporal.operations — map-id-must-be-UUID (flush-poison guard)', () 
     it('UUID mapId → emits a mapTemporal UPDATE op (entityId === mapId === the UUID)', async () => {
         enableOperationLogging();
 
-        const next = await setMapTemporalConfig(MAP_UUID, { ativo: true, unidade: 'DIA' });
+        const next = await setMapTemporalConfig(MAP_UUID, { origem: 777, unidade: 'DIA' });
 
         const ops = await operationQueue.peek(10);
         expect(ops).toHaveLength(1);
@@ -157,10 +157,13 @@ describe('temporal.operations — map-id-must-be-UUID (flush-poison guard)', () 
 
         // Documented config shape { ativo, unidade, inicio, fim, ... } merged w/ defaults.
         expect(op.data).toEqual(next);
-        expect(op.data.ativo).toBe(true);
+        // `ativo` TRAVELS, and it is the SAVED value (false here): the server replaces the column
+        // with the keys the op carries, so dropping it would erase what was saved with the view.
+        expect(op.data.ativo).toBe(false);
         expect(op.data.unidade).toBe('DIA');
         expect(op.data).toMatchObject({
-            ativo: true,
+            ativo: false,
+            origem: 777,
             unidade: 'DIA',
             inicio: null,
             fim: null
@@ -173,7 +176,7 @@ describe('temporal.operations — map-id-must-be-UUID (flush-poison guard)', () 
         // A local map (name == id, not a UUID): the op would be un-pushable, so
         // the UUID guard in createMapSettingLogger must drop it before it ever
         // reaches the queue. (If it leaked, it would poison the whole flush batch.)
-        const next = await setMapTemporalConfig(LOCAL_MAP_NAME, { ativo: true, unidade: 'DIA' });
+        const next = await setMapTemporalConfig(LOCAL_MAP_NAME, { origem: 777, unidade: 'DIA' });
 
         const count = await operationQueue.count();
         expect(count).toBe(0);
@@ -182,7 +185,7 @@ describe('temporal.operations — map-id-must-be-UUID (flush-poison guard)', () 
         expect(ops).toHaveLength(0);
 
         // The local write + event still happen — only the (un-pushable) sync op is skipped.
-        expect(next.ativo).toBe(true);
+        expect(next.origem).toBe(777);
         expect(eventBus.emit).toHaveBeenCalled();
     });
 
@@ -190,7 +193,7 @@ describe('temporal.operations — map-id-must-be-UUID (flush-poison guard)', () 
         enableOperationLogging();
 
         // null → resolveMapName falls back to getCurrentMapName() === 'Principal' (non-UUID).
-        await setMapTemporalConfig(null, { ativo: true });
+        await setMapTemporalConfig(null, { origem: 777 });
 
         const count = await operationQueue.count();
         expect(count).toBe(0);
@@ -202,7 +205,7 @@ describe('temporal.operations — map-id-must-be-UUID (flush-poison guard)', () 
         disableOperationLogging();
 
         const written = await setMapTemporalConfig(MAP_UUID, {
-            ativo: true,
+            origem: 777,
             unidade: 'DIA',
             inicio: 1000,
             fim: 5000
@@ -215,7 +218,7 @@ describe('temporal.operations — map-id-must-be-UUID (flush-poison guard)', () 
         const readBack = await getMapTemporalConfig(MAP_UUID);
         expect(readBack).toEqual(written);
         expect(readBack).toMatchObject({
-            ativo: true,
+            origem: 777,
             unidade: 'DIA',
             inicio: 1000,
             fim: 5000
@@ -228,12 +231,12 @@ describe('temporal.operations — map-id-must-be-UUID (flush-poison guard)', () 
     });
 
     it('round-trip merges partial patches over the previously stored config', async () => {
-        await setMapTemporalConfig(MAP_UUID, { ativo: true, unidade: 'DIA', inicio: 1000 });
+        await setMapTemporalConfig(MAP_UUID, { origem: 777, unidade: 'DIA', inicio: 1000 });
         const merged = await setMapTemporalConfig(MAP_UUID, { fim: 9000 });
 
         // Earlier keys survive; the new patch is layered on top.
         expect(merged).toMatchObject({
-            ativo: true,
+            origem: 777,
             unidade: 'DIA',
             inicio: 1000,
             fim: 9000
@@ -256,7 +259,7 @@ describe('temporal.operations — dois patches concorrentes no mesmo documento',
     // documento inteiro por fora, então o colega mexendo na linha do tempo é o segundo
     // escritor no caso multiusuário.
     it('patches de campos diferentes não se apagam', async () => {
-        await setMapTemporalConfig(MAP_UUID, { ativo: true, unidade: 'hora' });
+        await setMapTemporalConfig(MAP_UUID, { origem: 777, unidade: 'hora' });
 
         await Promise.all([
             setMapTemporalConfig(MAP_UUID, { unidade: 'dia' }),
@@ -267,6 +270,6 @@ describe('temporal.operations — dois patches concorrentes no mesmo documento',
         expect(config.unidade).toBe('dia');
         expect(config.modo).toBe('relativo');
         // O campo que nenhum dos dois patches tocou tem de sobreviver aos dois merges.
-        expect(config.ativo).toBe(true);
+        expect(config.origem).toBe(777);
     });
 });

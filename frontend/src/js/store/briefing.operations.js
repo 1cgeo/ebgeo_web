@@ -94,7 +94,13 @@ export function createEmptySlide(order = 0) {
         // Temporal timeline cursor (epoch ms) captured for 2D slides when the
         // map's temporal control is enabled; null when temporal is off or for
         // non-2D slides. Older slides lack this field and are treated as null.
-        temporalCursor: null
+        temporalCursor: null,
+        // THE VIEW OF A 2D SLIDE (2026-09-20). The base layer and the temporal switch became
+        // view state of each person, so the slide says what IT shows. null means "inherit
+        // what was saved with the map", which is also what a slide older than these fields
+        // reads as, so it keeps presenting exactly as before.
+        baseLayer: null,
+        temporalEnabled: null
     };
 }
 

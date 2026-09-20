@@ -831,17 +831,15 @@ describe('Remote map-setting operations', () => {
         );
     });
 
-    it('emits BASE_LAYER_REMOTE_CHANGED with the id STRING (not the wrapper object) for baseLayer', async () => {
-        // The op data is { baseLayer: '<id>' } (map.operations.js#logBaseLayerOperation). The event
-        // payload must carry the id as a STRING — mirroring base-layer.control's emit — or the
-        // base-layer-selector renders "[object Object]". Regression for the {layer: data} bug.
-        //
-        // E O EVENTO E O DO CAMINHO REMOTO, desde 2026-09-16. Emitir `BASE_LAYER_CHANGED` daqui
-        // fazia o cartao do seletor anunciar uma base que o mapa nao tinha trocado, porque quem
-        // chama `setStyle` e o `BaseLayerControl`, que EMITE aquele evento e nunca o ouviu. Agora
-        // o controle ouve este, aplica o estilo e so entao anuncia. O `mapName` viaja junto
-        // porque a operacao pertence a UM mapa: sem ele, um colega editando outro mapa do atlas
-        // trocaria a base de quem esta em outro lugar.
+    it('baseLayer: GRAVA o registro do mapa e NAO mexe na tela de quem recebe', async () => {
+        // DECISAO DO DONO, 2026-09-20: o mapa base na tela e estado de VISTA de cada pessoa, como a
+        // camera. O que chega aqui e a base SALVA com a vista do mapa, gravada pelo par no gesto de
+        // salvar, e ela vale na PROXIMA entrada de quem a recebe. Este ramo ja emitiu
+        // `BASE_LAYER_CHANGED` (o cartao do seletor anunciava uma base que o mapa nao desenhava) e
+        // depois um evento proprio que trocava o estilo do par; os dois sairam, porque trocar a base
+        // debaixo de quem esta trabalhando era o defeito de UX.
+        mapDataStore.set('map-1', { id: 'map-1', baseLayer: 'carta-topografica', features: {} });
+
         await applyRemoteOperation({
             entityType: EntityType.BASE_LAYER,
             operationType: OperationType.UPDATE,
@@ -850,19 +848,36 @@ describe('Remote map-setting operations', () => {
             data: { baseLayer: 'osm' }
         });
 
-        expect(eventBus.emit).toHaveBeenCalledWith(
-            EventTypes.BASE_LAYER_REMOTE_CHANGED,
-            expect.objectContaining({ layer: 'osm', mapId: 'map-1' })
-        );
-        // E NAO o evento que o seletor ouve: quem o emite e o controle, depois de trocar o estilo.
-        expect(eventBus.emit).not.toHaveBeenCalledWith(
-            EventTypes.BASE_LAYER_CHANGED,
-            expect.anything()
-        );
+        // O registro converge com o servidor...
+        expect(mapDataStore.get('map-1').baseLayer).toBe('osm');
         expect(eventBus.emit).toHaveBeenCalledWith(
             EventTypes.MAP_MODIFIED,
             expect.objectContaining({ mapId: 'map-1' })
         );
+        // ...e NENHUM evento de base sai: nem o que o seletor ouve, nem outro com outro nome. A
+        // varredura e por prefixo de proposito, para pegar um evento novo que alguem reinvente.
+        const eventosDeBase = eventBus.emit.mock.calls
+            .map(([nome]) => String(nome))
+            .filter((nome) => nome.startsWith('baseLayer:'));
+        expect(eventosDeBase).toEqual([]);
+    });
+
+    it('mapTemporal: grava a config e avisa a CONFIG, nunca o interruptor da tela', async () => {
+        // O `ativo` que chega e o valor SALVO com a vista do mapa. Emitir `MAP_TEMPORAL_CHANGED`
+        // daqui era o que fazia o gesto de um colega ligar a linha do tempo de todos.
+        await applyRemoteOperation({
+            entityType: EntityType.MAP_TEMPORAL,
+            operationType: OperationType.UPDATE,
+            entityId: 'map-1',
+            mapId: 'map-1',
+            data: { ativo: true, unidade: 'DIA', inicio: 1000, fim: 5000 }
+        });
+
+        expect(eventBus.emit).toHaveBeenCalledWith(
+            EventTypes.TEMPORAL_CONFIG_CHANGED,
+            expect.objectContaining({ config: expect.objectContaining({ ativo: true, inicio: 1000 }) })
+        );
+        expect(eventBus.emit).not.toHaveBeenCalledWith(EventTypes.MAP_TEMPORAL_CHANGED, expect.anything());
     });
 
     it('emits MAP_NOTES_REQUESTED and MAP_MODIFIED for mapNotes', async () => {

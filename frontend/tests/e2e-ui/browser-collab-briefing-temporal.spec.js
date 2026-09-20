@@ -237,11 +237,14 @@ collabTest.describe('Briefing + temporal collaboration cross-client (full chain)
         await expect.poll(async () => (await readSlides(B, bid)).some((s) => s.id === sid), { timeout: 15000 }).toBe(false);
     });
 
-    collabTest('temporal config enabled by A is reflected on B (synced setting value)', async ({ collab }) => {
+    collabTest('temporal CONFIG set by A is reflected on B, and the on-screen switch is NOT (view state)', async ({ collab }) => {
         const A = collab.author;
         const B = collab.peers[0];
 
-        // Enable temporal control on A via the real Maps-tab clock toggle (persists + syncs).
+        // The clock toggle is VIEW state of the person since 2026-09-20: it turns the timeline on
+        // for A and neither persists nor syncs. It stays in this case as the interleaving that
+        // would bring the propagation back, because the config op below is written WITH A's
+        // timeline on, and its payload must still carry the SAVED switch (off).
         await enableTemporalUI(A);
         // no-UI: exact epoch bounds + unit have no single-gesture UI; set via the store op so the
         // synced config carries the exact values the assertion pins. Temporal config is a per-map
@@ -249,15 +252,23 @@ collabTest.describe('Briefing + temporal collaboration cross-client (full chain)
         await A.evaluate(async () => {
             const store = await import('/src/js/store/index.js');
             await store.setMapTemporalConfig('Mapa Tático', {
-                ativo: true, unidade: 'horas', inicio: 1700000000000, fim: 1700003600000,
+                unidade: 'horas', inicio: 1700000000000, fim: 1700003600000,
             });
         });
 
         await expect
             .poll(async () => {
                 const cfg = await readTemporal(B, 'Mapa Tático');
-                return cfg && cfg.ativo === true && cfg.unidade === 'horas' ? cfg.inicio : null;
+                return cfg && cfg.unidade === 'horas' ? cfg.inicio : null;
             }, { timeout: 20000 })
             .toBe(1700000000000);
+
+        // The window travelled; the switch did not. B's stored `ativo` is the SAVED value (off),
+        // and B's timeline is still off on screen.
+        expect((await readTemporal(B, 'Mapa Tático')).ativo).toBe(false);
+        expect(await B.evaluate(async () => {
+            const store = await import('/src/js/store/index.js');
+            return store.isMapTemporalEnabledSync();
+        })).toBe(false);
     });
 });

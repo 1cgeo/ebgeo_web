@@ -260,6 +260,11 @@ const slideSchema = Joi.object({
   // maior atravessaria o Joi e morreria no driver, com o import inteiro junto.
   model_id: Joi.string().max(100).allow(null),
   photo_id: Joi.string().max(100).allow(null),
+  // A VISTA DO SLIDE (2026-09-20): a base que ele mostra e o interruptor temporal, os dois
+  // nulos por padrão (nulo = herda o que foi salvo com o mapa). `base_layer` é id de catálogo
+  // como os dois acima, com a largura da coluna.
+  base_layer: Joi.string().max(100).allow(null),
+  temporal_enabled: Joi.boolean().allow(null),
   position: scalarObjectSchema.default({}),
   orientation: scalarObjectSchema.default({}),
 });

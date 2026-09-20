@@ -103,13 +103,13 @@ const CENSO = [
     { arquivo: 'src/js/catalog/private-reference-pruner.js', campo: 'photoName', n: 2, classe: PODA, superficies: ['sv360.orientations', 'sv360.markers', 'comments.foto360'] },
     { arquivo: 'src/js/catalog/private-reference-pruner.js', campo: 'modelId', n: 4, classe: PODA, superficies: ['briefing.slide.modelId'] },
     { arquivo: 'src/js/catalog/private-reference-pruner.js', campo: 'photoId', n: 4, classe: PODA, superficies: ['briefing.slide.photoId'] },
-    { arquivo: 'src/js/catalog/private-reference-pruner.js', campo: 'baseLayer', n: 4, classe: PODA, superficies: ['mapa.baseLayer'] },
+    { arquivo: 'src/js/catalog/private-reference-pruner.js', campo: 'baseLayer', n: 8, classe: PODA, superficies: ['mapa.baseLayer', 'briefing.slide.baseLayer'] },
     { arquivo: 'src/js/catalog/private-reference-pruner.js', campo: 'catalogLayers', n: 3, classe: PODA, superficies: ['mapa.catalogLayers'] },
     { arquivo: 'src/js/catalog/resource-reference.registry.js', campo: 'tilesetId', n: 6, classe: PODA, superficies: ['cesium3d.cameraPositions', 'cesium3d.markers', 'cesium3d.measurements', 'cesium3d.viewsheds', 'comments.modelo3d'] },
     { arquivo: 'src/js/catalog/resource-reference.registry.js', campo: 'photoName', n: 4, classe: PODA, superficies: ['sv360.orientations', 'sv360.markers', 'comments.foto360'] },
     { arquivo: 'src/js/catalog/resource-reference.registry.js', campo: 'modelId', n: 3, classe: PODA, superficies: ['briefing.slide.modelId'] },
     { arquivo: 'src/js/catalog/resource-reference.registry.js', campo: 'photoId', n: 3, classe: PODA, superficies: ['briefing.slide.photoId'] },
-    { arquivo: 'src/js/catalog/resource-reference.registry.js', campo: 'baseLayer', n: 4, classe: PODA, superficies: ['mapa.baseLayer'] },
+    { arquivo: 'src/js/catalog/resource-reference.registry.js', campo: 'baseLayer', n: 7, classe: PODA, superficies: ['mapa.baseLayer', 'briefing.slide.baseLayer'] },
     { arquivo: 'src/js/catalog/resource-reference.registry.js', campo: 'default_basemap', n: 4, classe: PODA_SERVIDOR, superficies: ['settings.default_basemap', 'settings.basemaps'] },
     { arquivo: 'src/js/catalog/resource-reference.registry.js', campo: 'available_data_layers', n: 3, classe: PODA_SERVIDOR, superficies: ['settings.available_data_layers'] },
     { arquivo: 'src/js/catalog/resource-reference.registry.js', campo: 'available_analysis_layers', n: 3, classe: PODA_SERVIDOR, superficies: ['settings.available_analysis_layers'] },
@@ -118,7 +118,7 @@ const CENSO = [
     { arquivo: 'src/js/catalog/resource-reference.registry.js', campo: 'catalogLayers', n: 3, classe: PODA, superficies: ['mapa.catalogLayers'] },
     { arquivo: 'src/js/catalog/resource-reference.resolver.js', campo: 'modelId', n: 1, classe: PODA, superficies: ['briefing.slide.modelId'] },
     { arquivo: 'src/js/catalog/resource-reference.resolver.js', campo: 'photoId', n: 1, classe: PODA, superficies: ['briefing.slide.photoId'] },
-    { arquivo: 'src/js/catalog/resource-reference.resolver.js', campo: 'baseLayer', n: 1, classe: PODA, superficies: ['mapa.baseLayer'] },
+    { arquivo: 'src/js/catalog/resource-reference.resolver.js', campo: 'baseLayer', n: 2, classe: PODA, superficies: ['mapa.baseLayer', 'briefing.slide.baseLayer'] },
     { arquivo: 'src/js/catalog/resource-reference.resolver.js', campo: 'catalogLayers', n: 1, classe: PODA, superficies: ['mapa.catalogLayers'] },
     // Entrou em 2026-08-24, quando o relato de poda do CLONE passou a ser mostrado ao usuário:
     // `descreverPerdasDoServidor` reusa a MESMA tabela de rótulos do aviso de saída, e o servidor
@@ -190,7 +190,7 @@ const CENSO = [
     { arquivo: 'src/js/import_export/local-atlas-to-server.js', campo: 'photoName', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/import_export/local-atlas-to-server.js', campo: 'modelId', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/import_export/local-atlas-to-server.js', campo: 'photoId', n: 1, classe: PERSISTE },
-    { arquivo: 'src/js/import_export/local-atlas-to-server.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
+    { arquivo: 'src/js/import_export/local-atlas-to-server.js', campo: 'baseLayer', n: 2, classe: PERSISTE },
     { arquivo: 'src/js/import_export/local-atlas-to-server.js', campo: 'catalogLayers', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/layers/layer_setup.js', campo: 'catalogLayers', classe: RUNTIME },
     { arquivo: 'src/js/modals/atlas-settings.modal.js', campo: 'available_data_layers', n: 2, classe: PERSISTE },
@@ -259,6 +259,17 @@ const CENSO = [
     // sítio de leitura a menos, nenhum sítio de referência a menos.
     { arquivo: 'src/js/store/cesium3d.operations.js', campo: 'tilesetId', n: 36, classe: PERSISTE },
     { arquivo: 'src/js/store/map.operations.js', campo: 'baseLayer', n: 4, classe: PERSISTE },
+    // A VISTA SALVA DO MAPA e A VISTA DO SLIDE (2026-09-20): a base na tela virou estado de vista
+    // da pessoa, e só dois gestos a gravam. `saveMapView` leva a base da tela ao documento do
+    // mapa (superfície `mapa.baseLayer`, que já existia); a captura de posição do editor de
+    // briefing a grava no slide, superfície NOVA `briefing.slide.baseLayer`.
+    { arquivo: 'src/js/store/map-view.operations.js', campo: 'baseLayer', n: 3, classe: PERSISTE },
+    { arquivo: 'src/js/map/map.manager.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
+    { arquivo: 'src/js/store/briefing.operations.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
+    { arquivo: 'src/js/briefing/slide-view.js', campo: 'baseLayer', n: 6, classe: PERSISTE },
+    { arquivo: 'src/js/briefing/screen-view.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
+    { arquivo: 'src/js/briefing/editor/briefing-editor.control.js', campo: 'baseLayer', n: 10, classe: PERSISTE },
+    { arquivo: 'src/js/briefing/presentation/transition.service.js', campo: 'baseLayer', classe: RUNTIME },
     { arquivo: 'src/js/store/repositories/local.repository.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/store/repositories/index.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/store/repository.js', campo: 'catalogLayers', n: 1, classe: PERSISTE },
@@ -279,7 +290,7 @@ const CENSO = [
     // onde esta escrito que `baseLayer` e a unidade `mapaBase` do mapa e que `modelId`/`photoId`
     // sao a unidade `alvo` do slide: se uma superficie de referencia nascer sem entrada aqui, ela
     // viaja sem unidade e o servidor disputa a entidade inteira.
-    { arquivo: 'src/js/store/sync/dispute-units.js', campo: 'baseLayer', n: 3, classe: PERSISTE },
+    { arquivo: 'src/js/store/sync/dispute-units.js', campo: 'baseLayer', n: 4, classe: PERSISTE },
     { arquivo: 'src/js/store/sync/dispute-units.js', campo: 'modelId', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/store/sync/dispute-units.js', campo: 'photoId', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/store/sync/remote-operation-handler.js', campo: 'tilesetId', n: 3, classe: PERSISTE },

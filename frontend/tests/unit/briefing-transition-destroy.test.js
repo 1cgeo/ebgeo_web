@@ -38,6 +38,12 @@ const { storeMock, flyToMock, modelsViewerMock, streetViewMock } = vi.hoisted(()
             setCurrentMap: vi.fn(async () => {}),
             getEventBus: vi.fn(() => ({ emit: vi.fn(), on: vi.fn() })),
             getControl: vi.fn((name) => controls[name] || null),
+            // A vista do slide (2026-09-20): a transição lê a base e o interruptor SALVOS do mapa
+            // para resolver o que o slide herda, e põe o interruptor na tela sem gravar.
+            getCurrentBaseLayer: vi.fn(async () => 'carta-topografica'),
+            isMapTemporalSavedEnabled: vi.fn(async () => false),
+            isMapTemporalEnabledSync: vi.fn(() => false),
+            setMapTemporalView: vi.fn(() => false),
         },
     };
 });

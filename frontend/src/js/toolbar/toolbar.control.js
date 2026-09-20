@@ -215,16 +215,17 @@ export class ToolbarControl {
          * when someone presses this, and it drags the store barrel with it.
          */
         shareView: async () => {
-            const [{ buildShareUrlBasemap, copyShareUrl }, { getCurrentBaseLayer }] = await Promise.all([
+            const [{ buildShareUrlBasemap, copyShareUrl }, { getControl }] = await Promise.all([
                 import('@js/deep-link/deep-link.js'),
-                import('@store/map.operations.js'),
+                import('@store/control.registry.js'),
             ]);
 
             const center = this._map.getCenter();
-            // The base layer is read from the STORE, not from the control's own
-            // field: the store is what `switchMap` reconciles on boot, so it is the
-            // one that still agrees with the screen after a fallback took over.
-            const basemap = await getCurrentBaseLayer().catch(() => null);
+            // The base layer is read from the SCREEN, through the control that draws it. Since
+            // 2026-09-20 the store only holds the base SAVED with the view of the map, which is
+            // no longer what the person sharing is looking at; `currentLayer` is set after every
+            // fallback, so it is the field that agrees with the pixels.
+            const basemap = getControl('BaseLayerControl')?.currentLayer ?? null;
 
             await copyShareUrl(buildShareUrlBasemap(
                 basemap,

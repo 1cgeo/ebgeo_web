@@ -1623,26 +1623,14 @@ async function applyRemoteMapSettingOp(entityType, mapId, data) {
                         await repo.saveMap?.(mapId, mapData);
                     }
                 });
-                // PERSISTIR E AVISAR NAO E TROCAR O QUE A TELA DESENHA, e ate 2026-09-16 este ramo
-                // emitia `BASE_LAYER_CHANGED` direto. Os assinantes daquele evento (o cartao do
-                // seletor, a barra lateral, o 3D, o 360, o terreno) atualizam ROTULO e estado;
-                // quem chama `map.setStyle` e o `BaseLayerControl`, que e o EMISSOR daquele evento
-                // e nunca o ouviu. Medido com dois navegadores: no par o cartao passava a mostrar
-                // a base nova enquanto o MapLibre seguia desenhando a antiga (242 camadas do
-                // estilo velho), e so um F5 trocava de verdade. A UI mentia, que e pior do que nao
-                // propagar.
-                //
-                // Agora sai um evento PROPRIO do caminho remoto, com o mapa a que ele pertence: o
-                // controle decide se aquele mapa e o ativo, aplica o estilo e SO ENTAO emite
-                // `BASE_LAYER_CHANGED`, lendo de volta o que ficou na tela.
-                //
-                // The payload MUST be the layer id STRING (mirrors base-layer.control's emit). Emitting
-                // the wrapper object `data` made the base-layer-selector render "[object Object]".
-                emit(EventTypes.BASE_LAYER_REMOTE_CHANGED, {
-                    layer,
-                    mapId,
-                    mapName: mapResolver.resolveToName(mapId) || null,
-                });
+                // SO O REGISTRO, NUNCA A TELA (decisao do dono, 2026-09-20). O mapa base que cada
+                // pessoa ve e estado de VISTA dela, como a camera: o que chega aqui e a base SALVA
+                // do mapa, gravada pelo par no gesto de salvar a vista, e ela vale na PROXIMA
+                // entrada de quem a recebe (`BaseLayerControl.switchMap`). Este ramo ja emitiu
+                // `BASE_LAYER_CHANGED` (o cartao do seletor mentia) e depois um evento proprio que
+                // trocava o estilo do par; os dois sairam, porque trocar a base debaixo de quem
+                // esta trabalhando era o defeito de UX, nao o conserto. `MAP_MODIFIED`, emitido
+                // pelo chamador, continua avisando que o registro mudou.
             }
             break;
         }
@@ -1705,17 +1693,13 @@ async function applyRemoteMapSettingOp(entityType, mapId, data) {
                     await repo.saveSetting(`temporal_${mapName}`, data);
                     present(() => memoryStore.temporalConfigs.set(mapName, data));
                 });
+                // `TEMPORAL_CONFIG_CHANGED` E SO: janela, unidade e lente sao config sincronizada do
+                // mapa e o controlador as relê. O `ativo` que chega aqui e o valor SALVO com a vista
+                // do mapa, e ele NAO liga nem desliga a linha do tempo de quem recebe: o interruptor
+                // da tela e estado de vista, fixado na entrada do mapa (ver o cabecalho de
+                // `temporal.operations.js`). Este ramo emitia `MAP_TEMPORAL_CHANGED` a cada op de
+                // entrada, e era por ele que o gesto de um colega mudava a tela de todos.
                 emit(EventTypes.TEMPORAL_CONFIG_CHANGED, { mapName, config: data });
-                if (typeof data.ativo === 'boolean') {
-                    // `remoto: true` MARCA A PROCEDENCIA, e ele existe para um assinante so: a
-                    // telemetria de uso conta `temporal.ativado` neste evento, e esta emissao
-                    // acontece a cada op de ENTRADA que carregue a config temporal, sem deteccao
-                    // de mudanca. Sem a marca, o colega que liga a linha do tempo uma vez conta
-                    // uma vez em cada aba do atlas, e a metrica passa a medir o tamanho da equipe.
-                    // Nenhum outro assinante o le, e a ausencia do campo (emissor local) e o
-                    // estado normal.
-                    emit(EventTypes.MAP_TEMPORAL_CHANGED, { mapName, enabled: data.ativo, remoto: true });
-                }
             }
             break;
         }

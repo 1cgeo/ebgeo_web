@@ -73,9 +73,10 @@ const SITIOS = Object.freeze([
     // suprimidas". As quatro perguntavam SÓ pela trava do mapa, que é a metade que o inventário de
     // ontem já tinha nomeado, e por isso nasceram fora do censo: elas não desenhavam nada errado
     // sobre um mapa travado, só sobre um papel sem edição.
-    { nome: 'Seletor de mapa base (a troca é escrita e PROPAGA ao atlas)', classe: PERGUNTA,
-        arquivo: 'src/js/base-layer-selector/base-layer-selector.control.js',
-        ancora: "semEdicaoSync('UPDATE_MAP')" },
+    // O SELETOR DE MAPA BASE SAIU DESTA LISTA em 2026-09-20, e a saída é decisão, não esquecimento:
+    // escolher base deixou de ser escrita (virou estado de vista da pessoa, não grava e não
+    // enfileira), então não existe papel nem trava que a recuse, e escondê-la do leitor voltaria
+    // a ser o defeito. Quem cobra que ele NÃO pergunte é o caso próprio no fim deste arquivo.
     { nome: 'Barra de ferramentas do 3D', classe: PERGUNTA,
         arquivo: 'src/js/3d_models_viewer_tool/map_3d.js',
         ancora: "toolbar3d.classList.toggle('map-locked', semEdicaoSync())" },
@@ -197,7 +198,7 @@ describe('somente leitura: as barras do 3D e do 360', () => {
 /**
  * O ASSINANTE ÚNICO: quem escuta metade dos eventos acerta metade das vezes.
  *
- * As quatro superfícies desta leva assinavam só `MAP_LOCK_CHANGED`. Com a conta somando o papel, o
+ * As superfícies desta leva assinavam só `MAP_LOCK_CHANGED`. Com a conta somando o papel, o
  * evento que falta é o que conta: entrar, sair, conectar e trocar de atlas mudam a resposta sem
  * tocar em trava nenhuma, e a tela ficaria congelada no estado com que nasceu.
  */
@@ -216,14 +217,46 @@ describe('o assinante único cobre os dois eixos', () => {
         expect(modulo).toMatch(/return \(\) => \{ for \(const s of soltar\) s\?\.\(\); \};/);
     });
 
-    it('as quatro superfícies da leva usam o assinante, e não uma assinatura própria pela metade', () => {
+    it('as três superfícies da leva usam o assinante, e não uma assinatura própria pela metade', () => {
         for (const arquivo of [
-            'src/js/base-layer-selector/base-layer-selector.control.js',
             'src/js/3d_models_viewer_tool/map_3d.js',
             'src/js/street_view_tool/components/streetview-sidebar.js',
             'src/js/features_tab/features_tab.js',
         ]) {
             expect(semComentarios(fonte(arquivo)), arquivo).toContain('assinarEdicaoIndisponivel');
         }
+    });
+});
+
+/**
+ * O QUE DEIXOU DE SER EDIÇÃO (2026-09-20). Duas afordâncias viraram estado de VISTA da pessoa: o
+ * seletor de mapa base e o interruptor da linha do tempo. Nenhuma das duas grava nem enfileira
+ * operação, então nenhuma pode ser escondida nem desabilitada por papel ou por trava, e é isso que
+ * se afirma aqui. A forma do defeito que este caso fecha é a volta silenciosa do portão: alguém
+ * relê o relato de 2026-09-17 ("ainda está exibindo a escolha de basemap"), repõe o
+ * `semEdicaoSync`, e o leitor perde de novo a única coisa que ele podia escolher na própria tela.
+ */
+describe('vista da pessoa não é edição: nem papel nem trava a escondem', () => {
+    it('o seletor de mapa base não pergunta pela edição', () => {
+        const seletor = semComentarios(fonte('src/js/base-layer-selector/base-layer-selector.control.js'));
+        expect(seletor).not.toContain('semEdicaoSync');
+        expect(seletor).not.toContain('assinarEdicaoIndisponivel');
+        expect(seletor).not.toContain('isCurrentMapLockedSync');
+    });
+
+    it('o botão temporal do cartão do mapa não é desabilitado pela trava', () => {
+        const aba = semComentarios(fonte('src/js/sidebar/tabs/maps.tab.js'));
+        expect(aba).toContain('current-map-temporal-btn');
+        expect(aba).not.toMatch(/temporalBtn\.disabled\s*=/);
+    });
+
+    it('e nenhum dos dois gestos chama uma operação que grava', () => {
+        const controle = semComentarios(fonte('src/js/baselayers/base-layer.control.js'));
+        expect(controle).not.toContain('setBaseLayer');
+        const temporal = semComentarios(fonte('src/js/store/temporal.operations.js'));
+        const alternar = temporal.slice(temporal.indexOf('export async function toggleMapTemporal'));
+        expect(alternar).toContain('setMapTemporalView');
+        expect(alternar).not.toContain('recordOperation');
+        expect(alternar).not.toContain('checkPermission');
     });
 });

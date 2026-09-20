@@ -968,18 +968,16 @@ export class MapsTab {
 
         this._currentMapCard.classList.toggle('current-map-card--locked', locked);
 
-        // Update temporal control state. A locked map is read-only, so the toggle
-        // is disabled (mirroring the name input) — existing temporal config still renders.
+        // The temporal switch is VIEW state of the person since 2026-09-20 (it writes nothing), so
+        // neither the map lock nor the role disables it: a reader on a locked map turns their own
+        // timeline on and off. What travels is the value saved with the view of the map.
         const temporalEnabled = await isMapTemporalEnabled(this._currentMapName);
         const temporalBtn = this._currentMapCard.querySelector('#current-map-temporal-btn');
         if (temporalBtn) {
             temporalBtn.dataset.temporal = temporalEnabled.toString();
-            temporalBtn.disabled = locked;
-            temporalBtn.title = locked
-                ? 'Controle temporal (mapa bloqueado)'
-                : temporalEnabled
-                    ? 'Desabilitar controle temporal'
-                    : 'Habilitar controle temporal';
+            temporalBtn.title = temporalEnabled
+                ? 'Desabilitar controle temporal (só na sua tela)'
+                : 'Habilitar controle temporal (só na sua tela)';
         }
 
         if (nameInput) {
@@ -1656,7 +1654,10 @@ export class MapsTab {
 
         try {
             if (mapName === this._currentMapName) {
-                await this._baseLayerControl.applyMapSavedPosition(mapName);
+                // THE WHOLE SAVED VIEW, not only the camera: base layer and temporal switch are
+                // view state of the person since 2026-09-20, and this icon is the way back to
+                // what was saved with the map. `sameMap` keeps the drawn content.
+                await this._baseLayerControl.switchMap(true, { sameMap: true });
             } else {
                 await setCurrentMap(mapName);
                 await this._baseLayerControl.switchMap();
