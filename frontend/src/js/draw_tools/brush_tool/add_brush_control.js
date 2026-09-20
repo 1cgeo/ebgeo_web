@@ -328,6 +328,12 @@ class AddBrushControl extends BaseControl {
         this.points = [[lngLat.lng, lngLat.lat]];
         this.lastPixelPoint = point;
         this.map.dragPan.disable();
+        // O ZOOM DE DOIS DEDOS TAMBÉM SAI, e só o arrasto saía. O pincel ignora o segundo dedo
+        // (`isPrimary` acima), mas o `touchZoomRotate` do MapLibre não: pousar o segundo dedo no
+        // meio de um traço aproximava o mapa DEBAIXO do traço, e o que a pessoa ganhava era um
+        // risco indesejado por cima do desenho. `map_sig.js` deixa esse gesto ligado de propósito
+        // para a navegação, então quem o desliga é a ferramenta, pelo tempo do traço.
+        this.map.touchZoomRotate.disable();
         this.map.getCanvas().style.cursor = 'crosshair';
 
         // Capture pointer for reliable tracking
@@ -405,6 +411,7 @@ class AddBrushControl extends BaseControl {
 
         this.isDrawing = false;
         this.map.dragPan.enable();
+        this.map.touchZoomRotate.enable();
         this.map.getCanvas().style.cursor = 'crosshair';
 
         const points = this.points;

@@ -158,6 +158,11 @@ function buildControl(Control, geometry, seed = {}) {
         unproject: ([x, y]) => ({ lng: x, lat: y }),
         queryRenderedFeatures: () => [],
         dragPan: { enable() {}, disable() {} },
+        // O PINCEL DESLIGA O ZOOM DE DOIS DEDOS ENQUANTO DESENHA, desde 2026-09-20: sem isto,
+        // pousar o segundo dedo no meio de um traco aproximava o mapa DEBAIXO dele. O duplo
+        // precisa carregar a superficie que a ferramenta toca, senao o caso morre por
+        // TypeError e nao por defeito do produto.
+        touchZoomRotate: { enable() {}, disable() {} },
         on: () => {},
         off: () => {},
     };

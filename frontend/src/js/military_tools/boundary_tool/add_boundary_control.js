@@ -9,7 +9,7 @@ import {
     getStateManager,
 } from '../../store';
 import { IDUtils, deepClone, deepEqual, createSerialQueue, showToast, showWarning } from '../../utilities';
-import { getPointerPosition, isTouchDevice } from '../../utilities/pointer-utils';
+import { getPointerPosition, isTouchDevice, createLongPressHandler } from '../../utilities/pointer-utils';
 import { addBoundaryAttributesToPanel } from './boundary_attributes_panel.js';
 import AddBoundaryGeometry from './add_boundary_geometry.js';
 import {
@@ -957,6 +957,33 @@ class AddBoundaryControl extends BaseControl {
         this.createEditHandles(feature);
         this.setupEditEventListeners();
         this.setupEditRightClickListener();
+        // O TOQUE LONGO É O EQUIVALENTE DO CLIQUE DIREITO, e sem ele não havia como apagar um
+        // vértice com o dedo: sobrava redesenhar a feição inteira. Linha, polígono e a edição de
+        // trajetória já tinham este par; estas três ferramentas militares ficaram para trás.
+        //
+        // ELE ENTRA POR `createLongPressHandler` E NÃO POR `setupVertexRemoveLongPress`, que é o
+        // ajudante que linha e polígono usam, e a diferença é de desenho e não de gosto: aquele
+        // faz a consulta de alça POR DENTRO e entrega a alça pronta, enquanto o
+        // `handleEditRightClick` destas três faz a consulta dele mesmo, a partir de `offsetX` e
+        // `offsetY`, e ainda distingue ramo de feição fundida. Passar pelo ajudante obrigaria a
+        // duplicar aqui a regra de qual alça é removível, e duas cópias dessa regra divergem.
+        // Assim o toque longo entra pela MESMA porta do clique direito, e nada é reimplementado.
+        if (isTouchDevice()) {
+            const tela = this.map.getCanvas();
+            this._cleanupVertexLongPress = createLongPressHandler(
+                tela,
+                (_evento, posicao) => {
+                    const rect = tela.getBoundingClientRect();
+                    this.handleEditRightClick({
+                        offsetX: posicao.x - rect.left,
+                        offsetY: posicao.y - rect.top,
+                        preventDefault: () => {},
+                        stopPropagation: () => {},
+                    });
+                },
+                { duration: 500, moveThreshold: 10 },
+            );
+        }
     }
 
     deselectFeature = () => {
@@ -968,6 +995,8 @@ class AddBoundaryControl extends BaseControl {
         this.removeEditEventListeners();
         this.removeHoverListeners();
         this.removeEditRightClickListener();
+        this._cleanupVertexLongPress?.();
+        this._cleanupVertexLongPress = null;
         this.cancelPendingUpdates();
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
