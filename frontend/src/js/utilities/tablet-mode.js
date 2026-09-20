@@ -43,6 +43,17 @@ export const PHONE_QUERY = '(max-width: 480px), (max-height: 440px) and (pointer
 export const TABLET_QUERY = '(pointer: coarse) and (min-width: 481px) and (min-height: 441px)';
 
 /**
+ * PONTEIRO GROSSO, sem corte de tamanho: telefone e tablet de uma vez.
+ *
+ * Ele existe ao lado dos dois de cima porque nem toda decisão de código é de LEIAUTE. O arranjo
+ * dos botões dentro do balão de um grupo da barra depende do DEDO e não da moldura: num telefone
+ * e num tablet vale a mesma lista com rótulo, e é esta a consulta que espelha o `@media (pointer:
+ * coarse)` que o CSS da barra já usa.
+ * @type {string}
+ */
+export const COARSE_QUERY = '(pointer: coarse)';
+
+/**
  * @param {string} consulta
  * @returns {boolean} Falso quando o navegador não tem `matchMedia` (jsdom, node).
  */
@@ -50,6 +61,14 @@ function casa(consulta) {
     return typeof window !== 'undefined'
         && typeof window.matchMedia === 'function'
         && window.matchMedia(consulta).matches;
+}
+
+/**
+ * O ponteiro primário é grosso, isto é, um dedo?
+ * @returns {boolean}
+ */
+export function isCoarsePointer() {
+    return casa(COARSE_QUERY);
 }
 
 /**

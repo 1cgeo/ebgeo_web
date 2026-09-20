@@ -39,6 +39,7 @@ import {
 } from '@catalog/forma-3d.js';
 import { requestStatus } from '@utils/request-failure.js';
 import { model3dFailures, statusOfCesiumTileFailure } from './model3d-failure.js';
+import { cacheDeTileset } from './services/orcamento-de-memoria.js';
 
 // ===== GLOBAL STATE MANAGEMENT =====
 let cesiumState = {
@@ -274,7 +275,9 @@ async function createOptimizedTileset(viewer, tilesetConfig) {
         baseScreenSpaceError: 1024,
         skipScreenSpaceErrorFactor: 16,
         skipLevels: 1,
-        cacheBytes: 1073741824,
+        // O TETO DE CACHE VEM DA MÁQUINA, e não mais um gigabyte para todo mundo. Ver
+        // `services/orcamento-de-memoria.js`, que carrega a regra e as pistas.
+        cacheBytes: cacheDeTileset(),
         dynamicScreenSpaceError: true,
         dynamicScreenSpaceErrorDensity: 0.00278,
         dynamicScreenSpaceErrorFactor: 2.0,
@@ -955,7 +958,7 @@ async function loadSingleTileset(viewer, tilesetId) {
     // REABRIR O MESMO MODELO NÃO O RECONSTRÓI. Fechar o visualizador apenas PAUSA a cena
     // (`closeViewer` chama `pauseRendering`), então o tileset da abertura anterior continua
     // vivo e desenhado; jogá-lo fora para montar outro idêntico é trabalho puro, e caro:
-    // cada `Cesium3DTileset` nasce com `cacheBytes` de 1 GB e refaz a decodificação inteira.
+    // cada `Cesium3DTileset` nasce com um cache próprio e refaz a decodificação inteira.
     //
     // O CUSTO MEDIDO desse refazer, em 2026-08-31, com o `serra_dourada`: o processo
     // renderizador crescia 8,8 MB por ciclo de abrir e fechar, sem patamar em doze ciclos,

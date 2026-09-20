@@ -269,12 +269,22 @@ async function initThreeJS() {
         alpha: true,
         preserveDrawingBuffer: true // For screenshots
     });
-    streetViewState.renderer.setPixelRatio(window.devicePixelRatio);
+    // A DENSIDADE DE PIXEL É TETADA EM 2, e o teto é o que separa uma tela boa de um custo
+    // quadrático. `devicePixelRatio` chega a 3 num tablet e num celular recentes, e o custo do
+    // fragmento sobe com o QUADRADO dele: 3 custa nove vezes a área de 1, contra quatro de 2. O
+    // que se ganha do 2 para o 3 é imperceptível aqui, porque o sujeito é uma FOTOGRAFIA
+    // esticada numa esfera, cuja nitidez já está limitada pela resolução da panorâmica e pelo
+    // nível de pirâmide que o carregador escolheu, e não pela tela.
+    streetViewState.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     streetViewState.renderer.setSize(containerWidth, containerHeight);
     container.appendChild(streetViewState.renderer.domElement);
 
     // Setup event listeners
-    container.style.touchAction = 'none';
+    // O `touch-action` MUDOU DE CASA para `css/panels-360.css` em 2026-09-20, e a mudança não é
+    // de estilo: aqui ele estava no CONTAINER, e `touch-action` é herdado, de modo que ele
+    // matava a rolagem de todo cartão e painel que mora dentro do visualizador. No CSS ele mira
+    // as duas telas (a esfera e a sobreposição de navegação), que é onde o app de fato quer
+    // todos os gestos para si.
     container.addEventListener('pointerdown', onPointerDown);
 
     // Pinch-to-zoom touch listeners
@@ -1330,6 +1340,17 @@ function onPointerDown(event) {
 
     document.addEventListener('pointermove', onPointerMove);
     document.addEventListener('pointerup', onPointerUp);
+    // O `pointercancel` FALTAVA, e ele é a única saída que não tem par: `pointerup` cobre o
+    // gesto que termina, e nada cobria o gesto que o navegador TIRA da página (um gesto de
+    // sistema, um diálogo, um ancestral que passa a rolar). Nesse caminho os dois ouvintes
+    // ficavam no documento com `isUserInteracting` verdadeiro e a âncora do toque antigo, de
+    // modo que o movimento seguinte saltava a esfera pela diferença acumulada.
+    //
+    // O QUE ELE NÃO CONSERTA, e é bom dizer para a próxima leitura não lhe dar crédito demais:
+    // o pinch NÃO passa por aqui. Com `touch-action: none` na tela o navegador não toma o
+    // gesto, então o primeiro dedo continua vivo durante o pinch inteiro e termina em
+    // `pointerup` normal. O que quebrava o pinch é outra coisa, e está em `onTouchEnd`.
+    document.addEventListener('pointercancel', onPointerUp);
 }
 
 function onPointerMove(event) {
@@ -1353,6 +1374,7 @@ function onPointerUp(event) {
     isUserInteracting = false;
     document.removeEventListener('pointermove', onPointerMove);
     document.removeEventListener('pointerup', onPointerUp);
+    document.removeEventListener('pointercancel', onPointerUp);
 }
 
 function onDocumentMouseWheel(event) {
@@ -1372,7 +1394,22 @@ function onDocumentMouseWheel(event) {
 let pinchStartDistance = 0;
 let pinchStartFov = 75;
 
+/**
+ * O gesto começou sobre a ESFERA, e não sobre um cartão que mora por cima dela?
+ *
+ * Os ouvintes de toque estão no CONTAINER, que é o pai de tudo no visualizador, então sem esta
+ * pergunta um pinch dado dentro do cartão de comentário, ou do painel do marcador, afastava os
+ * dedos sobre o texto e o que se movia era o zoom da FOTO atrás. O alvo de um gesto de tela é
+ * sempre o elemento de cima, então perguntar por `canvas` é a pergunta exata.
+ * @param {TouchEvent} event
+ * @returns {boolean}
+ */
+function gestoNaEsfera(event) {
+    return event.target instanceof HTMLCanvasElement;
+}
+
 function onTouchStart(event) {
+    if (!gestoNaEsfera(event)) return;
     if (event.touches.length === 2) {
         // Start pinch — record initial distance and FOV
         const dx = event.touches[1].clientX - event.touches[0].clientX;
@@ -1400,9 +1437,28 @@ function onTouchMove(event) {
 }
 
 function onTouchEnd(event) {
-    if (event.touches.length < 2) {
-        pinchStartDistance = 0;
-    }
+    if (event.touches.length >= 2) return;
+    pinchStartDistance = 0;
+
+    // O DEDO QUE FICA VOLTA A GIRAR A ESFERA, e até 2026-09-20 não voltava. Levantar um dos dois
+    // dedos não gera `pointerdown` para o que continua na tela, e o `pointercancel` do início do
+    // pinch já tinha desligado o arrasto: a pessoa ficava com um dedo na foto, arrastando, e
+    // nada acontecia até levantar e tocar de novo. Reancorar aqui é o que torna o gesto
+    // contínuo, e a âncora é a posição ATUAL do dedo, nunca a de antes do pinch, senão a esfera
+    // saltaria pela distância que os dois dedos percorreram.
+    const restante = event.touches[0];
+    if (!restante) return;
+    onPointerDownMouseX = restante.clientX;
+    onPointerDownMouseY = restante.clientY;
+    onPointerDownLon = lon;
+    onPointerDownLat = lat;
+    isUserInteracting = true;
+    // Reinscrever é de graça e é o que torna este ramo correto sozinho: `addEventListener` com
+    // a MESMA referência de função não duplica nada, e no caminho normal os três já estão lá,
+    // postos pelo `pointerdown` do primeiro dedo, que nunca foi levantado.
+    document.addEventListener('pointermove', onPointerMove);
+    document.addEventListener('pointerup', onPointerUp);
+    document.addEventListener('pointercancel', onPointerUp);
 }
 
 function onWindowResize() {

@@ -28,6 +28,7 @@ import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
 import { Viewshed3D } from '../services/viewshed-3d.js';
 import { subViewshedLayout } from '../services/viewshed-geometry.js';
+import { escolherAlvo } from '../services/pick-de-alvo.js';
 
 // ===== MODULE STATE =====
 
@@ -620,7 +621,7 @@ function setupViewshedSelectionHandler(viewer) {
     selectionHandler.setInputAction((click) => {
         if (isToolActive) return;
 
-        const pickedObject = viewer.scene.pick(click.position);
+        const pickedObject = escolherAlvo(viewer.scene, click.position);
 
         if (Cesium.defined(pickedObject) && pickedObject.id && pickedObject.id.properties) {
             let viewshedId = pickedObject.id.properties.viewshedId;

@@ -23,6 +23,12 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+// A TABELA DA BARRA, importada no lado de NODE e nunca dentro da página: ela é folha de zero
+// imports, então trazê-la aqui não custa grafo nenhum, e é ela que dá o controle negativo do
+// caso do arranjo — o grupo de desenho DECLARA grade, e é justamente isso que o toque
+// sobrescreve. Sem ela o caso passaria igual se alguém trocasse a declaração para lista, que é
+// outra mudança e com outro efeito na mesa.
+import { TOOL_GROUPS } from '../../src/js/toolbar/toolbar.constants.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -47,11 +53,30 @@ async function ativarFerramenta(page, grupo, ferramenta) {
     );
     await expect(item).toBeVisible({ timeout: 10000 });
     await item.tap();
+
+    // O BOTAO VOLTA ANTES DA FERRAMENTA EXISTIR. As de desenho chegam por `import()`, e o
+    // `data-loading` e o sinal que a casa ja usa para isso: sem esperar por ele sumir, o
+    // toque seguinte no mapa cai numa tela sem ferramenta ativa e nao desenha nada, sem erro.
+    await expect(item).not.toHaveAttribute('data-loading', 'true', { timeout: 15000 });
 }
 
 /** Um toque na tela do mapa, em coordenada de viewport. */
 async function tocarNoMapa(page, x, y) {
     await page.touchscreen.tap(x, y);
+}
+
+/**
+ * Quantas feições a FONTE do MapLibre tem agora.
+ *
+ * A contagem vem da fonte e não da store de propósito: um `import()` dentro da página pode
+ * receber outra instância do módulo quando o Vite serve o arquivo com `?t=` de HMR, e aí o
+ * número lido não é o do app. A fonte é o que o mapa desenha, e ela não tem essa ambiguidade.
+ */
+function contarNaFonte(page, fonte) {
+    return page.evaluate(async (nome) => {
+        const dados = await globalThis.__ebgeoMap?.getSource(nome)?.getData?.();
+        return dados?.features?.length ?? 0;
+    }, fonte);
 }
 
 describeOrSkip('o mapa sob um dedo (tablet)', () => {
@@ -132,5 +157,53 @@ describeOrSkip('o mapa sob um dedo (tablet)', () => {
         // O PAINEL DE RESULTADO É O DESFECHO QUE FALTAVA: sem ele, a medição podia ser começada
         // e não terminada, porque as duas únicas saídas eram clique direito e clique duplo.
         await expect(page.locator('.measurement-results-panel')).toBeVisible({ timeout: 10000 });
+    });
+
+    test('o balão do grupo abre com RÓTULO, e não com selo de atalho', async ({ page }) => {
+        // CONTROLE NEGATIVO PRIMEIRO: o grupo de desenho declara GRADE na tabela. Se esta linha
+        // falhar, o caso abaixo deixou de medir a sobrescrita por toque e passou a medir uma
+        // declaração trocada, que é outra coisa.
+        expect(TOOL_GROUPS.draw.layout, 'a tabela deixou de declarar grade').toBe('grid');
+
+        await bootApp(page);
+        await page.locator('.toolbar-group[data-group-id="draw"] .toolbar-group-btn').tap();
+
+        const balao = page.locator('.toolbar-group[data-group-id="draw"] .toolbar-popup');
+        await expect(balao).toBeVisible({ timeout: 10000 });
+        await expect(balao.locator('.toolbar-popup-list')).toHaveCount(1);
+        await expect(balao.locator('.toolbar-popup-grid')).toHaveCount(0);
+
+        // O NOME NA TELA, que é o ponto: na grade ele só existia em `title`, que é balão de
+        // `hover` e num tablet nunca aparece. Onze ferramentas, onze rótulos.
+        const primeiro = balao.locator('.toolbar-tool-btn[data-tool-id="point"] .tool-label');
+        await expect(primeiro).toBeVisible();
+        await expect(primeiro).toHaveText('Ponto');
+        await expect(balao.locator('.tool-label')).toHaveCount(TOOL_GROUPS.draw.tools.length);
+
+        // E O ATALHO NÃO SE DESENHA: a letra anuncia uma tecla que o aparelho não tem. Ela
+        // continua no DOM (o `title` serve a quem tenha teclado), e o que se afirma é que ela
+        // não OCUPA a linha, porque é o rótulo que o dedo usa.
+        await expect(balao.locator('.tool-shortcut').first()).toBeHidden();
+    });
+
+    test('desfazer tem BOTÃO, e ele desfaz o ponto que o dedo acabou de pôr', async ({ page }) => {
+        await bootApp(page);
+
+        const desfazer = page.locator('.toolbar-standalone-btn[data-tool-id="undo"]');
+        await expect(desfazer, 'o botão de desfazer não foi desenhado').toBeVisible({ timeout: 10000 });
+
+        const antes = await contarNaFonte(page, 'points');
+
+        await ativarFerramenta(page, 'draw', 'point');
+        await tocarNoMapa(page, 560, 400);
+        await expect.poll(() => contarNaFonte(page, 'points'), { timeout: 15000 }).toBe(antes + 1);
+
+        await desfazer.tap();
+
+        // A CONTAGEM VOLTA, e é ela que separa "o botão existe" de "o botão faz". O aviso é o
+        // segundo sinal, por um caminho independente do desenho: sem ele, um desfazer que
+        // limpasse a fonte sem tocar na store passaria igual.
+        await expect.poll(() => contarNaFonte(page, 'points'), { timeout: 15000 }).toBe(antes);
+        await expect(page.locator('.toast', { hasText: /desfeit/i })).toBeVisible({ timeout: 10000 });
     });
 });

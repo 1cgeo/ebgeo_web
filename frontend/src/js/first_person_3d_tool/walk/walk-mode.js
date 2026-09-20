@@ -94,6 +94,29 @@ export class WalkMode {
         this._enabled = false;
         this._keys = {};
         this._mouseLookDragging = false;
+        /**
+         * Última posição do ponteiro durante um arrasto, em pixels de tela.
+         *
+         * O ARRASTO MEDE O PRÓPRIO DELTA e não lê `movementX`, e isso é o que o torna igual para
+         * o dedo e para o mouse. `movementX` nasceu com o Pointer Lock e é o único sinal que
+         * existe quando o ponteiro está capturado (não há `clientX` se movendo), mas num evento
+         * de ponteiro de TOQUE ele é opcional: onde o navegador não o preenche, ele vale zero e a
+         * câmera simplesmente não gira, sem erro nenhum. A diferença entre dois `clientX` é a
+         * mesma conta, existe em todo navegador e em todo tipo de ponteiro.
+         * @type {{x: number, y: number}|null}
+         */
+        this._lookAnchor = null;
+        /**
+         * Caminhada vinda do MANCHE de toque, em coordenada de câmera e de -1 a 1 em cada eixo.
+         *
+         * Ela SOMA com o teclado em vez de substituí-lo, e a soma é o que mantém um tablet com
+         * teclado acoplado funcionando das duas formas ao mesmo tempo. O teto é aplicado depois,
+         * na magnitude, onde o teclado já era aparado: duas teclas dão hipotenusa 1,41.
+         * @type {{frente: number, lado: number}}
+         */
+        this._analogico = { frente: 0, lado: 0 };
+        /** Agachamento vindo do manche, somado ao das teclas por OU. */
+        this._agachadoPorToque = false;
         /** Whether a right-drag turns the camera. The measuring tape borrows it. */
         this._lookWithRightButton = true;
         /** True while the pointer is LOCKED: the view follows the mouse with no button. */
@@ -156,9 +179,19 @@ export class WalkMode {
         // swallows the key release, and the character walks forever. In capture
         // on the window nothing can intercept it first.
         addDomListener(this, window, 'keyup', this._onKeyUp, true);
-        addDomListener(this, document, 'mousedown', this._onMouseDown);
-        addDomListener(this, document, 'mouseup', this._onMouseUp);
-        addDomListener(this, document, 'mousemove', this._onMouseMove);
+        // EVENTO DE PONTEIRO, E NÃO DE MOUSE, desde 2026-09-20. Girar a visão é um ARRASTO, e
+        // com os três ouvintes na família `mouse` o arrasto de um DEDO dependia de o navegador
+        // sintetizar eventos de mouse a partir do toque, coisa que ele faz para o toque simples e
+        // não faz de forma confiável no meio de um arrasto. O gesto é o mesmo, a regra é a mesma,
+        // e a troca de família é o que o faz existir para quem não tem mouse.
+        //
+        // O `pointercancel` entra junto porque ele é a saída que não tem par: `pointerup` cobre o
+        // gesto que termina, e nada cobria o gesto que o navegador TIRA da página. Sem ele, o
+        // arrasto ficava marcado e a câmera seguia o ponteiro depois de a mão ter saído.
+        addDomListener(this, document, 'pointerdown', this._onMouseDown);
+        addDomListener(this, document, 'pointerup', this._onMouseUp);
+        addDomListener(this, document, 'pointercancel', this._onMouseUp);
+        addDomListener(this, document, 'pointermove', this._onMouseMove);
         addDomListener(this, document, 'contextmenu', this._onContextMenu);
         // Prevent "stuck key" drift when keyup is lost (UI panel focus, tab blur).
         addDomListener(this, document, 'pointerdown', this._onDocumentPointerDown, true);
@@ -259,7 +292,8 @@ export class WalkMode {
 
         // Crouching only lowers the eye. The capsule stays the same, so there is
         // no way to sink through the floor nor to slide in under a wall.
-        const crouchTarget = CROUCH_KEYS.some((code) => this._keys[code]) ? 1 : 0;
+        const crouchTarget = (this._agachadoPorToque
+            || CROUCH_KEYS.some((code) => this._keys[code])) ? 1 : 0;
         this._crouch += (crouchTarget - this._crouch) * Math.min(1, WALK_CROUCH_RATE * dtClamped);
         this._cameraPosition.set(
             this._position.x,
@@ -322,6 +356,7 @@ export class WalkMode {
         this._lookWithRightButton = enabled !== false;
         if (!this._lookWithRightButton) {
             this._mouseLookDragging = false;
+            this._lookAnchor = null;
         }
     }
 
@@ -340,9 +375,31 @@ export class WalkMode {
      *
      * @param {boolean} enabled - True while the pointer is locked to the scene
      */
+    /**
+     * Recebe a caminhada do manche de toque.
+     *
+     * Os dois eixos são em coordenada de CÂMERA, como as teclas: `frente` positivo é para onde a
+     * pessoa olha. Quem converte para o mundo é o passo de física, com o yaw do instante.
+     * @param {number} frente - De -1 (ré) a 1 (frente).
+     * @param {number} lado - De -1 (esquerda) a 1 (direita).
+     */
+    setAnalogMove(frente, lado) {
+        this._analogico.frente = Number.isFinite(frente) ? frente : 0;
+        this._analogico.lado = Number.isFinite(lado) ? lado : 0;
+    }
+
+    /**
+     * Liga ou desliga o agachamento pelo manche, sem mexer no das teclas.
+     * @param {boolean} agachado
+     */
+    setTouchCrouch(agachado) {
+        this._agachadoPorToque = agachado === true;
+    }
+
     setPointerLook(enabled) {
         this._pointerLook = enabled === true;
         this._mouseLookDragging = false;
+        this._lookAnchor = null;
     }
 
     /**
@@ -410,10 +467,17 @@ export class WalkMode {
         }
 
         const forwardInput = (this._keys.KeyW || this._keys.ArrowUp ? 1 : 0)
-            - (this._keys.KeyS || this._keys.ArrowDown ? 1 : 0);
+            - (this._keys.KeyS || this._keys.ArrowDown ? 1 : 0)
+            + this._analogico.frente;
         const strafeInput = (this._keys.KeyD || this._keys.ArrowRight ? 1 : 0)
-            - (this._keys.KeyA || this._keys.ArrowLeft ? 1 : 0);
+            - (this._keys.KeyA || this._keys.ArrowLeft ? 1 : 0)
+            + this._analogico.lado;
         const hasMoveInput = forwardInput !== 0 || strafeInput !== 0;
+        // A INTENSIDADE É A MAGNITUDE DO VETOR, APARADA NO TETO, e é ela que torna o manche
+        // analógico sem mexer no teclado: uma tecla dá 1, duas dão 1,41 e as duas viram 1 no
+        // teto, que é exatamente o que o `normalize()` de antes fazia. Meia inclinação do
+        // manche, ao contrário, dá 0,5, e a pessoa encosta num item do acervo em vez de bater.
+        const intensidade = Math.min(1, Math.hypot(forwardInput, strafeInput));
 
         const move = this._scratchMove.set(0, 0, 0);
         const forward = this._scratchForward.set(-Math.sin(this._yaw), 0, -Math.cos(this._yaw));
@@ -425,7 +489,7 @@ export class WalkMode {
             move.addScaledVector(right, strafeInput);
         }
         if (hasMoveInput) {
-            move.normalize().multiplyScalar(this.moveSpeed);
+            move.normalize().multiplyScalar(this.moveSpeed * intensidade);
         }
 
         const accel = this._grounded ? 24 : 6;
@@ -683,10 +747,16 @@ export class WalkMode {
     _clearInputState() {
         this._keys = {};
         this._mouseLookDragging = false;
+        this._lookAnchor = null;
+        // O MANCHE TAMBÉM SOLTA AQUI, e esquecê-lo é o defeito de tecla presa na outra família:
+        // esta função existe para os casos em que a soltura se perdeu (aba trocada, foco em
+        // painel, tela cheia), e um vetor analógico pendurado anda para sempre.
+        this._analogico.frente = 0;
+        this._analogico.lado = 0;
     }
 
     /**
-     * @param {MouseEvent} e - Mouse event.
+     * @param {PointerEvent} e - Pointer event, de mouse, caneta ou dedo.
      * @private
      */
     _onMouseDown(e) {
@@ -708,6 +778,7 @@ export class WalkMode {
         // moved. Dragging turns, clicking clicks.
         if (e.button === 0 || (e.button === 2 && this._lookWithRightButton)) {
             this._mouseLookDragging = true;
+            this._lookAnchor = { x: e.clientX, y: e.clientY };
             if (e.button === 2) {
                 e.preventDefault();
             }
@@ -715,15 +786,19 @@ export class WalkMode {
     }
 
     /**
-     * @param {MouseEvent} e - Mouse event.
+     * @param {PointerEvent} e - Pointer event, de mouse, caneta ou dedo.
      * @private
      */
     _onMouseUp(e) {
         // Released unconditionally, including the right button the tape may have
         // taken over mid-drag: a flag flipped between press and release must not
         // leave the camera stuck following the mouse.
-        if (e.button === 0 || e.button === 2) {
+        // O CANCEL NÃO TRAZ BOTÃO, e é por isso que a condição aceita os dois caminhos: um
+        // `pointercancel` chega com `button` em -1, e exigir 0 ou 2 deixaria o arrasto marcado
+        // exatamente no evento que existe para dizer que ele acabou.
+        if (e.type === 'pointercancel' || e.button === 0 || e.button === 2) {
             this._mouseLookDragging = false;
+            this._lookAnchor = null;
         }
     }
 
@@ -738,7 +813,7 @@ export class WalkMode {
     }
 
     /**
-     * @param {MouseEvent} e - Mouse event.
+     * @param {PointerEvent} e - Pointer event, de mouse, caneta ou dedo.
      * @private
      */
     _onMouseMove(e) {
@@ -765,10 +840,15 @@ export class WalkMode {
         // left, bit 2 right) — a release that happened outside the window never
         // reaches _onMouseUp, and without this check the camera would keep
         // turning with no button held.
-        if (!this._mouseLookDragging || (e.buttons & 3) === 0) {
+        if (!this._mouseLookDragging || (e.buttons & 3) === 0 || !this._lookAnchor) {
             this._mouseLookDragging = false;
+            this._lookAnchor = null;
             return;
         }
+        const dx = e.clientX - this._lookAnchor.x;
+        const dy = e.clientY - this._lookAnchor.y;
+        this._lookAnchor.x = e.clientX;
+        this._lookAnchor.y = e.clientY;
         // THE SIGN IS "GRAB THE SCENE", NOT "AIM THE HEAD", and it was the other
         // way round until 2026-08-17. Turning here is a DRAG, and a drag in this
         // app means the content follows the hand: MapLibre pans the map under
@@ -783,8 +863,8 @@ export class WalkMode {
         // The vertical sign follows for the same reason and must move WITH it:
         // flipping one axis alone is worse than either convention, because the
         // two halves of one gesture then disagree.
-        this._yaw += e.movementX * LOOK_SENSITIVITY;
-        this._pitch += e.movementY * LOOK_SENSITIVITY;
+        this._yaw += dx * LOOK_SENSITIVITY;
+        this._pitch += dy * LOOK_SENSITIVITY;
         this._pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this._pitch));
     }
 }

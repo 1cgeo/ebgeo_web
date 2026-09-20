@@ -115,6 +115,11 @@ export const TOOLBAR_ICONS = {
 
     // Share link: two chain halves (a copied address, not a social network)
     shareView: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
+
+    // Undo / redo: a seta que volta sobre si mesma, e o espelho dela.
+    undo: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6.7 3L3 13"/></svg>`,
+
+    redo: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6.7 3L21 13"/></svg>`,
 };
 
 /**
@@ -217,6 +222,34 @@ export const TOGGLE_TOOLS = [
  * letter. The button title drops the parenthetical when there is none.
  */
 export const ACTION_TOOLS = [
+    {
+        // DESFAZER E REFAZER SÓ EXISTIAM NO TECLADO até 2026-09-20, o que num tablet é o mesmo
+        // que não existirem: não há teclado físico, e o virtual só sobe sobre um campo de texto.
+        // Apagar um traço errado exigia achar a feição e excluí-la à mão.
+        //
+        // `requiresEdit` É O QUE OS SEPARA DE COMPARTILHAR A VISTA, que é a outra ação desta
+        // lista: compartilhar é LEITURA e sobrevive a um mapa travado e a um papel sem edição,
+        // enquanto desfazer ESCREVE. A bandeira é lida em dois lugares de `toolbar.control.js`,
+        // um por eixo: a marca `edit-affordance` (que `view-mode.css` esconde pelo POSTO) e a
+        // passada da trava do mapa (o ESTADO).
+        //
+        // O atalho viaja no `title` para quem tem teclado, e não vira selo: o selo da letra só
+        // existe no arranjo de grade do balão de um grupo, que não é o caso aqui.
+        id: 'undo',
+        label: 'Desfazer',
+        icon: TOOLBAR_ICONS.undo,
+        shortcut: 'Ctrl+Z',
+        action: 'undo',
+        requiresEdit: true,
+    },
+    {
+        id: 'redo',
+        label: 'Refazer',
+        icon: TOOLBAR_ICONS.redo,
+        shortcut: 'Ctrl+Y',
+        action: 'redo',
+        requiresEdit: true,
+    },
     {
         id: 'share-view',
         label: 'Compartilhar esta vista',

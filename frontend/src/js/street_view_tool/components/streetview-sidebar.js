@@ -7,6 +7,7 @@
  */
 
 import { assinarEdicaoIndisponivel, semEdicaoSync } from '@store/edicao-indisponivel.js';
+import { isCoarsePointer } from '@utils/tablet-mode.js';
 
 // =========================================================================
 // STATE
@@ -108,23 +109,25 @@ function setupHelpPopupTabs() {
 
     if (!tabs || !panels) return;
 
+    /** Põe uma aba em foco, e tira as outras. Uma função só para o clique e para a abertura. */
+    const ativar = (alvo) => {
+        for (const t of tabs) {
+            const ehEla = t.dataset.tab === alvo;
+            t.classList.toggle('active', ehEla);
+            t.setAttribute('aria-selected', String(ehEla));
+        }
+        for (const p of panels) p.classList.toggle('active', p.dataset.panel === alvo);
+    };
+
+    // A ABA QUE ABRE É A DO PONTEIRO QUE A PESSOA TEM. O HTML nasce com Mouse em foco, que é o
+    // certo na mesa e é a pior escolha possível num tablet: quem abriu a ajuda abriu porque não
+    // sabia navegar, e a primeira coisa que lê fala de clique esquerdo e roda do mouse. A aba de
+    // toque nasceu em 2026-09-20; antes disso a ajuda do 360 tinha Mouse e Teclado, nenhum dos
+    // dois disponível, enquanto a ajuda do mapa 2D já trazia a de toque desde sempre.
+    if (isCoarsePointer()) ativar('touch');
+
     tabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            const targetPanel = tab.dataset.tab;
-
-            // Update tab states
-            tabs.forEach(t => {
-                t.classList.remove('active');
-                t.setAttribute('aria-selected', 'false');
-            });
-            tab.classList.add('active');
-            tab.setAttribute('aria-selected', 'true');
-
-            // Update panel visibility
-            panels.forEach(p => {
-                p.classList.toggle('active', p.dataset.panel === targetPanel);
-            });
-        });
+        tab.addEventListener('click', () => ativar(tab.dataset.tab));
     });
 }
 

@@ -137,6 +137,19 @@ export const NAV_CONSTANTS = Object.freeze({
     /** Border width for navigation markers */
     MARKER_BORDER_WIDTH: 3,
 
+    // ===== DRAG VS TAP =====
+    /**
+     * Quanto o ponteiro pode andar e o gesto ainda contar como toque, e não como arrasto.
+     *
+     * SÃO DOIS NÚMEROS PORQUE SÃO DOIS APARELHOS. Um mouse parado não se move, então 5 px basta
+     * para separar clique de arrasto e qualquer folga maior faria um arrasto curto virar clique.
+     * Um dedo, ao contrário, sempre desliza um pouco ao encostar e ao sair, e a régua usual para
+     * toque é da ordem de dez pixels: com 5, tocar numa seta de navegação era lido como arrasto
+     * e a navegação simplesmente não acontecia, sem nada na tela explicando o silêncio.
+     */
+    DRAG_THRESHOLD_PX: 5,
+    DRAG_THRESHOLD_PX_TOUCH: 12,
+
     // ===== HIT TESTING =====
     /**
      * The clickable area is deliberately LARGER than the drawing. It used to be
@@ -147,6 +160,21 @@ export const NAV_CONSTANTS = Object.freeze({
     HIT_RADIUS_MULTIPLIER: 1.5,
     /** Floor on the clickable radius, as a fraction of canvas height */
     HIT_RADIUS_MIN_REL: 0.024,
+    /**
+     * PISO ABSOLUTO DO ALVO SOB UM DEDO, em pixels de RAIO.
+     *
+     * O piso relativo acima é generoso numa tela alta e curto numa deitada, que é justamente a
+     * orientação em que um tablet costuma ficar: a 768 de altura ele dá 18,4 px de raio, ou
+     * seja, 36,9 px de diâmetro, contra os 44 px que a régua de toque pede. Um número absoluto
+     * não tem esse problema porque o dedo também não tem: ele mede o mesmo em qualquer
+     * viewport. Os dois convivem pelo MÁXIMO, de modo que a tela alta continua entregando o
+     * alvo maior que o piso relativo lhe dava.
+     *
+     * 22 é o raio que fecha 44 px de diâmetro. Ele só se aplica sob ponteiro grosso, porque num
+     * mouse um alvo desse tamanho engoliria o vizinho: a fila de setas de navegação tem ícones a
+     * 46 px um do outro, medidos na primeira foto do museu.
+     */
+    HIT_RADIUS_MIN_PX_TOUCH: 22,
 
     // ===== FOV SETTINGS =====
     /** Margin from FOV edge for showing markers (degrees) */

@@ -16,6 +16,7 @@ import { EventTypes } from '@events/event_types.js';
 import config from '@js/config.js';
 import { showWarning, showError } from '@utils/toast_service.js';
 import { controlType, ensureControl } from '@tools/tool-registry.js';
+import { isCoarsePointer } from '@utils/tablet-mode.js';
 
 /**
  * Toolbar group component.
@@ -108,9 +109,24 @@ export class ToolbarGroup {
         popup.className = 'toolbar-popup';
         popup.dataset.visible = 'false';
 
+        // SOB PONTEIRO GROSSO O ARRANJO É LISTA, sempre, e só o grupo de desenho era grade.
+        //
+        // NA GRADE O BOTÃO É SÓ O ÍCONE mais um selo com a LETRA do atalho de teclado, e o nome
+        // da ferramenta vive em `title` e em `aria-label`. Num tablet isso são onze desenhos
+        // mudos: `title` é balão de `hover`, que não existe sem ponteiro fino, e o selo anuncia
+        // uma tecla que o aparelho não tem. A lista já era o arranjo dos outros três grupos e já
+        // desenha o rótulo ao lado do ícone, então o que faltava era escolhê-la pelo PONTEIRO em
+        // vez de pela contagem de ferramentas do grupo. O selo do atalho some no mesmo `@media
+        // (pointer: coarse)` do CSS, que é onde a outra metade desta decisão mora.
+        //
+        // A escolha é feita UMA VEZ, na montagem do balão, e não reage a mudança de ponteiro: um
+        // aparelho não troca de dedo para mouse no meio da sessão, e refazer o balão a cada
+        // consulta custaria os onze botões e os ouvintes deles.
+        const arranjo = isCoarsePointer() ? 'list' : this._config.layout;
+
         // Create content based on layout
         const content = document.createElement('div');
-        content.className = this._config.layout === 'grid'
+        content.className = arranjo === 'grid'
             ? 'toolbar-popup-grid'
             : 'toolbar-popup-list';
 
@@ -119,7 +135,7 @@ export class ToolbarGroup {
             const toolButton = new ToolButton(
                 toolConfig,
                 (config) => this._handleToolClick(config),
-                this._config.layout
+                arranjo
             );
 
             const buttonEl = toolButton.render();

@@ -27,6 +27,7 @@
 import { Cesium } from '@js/vendor/cesium.js';
 import { getComments, addComment, getCurrentMapNameSync } from '@store';
 import { getEventBus } from '@store/services.js';
+import { escolherAlvo } from '../services/pick-de-alvo.js';
 import { EventTypes } from '@events/event_types.js';
 import {
     SUPERFICIE,
@@ -236,7 +237,7 @@ function aoClicar(click) {
 
     // Um comentário existente ganha o clique SEMPRE, mesmo no modo de comentar: clicar num balão
     // para responder é mais frequente que criar outro exatamente em cima dele.
-    const escolhido = viewer.scene.pick(click.position);
+    const escolhido = escolherAlvo(viewer.scene, click.position);
     const commentId = escolhido?.id?.properties?.commentId?.getValue?.();
     if (commentId) {
         abrirConversa(commentId, click.position.x, click.position.y);

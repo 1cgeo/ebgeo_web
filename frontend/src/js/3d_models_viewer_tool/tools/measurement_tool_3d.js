@@ -16,6 +16,8 @@ import {
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
 import { hexToCesiumColor } from '../services/cesium-color.js';
+import { escolherAlvo } from '../services/pick-de-alvo.js';
+import { DrawingFinishButton } from '@js/draw_tools/drawing-touch-helpers.js';
 import {
     formatArea3D,
     formatDistance3D,
@@ -33,6 +35,28 @@ let selectionHandler = null;
 
 // Drawing state
 let tempPositions = []; // Positions being drawn
+/**
+ * O botão de FINALIZAR, que só nasce em aparelho de toque.
+ *
+ * A medição 3D fechava por CLIQUE DIREITO ou por clique duplo, e num tablet não existe clique
+ * direito: dava para começar a medir e não dava para terminar, com a régua pendurada na tela até
+ * trocar de ferramenta. É o mesmo defeito que as ferramentas 2D tinham, e é o MESMO ajudante que
+ * o conserta (`draw_tools/drawing-touch-helpers.js`), e não uma segunda implementação: as duas
+ * medições passariam a divergir na primeira mudança de rótulo ou de mínimo de pontos.
+ *
+ * @type {DrawingFinishButton|null}
+ */
+let botaoFinalizar = null;
+
+/** Quantos pontos a medição corrente precisa para poder fechar. */
+function minimoDePontos() {
+    return currentToolType === 'area' ? 3 : 2;
+}
+
+/** Espelha a contagem de vértices no botão, que decide sozinho se aceita o toque. */
+function atualizarBotaoFinalizar() {
+    botaoFinalizar?.updateState(tempPositions.length, minimoDePontos());
+}
 let tempEntities = []; // Temporary entities during drawing
 let previewPosition = null; // Current mouse position for rubber-band preview
 let lastPreviewUpdate = 0; // Throttle preview updates
@@ -596,7 +620,7 @@ function setupClickHandler() {
         if (!isToolActive) return;
 
         // Check if clicked on existing measurement (not temporary entities)
-        const pickedObject = currentViewer.scene.pick(click.position);
+        const pickedObject = escolherAlvo(currentViewer.scene, click.position);
 
         if (Cesium.defined(pickedObject) && pickedObject.id && pickedObject.id.properties) {
             // Skip temporary entities (they don't have measurementId)
@@ -640,6 +664,7 @@ function setupClickHandler() {
         // Add position to drawing
         tempPositions.push(position);
         updateTempVisualization();
+        atualizarBotaoFinalizar();
 
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
@@ -652,11 +677,11 @@ function setupClickHandler() {
         if (position) {
             tempPositions.push(position);
             updateTempVisualization();
+            atualizarBotaoFinalizar();
         }
 
         // Now finalize if we have enough points
-        const minPoints = currentToolType === 'area' ? 3 : 2;
-        if (tempPositions.length >= minPoints) {
+        if (tempPositions.length >= minimoDePontos()) {
             await finalizeMeasurement();
         }
     }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
@@ -665,8 +690,7 @@ function setupClickHandler() {
     clickHandler.setInputAction(async () => {
         if (!isToolActive) return;
 
-        const minPoints = currentToolType === 'area' ? 3 : 2;
-        if (tempPositions.length >= minPoints) {
+        if (tempPositions.length >= minimoDePontos()) {
             await finalizeMeasurement();
         }
     }, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
@@ -696,6 +720,7 @@ function cancelDrawing() {
     clearTempEntities();
     tempPositions = [];
     previewPosition = null;
+    atualizarBotaoFinalizar();
 }
 
 /**
@@ -739,6 +764,7 @@ async function finalizeMeasurement() {
 
     // Reset drawing state
     tempPositions = [];
+    atualizarBotaoFinalizar();
 
     // Create visual entities
     const entityData = createMeasurementEntities(measurement);
@@ -786,6 +812,25 @@ export function activateMeasurementTool(viewer, tilesetId, type) {
     // Set up click handler for drawing
     setupClickHandler();
 
+    // O BOTÃO DE FINALIZAR NASCE COM A FERRAMENTA e não com o primeiro vértice: quem toca uma vez
+    // e para precisa ver desde já qual é a saída, e o próprio botão se mantém inerte enquanto a
+    // contagem não alcança o mínimo. `show()` não faz nada fora de aparelho de toque.
+    botaoFinalizar?.hide();
+    botaoFinalizar = new DrawingFinishButton({
+        onFinish: async () => {
+            if (tempPositions.length >= minimoDePontos()) await finalizeMeasurement();
+        },
+        // DESFAZER TIRA O ÚLTIMO VÉRTICE, e não a medição inteira: é o mesmo contrato das
+        // ferramentas 2D, onde o botão é irmão do de finalizar dentro do mesmo ajudante.
+        onUndo: () => {
+            tempPositions.pop();
+            updateTempVisualization();
+            atualizarBotaoFinalizar();
+        },
+    });
+    botaoFinalizar.show();
+    atualizarBotaoFinalizar();
+
     // Change cursor to crosshair
     viewer.canvas.style.cursor = 'crosshair';
 }
@@ -796,6 +841,11 @@ export function activateMeasurementTool(viewer, tilesetId, type) {
 export function deactivateMeasurementTool() {
     isToolActive = false;
     currentToolType = null;
+
+    // O botão sai ANTES do resto: ele mora em `document.body`, fora do container do viewer, então
+    // nada mais aqui o levaria embora e ele sobreviveria ao fechamento da cena.
+    botaoFinalizar?.hide();
+    botaoFinalizar = null;
 
     // Cancel any in-progress drawing
     cancelDrawing();
@@ -944,7 +994,7 @@ function setupMeasurementSelectionHandler(viewer) {
         // Don't handle if tool is active (tool handler takes priority)
         if (isToolActive) return;
 
-        const pickedObject = viewer.scene.pick(click.position);
+        const pickedObject = escolherAlvo(viewer.scene, click.position);
 
         if (Cesium.defined(pickedObject) && pickedObject.id && pickedObject.id.properties) {
             let measurementId = pickedObject.id.properties.measurementId;

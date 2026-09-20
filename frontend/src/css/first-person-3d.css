@@ -132,6 +132,17 @@ body.first-person-active .modal-overlay {
     width: 100%;
     height: 100%;
     overflow: hidden;
+
+    /* A CENA TOMA TODOS OS GESTOS PARA SI. Sem isto o navegador lê o arrasto de um dedo como
+       rolagem da página e o pinch como zoom do documento, e nos dois casos ele CANCELA o
+       ponteiro no meio do gesto, que é a interrupção que o `pointercancel` do modo de caminhada
+       trata.
+
+       ELE MIRA ESTA DIV E NÃO O CONTAINER, e a distinção é a mesma que o 360 pagou em
+       2026-09-20: `touch-action` é herdado, e no container ele alcançaria o cartão de
+       comentário, que é irmão desta div e precisa rolar. O `<canvas>` de verdade é criado pelo
+       motor DENTRO desta div, então a herança chega nele sem eu precisar nomeá-lo. */
+    touch-action: none;
 }
 
 /* The measuring cursor. Turning the view is a drag, so the scene always has a
@@ -1055,4 +1066,156 @@ body.first-person-active .modal-overlay {
     .fp3d-measure__pill {
         background: #000;
     }
+}
+
+/*
+ * O MODO IMERSIVO NÃO SE DESENHA PARA QUEM TOCA, e some em vez de recusar o toque.
+ *
+ * Ele pede a API de Pointer Lock, que captura o PONTEIRO para a visão seguir o mouse. Num
+ * aparelho de toque não há ponteiro a capturar, então não é um estado reversível que a pessoa
+ * possa destravar: é uma capacidade que o aparelho não tem, e pela regra da casa o comando
+ * simplesmente não é desenhado. O botão já tinha um caminho para `disabled` quando o navegador
+ * não suporta a API (`syncToolButtons`), e esconder é mais honesto que apagar: um botão cinza
+ * ensina a pessoa a procurar o que destrava, e aqui não há o que destravar.
+ */
+@media (pointer: coarse) {
+    #immersive-fp {
+        display: none;
+    }
+}
+
+/* =========================================================================
+   O MANCHE DE TOQUE
+   ========================================================================= */
+
+/*
+ * TRÊS NÚMEROS QUE SE AMARRAM: base de 120 px (raio 60), botão de 40 px (raio 20) e curso de
+ * 40 px, que é `RAIO_PX` em `walk/touch-stick.js`. O curso tem de ser o raio da base menos o
+ * raio do botão, senão o botão sai por fora do anel no fim do curso, que foi o que a primeira
+ * captura mostrou. Não dá para derivar um do outro em runtime: o JS precisa do número para
+ * saturar a inclinação, e ler um custom property por `getComputedStyle` a cada evento de
+ * ponteiro seria uma leitura de leiaute no meio de um gesto.
+ *
+ * ELE SOBREPÕE A CENA e fica no canto de baixo, do lado ESQUERDO: a mão que conduz o manche é
+ * a que não gira a visão, e girar é arrastar em qualquer ponto livre da cena, que é o resto
+ * da tela. A barra de ferramentas mora à direita, então os dois não disputam o polegar.
+ */
+.fp3d-stick {
+    position: absolute;
+    left: var(--space-6);
+    bottom: var(--space-6);
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-5);
+    z-index: var(--fp3d-layer-overlay);
+}
+
+.fp3d-stick__base {
+    position: relative;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    border: 2px solid rgb(255 255 255 / 45%);
+    background: rgb(0 0 0 / 28%);
+
+    /* A CENA NÃO PODE RECEBER O GESTO QUE É DO MANCHE: sem isto, arrastar o botão girava a
+       visão junto, porque o arrasto da cena escuta no documento. */
+    touch-action: none;
+}
+
+.fp3d-stick__knob {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 40px;
+    height: 40px;
+    margin: -20px 0 0 -20px;
+    border-radius: 50%;
+    background: rgb(255 255 255 / 85%);
+    box-shadow: 0 2px 10px rgb(0 0 0 / 35%);
+
+    /* Anima a VOLTA ao centro e não o curso: durante o gesto o botão tem de acompanhar o dedo
+       sem atraso, e o `transform` é reescrito a cada evento. A transição só se nota quando o
+       dedo solta e o estilo inline sai. */
+    transition: transform var(--transition-fast);
+    pointer-events: none;
+}
+
+.fp3d-stick__verticals {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.fp3d-stick__btn {
+    width: var(--touch-target-comfortable, 48px);
+    height: var(--touch-target-comfortable, 48px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid rgb(255 255 255 / 45%);
+    border-radius: 50%;
+    background: rgb(0 0 0 / 28%);
+    color: #fff;
+    cursor: pointer;
+    touch-action: none;
+}
+
+.fp3d-stick__btn:active {
+    background: rgb(255 255 255 / 30%);
+}
+
+.fp3d-stick__btn[aria-pressed="true"] {
+    background: var(--primary);
+    border-color: var(--primary);
+}
+
+/*
+ * NÃO HÁ ENCOLHIMENTO POR TELA BAIXA, e a ausência é decisão. A primeira versão encolhia a base
+ * em tela de pouca altura, o que desamarrava os três números do comentário acima: o curso
+ * continuaria em 40 px contra uma base de raio 48, e o botão voltaria a escapar exatamente na
+ * moldura em que há menos espaço para isso passar despercebido. Encolher de verdade exigiria o
+ * curso vir do CSS, que é a leitura de leiaute que aquele comentário recusa.
+ *
+ * O que encolhe, se precisar, são os dois botões verticais, que não têm número amarrado a nada.
+ */
+@media (height <= 560px) {
+    .fp3d-stick__btn {
+        width: var(--touch-target-min);
+        height: var(--touch-target-min);
+    }
+}
+
+/*
+ * O CARTÃO DE TECLAS NÃO SE DESENHA PARA QUEM TOCA, pela mesma razão do modo imersivo: ele
+ * anuncia W, A, S, D, Espaço e Shift, e num tablet nenhuma das seis existe. Isto foi visto
+ * LENDO a captura do manche, com o cartão no canto oposto dizendo à pessoa para usar um teclado
+ * que ela não tem, ao lado do controle que acabara de nascer para substituí-lo.
+ */
+@media (pointer: coarse) {
+    .fp3d-keyhints {
+        display: none;
+    }
+}
+
+/* =========================================================================
+   A BARRA DE CARGA QUE MEDE
+   ========================================================================= */
+
+/*
+ * A barra da tela de carregamento é marcação compartilhada (`loading-3d-bar-fill`, em
+ * `panels-3d.css`), e ela nasce com um `@keyframes` de dois segundos que vai de zero a cem sem
+ * saber de nada. Numa cena de mais de 20 MB ela termina cheia com 18 MB ainda por vir.
+ *
+ * UMA ANIMAÇÃO EM CURSO VENCE ESTILO INLINE NA CASCATA, então `style.width` escrito pelo JS não
+ * muda um pixel enquanto ela roda: desligá-la é o que torna a medição visível. A classe mira só
+ * a tela da primeira pessoa, e a do visualizador Cesium continua com a animação de sempre,
+ * porque lá não há contagem de bytes para pôr no lugar dela.
+ */
+.fp3d-loading--medido .loading-3d-bar-fill {
+    animation: none;
+
+    /* A largura vem do JS a cada pedaço lido; a transição costura os saltos entre pedaços, que
+       numa rede rápida chegam em degraus grandes. */
+    transition: width var(--transition-normal);
 }

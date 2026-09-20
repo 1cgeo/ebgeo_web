@@ -257,11 +257,15 @@
         transform: scale(0.95);
     }
 
-    /* Shortcut badges slightly larger */
+    /* O ATALHO DE TECLADO NÃO SE DESENHA PARA QUEM TOCA. Nenhuma das duas formas: nem a
+       letra ao lado do rótulo na lista, nem o selo no canto do ícone na grade. Ela anuncia uma
+       tecla que o aparelho não tem, e no arranjo de lista ainda empurra o rótulo, que é a
+       informação que o dedo de fato usa. O balão já nasce como lista sob ponteiro grosso
+       (`components/toolbar-group.js`); a regra da grade fica porque o seletor continua valendo
+       para quem monte um por outro caminho. */
+    .toolbar-popup-list .toolbar-tool-btn .tool-shortcut,
     .toolbar-popup-grid .tool-shortcut-badge {
-        font-size: 0.65rem;
-        bottom: 3px;
-        right: 3px;
+        display: none;
     }
 }
 

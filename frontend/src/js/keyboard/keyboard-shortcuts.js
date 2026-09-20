@@ -9,10 +9,10 @@
  * Both services disable this handler when active and re-enable when closed.
  */
 
-import { undoLastAction, redoLastAction, getStateManager } from '@store';
+import { getStateManager } from '@store';
 import { showConfirm } from '@modals/index.js';
-import { showInChannel, showWarning } from '@utils/toast_service.js';
-import { describeUndoRedoAction } from '@store/undo-redo-messages.js';
+import { showWarning } from '@utils/toast_service.js';
+import { runUndoRedo } from '@js/map/undo-redo.runner.js';
 import { getViewModeController } from '@ui/view-mode.controller.js';
 import { ensureControl } from '@tools/tool-registry.js';
 import { semEdicaoSync } from '@store/edicao-indisponivel.js';
@@ -36,9 +36,6 @@ class KeyboardShortcuts {
         this.handleKeyDown = this.handleKeyDown.bind(this);
 
         this.enabled = false;
-
-        /** @type {boolean} Lock to prevent concurrent undo/redo when key is held */
-        this._isProcessingUndoRedo = false;
     }
 
     /**
@@ -203,26 +200,17 @@ class KeyboardShortcuts {
             case 'z':
                 if (hasCtrl && !hasShift) {
                     e.preventDefault();
-                    // OS DOIS EIXOS: desfazer ESCREVE, e quem esta em somente leitura desfazia, via o
-                    // aviso do que "foi desfeito" e nada mudava no servidor.
-                    if (!semEdicaoSync() && !this._isProcessingUndoRedo) {
-                        this._isProcessingUndoRedo = true;
-                        try {
-                            // skipSave: undo should revert state, not save pending edits first
-                            // (saving would create a phantom undo entry before the actual undo)
-                            this.selectionManager.deselectAllFeatures({ skipSave: true });
-                            const action = await undoLastAction();
-                            if (action) {
-                                const message = describeUndoRedoAction(action, 'undo');
-                                showInChannel('undo-redo', message, 'info', { duration: 1500 });
-                                await this.baseLayerControl.switchMap(false);
-                            } else {
-                                showInChannel('undo-redo', 'Nada para desfazer', 'info', { duration: 1500 });
-                            }
-                        } finally {
-                            this._isProcessingUndoRedo = false;
-                        }
-                    }
+                    // A REGRA INTEIRA MUDOU DE CASA para `map/undo-redo.runner.js` em
+                    // 2026-09-20, quando a barra de ferramentas ganhou os dois botões: num
+                    // tablet não há teclado, e este atalho era a única porta. O gate de
+                    // escrita (desfazer ESCREVE, e quem está em somente leitura via o aviso
+                    // do que "foi desfeito" enquanto nada mudava), a desseleção sem salvar,
+                    // o aviso e a reconstrução do mapa base moram todos lá, e a guarda de
+                    // reentrância é de MÓDULO, para as duas portas não dispararem juntas.
+                    await runUndoRedo('undo', {
+                        selectionManager: this.selectionManager,
+                        baseLayerControl: this.baseLayerControl,
+                    });
                     return true;
                 }
                 break;
@@ -230,23 +218,10 @@ class KeyboardShortcuts {
             case 'y':
                 if (hasCtrl && !hasShift) {
                     e.preventDefault();
-                    if (!semEdicaoSync() && !this._isProcessingUndoRedo) {
-                        this._isProcessingUndoRedo = true;
-                        try {
-                            // skipSave: redo should restore state, not save pending edits first
-                            this.selectionManager.deselectAllFeatures({ skipSave: true });
-                            const action = await redoLastAction();
-                            if (action) {
-                                const message = describeUndoRedoAction(action, 'redo');
-                                showInChannel('undo-redo', message, 'info', { duration: 1500 });
-                                await this.baseLayerControl.switchMap(false);
-                            } else {
-                                showInChannel('undo-redo', 'Nada para refazer', 'info', { duration: 1500 });
-                            }
-                        } finally {
-                            this._isProcessingUndoRedo = false;
-                        }
-                    }
+                    await runUndoRedo('redo', {
+                        selectionManager: this.selectionManager,
+                        baseLayerControl: this.baseLayerControl,
+                    });
                     return true;
                 }
                 break;

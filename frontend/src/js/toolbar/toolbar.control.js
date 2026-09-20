@@ -17,6 +17,8 @@ import {
 import { EventTypes } from '@events/event_types.js';
 import { isCurrentMapLockedSync } from '@store/index.js';
 import { controlType, ensureControl } from '@tools/tool-registry.js';
+import { getControl } from '@store/control.registry.js';
+import { runUndoRedo } from '@js/map/undo-redo.runner.js';
 
 /**
  * Main toolbar controller.
@@ -38,6 +40,10 @@ export class ToolbarControl {
         this._container = null;
         this._groups = new Map();
         this._standaloneButtons = new Map();
+        // Os botões de AÇÃO ficam num mapa PRÓPRIO, e não em `_standaloneButtons`, porque
+        // aquele é percorrido pela passada de estado ativo, que não tem sentido aqui: ação não
+        // fica ativa. Este mapa existe só para a passada da trava alcançar os que escrevem.
+        this._actionButtons = new Map();
 
         setupCleanup(this);
     }
@@ -81,6 +87,7 @@ export class ToolbarControl {
         // bottom: they are not part of the draw/edit flow the rest of the bar is.
         ACTION_TOOLS.forEach(toolConfig => {
             const button = this._createActionButton(toolConfig);
+            this._actionButtons.set(toolConfig.id, button);
             this._container.appendChild(button);
         });
 
@@ -168,15 +175,22 @@ export class ToolbarControl {
      * It never sets `data-active` and subscribes to nothing: there is no lasting
      * state for it to reflect, which is exactly what separates it from the other
      * two kinds. It is also kept OUT of `_standaloneButtons`, because that map is
-     * what the lock and active-state passes iterate over, and an action has no
-     * business in either — sharing a view is a READ, so it survives a locked map.
+     * what the ACTIVE-STATE pass iterates over, and an action never goes active.
+     *
+     * NEM TODA AÇÃO SOBREVIVE A UM MAPA TRAVADO, e essa é a parte que mudou em 2026-09-20:
+     * compartilhar a vista é LEITURA, mas desfazer e refazer ESCREVEM. Quem declara isso é
+     * `requiresEdit` na tabela, lido aqui nos dois eixos — a marca `edit-affordance` para o
+     * POSTO (`css/view-mode.css` a esconde) e o mapa `_actionButtons` para o ESTADO, que a
+     * passada da trava percorre.
      * @private
-     * @param {Object} toolConfig - { id, label, icon, action, shortcut? }
+     * @param {Object} toolConfig - { id, label, icon, action, shortcut?, requiresEdit? }
      * @returns {HTMLButtonElement}
      */
     _createActionButton(toolConfig) {
         const button = document.createElement('button');
-        button.className = 'toolbar-standalone-btn';
+        button.className = toolConfig.requiresEdit
+            ? 'toolbar-standalone-btn edit-affordance'
+            : 'toolbar-standalone-btn';
         button.dataset.toolId = toolConfig.id;
         button.title = toolConfig.shortcut
             ? `${toolConfig.label} (${toolConfig.shortcut})`
@@ -209,16 +223,30 @@ export class ToolbarControl {
      */
     _actions = {
         /**
+         * Desfaz e refaz, pela MESMA porta do Ctrl+Z e do Ctrl+Y.
+         *
+         * A regra inteira (o gate de escrita, a desseleção sem salvar, o aviso do que foi
+         * desfeito e a reconstrução do mapa base) mora em `map/undo-redo.runner.js`, e é de lá
+         * que o teclado também a chama, com a guarda de reentrância compartilhada entre as duas
+         * portas.
+         *
+         * AS DUAS DEPENDÊNCIAS CHEGAM POR CAMINHOS DIFERENTES, e isso não é descuido: o gerente
+         * de seleção já vem no `toolManager` que este controle recebe no construtor, enquanto o
+         * seletor de mapa base não é dependência de ferramenta nenhuma e só existe no registro
+         * de controles, que é de onde compartilhar a vista já o lê.
+         */
+        undo: () => runUndoRedo('undo', this._undoRedoDeps()),
+
+        redo: () => runUndoRedo('redo', this._undoRedoDeps()),
+
+        /**
          * Copies a link to the current 2D view: base layer plus camera.
          *
          * The deep-link module is imported lazily because it is only ever needed
          * when someone presses this, and it drags the store barrel with it.
          */
         shareView: async () => {
-            const [{ buildShareUrlBasemap, copyShareUrl }, { getControl }] = await Promise.all([
-                import('@js/deep-link/deep-link.js'),
-                import('@store/control.registry.js'),
-            ]);
+            const { buildShareUrlBasemap, copyShareUrl } = await import('@js/deep-link/deep-link.js');
 
             const center = this._map.getCenter();
             // The base layer is read from the SCREEN, through the control that draws it. Since
@@ -237,6 +265,21 @@ export class ToolbarControl {
             ));
         },
     };
+
+    /**
+     * @private As dependências de desfazer e refazer, lidas NA HORA DO CLIQUE.
+     *
+     * Lidas na hora, e não guardadas na montagem, porque o seletor de mapa base entra no
+     * registro depois de a barra existir: um campo resolvido no construtor guardaria `undefined`
+     * para sempre, e o desfazer pararia de reconstruir a camada base sem um erro em lugar nenhum.
+     * @returns {{selectionManager: Object, baseLayerControl: Object}}
+     */
+    _undoRedoDeps() {
+        return {
+            selectionManager: this._toolManager?.selectionManager,
+            baseLayerControl: getControl('BaseLayerControl'),
+        };
+    }
 
     /**
      * Sets up event listeners.
@@ -277,6 +320,16 @@ export class ToolbarControl {
         // Hide toggle buttons (snapping) when locked
         TOGGLE_TOOLS.forEach(toolConfig => {
             const button = this._standaloneButtons.get(toolConfig.id);
+            if (button) {
+                button.style.display = locked ? 'none' : '';
+            }
+        });
+
+        // E as ações que ESCREVEM, que são desfazer e refazer. Compartilhar a vista fica, por
+        // ser leitura; quem decide é a bandeira da tabela, não uma lista repetida aqui.
+        ACTION_TOOLS.forEach(toolConfig => {
+            if (!toolConfig.requiresEdit) return;
+            const button = this._actionButtons.get(toolConfig.id);
             if (button) {
                 button.style.display = locked ? 'none' : '';
             }

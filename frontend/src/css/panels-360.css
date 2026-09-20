@@ -544,10 +544,26 @@ body.streetview-active .modal-overlay {
     z-index: var(--z-dropdown);
 }
 
+/* ===== GESTOS DE TOQUE ===== */
+
+/*
+ * A ESFERA E A SOBREPOSIÇÃO DE NAVEGAÇÃO TOMAM TODOS OS GESTOS PARA SI. Sem isto o navegador
+ * lê o arrasto de um dedo como rolagem da página e o pinch como zoom do documento, e em ambos
+ * os casos ele CANCELA o ponteiro no meio, que é a mesma interrupção que o visualizador trata
+ * em `onPointerUp`.
+ *
+ * ELE MIRA AS DUAS TELAS E NÃO O CONTAINER, e essa é a correção de 2026-09-20: `touch-action` é
+ * herdado, e no container ele alcançava também o cartão de comentário, o painel do marcador e
+ * a ajuda, que precisam rolar. Ficava escrito em estilo inline dentro de
+ * `street_view_viewer.js`, o que além de tudo diverge da convenção da casa.
+ */
+
 /* ===== CURSOR STYLES FOR 360 VIEW ===== */
 
-/* Default grab cursor for panning */
+/* Default grab cursor for panning; o `touch-action` do bloco acima mora aqui junto porque
+   stylelint recusa o mesmo seletor escrito duas vezes no arquivo. */
 #street-view-container canvas {
+    touch-action: none;
     cursor: grab;
 }
 
@@ -563,6 +579,39 @@ body.streetview-active .modal-overlay {
 /* Crosshair cursor when marker tool is active */
 #street-view-container.marker-tool-active canvas {
     cursor: crosshair !important;
+}
+
+/* ===== ALVOS DE TOQUE =====
+
+   Quatro comandos do 360 nasceram dimensionados para o ponteiro de um mouse e ficam abaixo dos
+   44 px que a régua de toque pede: o seletor de andar (38 por 34), o fechar do chip de
+   ferramenta ativa (24 por 24), a aba da ajuda (cerca de 38 de altura, vinda do padding) e o
+   botão de fechar o visualizador (cerca de 36, pela mesma razão). Eles crescem SÓ sob ponteiro
+   grosso, porque na mesa o tamanho atual é o que mantém a faixa de controles compacta sobre a
+   foto, e é aparência que o dono já aprovou.
+
+   O CRESCIMENTO É POR `min-`, e não por `width`/`height`: a aba da ajuda divide a largura com a
+   irmã por `flex: 1`, e o botão de fechar tem texto ao lado do ícone, de modo que fixar a
+   medida quebraria os dois. */
+@media (pointer: coarse) {
+    .sv360-floors__btn {
+        min-width: var(--touch-target-min);
+        min-height: var(--touch-target-min);
+        width: auto;
+        height: auto;
+    }
+
+    .active-tool-chip-360-close {
+        min-width: var(--touch-target-min);
+        min-height: var(--touch-target-min);
+        width: auto;
+        height: auto;
+    }
+
+    .nav-help-tab-360,
+    #close-street-view-button {
+        min-height: var(--touch-target-min);
+    }
 }
 
 /* ===== RESPONSIVE ADJUSTMENTS ===== */

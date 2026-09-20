@@ -57,6 +57,10 @@ import { WalkMode } from './walk/walk-mode.js';
 import { PointerLock } from './walk/pointer-lock.js';
 import { FpMarkersLayer } from './components/markers-layer-fp.js';
 import { FpMeasurementTool } from './tools/measurement_tool_fp.js';
+import { DrawingFinishButton } from '@js/draw_tools/drawing-touch-helpers.js';
+import { TouchStick } from './walk/touch-stick.js';
+import { fraseDeProgresso, fracaoBaixada, totalAnunciado } from './progresso-de-carga.js';
+import { isCoarsePointer } from '@utils/tablet-mode.js';
 import { FpCollaboration } from './collaboration-fp.js';
 import {
     getFirstPersonSceneById,
@@ -123,7 +127,8 @@ const CSS = {
     closeButtonVisible: 'close-first-person-button--visible',
     buttonActive: 'button-tool-fp--active',
     bodyActive: 'first-person-active',
-    hidden: 'fp3d-hidden'
+    hidden: 'fp3d-hidden',
+    loadingMedido: 'fp3d-loading--medido'
 };
 
 /** Camera clip planes, in metres. Near is tight: the walker's nose is 12 cm from a wall. */
@@ -266,6 +271,32 @@ function showLoadingFp(message) {
     const line = document.getElementById(DOM_IDS.loadingMessage);
     if (line) line.textContent = message;
     el.classList.remove(CSS.hidden);
+}
+
+/**
+ * Pinta o progresso REAL na barra da tela de carregamento.
+ *
+ * A BARRA JÁ EXISTIA E MENTIA: ela é marcação estática de `index.html` com um `@keyframes` de
+ * dois segundos, compartilhado com a tela de carga do visualizador Cesium. Uma animação em curso
+ * VENCE estilo inline na cascata, então escrever `style.width` sem desligá-la não muda um pixel;
+ * quem a desliga é a classe `fp3d-loading--medido`, que mira só esta tela e deixa a do Cesium
+ * como está.
+ *
+ * @param {number|null} fracao - De 0 a 1, ou null quando não há total anunciado.
+ */
+function pintarProgressoFp(fracao) {
+    const barra = document.querySelector(`#${DOM_IDS.loading} .loading-3d-bar-fill`);
+    if (!barra) return;
+    const tela = document.getElementById(DOM_IDS.loading);
+    if (fracao === null) {
+        // SEM TOTAL, A BARRA VOLTA A SER INDETERMINADA em vez de fingir uma posição: a frase
+        // passa a carregar o fato (quantos MB já vieram) e a animação segue como estava.
+        tela?.classList.remove(CSS.loadingMedido);
+        barra.style.width = '';
+        return;
+    }
+    tela?.classList.add(CSS.loadingMedido);
+    barra.style.width = `${Math.round(fracao * 100)}%`;
 }
 
 /** Hide the loading overlay. */
@@ -424,6 +455,51 @@ function applyEngineQualityDefaults(viewer) {
  * @param {string} splatUrl - Address of the .sog file
  * @returns {Promise<{splat: Object, splatLayer: Object}>} Mounted splat and its layer
  */
+/**
+ * Lê o corpo da resposta em pedaços, avisando a tela a cada um.
+ *
+ * `await response.arrayBuffer()` entrega tudo de uma vez e não tem onde contar: era por isso que
+ * a barra era uma animação cega. O leitor de fluxo dá o mesmo buffer no fim, com a contagem no
+ * meio.
+ *
+ * O RAMO SEM `body` NÃO É DEFENSIVA VAZIA: um navegador sem leitor de fluxo (e o duplo de um
+ * teste) devolve a resposta sem ele, e ali a leitura inteira continua sendo a resposta certa,
+ * só sem progresso.
+ *
+ * @param {Response} response
+ * @returns {Promise<Uint8Array>}
+ */
+async function lerComProgresso(response) {
+    const total = totalAnunciado(response);
+    const leitor = response.body?.getReader?.();
+    if (!leitor) {
+        showLoadingFp(fraseDeProgresso(0, total));
+        return new Uint8Array(await response.arrayBuffer());
+    }
+
+    const pedacos = [];
+    let recebidos = 0;
+    for (;;) {
+        const { done, value } = await leitor.read();
+        if (done) break;
+        pedacos.push(value);
+        recebidos += value.length;
+        showLoadingFp(fraseDeProgresso(recebidos, total));
+        pintarProgressoFp(fracaoBaixada(recebidos, total));
+    }
+
+    // A CONCATENAÇÃO USA O QUE FOI RECEBIDO, e não o total anunciado: um corpo comprimido chega
+    // com mais bytes decodificados que o `Content-Length` do fio, e dimensionar pelo cabeçalho
+    // deixaria uma cauda de zeros dentro do splat.
+    const inteiro = new Uint8Array(recebidos);
+    let offset = 0;
+    for (const pedaco of pedacos) {
+        inteiro.set(pedaco, offset);
+        offset += pedaco.length;
+    }
+    return inteiro;
+}
+
 async function loadSplat(viewer, splatUrl) {
     const splatLayer = new Object3D();
     viewer.getScene().add(splatLayer);
@@ -442,7 +518,7 @@ async function loadSplat(viewer, splatUrl) {
 
     const data = await SplatLoader.parseSplatData(
         SplatLoader.SplatFileType.SOG,
-        new Uint8Array(await response.arrayBuffer()),
+        await lerComProgresso(response),
         // `Compressed` is this engine's fidelity ceiling. `Raw`, which would
         // keep floats, fails at load: "RawSplatData is not supported create
         // splat". Do not try again.
@@ -505,6 +581,18 @@ async function initScene(scene, dom) {
         walk.loadVoxelCollision(collision.metadata, collision.nodes, collision.leafData);
     }
     fpState.walk = walk;
+
+    // O MANCHE SÓ NASCE SOB PONTEIRO GROSSO, e é a única forma de andar que existe ali: WASD,
+    // as setas, `Space` e `Shift` não existem num tablet, então sem ele a pessoa gira a visão e
+    // fica parada no ponto de entrada. Na mesa ele não é desenhado, porque o teclado já é a
+    // forma completa e um manche sobre a cena só tiraria espaço.
+    if (isCoarsePointer()) {
+        fpState.stick = new TouchStick(dom.container, {
+            onMover: (frente, lado) => walk.setAnalogMove(frente, lado),
+            onPular: () => walk.jump(),
+            onAgachar: (agachado) => walk.setTouchCrouch(agachado),
+        });
+    }
 
     const voxels = collision?.voxels ?? null;
     const markers = new FpMarkersLayer(
@@ -702,6 +790,7 @@ function onSceneContextMenu(event) {
     readCursor(event);
     measurement.point(camera, cursor.ndcX, cursor.ndcY);
     measurement.addPoint();
+    atualizarBotaoFinalizarFp();
     finalizeMeasurement(false);
 }
 
@@ -758,6 +847,7 @@ function onSceneMouseUp(event) {
         }
         measurement.point(camera, cursor.ndcX, cursor.ndcY);
         measurement.addPoint();
+        atualizarBotaoFinalizarFp();
         return;
     }
 
@@ -796,6 +886,26 @@ function toggleMeasure(force) {
     if (!measurement.active) {
         hideMeasurementResults();
     }
+
+    // O BOTÃO ACOMPANHA A TRENA, e não o primeiro vértice: quem liga a ferramenta precisa ver
+    // desde já qual é a saída, e o próprio botão se mantém inerte enquanto a contagem não alcança
+    // o mínimo. `show()` não faz nada fora de aparelho de toque, então na mesa isto é inócuo.
+    //
+    // O DESFAZER VEM DE GRAÇA e fecha um buraco que era só do teclado: `measurement.undo()` já
+    // existia e só era alcançável por atalho, que num tablet não existe.
+    botaoFinalizarFp?.hide();
+    botaoFinalizarFp = null;
+    if (measurement.active) {
+        botaoFinalizarFp = new DrawingFinishButton({
+            onFinish: () => { finalizeMeasurement(false); },
+            onUndo: () => {
+                measurement.undo();
+                atualizarBotaoFinalizarFp();
+            },
+        });
+        botaoFinalizarFp.show();
+        atualizarBotaoFinalizarFp();
+    }
     // While measuring, the right button belongs to the tape, not to the camera.
     fpState.walk?.setLookWithRightButton(!measurement.active);
     fpState.markers?.setInteractive(!measurement.active);
@@ -803,6 +913,33 @@ function toggleMeasure(force) {
         ?.classList.toggle(CSS.containerMeasuring, measurement.active);
     syncToolButtons();
     return measurement.active;
+}
+
+/**
+ * O botão de FINALIZAR a trena, que só nasce em aparelho de toque.
+ *
+ * A trena fecha por CLIQUE DIREITO (`onSceneContextMenu`) e por clique duplo (`onSceneDblClick`),
+ * e num tablet não existe clique direito: dava para começar a medir e não dava para terminar, com
+ * a régua pendurada na cena até trocar de ferramenta. É o mesmo defeito que as ferramentas 2D e a
+ * medição do 3D tinham, e é o MESMO ajudante que o conserta, e não uma terceira implementação.
+ *
+ * @type {DrawingFinishButton|null}
+ */
+let botaoFinalizarFp = null;
+
+/**
+ * DOIS VÉRTICES É O MÍNIMO, e o número não é escolha desta tela: `finalize` recusa abaixo dele E
+ * APAGA o ponto solto ("A single point is not a measurement"), de modo que um botão que aceitasse
+ * o toque cedo demais jogaria fora o trabalho da pessoa em vez de não fazer nada.
+ */
+const MINIMO_DE_VERTICES_FP = 2;
+
+/** Espelha a contagem de vértices no botão, que decide sozinho se aceita o toque. */
+function atualizarBotaoFinalizarFp() {
+    botaoFinalizarFp?.updateState(
+        fpState.measurement?.vertexCount ?? 0,
+        MINIMO_DE_VERTICES_FP,
+    );
 }
 
 /**
@@ -818,9 +955,13 @@ function toggleMeasure(force) {
 function finalizeMeasurement(dropLast = false) {
     const measurement = fpState.measurement;
     if (!measurement?.active || !measurement.finalize(dropLast)) {
+        // A RECUSA TAMBÉM MEXE NA CONTAGEM, e é a parte que se esquece: com um vértice só,
+        // `finalize` devolve falso E esvazia a lista, então o botão tem de voltar a inerte junto.
+        atualizarBotaoFinalizarFp();
         return false;
     }
     showMeasurementResults();
+    atualizarBotaoFinalizarFp();
     return true;
 }
 
@@ -1151,10 +1292,14 @@ function registerKeyboardCallbacks() {
         toggleMeasurement: () => toggleMeasure(),
         toggleLabels,
         closeComment: () => fpState.collaboration?.cancel(),
-        undoMeasurement: () => fpState.measurement?.undo(),
+        undoMeasurement: () => {
+            fpState.measurement?.undo();
+            atualizarBotaoFinalizarFp();
+        },
         clearMeasurement: () => {
             hideMeasurementResults();
             fpState.measurement?.clear();
+            atualizarBotaoFinalizarFp();
         },
         exitImmersive,
         closeMarkerPanel,
@@ -1488,8 +1633,14 @@ export function cleanupFirstPersonFeatures() {
     fpState.listenersBound = false;
 
     // Each component releases its own listeners, timers and detached nodes.
+    // O botão mora em `document.body`, fora do container da cena, então nada mais aqui o
+    // levaria embora e ele sobreviveria ao fechamento do visualizador.
+    botaoFinalizarFp?.hide();
+    botaoFinalizarFp = null;
     fpState.measurement?.destroy();
     fpState.markers?.destroy();
+    fpState.stick?.destroy();
+    fpState.stick = null;
     fpState.walk?.destroy();
     fpState.pointerLock?.destroy();
     fpState.measurement = null;

@@ -19,6 +19,7 @@ import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
 import { isTemporallyVisible } from '@js/temporal/temporal-model.js';
 import { hexToCesiumColor } from '../services/cesium-color.js';
+import { escolherAlvo } from '../services/pick-de-alvo.js';
 import { presenceStore } from '@js/presence/presence-store.js';
 import { getPresenceColor } from '@js/presence/presence-colors.js';
 import { sessionContext } from '@store/sync/session-context.js';
@@ -343,8 +344,9 @@ function setupClickHandler() {
     clickHandler.setInputAction(async (click) => {
         if (!isToolActive) return;
 
-        // Check if clicked on existing marker
-        const pickedObject = currentViewer.scene.pick(click.position);
+        // Check if clicked on existing marker. A folga do retângulo vem do ponteiro: ver
+        // `services/pick-de-alvo.js`.
+        const pickedObject = escolherAlvo(currentViewer.scene, click.position);
 
         if (Cesium.defined(pickedObject) && pickedObject.id && pickedObject.id.properties) {
             const markerId = pickedObject.id.properties.markerId?.getValue();
@@ -666,7 +668,7 @@ function setupMarkerSelectionHandler(viewer) {
         // Don't handle if tool is active (tool handler will handle it)
         if (isToolActive) return;
 
-        const pickedObject = viewer.scene.pick(click.position);
+        const pickedObject = escolherAlvo(viewer.scene, click.position);
 
         if (Cesium.defined(pickedObject) && pickedObject.id && pickedObject.id.properties) {
             // Get markerId - try both getValue() for Property and direct access

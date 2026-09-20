@@ -12,11 +12,9 @@ import { StreetViewRenderer } from './renderer.js';
 import { StreetViewHitTester } from './hit-tester.js';
 import { StreetViewMinimapSync } from './minimap-sync.js';
 import { getEventBus } from '@store/services.js';
+import { isCoarsePointer } from '@utils/tablet-mode.js';
 import { EventTypes } from '@events/event_types.js';
 import { showToast } from '@utils';
-
-// Threshold in pixels to distinguish drag from click
-const DRAG_THRESHOLD = 5;
 
 /**
  * O raio do balao de comentario, em pixels.
@@ -305,10 +303,6 @@ export class StreetViewNavigator {
             }
         }
 
-        // No decluttering pass: the stack gap already guarantees that no icon
-        // buries another, which is what keeps every target clickable.
-        this.assignHitRadii(markers);
-
         // Project POIs (always visible)
         for (const poi of this.pois) {
             const projected = this.projectPOI(poi, yaw, pitch, fov);
@@ -333,6 +327,19 @@ export class StreetViewNavigator {
                 markers.push(projected);
             }
         }
+
+        // O PISO DO ALVO VEM DEPOIS DE TODOS OS TRÊS, e até 2026-09-20 vinha depois de um só.
+        //
+        // A chamada ficava logo abaixo do laço de setas, então POI e comentário entravam na
+        // lista DEPOIS dela e saíam sem `hitRadius`. O hit tester tem um fallback para esse
+        // caso (`radius * HIT_RADIUS_MULTIPLIER`), o que fez o defeito passar calado: nada
+        // quebrava, o alvo só ficava pequeno. Medido: um POI com o tamanho padrão de 12 px
+        // recebia 18 px de raio, ou seja, 36 px de diâmetro, e quem tivesse escolhido
+        // `markerSize` 6 ficava com 18 px de diâmetro, contra os 44 px que um dedo pede.
+        //
+        // Não há decluttering: a folga da fila já garante que nenhum ícone enterre outro, que é
+        // o que mantém todo alvo clicável.
+        this.assignHitRadii(markers);
 
         // Update hit tester
         this.hitTester.setMarkers(markers);
@@ -610,7 +617,13 @@ export class StreetViewNavigator {
      * @param {Array} markers - Projected navigation markers, mutated in place
      */
     assignHitRadii(markers) {
-        const floor = this.canvas.height * NAV_CONSTANTS.HIT_RADIUS_MIN_REL;
+        // O MÁXIMO ENTRE OS DOIS PISOS, e não um ou outro: o relativo continua entregando alvo
+        // maior numa tela alta, e o absoluto cobre a tela deitada, que é onde ele ficava curto.
+        // Ver `HIT_RADIUS_MIN_PX_TOUCH`.
+        const floor = Math.max(
+            this.canvas.height * NAV_CONSTANTS.HIT_RADIUS_MIN_REL,
+            isCoarsePointer() ? NAV_CONSTANTS.HIT_RADIUS_MIN_PX_TOUCH : 0,
+        );
         for (const marker of markers) {
             marker.hitRadius = Math.max(
                 marker.radius * NAV_CONSTANTS.HIT_RADIUS_MULTIPLIER,
@@ -811,6 +824,13 @@ export class StreetViewNavigator {
         };
         this.isDragging = false;
 
+        // O LIMIAR É DO GESTO, e não do aparelho: ele se lê do PRÓPRIO evento, porque um tablet
+        // com caneta ou com mouse ligado alterna os dois na mesma sessão, e `(pointer: coarse)`
+        // responde pelo ponteiro PRIMÁRIO, que não é necessariamente o que está na tela agora.
+        const limiar = event.pointerType === 'mouse'
+            ? NAV_CONSTANTS.DRAG_THRESHOLD_PX
+            : NAV_CONSTANTS.DRAG_THRESHOLD_PX_TOUCH;
+
         // Listen for move to detect drag
         const handleDragMove = (moveEvent) => {
             if (!this.pointerDownPos) return;
@@ -819,7 +839,7 @@ export class StreetViewNavigator {
             const dy = moveEvent.clientY - this.pointerDownPos.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
-            if (distance > DRAG_THRESHOLD) {
+            if (distance > limiar) {
                 this.isDragging = true;
             }
         };

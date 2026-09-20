@@ -643,7 +643,36 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         //
         // 2026-09-20, sétimo lote do dia: 732, com `briefing/slide-controls.js` (folha de zero imports,
         // cerca de 4 kB), medido do mesmo jeito: este caso acusou 732 contra 731 com um arquivo novo.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(732);
+        //
+        // 2026-09-20, oitavo lote do dia: 733, com `map/undo-redo.runner.js`, para onde a regra de
+        // desfazer e refazer mudou de casa quando a barra de ferramentas ganhou os dois botões (até
+        // então a única porta era o Ctrl+Z, o que num tablet é porta nenhuma). Medido pela reprovação
+        // deste próprio caso, 733 contra 732 com um arquivo novo. Ele entra por DUAS arestas
+        // estáticas (`keyboard/keyboard-shortcuts.js` e `toolbar/toolbar.control.js`) e mesmo assim
+        // vale UM, porque o grafo é um conjunto; e os quatro módulos que ele importa já estavam no
+        // grafo pelo teclado, que é de onde a regra saiu. O ANSIOSO não se mexeu o bastante para
+        // sair da banda dele, que tem folga.
+        //
+        // 2026-09-20, nono lote do dia: 735, com os DOIS folhas de toque do visualizador 3D,
+        // `3d_models_viewer_tool/services/pick-de-alvo.js` (a folga do retângulo de `scene.pick`,
+        // que era de três pixels para o dedo também) e `services/orcamento-de-memoria.js` (o teto
+        // de `cacheBytes` de um tileset, que era um gigabyte em toda máquina). Medido por
+        // controle: comentada a aresta do segundo em `map_3d.js`, este caso acusou 734 contra os
+        // 735 da árvore inteira, ou seja, cada um vale exatamente um. Os dois são folha, um deles
+        // de zero imports, e entram pelo grafo LAZY do Cesium, não pelo ansioso.
+        //
+        // 2026-09-20, décimo lote do dia: 736, com `first_person_3d_tool/walk/touch-stick.js`, o
+        // manche de toque. Ele é a única forma de ANDAR na cena caminhável num tablet, onde WASD,
+        // as setas, `Space` e `Shift` não existem, e vale UM módulo porque importa apenas a
+        // limpeza de recurso, que já estava no grafo. Medido pela reprovação deste caso, 736
+        // contra 735 com um arquivo novo.
+        //
+        // 2026-09-20, décimo primeiro lote: 737, com
+        // `first_person_3d_tool/progresso-de-carga.js`, a conta que traduz bytes em fração e em
+        // frase para a tela de carga da cena caminhável (a barra dela era um `@keyframes` de dois
+        // segundos que terminava cheia com 18 MB ainda por vir). Folha de ZERO imports, medida
+        // pela reprovação deste caso: 737 contra 736 com um arquivo novo.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(737);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);

@@ -602,11 +602,18 @@
     /* Prevent iOS zoom on input focus (must be >= 16px) */
     .search-bar-input {
         font-size: 16px;
+
+        /* E A CAIXA TAMBÉM, porque a fonte sozinha não a levanta: medido pela régua de alvo em
+           2026-09-20, o campo fechava 42 px de altura, dois abaixo da régua. Ele é o ÚNICO alvo
+           do produto inteiro que a régua acusou, e era o mesmo em todas as quatro superfícies,
+           porque a barra de busca sobrevive ao mapa, ao 3D, ao 360 e à primeira pessoa. */
+        min-height: var(--touch-target-min);
     }
 
     .search-bar-clear {
-        min-width: 40px;
-        min-height: 40px;
+        /* 40 era o número de antes da régua da casa; o irmão dele, o campo, subiu junto. */
+        min-width: var(--touch-target-min);
+        min-height: var(--touch-target-min);
     }
 
     .search-result-item {
