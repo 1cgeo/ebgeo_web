@@ -28,6 +28,7 @@ import { IDUtils, showToast } from '@utils';
 // Por ARQUIVO, de dois modulos folha: a contagem nao pode participar da ativacao.
 import { registrarUso } from '@js/session/uso-lote.js';
 import { EventoDeUso, PropDeUso } from '@js/session/eventos-de-uso.js';
+import { DrawingFinishButton } from '@js/draw_tools/drawing-touch-helpers.js';
 
 export class MeasurementDistanceControl {
     constructor(toolManager) {
@@ -103,6 +104,7 @@ export class MeasurementDistanceControl {
         this.map.on('mousemove', this._onMouseMove);
         this.map.on('contextmenu', this._onContextMenu);
         this.map.on('dblclick', this._onDblClick);
+        this._mostrarBotaoDeConcluir();
     }
 
     deactivate() {
@@ -115,6 +117,8 @@ export class MeasurementDistanceControl {
         this.map.off('mousemove', this._onMouseMove);
         this.map.off('contextmenu', this._onContextMenu);
         this.map.off('dblclick', this._onDblClick);
+        this._finishButton?.hide();
+        this._finishButton = null;
 
         this._cancelPendingPreview();
         this._vertices = [];
@@ -133,6 +137,44 @@ export class MeasurementDistanceControl {
         const coord = [e.lngLat.lng, e.lngLat.lat];
         this._vertices.push(coord);
         this._updateVisualization();
+        this._finishButton?.updateState(this._vertices.length, 2);
+    }
+
+    /**
+     * @private O botão de CONCLUIR, que só nasce em aparelho de toque.
+     *
+     * SEM ELE A MEDIÇÃO NÃO TERMINA COM O DEDO. As duas únicas saídas eram o clique direito e
+     * o clique duplo: no iOS o toque longo não emite `contextmenu` (emite o menu nativo de
+     * seleção) e o toque duplo não produz `dblclick` de forma confiável com `touch-action`
+     * declarado, e no Android o `contextmenu` pode sair, de modo que o comportamento divergia
+     * por plataforma sem o código saber. Os rótulos de segmento apareciam a cada toque e o
+     * painel de resultado, que é onde moram o total, o salvar e o limpar, nunca chegava.
+     *
+     * O BOTÃO JÁ EXISTIA, e é o mesmo de cinco ferramentas de desenho: linha, polígono, seta,
+     * limite e linha de coordenação. As três medições eram as únicas que desenham ponto a
+     * ponto e não o usavam. A de ÂNGULO fica de fora de propósito: ela se fecha sozinha no
+     * terceiro toque, então um botão de concluir ali seria um comando sem estado em que valha.
+     * @returns {void}
+     */
+    _mostrarBotaoDeConcluir() {
+        this._finishButton = new DrawingFinishButton({
+            onFinish: () => {
+                // O MESMO CAMINHO DO CLIQUE DIREITO, e não um atalho próprio: `_finalize` é
+                // quem desenha o painel de resultado, e duplicar a finalização aqui abriria
+                // espaço para as duas divergirem.
+                if (!this._finalized) this._finalize();
+            },
+            onUndo: () => {
+                if (this._finalized || this._vertices.length === 0) return;
+                this._vertices.pop();
+                this._updateVisualization();
+                this._finishButton?.updateState(this._vertices.length, 2);
+            },
+        });
+        // `show()` SÓ DESENHA EM APARELHO DE TOQUE (ele pergunta por `isTouchDevice`), então
+        // não há gate de papel nem de largura aqui: no desktop a chamada é inócua.
+        this._finishButton.show();
+        this._finishButton.updateState(this._vertices.length, 2);
     }
 
     _onMouseMove(e) {
