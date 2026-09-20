@@ -3039,8 +3039,10 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
   autor marcou a caixa daquele slide: seletor de mapa base, modelos 3D, imagens 360, terreno, controle
   de coordenadas, utilitários e, acrescentados pelo dono no mesmo dia, a busca e os controles de
   navegação (zoom, tela cheia e bússola, que são UMA caixa só). O padrão de todos é falso. A área da
-  conta (o botão de entrar, ou a identidade de quem entrou com o menu dela), o selo com o nome do atlas
-  e o "compartilhar esta vista" NÃO são escolha do autor: somem em todo slide. As caixas ficam abaixo
+  conta (o botão de entrar, ou a identidade de quem entrou com o menu dela), o selo com o nome do atlas,
+  o selo de sincronia, a lista de quem está online e o "compartilhar esta vista" NÃO são escolha do
+  autor: somem em todo slide. Os dois do meio só existem para quem entrou num atlas de servidor, e foram
+  achados por um inventário do palco feito nesse cenário, porque uma captura anônima nunca os mostra. As caixas ficam abaixo
   do conteúdo no editor. A lista viva é `SLIDE_CONTROLS`; esta entrada dizia "seis" e envelheceu em
   uma hora, então a contagem saiu da prosa.
 - **Por quê:** relato do dono. O palco herdava o que o mapa mostrava, e o que o público pode tocar é

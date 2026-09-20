@@ -122,8 +122,12 @@ describe('a fiação: CSS, apresentador e editor', () => {
     it('a conta, o selo do atlas e o compartilhar vista somem SEMPRE, sem classe que os traga de volta', () => {
         expect(css).toMatch(/body\.briefing-presenting \.account-control,/);
         expect(css).toMatch(/body\.briefing-presenting \.atlas-name-badge,/);
+        // O CROMO DE SESSÃO inteiro: o selo de sincronia e a lista de quem está online só existem
+        // para quem entrou num atlas de servidor, então uma captura anônima nunca os mostra.
+        expect(css).toMatch(/body\.briefing-presenting \.sync-status-badge,/);
+        expect(css).toMatch(/body\.briefing-presenting \.online-users,/);
         expect(css).toMatch(/body\.briefing-presenting \.toolbar-standalone-btn\[data-tool-id="share-view"\]/);
-        expect(css).not.toMatch(/briefing-show-account|briefing-show-share|briefing-show-atlas/);
+        expect(css).not.toMatch(/briefing-show-account|briefing-show-share|briefing-show-atlas|briefing-show-sync|briefing-show-online/);
     });
 
     it('a navegação é UMA escolha: a regra mira o contêiner inteiro, não cada botão', () => {
@@ -143,6 +147,13 @@ describe('a fiação: CSS, apresentador e editor', () => {
         expect(apresentador).toContain('this._applySlideControls(slide)');
         const editor = ler('../../src/js/briefing/editor/briefing-editor.control.js');
         expect(editor).not.toContain('PRESENTING_BODY_CLASS');
+    });
+
+    it('as caixas saem em DUAS colunas, com o título atravessando as duas', () => {
+        const cssDoEditor = ler('../../src/css/briefing/briefing-editor.css');
+        const bloco = cssDoEditor.slice(cssDoEditor.indexOf('.briefing-editor-controls-group {'));
+        expect(bloco.slice(0, bloco.indexOf('}'))).toMatch(/grid-template-columns:\s*repeat\(2,/);
+        expect(cssDoEditor).toMatch(/\.briefing-editor-controls-group > label:first-child \{\s*grid-column: 1 \/ -1;/);
     });
 
     it('as caixas ficam ABAIXO do conteúdo no editor, como o dono pediu', () => {

@@ -35,6 +35,8 @@ const ALVOS = {
     busca: '.search-bar-container',
     navegacao: '.bottom-controls-right',
     seloDoAtlas: '.atlas-name-badge',
+    seloDeSincronia: '.sync-status-badge',
+    usuariosOnline: '.online-users',
 };
 
 /** Para cada alvo: true/false se está na tela, ou 'AUSENTE' se o deploy de teste não o monta. */
@@ -95,23 +97,34 @@ describeOrSkip('controles do slide na apresentação', () => {
         // depois), então a asserção sobre ele passaria verde sem provar nada. O spec o põe na tela à
         // força, com estilo inline, que é a forma mais forte de "visível" que existe: se ele some ao
         // apresentar, é a regra da apresentação que o tirou.
-        await page.evaluate(() => {
-            let selo = document.querySelector('.atlas-name-badge');
-            if (!selo) {
-                selo = document.createElement('div');
-                selo.className = 'atlas-name-badge';
-                document.body.appendChild(selo);
-            }
-            selo.hidden = false;
-            selo.textContent = 'Atlas de teste';
-            selo.setAttribute('style', 'display:block;position:fixed;top:8px;left:8px;width:160px;height:24px');
-        });
-        expect((await naTela(page)).seloDoAtlas, 'PISO: o selo está na tela antes de apresentar').toBe(true);
+        //
+        // O MESMO VALE PARA O CROMO DE SESSÃO (selo de sincronia e lista de quem está online), que só
+        // existe para quem entrou num atlas de servidor: num atlas local anônimo ele fica escondido.
+        const FORCADOS = ['atlas-name-badge', 'sync-status-badge', 'online-users'];
+        await page.evaluate((classes) => {
+            classes.forEach((classe, i) => {
+                let el = document.querySelector(`.${classe}`);
+                if (!el) {
+                    el = document.createElement('div');
+                    el.className = classe;
+                    document.body.appendChild(el);
+                }
+                el.hidden = false;
+                if (!el.textContent.trim()) el.textContent = 'cromo de teste';
+                el.setAttribute('style', `display:block;position:fixed;top:${8 + 32 * i}px;left:8px;width:160px;height:24px`);
+            });
+        }, FORCADOS);
+        const antes = await naTela(page);
+        expect(antes.seloDoAtlas, 'PISO: o selo do atlas está na tela antes de apresentar').toBe(true);
+        expect(antes.seloDeSincronia, 'PISO: o selo de sincronia está na tela antes de apresentar').toBe(true);
+        expect(antes.usuariosOnline, 'PISO: a lista de online está na tela antes de apresentar').toBe(true);
 
         await salvarEApresentar(page);
 
         const noPalco = await naTela(page);
         expect(noPalco.seloDoAtlas, 'o selo do atlas não aparece em slide nenhum').toBe(false);
+        expect(noPalco.seloDeSincronia, 'o selo de sincronia não aparece em slide nenhum').toBe(false);
+        expect(noPalco.usuariosOnline, 'a lista de quem está online não aparece em slide nenhum').toBe(false);
         for (const [nome, visivel] of Object.entries(noPalco)) {
             if (visivel === 'AUSENTE') continue;
             expect(visivel, `${nome} continua na tela ao apresentar`).toBe(false);

@@ -370,11 +370,15 @@
 
    The account area ("Entrar", or the signed-in identity with its menu), the atlas name badge and
    "share this view" are NOT a choice of the author: they are never shown while presenting, for
-   any slide. The navigation cluster (zoom, fullscreen, compass) is ONE choice, not three.
+   any slide. The same goes for the rest of the SESSION chrome, which only exists for a signed-in
+   user on a server atlas and is therefore invisible to an anonymous capture: the sync status
+   badge and the online users roster (inventory taken on a server atlas, 2026-09-20). The navigation cluster (zoom, fullscreen, compass) is ONE choice, not three.
    ========================================================================= */
 
 body.briefing-presenting .account-control,
 body.briefing-presenting .atlas-name-badge,
+body.briefing-presenting .sync-status-badge,
+body.briefing-presenting .online-users,
 body.briefing-presenting .toolbar-standalone-btn[data-tool-id="share-view"] {
     display: none !important;
 }

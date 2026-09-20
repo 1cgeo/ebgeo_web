@@ -15,8 +15,9 @@
  * and not there is silently discarded on the way in.
  *
  * WHAT IS NOT IN THE LIST, ON PURPOSE: the account area (the "Entrar" button or the signed-in
- * identity), the atlas name badge and "share this view". Those are NEVER shown while presenting,
- * for any slide, so they are not a choice of the author; `css/briefing/briefing-presentation.css` hides them outright.
+ * identity), the atlas name badge, the sync status badge, the online users roster and "share this
+ * view". Those are NEVER shown while presenting, for any slide, so they are not a choice of the
+ * author; `css/briefing/briefing-presentation.css` hides them outright.
  *
  * The editor is NOT affected by any of this: the author needs the selector and the viewers to
  * build the slide. Only the presenter applies these classes.

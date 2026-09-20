@@ -422,9 +422,19 @@
     accent-color: var(--primary);
 }
 
-/* The controls group sits below the Quill editor, which grows to fill the panel. */
+/* The controls group sits below the Quill editor, which grows to fill the panel. TWO COLUMNS
+   (owner, 2026-09-20): the list is short labels, and one column pushed it below the fold. The
+   title spans both; the rows fill column by column is NOT used, so reading order stays the
+   order of the closed list, left to right. */
 .briefing-editor-controls-group {
     margin-top: var(--space-4);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--space-4);
+}
+
+.briefing-editor-controls-group > label:first-child {
+    grid-column: 1 / -1;
 }
 
 .briefing-editor-controls-group .briefing-editor-view-check {
