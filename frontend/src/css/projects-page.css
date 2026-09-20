@@ -30,6 +30,12 @@
    never account.css (that is the map's account control). */
 @import url('./login-modal.css');
 
+/* "Criar conta" acontece nesta página também, e ele tem bloco próprio (largo, duas colunas) mais
+   os dois componentes reutilizáveis que estreou: o olho da senha e o combobox buscável. */
+@import url('./password-field.css');
+@import url('./searchable-select.css');
+@import url('./signup-modal.css');
+
 /* account-settings.css is NOT imported here: "Minha conta" deixou de ser modal em 2026-08-25 e
    virou aba de admin.html. O botão da barra do topo NAVEGA para lá; esta página não a desenha. */
 

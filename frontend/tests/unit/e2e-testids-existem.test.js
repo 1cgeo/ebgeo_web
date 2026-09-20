@@ -122,6 +122,18 @@ const PREFIXOS_DINAMICOS = Object.freeze([
 const IDS_COMPOSTOS = Object.freeze([
     ['admin-personnel-posto', 'admin-personnel-'],  // SUBCATS[].key — admin/personnel-tab.js
     ['admin-personnel-om', 'admin-personnel-'],
+    // O combobox buscável (`ui/searchable-select.js`) deriva os testids das suas duas partes do
+    // testid do INPUT: `${testid}-list` e `${testid}-empty`. A isenção é por ID EXATO e não por
+    // prefixo porque `signup-om-hint` é literal de verdade em `modals/signup.modal.js` e um
+    // `signup-om-` largo apagaria a proteção sobre ele.
+    //
+    // O ALCANCE DA COBRANÇA DO PREFIXO É MENOR DO QUE PARECE, e foi medido em 2026-09-20: trocar
+    // `testid: 'signup-om'` por outro nome NÃO reprova, porque `'signup-om-hint'` e `id:
+    // 'signup-om'` continuam casando a regex do prefixo. O que estas duas linhas de fato prendem é
+    // o sumiço do NAMESPACE inteiro. É a mesma limitação de `admin-personnel-`, e vale declará-la:
+    // uma isenção que se acredita mais forte do que é vira o esconderijo que este arquivo caça.
+    ['signup-om-list', 'signup-om'],
+    ['signup-om-empty', 'signup-om'],
 ]);
 
 const RETIRADOS = Object.freeze([

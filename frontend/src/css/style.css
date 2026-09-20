@@ -30,6 +30,13 @@
 @import url('./unavailable.css');
 @import url('./modals-redesign.css');
 @import url('./account.css');
+
+/* "Criar conta": o mesmo diálogo de `atlas.html`, com bloco próprio porque ele é largo e em duas
+   colunas. Os dois componentes reutilizáveis que ele estreou entram ao lado, e não por dentro
+   dele, porque "Entrar" e a redefinição de senha vão usar o olho sem passar pelo cadastro. */
+@import url('./password-field.css');
+@import url('./searchable-select.css');
+@import url('./signup-modal.css');
 @import url('./pendencias.css');
 
 /* account-settings.css is NOT imported here: "Minha conta" deixou de ser modal em 2026-08-25 e

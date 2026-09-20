@@ -83,4 +83,54 @@ describeOrSkip('Login → open project flow (real browser + real backend)', () =
         await expect(page.locator('[data-testid="account-user"]')).toHaveText(seed.username);
         await expect(page.locator('[data-testid="account-logout-btn"]')).toBeVisible({ timeout: 5000 });
     });
+
+    test('the eye reveals the password without submitting, in the login view and in the reset step', async ({ page }) => {
+        // The WIRING is what this pins: the component itself is covered by `browser-signup.spec.js`.
+        // A button inside a form submits by default, so a reveal that logs the person in (or asks
+        // the server for a reset) is the regression worth a case.
+        let autenticou = 0;
+        page.on('request', (r) => {
+            const url = r.url();
+            if (url.endsWith('/auth/login') || url.endsWith('/auth/reset-password')) autenticou++;
+        });
+        const t = (id) => page.locator(`[data-testid="${id}"]`);
+
+        await page.goto('/');
+        await t('account-login-btn').click();
+        await t('login-password').fill('segredo123');
+        await page.locator('[data-testid="login-password-reveal"]').click();
+        await expect(t('login-password')).toHaveAttribute('type', 'text');
+        await expect(page.locator('[data-testid="login-password-reveal"]')).toHaveAttribute('aria-pressed', 'true');
+        await expect(t('login-view')).toBeVisible();
+
+        await t('login-forgot-password').click();
+        await t('login-recovery-have-code').click();
+        await t('login-recovery-password').fill('novaSenha1');
+        await page.locator('[data-testid="login-recovery-password-reveal"]').click();
+        await expect(t('login-recovery-password')).toHaveAttribute('type', 'text');
+        // The sibling box keeps its own state: one eye never reveals the other field.
+        await expect(t('login-recovery-confirm')).toHaveAttribute('type', 'password');
+        await expect(page.locator('[data-testid="login-recovery-confirm-reveal"]')).toBeVisible();
+
+        // CLEARED AND HIDDEN ARE ONE GESTURE. Entering recovery empties the login password; if the
+        // eye stayed lit, the next password typed there would show in clear text with no gesture
+        // from the person. The field was revealed above, so this is the crossing that matters.
+        await t('login-recovery-back').click();
+        await expect(t('login-password')).toHaveValue('');
+        await expect(t('login-password')).toHaveAttribute('type', 'password');
+        await expect(page.locator('[data-testid="login-password-reveal"]')).toHaveAttribute('aria-pressed', 'false');
+        expect(autenticou).toBe(0);
+    });
+
+    test('two activations of Entrar open ONE dialog, not two stacked ones', async ({ page }) => {
+        // A real double click cannot show this (the first dialog covers the button), but Enter held
+        // down and a programmatic second activation can: both reach the opener before any paint.
+        await page.goto('/');
+        const botao = page.locator('[data-testid="account-login-btn"]');
+        await expect(botao).toBeVisible();
+        await botao.evaluate((el) => { el.click(); el.click(); });
+        await expect(page.locator('[data-testid="login-password"]').first()).toBeVisible();
+        await expect(page.locator('#login-modal-overlay')).toHaveCount(1);
+        await expect(page.locator('#login-username')).toHaveCount(1);
+    });
 });

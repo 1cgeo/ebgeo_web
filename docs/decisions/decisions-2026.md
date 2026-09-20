@@ -2970,3 +2970,29 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
 - **Continua aberto, e é decisão do dono:** B5.6, linha que não existe acked como aplicada num update (aceite declarado: só muda junto com uma fronteira durável por entidade, ver [[modelo-conflito-lww]]); B6.1, o conjunto acima de `LOTE_MAX_OPS` fora de escopo por D4; B7.4, a remoção da chave de época não fecha todo escritor e duas tentativas já foram revertidas (o freio de desmontagem é a guarda, e qualquer conserto novo mantém o controle negativo dele reproduzindo); B8.1, a chave de tentativa da rota única de imagem sem chamador no cliente (porta de servidor sem usuário, não defeito); a matriz completa de homologação (documento 09: perfis envelhecidos, descarte de armazenamento injetado na fronteira nativa do IndexedDB, dois e três clientes com disputa e falha injetada, comparação por conteúdo e por relações), que é ensaio de liberação e não teste de suíte.
 - **O que NÃO é pendência, e volta a parecer:** a queda do renderizador do Chromium ao bootar o mapa (`Target crashed`, 3,3% em 480 boots, nenhuma bandeira ajuda) está medida em `.claude/rules/testing.md` e não é trabalho de produto; o flake de `logoutUI` em B3 deu 0 de 8 em 2026-09-19 contra 3 de 7 em 2026-09-14 e ficou sem causa porque não reproduziu.
 - **Status:** aceita; o documento saiu, e pendência nova se registra aqui, nunca numa lista de furos na wiki.
+
+### 2026-09-20: a recuperação de senha abre pelo CÓDIGO POR E-MAIL, e o administrador vira a saída depois do envio
+
+- **Contexto:** desde 2026-08-23 a recuperação abria mandando procurar o administrador ("é o caminho que
+  sempre funciona") e só depois oferecia o código por e-mail, e a dica da senha nova lia "no máximo 72
+  bytes em UTF-8". O dono leu as duas telas em 2026-09-20 e recusou as duas: a primeira manda embora quem
+  pode se resolver sozinho, e a segunda lê a implementação em voz alta para quem está trancado fora.
+- **Decisão 1, ordem:** a visão abre com uma frase, a do código por e-mail. A saída pelo administrador
+  NÃO some: ela desce para uma linha discreta sob o resultado do envio, porque conta sem e-mail
+  confirmado não recebe código nenhum e sem ela a pessoa fica presa. A frase não depende de o e-mail
+  existir, então a neutralidade contra enumeração continua inteira. Onde a implantação não tem
+  recuperação por e-mail, a visão inteira é a frase do administrador.
+- **Decisão 2, vocabulário:** a pessoa nunca lê "byte". O teto de 72 bytes do bcrypt continua validado nos
+  dois pacotes, e aparece só como recusa, em palavras simples e sem número, porque o número que ela citaria
+  é maior que a contagem de caracteres que a pessoa acabou de digitar. A MESMA frase vale no cadastro e na
+  recuperação, presa por teste de igualdade.
+- **Decisão 3, forma:** entrar e recuperar são VISÕES mutuamente exclusivas do mesmo diálogo, a
+  recuperação tem dois passos (pedir o código, redefinir) porque os onze elementos juntos não cabem em
+  768 px de altura, e `Esc` na recuperação volta para entrar em vez de fechar.
+- **Alternativa recusada:** apagar a saída do administrador, que é o que a leitura literal do pedido
+  sugeria. Ela é o único caminho de quem não tem e-mail confirmado.
+- **Pendente, decisão do dono:** o texto do e-mail enviado pelo backend ainda manda "clicar em Esqueci
+  minha senha e colar o código"; com os dois passos, quem chega com o código na mão usa "Já tenho um
+  código". Cruza pacote e não entrou neste lote.
+- **Status:** aceita. Guardas: `frontend/tests/unit/login-recuperacao-modelo.test.js` e
+  `frontend/tests/unit/confirmacao-de-senha.test.js`.

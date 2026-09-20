@@ -5,14 +5,34 @@
  * Collects the new-account fields and delegates submission to an injected
  * callback (the account control wires the actual `syncEngine.register`). On
  * success the modal closes; on failure it stays open and shows an inline error.
- * Reuses the `login-modal__*` visual block (shared auth-modal styling lives in
- * account.css) so login and signup look identical. No syncEngine import here.
+ * Reuses the `login-modal__*` input/error/action chrome (shared auth-modal styling) and adds its
+ * own `signup-modal__*` block for the wide two-column layout. No syncEngine import here.
+ *
+ * WHY IT IS TWO COLUMNS, and why that is not decoration. Eight fields stacked in a 460px dialog
+ * measured 1048px of content against 653px of dialog: everything from "Posto/Graduação" down —
+ * the two controlled lists, the lotação note, the submit button and the "já tenho conta" link —
+ * lived below the fold, so the form asked people to scroll to find out that it was not finished.
+ * The fields are grouped by what they are FOR (identificação / acesso / posto e unidade), because
+ * a two-column grid with no grouping just makes the reading order ambiguous.
+ *
+ * THE ORGANISATION IS A COMBOBOX, THE RANK IS NOT, and the asymmetry is the decision. The list of
+ * units is long, alphabetical and full of near-identical names, which is a search; the list of
+ * ranks is short and ordered by HIERARCHY, which is exactly the order a filter destroys. A native
+ * `<select>` also remains the better control on a phone, where the OS draws its own picker.
+ *
+ * THE COMBOBOX SUBMITS AN ID, NEVER TEXT. `ui/searchable-select.js` keeps `value` empty until a
+ * row is picked, so free text that matches nothing is refused here with a sentence that says so,
+ * instead of reaching the server as a name it cannot resolve.
  */
 
 import { ModalBase } from './modal.base.js';
 import { addDomListener } from '@utils/event-cleanup.js';
 import { apiClient } from '@store/sync/api-client.js';
 import config from '@js/config.js';
+import { createSearchableSelect } from '@ui/searchable-select.js';
+import { attachPasswordVisibility } from '@ui/password-visibility.js';
+import { avaliarConfirmacao, bytesDaSenha, MAX_SENHA_BYTES } from '@ui/password-match.model.js';
+import { PASSWORD_HEAVY_TEXT, validateRecoveryRequest } from './password-recovery.model.js';
 
 /**
  * The help line under "Organização Militar", in the vocabulary of the statute.
@@ -59,6 +79,7 @@ export class SignupModal extends ModalBase {
         this._onBackToLogin = options.onBackToLogin || null;
         this._onRegistered = options.onRegistered || null;
         this._submitting = false;
+        this._reveals = [];
     }
 
     /**
@@ -68,8 +89,8 @@ export class SignupModal extends ModalBase {
     render() {
         const overlay = super.render();
         this._overlay.dataset.testid = 'signup-modal';
-        // Reuse the login container styling (shared auth-modal look).
-        this._container.classList.add('login-modal__container');
+        // Reuse the login container styling (shared auth-modal look) and widen it for the grid.
+        this._container.classList.add('login-modal__container', 'signup-modal__container');
 
         const body = this.getBody();
         body.appendChild(this._createBrand());
@@ -83,43 +104,78 @@ export class SignupModal extends ModalBase {
 
     /**
      * Builds the brand header (EBGeo logo + wordmark + tagline).
+     *
+     * HORIZONTAL, unlike the login dialog's stacked one: the centred 72px lozenge cost about
+     * 150px of a 653px dialog, which is a quarter of the budget spent saying the name of the app
+     * the person is already inside.
      * @private
      * @returns {HTMLElement}
      */
     _createBrand() {
         const brand = document.createElement('div');
-        brand.className = 'login-modal__brand';
+        brand.className = 'signup-modal__brand';
 
         const logo = document.createElement('img');
-        logo.className = 'login-modal__logo';
+        logo.className = 'signup-modal__logo';
         logo.src = '/images/logo_ebgeo.webp';
         logo.alt = 'EBGeo';
-        logo.width = 72;
-        logo.height = 72;
+        logo.width = 48;
+        logo.height = 48;
         brand.appendChild(logo);
 
+        const texts = document.createElement('div');
+        texts.className = 'signup-modal__brand-texts';
+
         const title = document.createElement('h2');
-        title.className = 'login-modal__brand-title';
-        title.textContent = 'EBGeo';
-        brand.appendChild(title);
+        title.className = 'signup-modal__brand-title';
+        title.textContent = 'Criar conta no EBGeo';
+        texts.appendChild(title);
 
         const tagline = document.createElement('p');
-        tagline.className = 'login-modal__brand-tagline';
-        tagline.textContent = 'Crie sua conta para colaborar nos atlas';
-        brand.appendChild(tagline);
+        tagline.className = 'signup-modal__brand-tagline';
+        tagline.textContent = 'Preencha os dados abaixo para colaborar nos atlas';
+        texts.appendChild(tagline);
 
+        brand.appendChild(texts);
         return brand;
     }
 
     /**
-     * Adds a labelled input field to a form, returning the input element.
+     * Adds a titled group of fields, returning the two-column grid to fill.
      * @private
      * @param {HTMLElement} form
+     * @param {string} legenda - Group title, in pt-BR.
+     * @param {string} [modificador] - BEM modifier for the grid (e.g. 'lotacao' for uneven columns).
+     * @returns {HTMLElement} The grid element the fields go into.
+     */
+    _addSection(form, legenda, modificador) {
+        const section = document.createElement('fieldset');
+        section.className = 'signup-modal__section';
+
+        const caption = document.createElement('legend');
+        caption.className = 'signup-modal__legend';
+        caption.textContent = legenda;
+        section.appendChild(caption);
+
+        const grid = document.createElement('div');
+        grid.className = modificador
+            ? `signup-modal__grid signup-modal__grid--${modificador}`
+            : 'signup-modal__grid';
+        section.appendChild(grid);
+
+        form.appendChild(section);
+        return grid;
+    }
+
+    /**
+     * Adds a labelled input field to a container, returning the input element.
+     * @private
+     * @param {HTMLElement} parent
      * @param {{ id: string, label: string, type?: string, autocomplete?: string,
      *   testid: string, required?: boolean }} spec
      * @returns {HTMLInputElement}
      */
-    _addField(form, spec) {
+    _addField(parent, spec) {
         const field = document.createElement('div');
         field.className = 'login-modal__field settings-field';
 
@@ -138,20 +194,20 @@ export class SignupModal extends ModalBase {
         if (spec.required) input.required = true;
         field.appendChild(input);
 
-        form.appendChild(field);
+        parent.appendChild(field);
         return input;
     }
 
     /**
-     * Adds a labelled <select> (controlled-value combo box) to a form.
+     * Adds a labelled `<select>` (controlled-value list) to a container.
      * @private
-     * @param {HTMLElement} form
+     * @param {HTMLElement} parent
      * @param {{ id: string, label: string, testid: string, required?: boolean,
      *   placeholder?: string }} spec
      * @param {Array<{ value: string, label: string }>} options
      * @returns {HTMLSelectElement}
      */
-    _addSelectField(form, spec, options) {
+    _addSelectField(parent, spec, options) {
         const field = document.createElement('div');
         field.className = 'login-modal__field settings-field';
 
@@ -182,20 +238,22 @@ export class SignupModal extends ModalBase {
         }
 
         field.appendChild(select);
-        form.appendChild(field);
+        parent.appendChild(field);
         return select;
     }
 
     /**
      * Maps a backend controlled-list (config.postos / config.organizacoesMilitares)
-     * to <select> options, ordered by sort_order. The option VALUE is the row id
+     * to options, ordered by sort_order. The option VALUE is the row id
      * (FK stored in users.rank_id / organization_id); the label is the display name.
      * @private
      * O RÓTULO É INJETÁVEL pela mesma razão de `buildDomainOptions` no painel: a OM se escreve
      * pelo nome e o POSTO pela abreviatura (`1º Ten`, e não "Primeiro Tenente").
-     * @param {Array<{ id: string, name: string, sort_order?: number }>|undefined} list
+     * A SIGLA VIAJA JUNTO porque o combobox filtra por ela: quem sabe "DSG" não deveria ter de
+     * lembrar o nome por extenso para achar a própria unidade.
+     * @param {Array<{ id: string, name: string, sigla?: string, sort_order?: number }>|undefined} list
      * @param {(item: Object) => string} [rotulo] - How to write one item.
-     * @returns {Array<{ value: string, label: string }>}
+     * @returns {Array<{ value: string, label: string, sigla: string|null }>}
      */
     _domainOptions(list, rotulo = (item) => item.name) {
         if (!Array.isArray(list)) return [];
@@ -203,67 +261,104 @@ export class SignupModal extends ModalBase {
             .filter((item) => item && item.id && item.name)
             .slice()
             .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-            .map((item) => ({ value: item.id, label: rotulo(item) || item.name }));
+            .map((item) => ({
+                value: item.id,
+                label: rotulo(item) || item.name,
+                sigla: item.sigla ?? null,
+            }));
     }
 
     /**
-     * Builds the signup form DOM.
+     * Builds the signup form DOM. Adds NO listeners: `_setupListeners` does that, which is what
+     * lets a node test build this tree over a minimal fake `document`.
      * @private
      * @returns {HTMLElement}
      */
     _createForm() {
         const form = document.createElement('form');
-        form.className = 'login-modal__form';
+        form.className = 'login-modal__form signup-modal__form';
+        // OUR OWN pt-BR COMPLAINTS, not the browser's bubble, as the two recovery forms already do.
+        // With native validation on, a `required` field stopped the `submit` event itself, so the
+        // empty-field branches of `_handleSubmit` were unreachable: coverage with the look of
+        // validation. The price is that the e-mail SHAPE is now checked there too.
+        form.noValidate = true;
 
-        this._nomeInput = this._addField(form, {
+        const identidade = this._addSection(form, 'Identificação');
+        this._nomeInput = this._addField(identidade, {
             id: 'signup-nome', label: 'Nome completo', autocomplete: 'name',
             testid: 'signup-nome', required: true
         });
-        this._userInput = this._addField(form, {
-            id: 'signup-username', label: 'Usuário', autocomplete: 'username',
-            testid: 'signup-username', required: true
-        });
-        this._nomeGuerraInput = this._addField(form, {
+        this._nomeGuerraInput = this._addField(identidade, {
             id: 'signup-nome-guerra', label: 'Nome de guerra',
             testid: 'signup-nome-guerra', required: false,
         });
-        this._emailInput = this._addField(form, {
+
+        const acesso = this._addSection(form, 'Acesso');
+        this._userInput = this._addField(acesso, {
+            id: 'signup-username', label: 'Usuário', autocomplete: 'username',
+            testid: 'signup-username', required: true
+        });
+        this._emailInput = this._addField(acesso, {
             id: 'signup-email', label: 'E-mail', type: 'email', autocomplete: 'email',
             testid: 'signup-email', required: true
         });
-        this._passInput = this._addField(form, {
+        this._passInput = this._addField(acesso, {
             id: 'signup-password', label: 'Senha', type: 'password',
             autocomplete: 'new-password', testid: 'signup-password', required: true
         });
-        this._passConfirmInput = this._addField(form, {
+        this._passConfirmInput = this._addField(acesso, {
             id: 'signup-password-confirm', label: 'Confirmar senha', type: 'password',
             autocomplete: 'new-password', testid: 'signup-password-confirm', required: true
         });
+
+        // THE LIVE VERDICT, and it keeps its line whether or not it has words: a notice that only
+        // takes up space once it speaks makes the whole form jump under the cursor at the very
+        // moment the person is typing into it.
+        const match = document.createElement('p');
+        match.className = 'signup-modal__match';
+        match.id = 'signup-password-match';
+        match.dataset.testid = 'signup-password-match';
+        match.setAttribute('aria-live', 'polite');
+        this._passConfirmInput.parentElement.appendChild(match);
+        this._passConfirmInput.setAttribute('aria-describedby', match.id);
+        this._matchEl = match;
+
         // These values are UUIDs from the server, never free-form names.
         const postoOpts = this._domainOptions(config.postos, (p) => p.abrev || p.name);
         const omOpts = this._domainOptions(config.organizacoesMilitares);
-        this._postoInput = this._addSelectField(form, {
+
+        const lotacao = this._addSection(form, 'Posto e unidade', 'lotacao');
+        this._postoInput = this._addSelectField(lotacao, {
             id: 'signup-posto', label: 'Posto/Graduação',
             testid: 'signup-posto', required: true,
         }, postoOpts);
-        this._omInput = this._addSelectField(form, {
-            id: 'signup-om', label: 'Organização Militar',
-            testid: 'signup-om', required: true,
-        }, omOpts);
+
+        this._omCombo = createSearchableSelect({
+            id: 'signup-om',
+            label: 'Organização Militar',
+            testid: 'signup-om',
+            items: omOpts,
+            placeholder: 'Digite o nome ou a sigla…',
+            emptyText: 'Nenhuma unidade encontrada',
+            required: true,
+            disabled: !omOpts.length,
+            fieldClass: 'login-modal__field settings-field',
+            inputClass: 'login-modal__input',
+        });
+        lotacao.appendChild(this._omCombo.element);
+
         this._postoInput.disabled = !postoOpts.length;
-        this._omInput.disabled = !omOpts.length;
         this._domainsUnavailable = !postoOpts.length || !omOpts.length;
 
-        // The hint goes INSIDE the field (both builders append the control to a `field` div and
-        // that div to the form), so it stays attached to the control whichever branch above ran,
-        // and it is announced with the control through `aria-describedby`.
+        // The hint goes INSIDE the field, so it stays attached to the control, and it is announced
+        // with the control through `aria-describedby`.
         const omHint = document.createElement('p');
-        omHint.className = 'login-modal__hint';
+        omHint.className = 'login-modal__hint signup-modal__hint';
         omHint.id = 'signup-om-hint';
         omHint.dataset.testid = 'signup-om-hint';
         omHint.textContent = LOTACAO_HINT;
-        this._omInput.setAttribute('aria-describedby', omHint.id);
-        this._omInput.parentElement.appendChild(omHint);
+        this._omCombo.input.setAttribute('aria-describedby', omHint.id);
+        this._omCombo.element.appendChild(omHint);
 
         // Inline error (hidden until populated)
         const error = document.createElement('div');
@@ -275,7 +370,7 @@ export class SignupModal extends ModalBase {
 
         // Actions
         const actions = document.createElement('div');
-        actions.className = 'login-modal__actions';
+        actions.className = 'login-modal__actions signup-modal__actions';
 
         const cancelBtn = document.createElement('button');
         cancelBtn.type = 'button';
@@ -295,7 +390,7 @@ export class SignupModal extends ModalBase {
 
         // Secondary: back to login
         const secondary = document.createElement('div');
-        secondary.className = 'login-modal__secondary';
+        secondary.className = 'login-modal__secondary signup-modal__secondary';
 
         const backBtn = document.createElement('button');
         backBtn.type = 'button';
@@ -333,7 +428,8 @@ export class SignupModal extends ModalBase {
     }
 
     /**
-     * Wires form-specific listeners.
+     * Wires form-specific listeners and attaches the two composed controls (the combobox and the
+     * reveal buttons), which is also where they start owning listeners of their own.
      * @private
      */
     _setupListeners() {
@@ -347,6 +443,36 @@ export class SignupModal extends ModalBase {
             if (this._onBackToLogin) this._onBackToLogin();
         });
         addDomListener(this, this._resendBtn, 'click', () => this._handleResend());
+
+        this._omCombo.mount();
+
+        this._reveals = [
+            attachPasswordVisibility(this._passInput, { testid: 'signup-password-reveal' }),
+            attachPasswordVisibility(this._passConfirmInput, {
+                testid: 'signup-password-confirm-reveal',
+            }),
+        ];
+
+        addDomListener(this, this._passInput, 'input', () => this._refreshPasswordMatch());
+        addDomListener(this, this._passConfirmInput, 'input', () => this._refreshPasswordMatch());
+    }
+
+    /**
+     * Paints the live confirmation verdict. The decision itself is pure and lives in
+     * `ui/password-match.model.js`; this only writes what it decided.
+     * @private
+     */
+    _refreshPasswordMatch() {
+        if (!this._matchEl) return;
+        const { estado, mensagem } = avaliarConfirmacao(
+            this._passInput.value,
+            this._passConfirmInput.value,
+        );
+        // Assigning the SAME text still replaces the text node, and a polite live region reads
+        // that as news: typing a mismatching confirmation repeated the sentence on every key.
+        const classe = `signup-modal__match signup-modal__match--${estado}`;
+        if (this._matchEl.textContent !== mensagem) this._matchEl.textContent = mensagem;
+        if (this._matchEl.className !== classe) this._matchEl.className = classe;
     }
 
     /**
@@ -389,7 +515,7 @@ export class SignupModal extends ModalBase {
         const password = this._passInput.value;
         const passwordConfirm = this._passConfirmInput.value;
         const posto = this._postoInput.value.trim();
-        const om = this._omInput.value.trim();
+        const om = this._omCombo.value;
 
         this._clearError();
 
@@ -397,18 +523,33 @@ export class SignupModal extends ModalBase {
             this._showError('Preencha nome, usuário, e-mail e senha.');
             return;
         }
-        // Password match is a basic local check — validate it before the controlled-list selects so
+        const emailCheck = validateRecoveryRequest({ email });
+        if (!emailCheck.valid) {
+            this._showError(emailCheck.message);
+            return;
+        }
+        // Password match is a basic local check — validate it before the controlled lists so
         // a mismatch is reported regardless of posto/OM.
         if (password !== passwordConfirm) {
             this._showError('As senhas não coincidem.');
             return;
         }
-        if (new TextEncoder().encode(password).length > 72) {
-            this._showError('A senha deve ter no máximo 72 bytes; caracteres acentuados ocupam mais de um byte.');
+        if (bytesDaSenha(password) > MAX_SENHA_BYTES) {
+            this._showError(PASSWORD_HEAVY_TEXT);
             return;
         }
-        if (!posto || !om) {
-            this._showError('Selecione o posto/graduação e a organização militar.');
+        if (!posto) {
+            this._showError('Selecione o posto/graduação.');
+            return;
+        }
+        if (!om) {
+            // TYPED IS NOT CHOSEN: the combobox submits the unit's id, and text that was never
+            // resolved to a row has none. Saying only "selecione a organização militar" over a
+            // field that visibly has words in it reads as a broken form.
+            this._showError(this._omCombo.text.trim()
+                ? 'Escolha a organização militar na lista: o nome digitado não foi reconhecido.'
+                : 'Selecione a organização militar.');
+            this._omCombo.input.focus();
             return;
         }
 
@@ -437,6 +578,33 @@ export class SignupModal extends ModalBase {
         } finally {
             this._setSubmitting(false);
         }
+    }
+
+    /**
+     * Releases the two composed controls. Idempotent, because BOTH exits reach it: `hide()` (the
+     * X, the overlay, Escape) and `destroy()`. The combobox owns a portal list parked on
+     * `document.body` and document-level listeners, neither of which `ModalBase` can know about.
+     * @private
+     */
+    _releaseFields() {
+        if (this._omCombo) {
+            this._omCombo.destroy();
+            this._omCombo = null;
+        }
+        for (const reveal of this._reveals) reveal.destroy();
+        this._reveals = [];
+    }
+
+    /** Hides the modal, releasing the composed controls first. */
+    hide() {
+        this._releaseFields();
+        super.hide();
+    }
+
+    /** Destroys the modal, releasing the composed controls first. */
+    destroy() {
+        this._releaseFields();
+        super.destroy();
     }
 
     /**
@@ -486,9 +654,20 @@ export class SignupModal extends ModalBase {
  * @param {function(): void} [options.onBackToLogin] Back-to-login handler.
  * @returns {SignupModal} The modal instance.
  */
+/** The instance currently on screen, so a second request reuses it instead of stacking. */
+let aberto = null;
+
 export function showSignupModal({ onSubmit, onBackToLogin, onRegistered } = {}) {
+    // ONE DIALOG AT A TIME. Two quick activations of the same button (a double click, Enter held
+    // down) used to build two overlays with the SAME element ids, so every `<label for>` pointed
+    // at the first one, and two document-level key listeners answered each Escape.
+    if (aberto?._isOpen) {
+        aberto._overlay?.querySelector('input')?.focus();
+        return aberto;
+    }
     const modal = new SignupModal({ onSubmit, onBackToLogin, onRegistered });
     modal.render();
     modal.show();
+    aberto = modal;
     return modal;
 }

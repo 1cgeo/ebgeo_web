@@ -179,22 +179,82 @@
 }
 
 /* =========================================================================
-   RECOVERY PANEL ("Esqueci minha senha")
-   Hidden until the link is pressed; built once so a half-typed code survives
-   an accidental collapse.
+   VIEWS ("Entrar" / "Recuperar senha")
+   Mutually exclusive: exactly one is on screen, the other carries `hidden`,
+   so nothing in it is tabbable and the dialog never has to scroll to show
+   both. The login view keeps `display: block` because the brand block above
+   the form already spaces itself with a margin.
+   ========================================================================= */
+
+.login-modal__view[hidden] {
+    display: none;
+}
+
+/* The way back out of the recovery view, first in reading and in tab order. */
+.login-modal__back {
+    display: inline-flex;
+    align-self: flex-start;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-2) var(--space-2) 0;
+    background: none;
+    border: none;
+    color: var(--primary);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+}
+
+.login-modal__back:hover {
+    text-decoration: underline;
+}
+
+.login-modal__back:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+}
+
+.login-modal__back-icon {
+    display: inline-flex;
+    transition: transform var(--transition-fast);
+}
+
+.login-modal__back:hover .login-modal__back-icon {
+    transform: translateX(-2px);
+}
+
+.login-modal__view-title {
+    margin: 0;
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-bold);
+    color: var(--gray-900);
+}
+
+/* =========================================================================
+   RECOVERY VIEW ("Recuperar senha")
+   Two steps (ask for a code, redeem it) that swap in place: together they are
+   taller than the 85vh this dialog gets, and the wait for the message already
+   separates them in time.
    ========================================================================= */
 
 .login-modal__recovery {
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
-    padding: var(--space-4);
-    background: var(--gray-50);
-    border: var(--border-width) solid var(--border-color);
-    border-radius: var(--radius-md);
 }
 
 .login-modal__recovery[hidden] {
+    display: none;
+}
+
+.login-modal__recovery-step {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.login-modal__recovery-step[hidden] {
     display: none;
 }
 
@@ -205,9 +265,20 @@
     line-height: var(--line-height-normal);
 }
 
+/* Secondary link and primary button SHARE a row: on the reset step that shared line is the
+   difference between fitting in 85vh and scrolling. `margin-right: auto` on the link keeps the
+   button on the right edge in both steps, and in a row that has no link at all. */
 .login-modal__recovery-actions {
     display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     justify-content: flex-end;
+    gap: var(--space-2);
+}
+
+.login-modal__recovery-actions .login-modal__link {
+    margin-right: auto;
+    padding-left: 0;
 }
 
 .login-modal__recovery-actions .prompt-modal-btn:disabled {

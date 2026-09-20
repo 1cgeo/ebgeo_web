@@ -17,9 +17,15 @@
  * procura a frase DENTRO do campo da OM na árvore que o método devolve. Apagar a linha que a
  * pendura (mantendo a constante exportada) deixa este arquivo vermelho.
  *
- * Ele roda os DOIS ramos do campo, porque são dois construtores diferentes: `<select>` quando o
- * `/config` serviu a lista controlada, `<input>` de texto quando não serviu. A primeira versão
- * desta correção pendurava a nota dentro de um dos ramos e teria passado verde metade das vezes.
+ * Ele roda os DOIS estados do campo, porque eles nascem por caminhos diferentes: a lista controlada
+ * servida pelo `/config` e a lista ausente, que desabilita o controle. A primeira versão desta
+ * correção pendurava a nota dentro de um dos ramos e teria passado verde metade das vezes.
+ *
+ * DESDE 2026-09-20 A OM NÃO É MAIS UM `<select>`, e sim o combobox buscável de
+ * `js/ui/searchable-select.js`: o controle é um `<input role="combobox">` dentro de uma casca,
+ * então a nota deixou de ser filha do PAI do controle e passou a ser filha do CAMPO
+ * (`signup-om-field`). A asserção de parentesco continua sendo a que separa "a nota existe" de "a
+ * nota está NO campo"; só mudou qual caixa é o campo.
  *
  * ============================ O QUE ELE NÃO PRENDE ==================================
  *
@@ -117,37 +123,43 @@ function montarFormulario() {
 }
 
 describe('cadastro: a Organização Militar se declara como lotação', () => {
-    it('a nota chega ao formulário, dentro do campo da OM, no ramo de <select>', () => {
+    it('a nota chega ao formulário, dentro do campo da OM, com a lista controlada servida', () => {
         config.postos = [{ id: 'p1', name: 'Capitão' }];
-        config.organizacoesMilitares = [{ id: 'om1', name: '1º BEC' }];
+        config.organizacoesMilitares = [{ id: 'om1', name: '1º BEC', sigla: '1º BEC' }];
 
         const form = montarFormulario();
         const om = byTestId(form, 'signup-om');
+        const campo = byTestId(form, 'signup-om-field');
         const nota = byTestId(form, 'signup-om-hint');
 
         expect(om, 'o campo da OM existe').not.toBeNull();
-        expect(om.tagName, 'com lista controlada ele é um select').toBe('SELECT');
+        expect(om.tagName, 'o controle é o input do combobox').toBe('INPUT');
+        expect(om.getAttribute('role'), 'e ele se anuncia como combobox').toBe('combobox');
+        expect(om.getAttribute('aria-expanded'), 'fechado ao nascer').toBe('false');
+        expect(campo, 'o campo do combobox é endereçável').not.toBeNull();
         expect(nota, 'a nota foi pendurada').not.toBeNull();
         expect(nota.textContent).toBe(LOTACAO_HINT);
         // PARENTESCO, e é ele que separa "a nota existe" de "a nota está NO campo": uma nota solta
         // no fim do formulário passaria na asserção de texto e mentiria sobre a que campo se refere.
-        expect(ancestors(nota), 'a nota mora no mesmo campo que o controle')
-            .toContain(om.parentElement);
+        expect(ancestors(nota), 'a nota mora no mesmo campo que o controle').toContain(campo);
+        expect(ancestors(om), 'e o controle também').toContain(campo);
         expect(om.getAttribute('aria-describedby')).toBe(nota.id);
     });
 
     it('a nota permanece com o seletor indisponivel quando o /config nao serviu a lista', () => {
-        // Sem `config.organizacoesMilitares` o modal cai no campo de texto: são dois construtores
-        // diferentes, e pendurar a nota só num deles some com ela metade das vezes.
+        // Sem `config.organizacoesMilitares` o combobox nasce DESABILITADO: o valor submetido é um
+        // UUID, então texto livre nunca substitui a lista. A nota tem de sobreviver aos dois
+        // estados, e pendurá-la só num deles some com ela metade das vezes.
         const form = montarFormulario();
         const om = byTestId(form, 'signup-om');
+        const campo = byTestId(form, 'signup-om-field');
         const nota = byTestId(form, 'signup-om-hint');
 
-        expect(om.tagName, 'sem lista, não se pode digitar texto em um campo UUID').toBe('SELECT');
+        expect(om.tagName, 'sem lista, não se pode digitar texto em um campo UUID').toBe('INPUT');
         expect(om.disabled).toBe(true);
         expect(nota, 'a nota foi pendurada também aqui').not.toBeNull();
         expect(nota.textContent).toBe(LOTACAO_HINT);
-        expect(ancestors(nota)).toContain(om.parentElement);
+        expect(ancestors(nota)).toContain(campo);
     });
 
     it('nenhum outro campo obrigatório ganhou a nota por engano', () => {

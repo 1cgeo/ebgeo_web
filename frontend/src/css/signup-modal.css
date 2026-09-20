@@ -1,0 +1,181 @@
+/* Path: src/css/signup-modal.css */
+
+/*
+ * "Criar conta" (`js/modals/signup.modal.js`). BEM block: .signup-modal.
+ *
+ * It rides on the `login-modal__*` chrome (input, error, actions, link) and changes only what the
+ * WIDE two-column form needs, so the two dialogs keep looking like the same product and the rules
+ * they share live in one file. This one is never allowed to edit `login-modal.css`.
+ *
+ * THE NUMBERS THIS FILE EXISTS TO FIX, measured on 2026-09-20 in the real app at 1366x768: the
+ * stacked form was 1048px of content inside a 653px dialog, so 395px of it — the two controlled
+ * lists, the lotação note, "Criar conta" and "Já tenho conta" — were below the fold. Every rule
+ * below is either width, grouping or vertical budget.
+ *
+ * Specificity is deliberate: `.modal-container.signup-modal__container` (two classes) beats
+ * `.login-modal__container` (one) whatever order the manifests import them in. Order-dependent
+ * overrides are how a shared dialog breaks the day somebody reshuffles an @import.
+ */
+
+.modal-container.signup-modal__container {
+    max-width: 880px;
+
+    /* Taller than the shared 85vh: the whole point is that nothing needs scrolling at 768px. */
+    max-height: min(94vh, 820px);
+}
+
+/* =========================================================================
+   BRAND (horizontal, unlike the login dialog's stacked lozenge)
+   ========================================================================= */
+
+.signup-modal__brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+}
+
+.signup-modal__logo {
+    flex-shrink: 0;
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+}
+
+.signup-modal__brand-texts {
+    min-width: 0;
+}
+
+.signup-modal__brand-title {
+    margin: 0;
+    color: var(--gray-900);
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-bold);
+}
+
+.signup-modal__brand-tagline {
+    margin: 0;
+    color: var(--gray-500);
+    font-size: var(--font-size-sm);
+}
+
+/* =========================================================================
+   FORM: three groups, two columns each
+   ========================================================================= */
+
+.signup-modal__form {
+    gap: var(--space-3);
+}
+
+.signup-modal__section {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.signup-modal__legend {
+    display: block;
+    width: 100%;
+    padding: 0;
+    margin-bottom: var(--space-2);
+    color: var(--primary-700);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.signup-modal__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3) var(--space-4);
+    align-items: start;
+}
+
+/* Rank is an abbreviation ("1º Ten"); the unit is a sentence. Splitting the row evenly wastes
+   half of it on the short one and makes the lotação note wrap three times. */
+.signup-modal__grid--lotacao {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+}
+
+/* 40px instead of the 44px touch target: on a pointer device this is what buys the last rows of
+   the form. The mobile block below puts the touch target back. */
+.signup-modal__form .login-modal__input {
+    height: 40px;
+}
+
+.signup-modal__hint {
+    margin-top: var(--space-1);
+    font-size: var(--font-size-2xs);
+}
+
+/* =========================================================================
+   LIVE PASSWORD CONFIRMATION
+   The line KEEPS ITS HEIGHT while empty: a notice that only takes up space once it speaks makes
+   the form jump under the cursor exactly while somebody is typing into it.
+   ========================================================================= */
+
+.signup-modal__match {
+    min-height: 1.125rem;
+    margin: var(--space-1) 0 0;
+    color: var(--gray-500);
+    font-size: var(--font-size-xs);
+    line-height: var(--line-height-normal);
+}
+
+.signup-modal__match--coincide {
+    color: var(--primary-700);
+    font-weight: var(--font-weight-medium);
+}
+
+.signup-modal__match--difere {
+    color: var(--color-error-strong);
+    font-weight: var(--font-weight-medium);
+}
+
+.signup-modal__match--longa-demais {
+    color: var(--color-warning-strong);
+    font-weight: var(--font-weight-medium);
+}
+
+/* =========================================================================
+   FOOT: actions and the two secondary links share one row on a wide dialog
+   ========================================================================= */
+
+.signup-modal__actions {
+    margin-top: var(--space-1);
+}
+
+.signup-modal__secondary {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--space-2);
+    margin-top: 0;
+}
+
+/* =========================================================================
+   NARROW (<=760px): one column, touch targets back, scrolling is acceptable
+   ========================================================================= */
+
+@media (width <= 760px) {
+    .modal-container.signup-modal__container {
+        max-width: 100%;
+    }
+
+    .signup-modal__grid,
+    .signup-modal__grid--lotacao {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .signup-modal__form .login-modal__input {
+        height: var(--touch-target-min);
+    }
+
+    /* The submit must stay reachable at the end of a scroll, so it never floats away from the
+       flow: the dialog body scrolls, the actions travel with it. */
+    .signup-modal__actions {
+        margin-top: var(--space-2);
+    }
+}

@@ -1,0 +1,143 @@
+/* Path: src/css/searchable-select.css */
+
+/*
+ * The type-to-filter combobox (`js/ui/searchable-select.js`). BEM block: .searchable-select.
+ *
+ * THE LIST IS `position: fixed` AND LIVES ON `document.body`, not inside the field. Its first home
+ * is a dialog whose body is an `overflow-y: auto` scroll box inside a container with
+ * `overflow: hidden`, so an absolutely positioned dropdown would be clipped by two ancestors at
+ * once. The component writes `top`/`left`/`width`/`max-height` from JS (a computed position is the
+ * declared exception to "no inline style"), so nothing here may set those four.
+ *
+ * The z-index sits ABOVE `--z-modal` and below `--z-toast`: the list has to cover the dialog it
+ * belongs to, and must never cover a toast.
+ */
+
+.searchable-select {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+}
+
+.searchable-select__shell {
+    position: relative;
+    display: block;
+}
+
+/* Room for the chevron, so a long unit name never runs under it. */
+.searchable-select__input {
+    padding-right: var(--space-8);
+}
+
+.searchable-select__input:disabled {
+    background: var(--gray-100);
+    color: var(--gray-500);
+    cursor: not-allowed;
+}
+
+.searchable-select__caret {
+    position: absolute;
+    top: 50%;
+    right: var(--space-2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--gray-500);
+    cursor: pointer;
+    transform: translateY(-50%);
+}
+
+.searchable-select__input:disabled + .searchable-select__caret {
+    color: var(--gray-300);
+    cursor: not-allowed;
+}
+
+.searchable-select__list {
+    position: fixed;
+    z-index: calc(var(--z-modal) + 10);
+    margin: 0;
+    padding: var(--space-1);
+    overflow-y: auto;
+    background: #fff;
+    border: var(--border-width) solid var(--border-color-dark);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    list-style: none;
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary) transparent;
+}
+
+.searchable-select__list[hidden] {
+    display: none;
+}
+
+.searchable-select__list::-webkit-scrollbar {
+    width: 8px;
+}
+
+.searchable-select__list::-webkit-scrollbar-thumb {
+    background-color: var(--primary);
+    border-radius: var(--radius-full);
+}
+
+.searchable-select__option {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    color: var(--gray-800);
+    font-size: var(--font-size-sm);
+    line-height: var(--line-height-normal);
+    cursor: pointer;
+}
+
+/* The HIGHLIGHT is `aria-activedescendant`, not focus: the focus stays in the input so the
+   person can keep typing, and this class is the only thing that shows where they are. */
+.searchable-select__option--active {
+    background: var(--primary-50);
+    color: var(--primary-800);
+}
+
+.searchable-select__option-name {
+    min-width: 0;
+}
+
+.searchable-select__option-sigla {
+    flex-shrink: 0;
+    color: var(--gray-500);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: 0.03em;
+}
+
+.searchable-select__option--active .searchable-select__option-sigla {
+    color: var(--primary-700);
+}
+
+/* "Nenhum resultado": a sentence, never an empty box — an empty dropdown reads as broken. */
+.searchable-select__empty {
+    padding: var(--space-3);
+    color: var(--gray-500);
+    font-size: var(--font-size-sm);
+    font-style: italic;
+}
+
+/* Read by screen readers only: the announcement that survives the host dialog being
+   `aria-modal`, which hides the portal list from the accessibility tree. */
+.searchable-select__status {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}

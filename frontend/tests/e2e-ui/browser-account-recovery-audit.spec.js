@@ -3,6 +3,9 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createDb, closeDb } from './helpers/db.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+// A OM deixou de ser `<select>` em 2026-09-20: é o combobox buscável, e `selectOption` não o
+// alcança. O posto continua sendo um `<select>` de propósito (lista curta, ordenada por hierarquia).
+import { escolherNoCombobox } from './helpers/combobox.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -27,7 +30,7 @@ describeOrSkip('Signup and password recovery audit', () => {
         await field(page, 'signup-password').fill('Original-123');
         await field(page, 'signup-password-confirm').fill('Original-123');
         await field(page, 'signup-posto').selectOption({ index: 1 });
-        await field(page, 'signup-om').selectOption({ index: 1 });
+        await escolherNoCombobox(page, 'signup-om', { termo: 'DSG' });
         return username;
     }
     test('late signup response cannot reopen a dialog after cancellation', async ({ page }) => {
@@ -93,7 +96,8 @@ describeOrSkip('Signup and password recovery audit', () => {
         let requests = 0;
         page.on('request', (r) => { if (r.url().endsWith('/auth/register')) requests++; });
         await field(page, 'signup-submit').click();
-        await expect(field(page, 'signup-error')).toContainText('72 bytes');
+        await expect(field(page, 'signup-error')).toContainText('Senha longa demais');
+        await expect(field(page, 'signup-error')).not.toContainText('byte');
         expect(requests).toBe(0);
     });
 
@@ -106,7 +110,14 @@ describeOrSkip('Signup and password recovery audit', () => {
         const { username, email } = user;
         const db = createDb(state.dbName).raw;
         await field(page, 'account-login-btn').click();
+        // The username is typed BEFORE the detour, so the return trip can prove it survived.
+        await field(page, 'login-username').fill(username);
         await field(page, 'login-forgot-password').click();
+        // THE TWO VIEWS ARE MUTUALLY EXCLUSIVE, which is the whole point of the change of
+        // 2026-09-20: the recovery form used to unfold UNDER the login form and the dialog scrolled.
+        await expect(field(page, 'login-username')).toBeHidden();
+        await expect(field(page, 'login-password')).toBeHidden();
+        await expect(field(page, 'login-submit')).toBeHidden();
         await field(page, 'login-recovery-email').fill(email);
         await field(page, 'login-recovery-request').click();
         await expect(field(page, 'login-recovery-message')).toContainText('alguns minutos');
@@ -115,7 +126,11 @@ describeOrSkip('Signup and password recovery audit', () => {
         await field(page, 'login-recovery-password').fill('á'.repeat(37));
         await field(page, 'login-recovery-confirm').fill('á'.repeat(37));
         await field(page, 'login-recovery-reset').click();
-        await expect(field(page, 'login-recovery-message')).toContainText('72 bytes');
+        // The bcrypt byte ceiling still refuses this password; since 2026-09-20 it refuses it in
+        // plain words. "72 bytes em UTF-8" was the implementation read out to whoever is locked
+        // out, and the number would be wrong anyway: this password is 37 characters long.
+        await expect(field(page, 'login-recovery-message')).toContainText('Senha longa demais');
+        await expect(field(page, 'login-recovery-message')).not.toContainText('byte');
         await field(page, 'login-recovery-password').fill('Replacement-123');
         await field(page, 'login-recovery-confirm').fill('Replacement-123');
         await page.route('**/auth/reset-password', async (route) => {
@@ -126,7 +141,10 @@ describeOrSkip('Signup and password recovery audit', () => {
         await expect(field(page, 'login-recovery-message')).toHaveAttribute('role', 'alert');
         await field(page, 'login-recovery-reset').click();
         await expect(field(page, 'login-recovery-message')).toContainText('inválido ou já utilizado');
-        // A fresh code is the recovery path after an ambiguous network failure.
+        // A fresh code is the recovery path after an ambiguous network failure. Asking for it means
+        // stepping back to the request form, which is the other half of the recovery view.
+        await field(page, 'login-recovery-ask-again').click();
+        await expect(field(page, 'login-recovery-email')).toBeVisible();
         await field(page, 'login-recovery-request').click();
         await expect(field(page, 'login-recovery-message')).toContainText('alguns minutos');
         const fresh = await db.one("SELECT token FROM email_verification_tokens WHERE user_id = $1 AND purpose = 'reset_password' AND consumed_at IS NULL", [user.id]);
@@ -136,8 +154,12 @@ describeOrSkip('Signup and password recovery audit', () => {
         await expect(field(page, 'login-recovery-password')).toHaveValue('');
         await expect(field(page, 'login-recovery-code')).toHaveValue('');
         await page.screenshot({ path: testInfo.outputPath('recovery-complete.png') });
-        await field(page, 'login-forgot-password').click();
-        await field(page, 'login-username').fill(username);
+        // The way back is a command of its own now, and what was typed before the detour is still
+        // there: the username survives and only the password (the secret that failed) is wiped.
+        await field(page, 'login-recovery-back').click();
+        await expect(field(page, 'login-recovery-view')).toBeHidden();
+        await expect(field(page, 'login-username')).toHaveValue(username);
+        await expect(field(page, 'login-password')).toHaveValue('');
         await field(page, 'login-password').fill('Replacement-123');
         await field(page, 'login-submit').click();
         await page.waitForURL('**/atlas.html');
