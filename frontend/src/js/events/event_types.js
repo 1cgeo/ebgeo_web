@@ -204,6 +204,30 @@ export const EventTypes = Object.freeze({
      * dois e' um evento.
      */
     MAP_RENAMED_REMOTELY: 'map:renamedRemotely',
+    /**
+     * O MAPA QUE ESTA ABA TEM ABERTO FICOU PARA TRAS: ele mudou de nome, ou deixou de existir,
+     * por obra de outra pessoa. Payload: `{ mapId, oldName, newName }`, com `newName` NULO quando
+     * o mapa sumiu.
+     *
+     * DOIS PORTADORES, e e' por isso que o nome nao cita nenhum dos dois: um RETRATO do servidor
+     * (que reescreve o disco inteiro e pode trazer o mapa com outro nome, ou nao traze-lo) e o
+     * DELETE ao vivo do mapa aberto. Medido em 2026-09-21 com duas browsers reais: nos dois casos
+     * `memoryStore.currentMap` continuava no nome velho, e a escrita seguinte procurava um
+     * documento que nao existe.
+     *
+     * POR QUE ELE NAO E' O `MAP_RENAMED_REMOTELY`, e a pergunta se faz sozinha porque a metade de
+     * rename e' a mesma. Duas razoes. A guarda de `applyRemoteMapRename` e' uma pergunta de
+     * IDENTIDADE sobre o nome VELHO no indice, e ela so' e' verdadeira no caminho AO VIVO de
+     * rename, onde `saveMap` registra o nome novo sem apagar o velho: depois de um retrato o
+     * indice inteiro foi trocado, o nome velho nao resolve mais, e o mesmo anuncio seria RECUSADO
+     * em silencio, que e' pior do que nao anunciar. E o desfecho "o mapa sumiu" nao cabe num
+     * anuncio chamado "renomeado": um `newName: null` significando "excluido" dentro daquele
+     * evento e' exatamente a homonimia que este produto ja' pagou caro.
+     *
+     * Quem consome e' o assinante de `store/map.operations.js`, pela mesma razao estrutural do
+     * irmao: o tratador de entrada nao pode importar o gerente de estado (guarda P8).
+     */
+    CURRENT_MAP_STALE_REMOTELY: 'map:currentStaleRemotely',
 
     // ===== MAP LOCK =====
     /** Payload: { mapName, locked } */

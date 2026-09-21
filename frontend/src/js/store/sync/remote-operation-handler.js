@@ -1310,13 +1310,28 @@ async function applyRemoteMapOp(opType, mapId, data, serverVersion) {
             emit(EventTypes.MAP_MODIFIED, { mapId, map: merged });
             break;
         }
-        case OperationType.DELETE:
+        case OperationType.DELETE: {
             // Remove the map another user deleted (§1.9). The resolver entry is left
             // intact so the maps tab can still resolve id→name for its redirect; the
             // resolver is rebuilt on the next snapshot/init.
+            //
+            // E O ANUNCIO SAI DAQUI TAMBEM, porque o desvio que ja' existia MORAVA so' na ABA MAPAS (saiu de la' no mesmo dia, quando este anuncio passou a cobrir os dois casos)
+            // (o ramo de exclusao de `_onRemoteOperation`), e as abas da barra lateral sao
+            // construidas SOB DEMANDA: quem nunca abriu "Mapas" nao tem aquele assinante. Medido
+            // em 2026-09-21 com duas browsers reais, num par que so' desenhava: depois de o dono
+            // excluir o mapa aberto, `currentMap` e `lastActiveMap` continuavam no mapa morto, sem
+            // aviso nenhum, e a ferramenta de linha passou a recusar toda feiçao (`map_missing`).
+            // A pergunta e' pelo mapa MONTADO, e nao pelo nome do payload, pela mesma razao do
+            // retrato: e' o unico modo de saber que esta aba estava de fato vendo aquele mapa.
+            const correnteMontado = mapaCorrenteMontado();
+            const nomeExcluido = mapResolver.getNameForId(mapId) ?? null;
             await repo.deleteMap?.(mapId);
             emit(EventTypes.MAP_DELETED, { mapId });
+            if (correnteMontado && nomeExcluido === correnteMontado) {
+                emit(EventTypes.CURRENT_MAP_STALE_REMOTELY, { mapId, oldName: correnteMontado, newName: null });
+            }
             break;
+        }
     }
     // O MAPA ATERRISSOU, ENTAO OS AJUSTES QUE ESPERAVAM POR ELE PODEM SER GRAVADOS. Vale para o
     // UPDATE tambem, e nao so' para o CREATE: um `map` UPDATE cujo registro ainda nao existia
@@ -2157,6 +2172,13 @@ export function applyRemoteSnapshot(snapshot, options = {}) {
         let activated = false;
         let generation = null;
         let previousRecord = null;
+        // O ANUNCIO DO MAPA CORRENTE SAI DEPOIS DA PAUSA, E ESSA ORDEM E' O CONTRATO. O assinante
+        // dele escreve (o ponteiro `lastActiveMap`, e no caso do mapa excluido uma troca de mapa
+        // inteira), e ate' o `finally` abaixo toda escrita de store deste escopo esta' PAUSADA:
+        // emitir de dentro do `try` entregaria o trabalho a uma janela que o recusa. Como a
+        // variavel e' preenchida so' depois da ativacao e o `catch` relanca, um retrato que falhe
+        // nao anuncia nada.
+        let mapaCorrenteDesatualizado = null;
         try {
             await pause.settled;
             context.assertActive();
@@ -2199,11 +2221,20 @@ export function applyRemoteSnapshot(snapshot, options = {}) {
             // ordem: quem acrescentar um espelho novo a esta lista acrescenta tambem a reposicao
             // dele la', senao o mapa que a pessoa esta vendo perde aquele estado em silencio no
             // primeiro retrato do meio da sessao (foi o que aconteceu com o temporal, achado S5).
-            mapResolver.clear();
+            // O MAPA CORRENTE E' PERGUNTADO ANTES DA TROCA DO INDICE, porque e' o indice velho
+            // que traduz o NOME que esta aba tem aberto no ID que o retrato usa como chave.
+            const correnteAntes = mapaCorrenteMontado();
+            const idDoCorrente = correnteAntes
+                ? (mapResolver.getIdForName(correnteAntes) ?? (maps.has(correnteAntes) ? correnteAntes : null))
+                : null;
+            // TROCA EM UMA CHAMADA SO', e nao `clear()` mais um laço: `clear()` derruba a marca
+            // `isInitialized` e nada a repunha, o que deixava o indice cheio e a marca falsa pelo
+            // resto da sessao remota. Ver o cabeçalho de `MapResolverService.replaceAll`.
+            mapResolver.replaceAll([...maps].map(([id, map]) => [map?.name, id]));
             memoryStore.groups = {};
             memoryStore.lockedMaps.clear();
             memoryStore.temporalConfigs.clear();
-            for (const [id, map] of maps) mapResolver.registerMap(map.name, id);
+            mapaCorrenteDesatualizado = anuncioDeMapaCorrente(correnteAntes, idDoCorrente, maps);
             for (const effect of context.presentation) {
                 context.assertActive();
                 await effect();
@@ -2219,7 +2250,41 @@ export function applyRemoteSnapshot(snapshot, options = {}) {
         } finally {
             pause.resume();
         }
+        if (mapaCorrenteDesatualizado) emit(EventTypes.CURRENT_MAP_STALE_REMOTELY, mapaCorrenteDesatualizado);
     }));
+}
+
+/**
+ * O NOME DO MAPA QUE ESTA ABA TEM DE FATO ABERTO, ou null quando ela nao esta em mapa nenhum.
+ *
+ * A PERGUNTA NAO E' `memoryStore.currentMap`, E A DIFERENÇA E' O CASO DA ABERTURA. `resetAtlasView`
+ * zera a memoria logo antes de o atlas ser aberto, e o estado inicial traz `currentMap` com o nome
+ * do mapa local padrao, que um atlas de servidor pode ter tambem. Sem esta pergunta, abrir um
+ * atlas que TEVE um mapa com aquele nome anunciaria uma perda que nao houve: um aviso falso na
+ * tela e uma troca de mapa competindo com a que o proprio pipeline de abertura faz na linha
+ * seguinte. O sinal de "montado" e' a entrada em `memoryStore.layers`, escrita por
+ * `loadLayersToMemory` dentro de `setCurrentMap` e zerada junto com o resto da memoria.
+ *
+ * @returns {string|null}
+ */
+function mapaCorrenteMontado() {
+    const nome = memoryStore.currentMap;
+    return nome && Object.hasOwn(memoryStore.layers ?? {}, nome) ? nome : null;
+}
+
+/**
+ * O QUE O MAPA CORRENTE VIROU NO RETRATO: o anuncio, ou null quando nao ha' o que reconciliar.
+ *
+ * @param {string|null} oldName - Nome que esta aba tinha aberto antes do retrato.
+ * @param {string|null} mapId - Id daquele mapa, lido do indice ANTES de ele ser trocado.
+ * @param {Map<string, Object>} maps - Os mapas que o retrato deixou no disco, por chave.
+ * @returns {{mapId: string, oldName: string, newName: string|null}|null}
+ */
+function anuncioDeMapaCorrente(oldName, mapId, maps) {
+    if (!oldName || !mapId) return null;
+    const newName = maps.get(mapId)?.name ?? null;
+    if (newName === oldName) return null;
+    return { mapId, oldName, newName };
 }
 
 /**

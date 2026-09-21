@@ -140,8 +140,13 @@ describe('Map settings write-ahead persistence', () => {
     it('um mapa remoto inexistente não é sintetizado pelo fallback de compatibilidade', async () => {
         // `getMapDataCompat` responde um documento VAZIO para mapa ausente; gravá-lo de volta
         // criaria o mapa, e a op carregaria um id que o servidor nunca emitiu.
+        // Até 2026-09-21 esta recusa ESTOURAVA ('identidade remota'), e recusa que lança não chega
+        // à pessoa. Ela virou recusa com voz (`map_missing`), DENTRO da transação. O que este caso
+        // guarda não mudou: nada é sintetizado e nada entra na fila.
         const missing = crypto.randomUUID();
-        await expect(setBaseLayer('osm', missing)).rejects.toThrow('identidade remota');
+        await expect(setBaseLayer('osm', missing)).resolves.toBeUndefined();
+        await expect(updateMapPosition(-22.9, -43.17, 12, 0, 0, missing)).resolves.toBeUndefined();
+        await expect(clearMapPosition(missing)).resolves.toBeUndefined();
         expect(await localRepository.getMap(missing)).toBeNull();
         expect(await operationQueue.count()).toBe(0);
     });

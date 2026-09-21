@@ -173,9 +173,19 @@ describe('gravação de configuração de mapa durante uma recuperação', () =>
     });
 
     it('erro que NÃO é a recusa de recuperação continua subindo', async () => {
-        // O alcance do catch é estreito de propósito: um mapa remoto sem identidade continua
-        // reprovando, que é o guarda do mesmo commit.
-        await expect(setBaseLayer('osm', crypto.randomUUID())).rejects.toThrow('identidade remota');
+        // O alcance do catch é estreito de propósito: um erro que não é a recusa de recuperação
+        // continua reprovando. O exemplo era o mapa remoto sem identidade, que ESTOURAVA até
+        // 2026-09-21; ele passou a ser recusa com voz (`map_missing`), então o erro que sobe aqui é
+        // outro, a quota do disco na gravação do documento.
+        vi.spyOn(LocalRepository.prototype, 'saveMap')
+            .mockRejectedValueOnce(new DOMException('quota', 'QuotaExceededError'));
+        await expect(setBaseLayer('osm', mapa.id)).rejects.toThrow('quota');
         expect(bloqueios).toHaveLength(0);
+    });
+
+    it('mapa remoto inexistente é RECUSA COM VOZ, e não erro que sobe', async () => {
+        await expect(setBaseLayer('osm', crypto.randomUUID())).resolves.toBeUndefined();
+        expect(bloqueios.map(b => `${b.operation}:${b.reason}`)).toEqual(['setBaseLayer:map_missing']);
+        expect(await operationQueue.count()).toBe(0);
     });
 });

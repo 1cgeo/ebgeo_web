@@ -1889,3 +1889,120 @@ describe('S1 (metade REMOTA) — o rename vindo do par carrega os laterais chave
         );
     });
 });
+
+describe('D1/O3 — a ativacao do retrato repoe a marca e anuncia o mapa corrente (estrutural)', () => {
+    // POR QUE ESTE BLOCO E' ESTRUTURAL, e nao funcional como os vizinhos: o trecho que ele mede
+    // vive no ramo de escopo REMOTO de `applyRemoteSnapshot`, que exige namespace, ponteiro de
+    // geracao e pausa de escrita. Este arquivo aplica retratos em escopo LOCAL, onde o ramo
+    // inteiro e' pulado, entao um caso funcional escrito aqui seria verde sem nunca ter executado
+    // a linha que interessa. O caso funcional, com IndexedDB e escopo remoto de verdade, esta em
+    // `frontend/tests/integration/retrato-repoe-a-marca-do-resolvedor.test.js`; o que se prende
+    // aqui e' a FORMA, que e' o que a proxima reescrita pode desfazer sem nada ficar vermelho.
+    const fonte = () => readFileSync(
+        new URL('../../src/js/store/sync/remote-operation-handler.js', import.meta.url), 'utf8');
+
+    const ativacao = () => {
+        const src = fonte();
+        const inicio = src.indexOf('export function applyRemoteSnapshot');
+        const fim = src.indexOf('function mapaCorrenteMontado');
+        expect(inicio, 'o trecho da ativacao do retrato nao foi encontrado').toBeGreaterThan(-1);
+        expect(fim).toBeGreaterThan(inicio);
+        return src.slice(inicio, fim);
+    };
+
+    it('troca o indice por `replaceAll`, e NAO por `clear()` mais um laco', () => {
+        // `clear()` derruba `isInitialized` e nada o repunha: o indice ficava cheio e a marca
+        // falsa pelo resto da sessao remota, o que desliga a via rapida de `getMap` e manda a
+        // contagem de cores para uma chave por NOME.
+        const trecho = ativacao();
+        expect(trecho).toContain('mapResolver.replaceAll(');
+        expect(trecho).not.toContain('mapResolver.clear()');
+        expect(trecho).not.toMatch(/for \(const \[id, map\] of maps\) mapResolver\.registerMap/);
+    });
+
+    it('anuncia o mapa corrente DEPOIS de a pausa de escrita terminar', () => {
+        // O assinante escreve (o ponteiro `lastActiveMap`, e uma troca de mapa inteira quando o
+        // mapa sumiu). Emitir de dentro do `try` entregaria esse trabalho a uma janela em que
+        // toda escrita do escopo esta' pausada.
+        const trecho = ativacao();
+        expect(trecho).toMatch(
+            /pause\.resume\(\);[\s\S]{0,200}emit\(EventTypes\.CURRENT_MAP_STALE_REMOTELY/);
+    });
+
+    it('pergunta pelo mapa corrente ANTES de trocar o indice', () => {
+        // O indice VELHO e' o unico que traduz o nome aberto no id que o retrato usa como chave.
+        const trecho = ativacao();
+        const pergunta = trecho.indexOf('mapaCorrenteMontado()');
+        const troca = trecho.indexOf('mapResolver.replaceAll(');
+        expect(pergunta).toBeGreaterThan(-1);
+        expect(pergunta).toBeLessThan(troca);
+    });
+});
+
+describe('G2 — o DELETE ao vivo do mapa ABERTO anuncia, porque a aba Mapas pode nem existir', () => {
+    // O DEFEITO, medido em 2026-09-21 com duas browsers reais num par que so' desenhava: o unico
+    // desvio para fora de um mapa excluido morava em `sidebar/tabs/maps.tab.js`
+    // (o ramo de exclusao de `_onRemoteOperation`, removido no mesmo dia), e as abas da barra lateral sao
+    // construidas SOB DEMANDA (`SidebarControl._getTabContent`). Quem nunca abriu "Mapas" nao tem
+    // aquele assinante: depois de o dono excluir o mapa aberto, `currentMap` e `lastActiveMap`
+    // continuavam no mapa morto, sem aviso nenhum, e toda feiçao desenhada era recusada
+    // (`map_missing`). Quem reconcilia agora e' o store, que nao depende de tela nenhuma.
+    beforeEach(() => {
+        mapResolver.clear();
+        memoryStore.layers = {};
+        memoryStore.currentMap = null;
+        mapDataStore.set('map-g2', { ...createTestMapData(), id: 'map-g2', name: 'Mapa Aberto' });
+        mapResolver.registerMap('Mapa Aberto', 'map-g2');
+    });
+
+    const apagar = (entityId) => applyRemoteOperation({
+        entityType: EntityType.MAP, operationType: OperationType.DELETE,
+        entityId, mapId: null, data: null,
+    });
+
+    it('anuncia quando o mapa excluido E o que esta aba tem MONTADO', async () => {
+        memoryStore.currentMap = 'Mapa Aberto';
+        memoryStore.layers['Mapa Aberto'] = new Map();
+
+        await apagar('map-g2');
+
+        expect(eventBus.emit).toHaveBeenCalledWith(EventTypes.CURRENT_MAP_STALE_REMOTELY, {
+            mapId: 'map-g2', oldName: 'Mapa Aberto', newName: null,
+        });
+    });
+
+    it('NAO anuncia quando a pessoa esta em outro mapa', async () => {
+        memoryStore.currentMap = 'Outro Mapa';
+        memoryStore.layers['Outro Mapa'] = new Map();
+
+        await apagar('map-g2');
+
+        expect(eventBus.emit).not.toHaveBeenCalledWith(
+            EventTypes.CURRENT_MAP_STALE_REMOTELY, expect.anything());
+    });
+
+    it('NAO anuncia quando o nome bate mas nenhum mapa esta montado', async () => {
+        // A mesma guarda do retrato, e pela mesma razao: `memoryStore.currentMap` carrega o nome
+        // do mapa local padrao logo depois de um `resetMemoryStore`, e um atlas de servidor pode
+        // ter um mapa com aquele nome. Sem mapa montado, esta aba nao estava vendo nada.
+        memoryStore.currentMap = 'Mapa Aberto';
+        memoryStore.layers = {};
+
+        await apagar('map-g2');
+
+        expect(eventBus.emit).not.toHaveBeenCalledWith(
+            EventTypes.CURRENT_MAP_STALE_REMOTELY, expect.anything());
+    });
+
+    it('o DELETE de um mapa que o indice nao conhece nao anuncia nada', async () => {
+        // `getNameForId` devolve `undefined`, e comparar `undefined` com o nome montado tem de dar
+        // falso: um anuncio com `oldName` errado tiraria a pessoa de um mapa vivo.
+        memoryStore.currentMap = 'Mapa Aberto';
+        memoryStore.layers['Mapa Aberto'] = new Map();
+
+        await apagar('map-desconhecido');
+
+        expect(eventBus.emit).not.toHaveBeenCalledWith(
+            EventTypes.CURRENT_MAP_STALE_REMOTELY, expect.anything());
+    });
+});

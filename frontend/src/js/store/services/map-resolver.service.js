@@ -109,6 +109,39 @@ class MapResolverService {
     }
 
     /**
+     * TROCA O INDICE INTEIRO E MARCA INICIALIZADO, numa operacao so.
+     *
+     * POR QUE ELA EXISTE. `clear()` faz DUAS coisas: zera os dois indices e derruba a marca
+     * (`_initialized = false`), e so `initialize()` a repunha. Quem limpava e re-registrava a mao
+     * (a ativacao de um retrato do servidor, em `store/sync/remote-operation-handler.js`) ficava
+     * com o indice CHEIO e a marca FALSA, e esse estado nao da erro nenhum: ele apenas desliga,
+     * em silencio, os tres leitores da marca. `LocalRepository.getMap` e `_resolveMapKey` caem na
+     * varredura lenta que casa `mapData.name` (uma leitura de documento inteiro por mapa, e uma
+     * resposta VAZIA quando o nome procurado nao e mais o nome de documento nenhum), e
+     * `_resolveSettingsKey` (`store/repositories/index.js`) passa a gravar a contagem de cores sob
+     * o NOME em vez do id. Como TODA abertura de atlas de servidor aplica um retrato, a marca
+     * ficava falsa pelo resto da sessao remota (medido em 2026-09-21 com duas browsers reais,
+     * `frontend/tests/e2e-ui/browser-collab-mapa-fantasma.spec.js`).
+     *
+     * O PAR SEM NOME OU SEM ID E DESCARTADO: `registerMap(undefined, id)` cravaria a chave
+     * `undefined` nos dois indices, e um documento de mapa pode chegar sem `name`. Id REPETIDO
+     * segue a semantica de dois `registerMap` em sequencia (os dois nomes resolvem para o id, e o
+     * id resolve para o ultimo nome), que e a mesma que `initialize` ja produz para um alias.
+     *
+     * @param {Iterable<[string, string]>} pairs - `[name, id]` pairs, in registration order.
+     */
+    replaceAll(pairs) {
+        this._nameToId.clear();
+        this._idToName.clear();
+        for (const pair of pairs ?? []) {
+            const [name, id] = pair ?? [];
+            if (!name || !id) continue;
+            this.registerMap(name, id);
+        }
+        this._initialized = true;
+    }
+
+    /**
      * Registers a name/ID mapping.
      * @param {string} name - Map display name
      * @param {string} id - Map UUID

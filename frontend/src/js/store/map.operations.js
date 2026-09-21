@@ -34,7 +34,11 @@ import { OperationType, isOperationLoggingEnabled } from './sync/index.js';
 import { EntityType } from './sync/operation-types.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
+import { recusarMapaInexistente } from './mapa-inexistente.js';
 import { generateUUID, isValidUUID } from '../utilities/uuid.js';
+// Folha, importada por ARQUIVO e nunca pelo barril `@utils` (que arrastaria a store de volta):
+// e' o mesmo import que quatro modulos de `store/sync/` ja' fazem.
+import { showWarning } from '../utilities/toast_service.js';
 import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
 import { runTransaction } from './store-transaction.js';
 import { isStoreRecoveryRefusal, STORE_RECOVERY_NOTICE } from './write-coordinator.js';
@@ -85,8 +89,30 @@ export function setMapDependencies(dependencies) {
 
 // ===== REMOTE RENAME RE-KEYING =====
 
-/** @type {(() => void)|null} Unsubscribe of the current MAP_RENAMED_REMOTELY listener. */
-let _unsubscribeRemoteRename = null;
+/** @type {Array<() => void>} Unsubscribes of the remote map-lifecycle listeners. */
+let _unsubscribeRemoteRename = [];
+
+/**
+ * O mapa cuja SAIDA esta em voo, ou null. Marca de voo unica, porque so' um mapa pode ser o
+ * corrente.
+ *
+ * ELA E' ESTRUTURAL, E NAO NASCEU DE UMA MEDIÇAO, o que e' exatamente o que precisa estar escrito
+ * aqui. A saida e' ASSINCRONA ate' `activateAtlasInitialMap` trocar o mapa corrente, e a guarda
+ * acima ("esta pessoa esta naquele mapa") so' deixa de valer no fim dessa troca: dois anuncios do
+ * MESMO fato que cheguem dentro dessa janela (o DELETE ao vivo e um retrato que chegue logo atras,
+ * por exemplo) passariam os dois, e o preço sao dois avisos e duas trocas de mapa para um fato so'.
+ *
+ * O QUE NAO A JUSTIFICA, porque foi um erro de INSTRUMENTO e ficou registrado para nao voltar: o
+ * retrato do spec mostrou quatro linhas de aviso onde havia dois avisos, e a leitura natural
+ * daquilo ("o apply do delete remoto roda em dobro") era falsa. O retrato CONCATENAVA o registro
+ * do observador de toasts com a varredura do DOM, contando duas vezes o aviso ainda vivo.
+ *
+ * O RAMO DE RENAME NAO PRECISA DELA, e por isso ela nao o cobre: `renameMapInMemory` troca
+ * `memoryStore.currentMap` de forma SINCRONA, antes do primeiro await, entao a segunda entrega ja'
+ * nao passa da guarda.
+ * @type {string|null}
+ */
+let _saidaDeMapaEmVoo = null;
 
 /**
  * Subscribes the ONE listener that re-keys this client's memory when a PEER renames a map.
@@ -105,19 +131,23 @@ let _unsubscribeRemoteRename = null;
  * @param {import('../events/event_bus.js').EventBus|null} eventBus - Bus to listen on.
  */
 function subscribeRemoteMapRename(eventBus) {
-    _unsubscribeRemoteRename?.();
-    _unsubscribeRemoteRename = null;
+    for (const solta of _unsubscribeRemoteRename) solta();
+    _unsubscribeRemoteRename = [];
     if (typeof eventBus?.on !== 'function') return;
-    const solta = eventBus.on(EventTypes.MAP_RENAMED_REMOTELY, (payload) => {
-        // O emissor e' sincrono; a escrita do ponteiro de disco nao e'. Um `catch` aqui impede
-        // que uma falha de IndexedDB derrube o apply da operacao remota que anunciou o rename.
-        applyRemoteMapRename(payload).catch((error) => {
-            console.warn('[Store] Falha ao re-chavear a memoria apos rename remoto:', error);
+    const inscrever = (evento, acao, queixa) => {
+        const solta = eventBus.on(evento, (payload) => {
+            // O emissor e' sincrono; a escrita do ponteiro de disco nao e'. Um `catch` aqui impede
+            // que uma falha de IndexedDB derrube o apply da operacao remota que fez o anuncio.
+            acao(payload).catch((error) => console.warn(queixa, error));
         });
-    });
-    // O barramento da casa devolve a funcao que solta a inscricao, e um duble de teste devolve o
-    // que quiser: guardar um nao-funcao faria a proxima passada estourar num `?.()`.
-    _unsubscribeRemoteRename = typeof solta === 'function' ? solta : null;
+        // O barramento da casa devolve a funcao que solta a inscricao, e um duble de teste devolve
+        // o que quiser: guardar um nao-funcao faria a proxima passada estourar num `()`.
+        if (typeof solta === 'function') _unsubscribeRemoteRename.push(solta);
+    };
+    inscrever(EventTypes.MAP_RENAMED_REMOTELY, applyRemoteMapRename,
+        '[Store] Falha ao re-chavear a memoria apos rename remoto:');
+    inscrever(EventTypes.CURRENT_MAP_STALE_REMOTELY, reconcileStaleCurrentMap,
+        '[Store] Falha ao reconciliar o mapa corrente:');
 }
 
 /**
@@ -154,7 +184,33 @@ function subscribeRemoteMapRename(eventBus) {
 export async function applyRemoteMapRename({ mapId, oldName, newName } = {}) {
     if (!mapId || !oldName || !newName || oldName === newName) return false;
     if (mapResolver.resolveToId(oldName) !== mapId) return false;
+    await rekeyMemoryForRename(oldName, newName);
+    return true;
+}
 
+/**
+ * Move a memoria deste cliente de um nome para outro, mais o ponteiro de mapa corrente do disco.
+ *
+ * O CORPO E' COMPARTILHADO PELOS DOIS CAMINHOS de entrada (a op ao vivo e o retrato), e so' a
+ * GUARDA difere entre eles: duas copias desta rotina divergiriam, e a divergencia entre o caminho
+ * do autor e o caminho do par e' o defeito N1 em outra forma.
+ *
+ * `mapResolver.renameMap` e' chamado aqui tambem, e no caminho do retrato ele e' um no-op: o
+ * indice inteiro ja' foi trocado por `replaceAll`, entao o nome velho nao esta' mais la'. Chamar
+ * assim mesmo e' o que mantem uma rotina so'.
+ *
+ * O PONTEIRO DE MAPA CORRENTE NO DISCO ANDA JUNTO, e ele nao e' memoria: `lastActiveMap` guarda
+ * um NOME, a aba Mapas le ele (e nao `getCurrentMapNameSync`) para decidir qual cartao esta
+ * ativo, e sem esta linha a tela do par continuava sem cartao atual mesmo com a memoria certa. O
+ * autor ganha isso de graça porque a tela dele chama `setCurrentMap` logo depois do rename; o par
+ * nao troca de mapa, entao ninguem o reescreveria.
+ *
+ * @param {string} oldName - Nome que a memoria ainda usa como chave.
+ * @param {string} newName - Nome que o disco ja' adotou.
+ * @returns {Promise<void>}
+ * @private
+ */
+async function rekeyMemoryForRename(oldName, newName) {
     const eraOCorrente = memoryStore.currentMap === oldName;
     mapManager.renameMapInMemory(oldName, newName);
     mapResolver.renameMap(oldName, newName);
@@ -167,6 +223,63 @@ export async function applyRemoteMapRename({ mapId, oldName, newName } = {}) {
         // depois de renomear.
         deps.eventBus?.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
     }
+}
+
+/**
+ * Reconcilia o mapa corrente depois que outra pessoa o renomeou ou o excluiu.
+ *
+ * O DEFEITO QUE ELA FECHA (medido em 2026-09-21 com duas browsers reais,
+ * `frontend/tests/e2e-ui/browser-collab-mapa-fantasma.spec.js`), em DOIS portadores. Um RETRATO do
+ * meio da sessao reescreve o registro do mapa aberto com o nome que o servidor diz, ou o retira, e
+ * `memoryStore.currentMap` e' um NOME que ninguem mexia: com o mapa renomeado enquanto a aba
+ * estava fora, o disco dizia "Mapa Renomeado", a memoria dizia "Mapa Tático",
+ * `getCurrentMapIdSync` devolvia o proprio NOME (o indice ja' nao o conhecia), o ajuste
+ * `lastActiveMap` ficava NULO, a aba Mapas nao marcava cartao nenhum como atual e a ferramenta de
+ * linha nao conseguia criar feiçao nenhuma. O outro portador e' o DELETE ao vivo do mapa aberto:
+ * ali o desvio existia so' na ABA MAPAS, que e' construida sob demanda, entao um par que nunca a
+ * abriu ficava no mapa morto, sem aviso, e cada feiçao desenhada era recusada.
+ *
+ * DOIS DESFECHOS, E O SEGUNDO NAO E' UM RENAME. Com `newName`, o mapa continua no atlas com outro
+ * nome e a memoria e' re-chaveada pela MESMA rotina do caminho ao vivo. Sem `newName`, ele nao
+ * existe mais, e a aba sai pelo caminho que ja' existe para isso (`activateAtlasInitialMap`, o
+ * mesmo que a abertura de atlas usa) e AVISA nomeando o mapa, porque ninguem clicou: a
+ * afordancia nao pode carregar o motivo de um fato que chega sozinho.
+ *
+ * O AVISO SAI MESMO SE A TROCA FALHAR, e essa ordem e' deliberada: ficar sem mapa e' ruim, ficar
+ * sem mapa E sem explicaçao e' pior. A troca e' a parte que pode falhar (ela escreve), a frase
+ * nao.
+ *
+ * A GUARDA E' "ESTA PESSOA ESTA' NAQUELE MAPA", e ela e' o que torna a funçao idempotente: depois
+ * da primeira aplicaçao `memoryStore.currentMap` ja' e' outro nome, entao um anuncio repetido (um
+ * retrato reaplicado, ou o desvio que a aba Mapas ja' fazia por conta propria) nao passa daqui. Um
+ * mapa retirado que esta aba NAO tinha aberto tambem nao a move, porque arrancar a pessoa de onde
+ * ela esta' por causa de um mapa que ela nao via seria pior que o silencio.
+ *
+ * @param {{mapId?: string, oldName?: string, newName?: string|null}} payload - O anuncio.
+ * @returns {Promise<boolean>} True quando algo foi reconciliado.
+ */
+export async function reconcileStaleCurrentMap({ mapId, oldName, newName } = {}) {
+    if (!mapId || !oldName || oldName === newName) return false;
+    if (memoryStore.currentMap !== oldName) return false;
+
+    if (newName) {
+        await rekeyMemoryForRename(oldName, newName);
+        return true;
+    }
+
+    if (_saidaDeMapaEmVoo === oldName) return false;
+    _saidaDeMapaEmVoo = oldName;
+    let destino = null;
+    try {
+        destino = await activateAtlasInitialMap();
+    } catch (error) {
+        console.warn('[Store] Não foi possível trocar de mapa após o anúncio:', error);
+    } finally {
+        _saidaDeMapaEmVoo = null;
+    }
+    showWarning(destino
+        ? `O mapa "${oldName}" foi removido por outro usuário. Você está agora em "${destino}".`
+        : `O mapa "${oldName}" foi removido por outro usuário.`);
     return true;
 }
 
@@ -986,23 +1099,38 @@ export async function isTargetMapLocked(targetMap) {
 }
 
 /**
- * Refuses a map-setting write whose document has no remote identity.
+ * Refuses a map-setting write whose document has no remote identity, WITH A VOICE.
  *
  * `getMapDataCompat` answers a MISSING map with `getEmptyMapData()`, a full-shaped document with
  * no `id`. Writing it back CREATES that map, so a stale name (a peer's deletion that arrived
  * after this gesture started) would resurrect it as a local phantom whose op then carries a map
- * id the server never issued. The same guard, and the same reason, as `editCatalogLayers`
- * (`catalog.operations.js`). A LOCAL atlas is untouched: its maps are name-keyed by design.
+ * id the server never issued. The same condition as the gesture door of `mapa-inexistente.js`,
+ * seen by the `id` instead of by the absence. A LOCAL atlas is untouched: its maps are name-keyed
+ * by design.
+ *
+ * IT USED TO THROW (until 2026-09-21), and a refusal that throws never reaches the global refusal
+ * listener: this was the only map-missing refusal of the store with no phrase. It now emits
+ * `map_missing` and the caller returns a no-op persistence.
+ *
+ * AND IT STAYS INSIDE THE TRANSACTION, on the document the transaction itself read. The first
+ * version of this fix asked the gesture door BEFORE the transaction, and
+ * `tests/integration/map-settings-write-ahead.test.js` refused it the same day: that made the first
+ * disk read happen outside the transaction, so an atlas switch during it was no longer caught by
+ * the scope stamp, and the write could land in the OTHER atlas.
  *
  * @param {import('./store-transaction.js').StoreTransaction} tx - The open transaction
  * @param {Object} mapData - The document just read
- * @param {string} targetMap - Map name, for the message
+ * @param {string} targetMap - Map name or id, for the refusal payload
+ * @param {string} operation - Operation name, for the refusal payload
+ * @returns {boolean} True when the write was REFUSED (the caller must not write)
  * @private
  */
-function assertRemoteMapIdentity(tx, mapData, targetMap) {
+function refusesMissingRemoteMap(tx, mapData, targetMap, operation) {
     if (tx.scope?.kind === 'remote' && !isValidUUID(mapData?.id)) {
-        throw new Error(`O mapa "${targetMap}" não possui identidade remota válida.`);
+        recusarMapaInexistente(operation, targetMap);
+        return true;
     }
+    return false;
 }
 
 /**
@@ -1111,7 +1239,7 @@ export async function setBaseLayer(layer, mapName = null) {
     // a document failure leaves a recoverable intention behind (see `store-transaction.js`).
     return refusingDuringRecovery('setBaseLayer', () => withMapDocument(targetMap, 'setBaseLayer', () => runTransaction(async tx => {
         const currentMapData = await getMapData(targetMap);
-        assertRemoteMapIdentity(tx, currentMapData, targetMap);
+        if (refusesMissingRemoteMap(tx, currentMapData, targetMap, 'setBaseLayer')) return async () => {};
         const previousBaseLayer = currentMapData.baseLayer;
 
         currentMapData.baseLayer = layer;
@@ -1164,7 +1292,7 @@ export async function updateMapPosition(center_lat, center_long, zoom, bearing, 
     // is written, and the document write is the returned persistence function.
     return refusingDuringRecovery('updateMapPosition', () => withMapDocument(targetMap, 'updateMapPosition', () => runTransaction(async tx => {
         const currentMapData = await getMapData(targetMap);
-        assertRemoteMapIdentity(tx, currentMapData, targetMap);
+        if (refusesMissingRemoteMap(tx, currentMapData, targetMap, 'updateMapPosition')) return async () => {};
 
         const existingPosition = currentMapData.savedPosition;
         // A revisão viaja no `previousData` da posição, e ela é a do MAPA, porque a posição é uma
@@ -1270,7 +1398,7 @@ export async function clearMapPosition(mapName = null) {
     // WRITE-AHEAD, same shape as the two siblings above.
     return refusingDuringRecovery('clearMapPosition', () => withMapDocument(targetMapName, 'clearMapPosition', () => runTransaction(async tx => {
         const currentMapData = await getMapData(targetMapName);
-        assertRemoteMapIdentity(tx, currentMapData, targetMapName);
+        if (refusesMissingRemoteMap(tx, currentMapData, targetMapName, 'clearMapPosition')) return async () => {};
 
         const existingPosition = currentMapData.savedPosition;
         // A revisão do MAPA vai junto, do documento já lido: é ela que faz o servidor verificar

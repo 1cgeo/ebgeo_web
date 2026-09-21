@@ -40,8 +40,6 @@ import { EventTypes } from '@events/event_types.js';
 import { showSuccess, showError, showWarning, IDUtils } from '@utils/index.js';
 import { showPrompt, showConfirm, showCombineMapsModal } from '@modals/index.js';
 import { mapLockController } from '@js/locking/index.js';
-import { mapResolver } from '@store/services/map-resolver.service.js';
-import { resolveRedirectTarget } from './remote-map-redirect.js';
 // A grade de ações mora FORA daqui de propósito: ela é uma decisão pura sobre três valores
 // (origem da store, sessão e posto na escada), e este arquivo não carrega em node.
 import { AtlasTabState, visibleAtlasActions } from './atlas-actions.js';
@@ -829,30 +827,20 @@ export class MapsTab {
     }
 
     /**
-     * Reacts to a remote operation from another collaborator. For a remote MAP delete
-     * of the map currently being viewed (§1.9), redirects to another map via the normal
-     * selection flow and warns the user; always refreshes the list (§1.8 new/removed maps).
+     * Reacts to a remote MAP operation from another collaborator by refreshing the list
+     * (§1.8 new/removed maps). Leaving a deleted map is the store's job, see below.
      * @private
      * @param {{ operation?: Object }} [payload]
      */
     async _onRemoteOperation({ operation } = {}) {
         if (!operation || operation.entityType !== 'map') return;
 
-        if (operation.operationType === 'delete') {
-            try {
-                const target = resolveRedirectTarget(operation, {
-                    currentMapName: await getCurrentMapName(),
-                    allMapNames: await getAllMapNamesStore(),
-                    getNameForId: (id) => mapResolver.getNameForId(id),
-                });
-                if (target) {
-                    await this._handleSelectMap(target);
-                    showWarning('O mapa que você estava vendo foi removido por outro usuário.');
-                }
-            } catch (_error) {
-                // best-effort redirect; the list refresh below still runs
-            }
-        }
+        // LEAVING A MAP A PEER DELETED IS NOT THIS TAB'S JOB ANY MORE (2026-09-21). It used to live
+        // here, and the sidebar tabs are built ON DEMAND: a person who only draws never had this
+        // subscriber, stayed on the deleted map in silence, and every gesture was refused. The
+        // store now leaves the map and warns, naming both maps (`reconcileStaleCurrentMap`,
+        // `store/map.operations.js`), whether this tab exists or not; keeping the branch here put
+        // TWO warnings on screen and raced two redirects to possibly different maps.
         this._loadMaps();
     }
 
