@@ -58,6 +58,8 @@ const h = vi.hoisted(() => {
         versaoMinima: 0,
         retratosServidos: 0,
         caudasServidas: 0,
+        /** @type {Object[]} As operações que o pull HTTP do `connect` devolve como cauda. */
+        cauda: [],
         /** @type {() => Object} Posto pelo `beforeEach`, que é quem conhece o escopo montado. */
         montarRetrato: () => ({}),
         responder(desde, temRetrato = false) {
@@ -119,7 +121,7 @@ const h = vi.hoisted(() => {
             const resposta = servidor.responder(desde);
             return resposta.isSnapshot
                 ? { snapshot: resposta.snapshot, currentVersion: resposta.currentVersion, isSnapshot: true }
-                : { operations: [], currentVersion: resposta.currentVersion, isSnapshot: false };
+                : { operations: servidor.cauda, currentVersion: resposta.currentVersion, isSnapshot: false };
         }),
         getAtlasSettings: vi.fn(async () => ({})),
         wsUrl: vi.fn(() => 'ws://teste/collab'),
@@ -220,6 +222,7 @@ beforeEach(async () => {
     h.servidor.versaoMinima = 0;
     h.servidor.retratosServidos = 0;
     h.servidor.caudasServidas = 0;
+    h.servidor.cauda = [];
     h.servidor.montarRetrato = () => ({
         atlas: { ...createAtlas('Atlas remoto'), id: atlasId, settings: {} },
         maps: [{ ...getEmptyMapData(), id: '51000000-0000-4000-8000-000000000009', name: 'Mapa 1' }],
@@ -394,5 +397,105 @@ describe('abertura de atlas remoto: quantos retratos completos ela encena', () =
         expect(h.pedidosWs).toEqual([{ desde: 0, temRetrato: null }]);
         expect(h.servidor.retratosServidos).toBe(1);
         expect(ativacoes).toHaveLength(1);
+    });
+});
+
+// ============================================================================
+// O CURSOR DURÁVEL ANDA COM A CAUDA (2026-09-21)
+// ============================================================================
+
+/**
+ * Até 2026-09-21 só um RETRATO gravava o cursor durável. Ele ficava, portanto, na versão da
+ * abertura enquanto nenhum retrato novo fosse encenado, e todo recarregamento repuxava e reaplicava
+ * a cauda INTEIRA desde a primeira abertura do atlas naquele computador. Hoje a cauda aplicada por
+ * inteiro sobre uma geração provada completa leva o cursor até `currentVersion`
+ * (`_advanceDurableCursor`, `src/js/store/sync/sync-engine.js`), e as três condições daquela função
+ * têm um caso cada, porque cada uma é um jeito de o cursor MENTIR.
+ */
+describe('o cursor durável anda com a cauda aplicada', () => {
+    const MAPA = '51000000-0000-4000-8000-000000000009';
+    const feicao = (id, mapId, versao) => ({
+        id: crypto.randomUUID(), entityType: 'feature', operationType: 'create', entityId: id, mapId,
+        serverVersion: versao, clientId: 'outro-cliente',
+        data: { type: 'Feature', geometry: { type: 'Point', coordinates: [1, 2] }, properties: { id, source: 'point' } },
+    });
+
+    /** Abre, fecha e deixa o motor pronto para uma SEGUNDA abertura, como um F5 faria. */
+    const abrirEFechar = async () => {
+        await syncEngine.connect(atlasId);
+        await assentar();
+        syncEngine.disconnect();
+        h.ws.disconnect();
+        h.pedidosHttp.length = 0;
+        syncEngine._session = null;
+        syncEngine._lastVersion = 0;
+    };
+
+    it('cauda aplicada por inteiro: o cursor vai a `currentVersion`, a geração não muda, e a TERCEIRA abertura pede só o que falta', async () => {
+        h.servidor.versao = 7;
+        await abrirEFechar();
+        const geracao = readGeneration(escopo).active;
+        expect(readGeneration(escopo).cursor, 'PISO: o retrato gravou 7').toBe(7);
+
+        const id = crypto.randomUUID();
+        h.servidor.versao = 12;
+        h.servidor.cauda = [feicao(id, MAPA, 12)];
+        await abrirEFechar();
+
+        expect(h.servidor.retratosServidos, 'nenhum retrato novo foi servido').toBe(1);
+        expect(readGeneration(escopo)).toEqual({ active: geracao, known: [geracao], cursor: 12 });
+        // A operação está MESMO no disco: o cursor andou sobre dado gravado, não sobre promessa.
+        const mapa = await localRepository.getMap(MAPA);
+        expect((mapa?.features?.points ?? []).map(f => f.properties.id)).toContain(id);
+
+        h.servidor.cauda = [];
+        await syncEngine.connect(atlasId);
+        await assentar();
+        expect(h.pedidosHttp, 'a terceira abertura pede a partir de 12, não de 7').toEqual([12]);
+    });
+
+    it('uma operação que NÃO foi gravada segura o cursor onde estava', async () => {
+        // Feição de um mapa que não existe neste disco: o tratador a guarda em memória e devolve
+        // `false`. Um cursor que passasse por ela a tornaria irrecuperável sem retrato inteiro.
+        h.servidor.versao = 7;
+        await abrirEFechar();
+
+        h.servidor.versao = 12;
+        h.servidor.cauda = [feicao(crypto.randomUUID(), '52000000-0000-4000-8000-00000000000a', 12)];
+        await abrirEFechar();
+
+        expect(readGeneration(escopo).cursor, 'o cursor ficou em 7').toBe(7);
+        h.servidor.cauda = [];
+        await syncEngine.connect(atlasId);
+        await assentar();
+        expect(h.pedidosHttp, 'e a próxima abertura repede a cauda desde 7').toEqual([7]);
+    });
+
+    it('o cursor só anda para FRENTE, e só sobre a geração que a cauda recebeu', async () => {
+        h.servidor.versao = 7;
+        await abrirEFechar();
+        const sessao = { scope: escopo };
+        const geracao = readGeneration(escopo).active;
+
+        expect(syncEngine._advanceDurableCursor(sessao, 7, geracao), 'igual não é avanço').toBe(false);
+        expect(syncEngine._advanceDurableCursor(sessao, 3, geracao), 'para trás, nunca').toBe(false);
+        expect(syncEngine._advanceDurableCursor(sessao, 9, 'outra-geracao'), 'outra geração, nunca').toBe(false);
+        expect(syncEngine._advanceDurableCursor(sessao, 9, null), 'sem geração provada, nunca').toBe(false);
+        for (const ruim of [NaN, Infinity, 9.5, '9', null, undefined, 0, -1]) {
+            expect(syncEngine._advanceDurableCursor(sessao, ruim, geracao), String(ruim)).toBe(false);
+        }
+        expect(readGeneration(escopo).cursor, 'nada disso escreveu').toBe(7);
+
+        expect(syncEngine._advanceDurableCursor(sessao, 9, geracao)).toBe(true);
+        expect(readGeneration(escopo)).toEqual({ active: geracao, known: [geracao], cursor: 9 });
+    });
+
+    it('abertura de PRIMEIRA vez (retrato) não passa por aqui: o cursor é o do retrato', async () => {
+        h.servidor.versao = 7;
+        h.servidor.cauda = [feicao(crypto.randomUUID(), MAPA, 99)];
+        await syncEngine.connect(atlasId);
+        await assentar();
+        expect(h.pedidosHttp).toEqual([0]);
+        expect(readGeneration(escopo).cursor).toBe(7);
     });
 });

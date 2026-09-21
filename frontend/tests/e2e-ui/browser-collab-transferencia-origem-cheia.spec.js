@@ -60,8 +60,16 @@
  * de `if` e' cobertura vazia com cara de verde.
  *
  * ESTE ARQUIVO E' UM RETRATO, E FICA VERMELHO QUANDO O COMPORTAMENTO MUDAR, que e' o ponto dele: se
- * um dia a abertura voltar a tirar retrato, M1 e M2 acusam a geracao nova; se o cursor duravel
- * passar a avancar com a cauda, a origem deixa de ser limpa e M1 acusa isso.
+ * um dia a abertura voltar a tirar retrato, M1 e M2 acusam a geracao nova.
+ *
+ * O CURSOR DURAVEL PASSOU A AVANCAR COM A CAUDA EM 2026-09-21, e este arquivo mede o preco. O
+ * PRIMEIRO F5 depois da abertura continua reconciliando (M1): a cauda dele ainda parte do cursor do
+ * retrato e carrega as operacoes do mover. Mas ao aplica-la o cursor ANDA, e o SEGUNDO F5 ja' nao
+ * repuxa aquelas operacoes: uma divergencia refeita a mao depois de M1 SOBREVIVE a ele (M1b) e a
+ * reabertura pela lista (M2), e so' o retrato inteiro a apaga (M3). Isso e' o que se abriu mao, e
+ * esta' escrito em `_advanceDurableCursor` (`frontend/src/js/store/sync/sync-engine.js`). O caso
+ * REAL que aquela reaplicacao cobria por acidente nunca dependeu dela: ele converge no recibo, e
+ * e' o primeiro caso deste arquivo.
  *
  * Rodar isolado:
  *   cd frontend && npx playwright test browser-collab-transferencia-origem-cheia --retries=0 --reporter=line
@@ -338,6 +346,118 @@ collabTest.describe('Mover camada com a ORIGEM CHEIA: o recarregamento reconcili
     // unica de algo probabilistico.
     collabTest.describe.configure({ retries: 0 });
 
+    // O CAMINHO REAL, MEDIDO EM 2026-09-21, E ELE DESMENTIU A FRASE ESCRITA HORAS ANTES. O caso de baixo
+    // reconstroi a divergencia A MAO, DEPOIS de os recibos do mover assentarem, e por isso nunca
+    // viu o que acontece quando a recusa e' de verdade: nela o recibo chega DEPOIS da recusa. O
+    // recibo de um `feature create` com intencao de mover traz a operacao canonica do servidor,
+    // com `previousMapId`, e o autor a reaplica pelo caminho de entrada (`resolveLocalEdit`,
+    // `frontend/src/js/store/sync/remote-operation-handler.js`), que tira a feicao do mapa
+    // ANTERIOR. Ou seja, a origem se esvazia SOZINHA quando o servidor confirma, sem recarregar.
+    // Medido quatro de quatro pelo gesto de tela: disco em 0,5 a 1,5 s, fonte do mapa em ate' 2 s.
+    // A frase mandava "Recarregue a pagina", num toast de dez segundos que sobrevivia ao duplicado
+    // que descrevia.
+    //
+    // A RECUSA E' INJETADA NO INSTANTE CERTO, e o instrumento e' o `put` do IndexedDB de proposito:
+    // todo documento de mapa passa por ele, qualquer que seja o caminho de codigo (a primeira
+    // tentativa interceptou o repositorio e nao viu chamada nenhuma, porque a store usa outra
+    // instancia). Quando o DESTINO grava as feicoes, a trava do mapa de origem entra na memoria,
+    // que e' o que a trava de um colega faz ao chegar no meio do gesto. O servidor aceita o mover
+    // mesmo com a origem travada, porque o gate dele olha so' o mapa de DESTINO da operacao
+    // (`lockedMapDenialReason`, `backend/src/modules/sync/sync.service.js`).
+    collabTest('a recusa REAL no meio do gesto converge sozinha no recibo, sem recarregar', async ({ collab }) => {
+        collabTest.setTimeout(300000);
+        const A = collab.author;
+        const mapa1Nome = collab.mapName;
+        const mapa1Id = collab.mapId;
+        const ids = [await drawPointUI(A, [-43.21, -22.91]), await drawPointUI(A, [-43.19, -22.89])];
+        expect(ids.every(Boolean), 'os dois pontos nasceram').toBe(true);
+        await applyStoreOp(A, 'addMap', [MAPA_DESTINO]);
+        await expect.poll(() => idDoMapa(A, MAPA_DESTINO), { timeout: 30000 })
+            .toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/i);
+        const mapa2Id = await idDoMapa(A, MAPA_DESTINO);
+        const camada = await applyStoreOp(A, 'createLayer', [NOME_DA_CAMADA]);
+        const camadaId = camada?.id ?? camada;
+        await applyStoreOp(A, 'moveFeaturesToLayer', [ids.map((id) => ({ type: 'point', id })), camadaId]);
+        await expect.poll(async () => (await readFeatures(A, TIPO))
+            .filter((f) => f.props?.layerId === camadaId).length).toBe(2);
+        const retrato = () => retratoDoCliente(A, { mapa1: mapa1Id, mapa2: mapa2Id, ids, fantasma: 'nenhum' });
+        await expect.poll(async () => (await retrato()).fila?.pendentes ?? -1, {
+            timeout: 60000, message: 'a fila nao esvaziou antes do gesto',
+        }).toBe(0);
+
+        await A.evaluate(async (q) => {
+            const { memoryStore } = await import('/src/js/store/memory-store.js');
+            globalThis.__recusaInjetada = false;
+            const putOriginal = IDBObjectStore.prototype.put;
+            IDBObjectStore.prototype.put = function (valor, chave, ...resto) {
+                try {
+                    const tem = (valor?.features?.points || []).some((f) => q.ids.includes(f.properties?.id));
+                    if (!globalThis.__recusaInjetada && tem && chave !== q.m1 && chave !== q.nome1) {
+                        globalThis.__recusaInjetada = true;
+                        memoryStore.lockedMaps.add(q.nome1);
+                    }
+                } catch { /* instrumento */ }
+                return putOriginal.call(this, valor, chave, ...resto);
+            };
+        }, { ids, m1: mapa1Id, nome1: mapa1Nome });
+
+        const naFonteDoMapa = () => A.evaluate((q) => {
+            const map = globalThis.__ebgeoMap;
+            let total = 0;
+            for (const id of Object.keys(map.getStyle().sources)) {
+                const src = map.getSource(id);
+                if (src?.type !== 'geojson') continue;
+                const dados = src._data?.geojson ?? src._data ?? null;
+                const lista = Array.isArray(dados?.features) ? dados.features : [];
+                total += lista.filter((f) => q.includes(f.properties?.id)).length;
+            }
+            return total;
+        }, ids);
+        expect(await naFonteDoMapa(), 'PISO: o instrumento de fonte enxerga as duas antes do gesto').toBe(2);
+
+        // O GESTO, PELA TELA: e' o manipulador da aba que decide o que sai das fontes do mapa.
+        await openLayersTab(A);
+        await A.locator('.layer-container', { hasText: NOME_DA_CAMADA }).first()
+            .locator('.layer-menu-btn').first().click();
+        const menu = A.locator('.layer-context-menu');
+        await expect(menu).toBeVisible({ timeout: 10000 });
+        await menu.locator('.layer-context-menu-item', { hasText: 'Mover para outro mapa' }).click();
+        await A.locator('.layer-transfer-item', { hasText: MAPA_DESTINO }).click();
+        await A.locator('.layer-transfer-modal-btn-confirm').click();
+
+        const aviso = A.locator('.toast', { hasText: 'não pôde ser esvaziado na hora' });
+        await expect(aviso, 'a recusa no meio do gesto foi DITA, como aviso').toBeVisible({ timeout: 30000 });
+        publicar('REAL: o aviso', await aviso.first().innerText());
+        expect(await A.evaluate(() => globalThis.__recusaInjetada), 'PISO: a recusa foi de fato injetada').toBe(true);
+        await expect(aviso, 'a frase NAO manda recarregar: nao e preciso').not.toContainText('Recarregue');
+        await expect(aviso).toContainText('saem do mapa de origem sozinhas assim que o servidor confirmar');
+
+        // SEM RECARREGAR: disco, fonte do mapa e arvore, nessa ordem de independencia.
+        await expect.poll(async () => (await retrato()).origemNoDisco.length, {
+            timeout: 30000, message: 'a origem nao se esvaziou sozinha no disco',
+        }).toBe(0);
+        await expect.poll(naFonteDoMapa, {
+            timeout: 30000, message: 'as feicoes nao sairam da fonte do mapa',
+        }).toBe(0);
+        const fim = await retrato();
+        publicar('REAL: retrato depois da convergencia', fim);
+        expect(fim.destinoNoDisco.sort(), 'o destino ficou com as duas').toEqual([...ids].sort());
+        expect(fim.fila?.problemas, 'e o servidor nao recusou nada do gesto').toBe(0);
+        expect(await contarNaArvore(A, ids), 'a arvore da origem deixou de desenha-las').toBe(0);
+        // O QUE FICA PARA TRAS, e a frase diz: o REGISTRO da camada, vazio, no mapa de origem.
+        const camadasDaOrigem = await A.evaluate(async (m1) => {
+            const { getLayersCompat } = await import('/src/js/store/repositories/index.js');
+            return ((await getLayersCompat(m1)) ?? []).map((l) => l.id);
+        }, mapa1Nome);
+        expect(camadasDaOrigem, 'a camada vazia continua no mapa de origem, como a frase diz').toContain(camadaId);
+        await expect(aviso.first()).toContainText('A camada vazia continua no mapa de origem');
+
+        await A.evaluate(async (nome) => {
+            const { memoryStore } = await import('/src/js/store/memory-store.js');
+            memoryStore.lockedMaps.delete(nome);
+        }, mapa1Nome);
+    });
+
     collabTest('o F5, "Meus Atlas" e a saida da conta, medidos um a um', async ({ collab }) => {
         collabTest.setTimeout(600000);
         const A = collab.author;
@@ -456,6 +576,18 @@ collabTest.describe('Mover camada com a ORIGEM CHEIA: o recarregamento reconcili
         publicar('M1 — DEPOIS DO F5 (servidor)', servidorM1);
         publicar('M1 — geracao', { antes: geracaoAntesDoF5, depois: m1.geracao?.active ?? null });
 
+        // ---- 4b. M1b: A MESMA DIVERGENCIA, REFEITA DEPOIS DO PRIMEIRO F5, E UM SEGUNDO F5 ----
+        // O cursor duravel andou ao aplicar a cauda de M1 (2026-09-21). A cauda do segundo F5
+        // parte dali e ja' nao menciona o mover, entao nada tira estas feicoes da origem.
+        const refeita = await reconstruirDivergencia(A, {
+            mapa1: mapa1Id, mapa2: mapa2Id, ids, fantasma: randomUUID(),
+        });
+        expect(refeita.erro, JSON.stringify(refeita)).toBeUndefined();
+        expect(refeita.injetadas.sort(), 'M1b: as duas voltaram a origem, a mao').toEqual([...ids].sort());
+        await A.reload();
+        await esperarAtlasDePe(A, mapa1Nome, 'segundo-f5');
+        const m1b = await retrato('M1b — DEPOIS DO SEGUNDO F5 (disco)');
+
         // ---- 5. M2: sair do atlas e reabrir por "Meus Atlas" ----
         await irParaMeusAtlas(A);
         await openAtlasUI(A, collab.atlasId);
@@ -491,15 +623,25 @@ collabTest.describe('Mover camada com a ORIGEM CHEIA: o recarregamento reconcili
         // da ABERTURA e a cauda ainda carrega as operacoes do proprio mover. Quem limpa a origem e'
         // o `previousMapId` que a linha COMMITADA do servidor carimba no `feature create`: ao
         // reaplica-lo, `applyRemoteFeatureOp` (`frontend/src/js/store/sync/remote-operation-handler.js`)
-        // tira a feicao do mapa ANTERIOR antes de grava-la no destino. A frase da tela
-        // ("Recarregue a pagina para que elas saiam do mapa de origem", `transferOutcomeNotice`,
-        // `frontend/src/js/features_tab/layer-transfer-phrases.js`) e' portanto VERDADE para a
-        // feicao que o mover levou.
+        // tira a feicao do mapa ANTERIOR antes de grava-la no destino. A frase da tela ja' NAO manda
+        // recarregar (2026-09-21): no caminho real a origem se esvazia sozinha no recibo, que e' o
+        // primeiro caso deste arquivo.
         expect(m1.origemNoDisco, 'M1: o F5 TIROU da origem as feicoes que o servidor ja movera').toEqual([]);
         expect(telaM1, 'M1: e a pessoa deixa de ve-las no mapa de origem').toBe(0);
         expect(m1.destinoNoDisco.sort(), 'M1: elas continuam no destino').toEqual([...ids].sort());
         expect(m1.geracao?.active ?? null, 'M1: e isso aconteceu SEM retrato novo (a geracao nao mudou)')
             .toBe(geracaoAntesDoF5);
+        // E O CURSOR ANDOU, na MESMA geracao: a cauda aplicada por inteiro leva o cursor duravel ate'
+        // a versao do servidor, e e' isso que faz o proximo F5 pedir so' o que falta.
+        expect(m1.geracao?.cursor ?? -1, 'M1: o cursor duravel avancou ao aplicar a cauda')
+            .toBeGreaterThan(m0b.geracao?.cursor ?? Infinity);
+
+        // M1b — O PRECO, MEDIDO: a divergencia refeita depois do primeiro F5 SOBREVIVE ao segundo.
+        // Nao ha' retrato (mesma geracao) e a cauda ja' nao fala do mover.
+        expect(m1b.origemNoDisco.sort(), 'M1b: o segundo F5 NAO tira da origem a divergencia refeita')
+            .toEqual([...ids].sort());
+        expect(m1b.geracao?.active ?? null, 'M1b: e nao houve retrato novo').toBe(geracaoAntesDoF5);
+        expect(m1b.destinoNoDisco.sort(), 'M1b: o destino segue com as duas').toEqual([...ids].sort());
 
         // O LIMITE DA GARANTIA, e ele e' o achado que uma medicao so' das duas feicoes esconderia:
         // o recarregamento NAO traz "o estado do servidor", ele REAPLICA as operacoes que descrevem
@@ -508,9 +650,10 @@ collabTest.describe('Mover camada com a ORIGEM CHEIA: o recarregamento reconcili
         expect(m1.fantasmaNaOrigem, 'M1: o fantasma local SOBREVIVE ao F5 (a cauda nao fala dele)').toBe(true);
         expect(telaFantasmaM1, 'M1: e ele continua desenhado').toBe(1);
 
-        // M2 — REABRIR POR "MEUS ATLAS" DA' O MESMO RESULTADO, pelo mesmo caminho: o gesto leva ao
-        // mesmo `?atlas=<id>`, com a mesma geracao e o mesmo cursor. E' um F5 com mais cliques.
-        expect(m2.origemNoDisco, 'M2: reabrir pela lista de atlas reconcilia igual').toEqual([]);
+        // M2 — REABRIR POR "MEUS ATLAS" DA' O MESMO RESULTADO QUE O SEGUNDO F5, pelo mesmo caminho: o
+        // gesto leva ao mesmo `?atlas=<id>`, com a mesma geracao. E' um F5 com mais cliques.
+        expect(m2.origemNoDisco.sort(), 'M2: reabrir pela lista tambem NAO reconcilia a divergencia refeita')
+            .toEqual([...ids].sort());
         expect(m2.fantasmaNaOrigem, 'M2: e o fantasma tambem sobrevive a ele').toBe(true);
         expect(telaFantasmaM2, 'M2: desenhado').toBe(1);
         expect(m2.geracao?.active ?? null, 'M2: tambem sem retrato novo').toBe(geracaoAntesDoF5);

@@ -31,7 +31,7 @@ import { wsClient } from './ws-client.js';
 import { isStructuralMarker } from './structural-markers.js';
 import { SyncSession } from '@store/sync/sync-session.js';
 import { ATLAS_RECORD_KEY, getStoreFor, reconcileDurablePointers, StoreName } from '@store/atlas-namespace.js';
-import { readGeneration } from '@store/namespace-generation.js';
+import { readGeneration, writeGeneration } from '@store/namespace-generation.js';
 import { enableOperationLogging, disableOperationLogging } from './operation-dispatcher.js';
 import { sessionContext, sessionUserInfoFromMe } from './session-context.js';
 import {
@@ -501,6 +501,9 @@ class SyncEngine {
      */
     async _pullInitialState(session) {
         const since = await this._durablePullCursor(session);
+        // The generation that cursor vouches for, read in the same breath: it is what the tail below
+        // is applied to, and the only one `_advanceDurableCursor` may move the cursor of.
+        const provenGeneration = since > 0 ? readGeneration(session.scope).active : null;
         const result = await apiClient.pullSync(session.atlasId, since, { signal: session.signal });
         session.assertActive();
 
@@ -536,17 +539,67 @@ class SyncEngine {
             return fresh?.snapshot ?? null;
         }
 
+        // `false` is the handler's word for "not written" (buffered for a map that is not here yet):
+        // see `_advanceDurableCursor` for why one of those keeps the cursor where it was.
+        let everyOperationLanded = true;
         for (const op of operations) {
-            await applyRemoteOperation(op, { scope: session.scope, signal: session.signal, waitForDeferred: true });
+            const applied = await applyRemoteOperation(op, { scope: session.scope, signal: session.signal, waitForDeferred: true });
             session.assertActive();
+            if (applied === false) everyOperationLanded = false;
         }
         this._lastVersion = result?.currentVersion ?? 0;
+        if (since > 0 && everyOperationLanded) this._advanceDurableCursor(session, result?.currentVersion, provenGeneration);
         // A TAIL IS ONLY COMPLETE ON TOP OF SOMETHING COMPLETE, and `since` is that proof: it is
         // non-zero only when `_durablePullCursor` found an active generation still holding THIS
         // atlas. Asked from zero and answered with a tail, the disk holds whatever the ops carried
         // and nothing else, which is not a state worth vouching for.
         this._haveSnapshot = since > 0;
         return null;
+    }
+
+    /**
+     * @private Moves the durable cursor up to the version a TAIL just brought the disk to.
+     *
+     * UNTIL 2026-09-21 ONLY A SNAPSHOT WROTE THE CURSOR, so it stayed at the version of the opening
+     * for as long as no snapshot was staged, and every reload re-pulled and re-applied the WHOLE
+     * tail since the atlas was first opened on this computer. A long-lived atlas only made it
+     * longer. The tail is applied on top of a generation `_durablePullCursor` proved complete, so
+     * once every operation of it is on disk the disk IS at `currentVersion`, and saying so is what
+     * makes the next connect ask for what is actually missing.
+     *
+     * THREE CONDITIONS, AND EACH ONE IS A WAY THE CURSOR COULD LIE:
+     *  - every operation LANDED. One that came back `false` was buffered in memory (a feature for
+     *    a map that is not here yet), and a cursor past it would make it unrecoverable short of a
+     *    full snapshot. Staying behind costs a longer tail next time, never data.
+     *  - the ACTIVE generation is still the one the tail was applied to (`provenGeneration`). The
+     *    record is re-read here, in the same synchronous step as the write, and COMPARED: a
+     *    snapshot staged in between owns its own cursor, and this tail says nothing about it.
+     *  - it only moves FORWARD, and only to a safe integer.
+     *
+     * WHAT IT GIVES UP, stated because it was relied on for a few hours: a reload used to re-apply every
+     * operation since the opening, which repaired by accident any local divergence those
+     * operations happened to describe (measured on 2026-09-21 with a hand-made one). After the
+     * first reload that is no longer true. The real case that accident covered, a layer move whose
+     * source emptying is refused, never needed it: it converges on the push receipt, measured on
+     * 2026-09-21 (`tests/e2e-ui/browser-collab-transferencia-origem-cheia.spec.js`).
+     *
+     * Best-effort: a storage that refuses the write leaves the old cursor, which is the old cost.
+     *
+     * @param {import('./sync-session.js').SyncSession} session - The session being connected.
+     * @param {number} version - `currentVersion` of the tail response.
+     * @param {string|null} provenGeneration - The generation the tail was applied to.
+     * @returns {boolean} Whether the cursor moved.
+     */
+    _advanceDurableCursor(session, version, provenGeneration) {
+        if (!Number.isSafeInteger(version) || version <= 0) return false;
+        try {
+            const record = readGeneration(session.scope);
+            if (!record.active || record.active !== provenGeneration || version <= record.cursor) return false;
+            writeGeneration(session.scope, { ...record, cursor: version });
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     /**

@@ -27,7 +27,15 @@
  *    with `sourceRefusal`), because until then it came back as plain success and the screen
  *    announced "layer moved, the EMPTY layer stayed in the source map" over a layer that was
  *    full. It happens when the source emptying is refused mid-gesture (a peer locks the map, or
- *    the role is lowered, between the destination write and the source emptying). A source map
+ *    the role is lowered, between the destination write and the source emptying). THE DUPLICATE
+ *    IS SHORT-LIVED, measured on 2026-09-21 through the screen, four runs of four: it lasts until
+ *    the server confirms the move (0.5 to 2 s online). The receipt of each moved feature carries
+ *    the canonical operation with `previousMapId`, and the author re-applies it through the inbound
+ *    path (`resolveLocalEdit`), which removes the feature from its previous map on disk, in the
+ *    MapLibre source and in the layer tree. No reload is involved. What stays behind is the layer
+ *    RECORD, empty. The server accepts the move even with the SOURCE map locked, because its lock
+ *    gate reads only the destination map of the operation, which is an open question of its own
+ *    (a locked map can lose features to a move) and is recorded in the decisions journal. A source map
  *    DELETED by a peer mid-gesture is a different outcome (`sourceMissing: true`) and leaves no
  *    duplicate at all: the local document went with the map, and the server's upsert by id
  *    moved (or revived) the rows in the destination, in either arrival order.

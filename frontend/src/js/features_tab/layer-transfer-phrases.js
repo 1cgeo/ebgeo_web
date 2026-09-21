@@ -16,16 +16,26 @@
  *    sit in both maps on this computer while the server has them only in the destination. Until
  *    2026-09-21 the screen announced "layer moved" plus the empty-layer patch, false twice over.
  *
- * The refused case names the STATE, in the house rule for denied affordances, and tells the person
- * the one thing they can do about it. THAT PROMISE WAS MEASURED, not assumed (2026-09-21, two real
- * browsers, 3 of 3): reloading does take the moved features out of the source map. Not because a
- * snapshot arrives (the active generation is the same before and after the F5): the durable cursor
- * only advances when a snapshot is activated, so the tail the reload pulls still carries the
- * `feature create` ops of the move itself, and each one removes the feature from its PREVIOUS map
- * before writing it to the destination. The sentence is therefore SPECIFIC on purpose ("so that
- * they leave the source map"): a reload re-applies the operations that describe a change, it does
- * not bring "the state of the server", and a record that exists only on this disk survives it.
- * Guard: `tests/e2e-ui/browser-collab-transferencia-origem-cheia.spec.js`.
+ * The refused case names the STATE, in the house rule for denied affordances, and says what happens
+ * next. WHAT HAPPENS NEXT WAS MEASURED TWICE, AND THE SECOND MEASUREMENT OVERRULED THE FIRST.
+ *
+ * Both measurements are from 2026-09-21. In the first the divergence was rebuilt BY HAND, after the receipts of the move had settled, and
+ * a reload was seen to reconcile it (the tail of the connect re-applied the move's own creates). The
+ * sentence therefore said "Recarregue a página". Hours later the REAL refusal was driven through
+ * the screen (the lock arriving between the destination write and the source emptying), four runs
+ * out of four: the source empties BY ITSELF, with no reload, in 0.5 to 2 s. In the real path the
+ * receipt arrives AFTER the refusal; the receipt of a `feature create` that declares a move carries
+ * the server's canonical operation with `previousMapId`, and the author re-applies it through the
+ * inbound path (`resolveLocalEdit`, `store/sync/remote-operation-handler.js`), which removes the
+ * feature from its PREVIOUS map on disk, in the MapLibre source and in the layer tree. A ten-second
+ * toast asking for a reload was outliving the duplicate it described. The hand-made divergence never
+ * saw this because its receipts had already been consumed.
+ *
+ * So the sentence says what the screen will do on its own, and what stays behind: the layer RECORD,
+ * empty, in the source map (it is deliberately not deleted while the layer still holds features). If
+ * the server REFUSES the move instead, nothing converges and the flush announces the reason in a
+ * toast of its own, which is the second half of the sentence.
+ * Guard: `tests/e2e-ui/browser-collab-transferencia-origem-cheia.spec.js`, both cases.
  */
 
 /** `TransferMode.MOVE`, kept as a literal so this module stays import-free. */
@@ -33,7 +43,7 @@ const MOVE = 'move';
 
 /** Why the source could not be emptied, as the clause that goes inside the parentheses. */
 const REFUSAL_CLAUSES = Object.freeze({
-    map_locked: 'o mapa de origem está bloqueado',
+    map_locked: 'ele está bloqueado',
     permission: 'a sua permissão neste atlas mudou',
     unknown: 'a escrita foi recusada',
 });
@@ -76,10 +86,10 @@ export function transferOutcomeNotice(layerName, targetMapName, result) {
             : REFUSAL_CLAUSES.unknown;
         return {
             kind: 'warning',
-            text: `A camada "${layerName}" foi copiada para "${targetMapName}" (${featureCount(count)}), `
-                + `mas não pôde ser retirada do mapa de origem: ${clause}. Neste computador as feições `
-                + `aparecem nos dois mapas; no servidor elas estão só em "${targetMapName}". `
-                + 'Recarregue a página para que elas saiam do mapa de origem'
+            text: `A camada "${layerName}" foi levada para "${targetMapName}" (${featureCount(count)}), `
+                + `mas o mapa de origem não pôde ser esvaziado na hora: ${clause}. As feições `
+                + 'saem do mapa de origem sozinhas assim que o servidor confirmar a mudança; se ele a '
+                + 'recusar, o motivo é avisado na tela. A camada vazia continua no mapa de origem'
                 + skippedSentence(r.skippedCount),
         };
     }
