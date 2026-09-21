@@ -3464,7 +3464,7 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
   confirmar exporta, foto com arquivo não pergunta) e o spec de round-trip, que confirma o diálogo e
   reimporta o arquivo produzido. Controle negativo: com o retorno do cancelamento retirado, quatro
   casos reprovam.
-- **Aberto, medido, e é a MESMA órfã por outra porta.** Enviar um atlas local ao servidor recusa
+- **Aberto ao ser escrito, FECHADO no mesmo dia (entrada seguinte), e é a MESMA órfã por outra porta.** Enviar um atlas local ao servidor recusava
   com "Uma imagem original está ausente. Nenhum atlas foi publicado", nas duas portas
   (`frontend/src/js/import_export/save-local-atlas.service.js` e
   `frontend/src/js/projects/send-local-to-server.service.js`), desde `07278ef6` (2026-09-19, a
@@ -3477,3 +3477,55 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
   atlas pode ser PUBLICADO sabendo-se incompleto, o que é diferente de gerar um arquivo. O conserto
   seria só de cliente: o servidor confere o manifesto que o cliente declara, então retirar a órfã
   do manifesto depois da confirmação passa na conferência de contagem do commit da tentativa.
+
+### 2026-09-21: a figura sem arquivo vira pergunta também na subida ao servidor, a transferência recusada converge sozinha, e o cursor durável anda com a cauda
+
+- **P1, a subida ao servidor.** As TRÊS portas por onde um atlas sobe recusavam na primeira imagem
+  original sem arquivo: o atlas local montado (`frontend/src/js/import_export/save-local-atlas.service.js`),
+  o cartão local da página de atlas (`frontend/src/js/projects/send-local-to-server.service.js`) e o
+  `.ebgeo` importado direto para o servidor (`frontend/src/js/projects/import-ebgeo.service.js`). A
+  terceira ganhou peso horas antes, no mesmo dia: o exportador passou a escrever um arquivo SABENDO que falta uma
+  figura, e esse arquivo seria recusado ao subir. As três perguntam agora ANTES de qualquer escrita
+  na rede (`missingImagesUploadConfirm` e `classifyMissingImages`, no mesmo módulo folha do
+  exportador), com uma frase para o disco e outra para o arquivo, cancelar não publica nada e o
+  chamador CALA no cancelamento, porque decisão não é falha.
+- **Uma correção ao que eu tinha dito:** afirmei que o conserto seria só de cliente, porque o
+  servidor conferiria só a contagem contra o manifesto declarado. Errado, e foi lendo
+  `beginImport` que apareceu: ele exige que TODA imagem citada pelo payload esteja no manifesto. O
+  conserto cruza os dois pacotes. O servidor aceita `missingImageIds`, conferido de três jeitos
+  para não virar atalho (nada declarado ao mesmo tempo como enviado e ausente, nada declarado
+  ausente que o atlas não cite, e todo original citado em exatamente uma das duas listas), não
+  guarda coluna nova (o conjunto é DERIVADO de novo no commit, citados menos manifesto) e registra
+  a contagem na trilha de auditoria (`missingImages`, em `ATLAS_CREATE`).
+- **Alternativa recusada:** manter a recusa e só nomear a figura. Continuaria uma trava sem chave,
+  porque a única saída da pessoa seria apagar a feição. **O custo aceito:** o atlas chega ao
+  servidor com uma feição de imagem sem figura, e todo colega vê nela o marcador de erro, que é o
+  que a pergunta diz antes de a pessoa confirmar.
+- **P2, passo 1: já existia, e o que estava errado era a frase.** A proposta era fazer a origem de
+  um mover recusado convergir sozinha. Lido o caminho vivo, ela já converge: o recibo do push traz
+  a operação canônica com `previousMapId` e `resolveLocalEdit` a reaplica pelo caminho de entrada.
+  Medido pelo gesto de tela, com a recusa injetada no instante certo, quatro de quatro: disco em
+  0,5 a 1,5 s, fonte do mapa em até 2 s, sem recarregar. A primeira medição, da manhã do mesmo dia, reconstruía a
+  divergência à mão DEPOIS de os recibos assentarem, e por isso nunca viu o recibo agir. A frase
+  mandava "Recarregue a página" num toast de dez segundos que sobrevivia ao duplicado que
+  descrevia; hoje ela diz que as feições saem sozinhas quando o servidor confirmar, que uma recusa
+  do servidor é avisada na tela, e que a camada vazia fica no mapa de origem.
+- **P2, passo 2: o cursor durável anda com a cauda** (`_advanceDurableCursor`,
+  `frontend/src/js/store/sync/sync-engine.js`). Três condições, cada uma um jeito de o cursor
+  mentir: toda operação gravada, mesma geração ativa, só para frente. **O preço, medido:**
+  reaplicar a cauda desde a abertura consertava por acidente qualquer divergência local que ela
+  descrevesse, e depois do primeiro recarregamento isso deixa de valer. **O ganho de rede não foi
+  medido** em sessão longa real; ficou preso o mecanismo.
+- **Aberto, achado pela leitura do gate:** o servidor aceita o mover de uma feição para FORA de um
+  mapa travado, porque `lockedMapDenialReason` (`backend/src/modules/sync/sync.service.js`) lê só o
+  mapa de DESTINO da operação e nunca o `sourceMapId`. É por isso que o mover recusado no cliente
+  converge em vez de voltar, e é também uma fresta da trava: um mapa travado perde feições para um
+  mover. Fechar isso faria o lote inteiro do gesto ser recusado pelo servidor, e o destino local
+  ficaria com feições que só existem naquele disco, então pede desenho próprio.
+- **Guardas:** `backend/tests/integration/atomic-atlas-import.test.js`,
+  `frontend/tests/unit/atlas-sobe-com-figura-orfa.test.js`,
+  `frontend/tests/unit/enviar-blob-com-id-novo.test.js`,
+  `frontend/tests/e2e-ui/cadeia-completa-atlas.spec.js`,
+  `frontend/tests/unit/transferencia-de-camada-frase.test.js`,
+  `frontend/tests/e2e-ui/browser-collab-transferencia-origem-cheia.spec.js` e
+  `frontend/tests/integration/abertura-remota-aplica-dois-retratos.repro.test.js`.

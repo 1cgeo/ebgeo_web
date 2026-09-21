@@ -231,6 +231,22 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   (`git fsck --unreachable` acha o commit pela mensagem, `git stash store <sha>` devolve o
   do outro à pilha e `git stash apply <sha>` traz o seu de volta sem mexer nela).
 
+  **E O WORKTREE DE LINHA DE BASE TEM UMA ARMADILHA QUE DESTRÓI O `node_modules` REAL, no
+  Windows** (medido em 2026-09-21, e o dano foi desta sessão). Um `git worktree add` não traz
+  `node_modules`, então a linha de base roda com uma JUNÇÃO de `frontend/node_modules` e de
+  `backend/node_modules` para os diretórios da árvore principal. `git worktree remove --force`
+  apaga a árvore de trabalho recursivamente e ATRAVESSA a junção: ele começou a apagar os pacotes
+  reais em ordem alfabética (81 pacotes de escopo no backend, de `@bcoe` em diante) e só parou onde
+  um arquivo estava em uso. Nada acusa na hora; o sintoma chega depois, como
+  `Cannot find module '@hapi/hoek/lib/assert'` num teste sem relação com o que se mexeu. Duas
+  regras daí: **desfaça as junções ANTES de remover o worktree** (no PowerShell,
+  `(Get-Item <caminho>).Delete()` remove a junção sem seguir o alvo; nunca `Remove-Item -Recurse`
+  nem `rm -rf` sobre ela), e só então `git worktree remove`; e se o dano já aconteceu, o reparo é
+  `npm ci` no pacote, que reinstala pelo lockfile SEM escrevê-lo, com o stack de desenvolvimento
+  PARADO antes, porque o Vite segura o binário nativo do rolldown e o `npm ci` aborta no meio com
+  `EPERM`, deixando o diretório pior do que estava. Parar o shell do `npm run dev` não basta: a
+  árvore de processos sobrevive a ele, e é ela que segura o arquivo.
+
   A consequência que mais surpreende, e que evita coordenação desnecessária: o `npm test` da
   RAIZ e o Playwright **não colidem em nada**, porque a perna de e2e da raiz é outra porta e
   outro banco, e o Playwright sobe o backend por `spawn` sem passar por c8. Quem roda a raiz
