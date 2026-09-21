@@ -519,6 +519,21 @@ describeOrSkip('a cadeia inteira: arquivo → atlas local → F5 → servidor �
         await page.locator('[data-testid="create-atlas-name"]').fill(NOME_NO_SERVIDOR);
         await page.locator('[data-testid="create-atlas-confirm"]').click();
 
+        // A PERGUNTA DA FIGURA SEM ARQUIVO, E ELA É ESPERADA: A FIXTURE TRAZ UMA IMAGEM ÓRFÃ. O
+        // arquivo declara quatro feições de imagem e carrega o blob de três (a do mapa "Principal"
+        // não tem figura, e isso é dado real da outra linha do produto). De 2026-09-19 a 2026-09-21
+        // o envio RECUSAVA aqui ("Uma imagem original está ausente. Nenhum atlas foi publicado"), o
+        // toast de erro sumia em segundos e este caso ficava cinco minutos esperando um sucesso que
+        // não viria: uma única órfã tornava o atlas impossível de publicar, sem dizer qual figura.
+        // Hoje a perda é contada, nomeada e confirmada ANTES de qualquer escrita na rede
+        // (`src/js/import_export/ebgeo-missing-images.js`), e o servidor é avisado dela. Esperar o
+        // título EXATO é o que distingue "perguntou" de "publicou calado".
+        const avisoDeFigura = page.locator('.confirm-modal-container');
+        await expect(avisoDeFigura.locator('.confirm-modal-title'))
+            .toHaveText('Este atlas sobe sem 1 figura', { timeout: 120000 });
+        await expect(avisoDeFigura).toContainText('1 imagem (no mapa "Principal")');
+        await avisoDeFigura.locator('.confirm-modal-btn-confirm').click();
+
         // O TOAST É ESPERADO PRIMEIRO, e a ordem não é estilo: ele é a ÚLTIMA linha de
         // `saveLocalToServer` (depois do upload, do claim, da ativação de namespace, do wipe, do
         // connect e do `startAutoFlush`), e some em três segundos. Esperar pela badge antes e por
@@ -526,7 +541,8 @@ describeOrSkip('a cadeia inteira: arquivo → atlas local → F5 → servidor �
         // leitura do que o CLIENTE contou ao ler o repositório depois do F5.
         await expect(
             page.locator('.toast', {
-                hasText: `Atlas salvo no servidor (${esperado.maps} mapa(s), ${esperado.features} feição(ões))`,
+                // O fim da frase é o desfecho que o diálogo acima combinou, dito de novo.
+                hasText: `Atlas salvo no servidor (${esperado.maps} mapa(s), ${esperado.features} feição(ões)). Subiu sem 1 figura(s) que não tinha(m) arquivo`,
             }),
             'o envio anunciou os onze mapas e as 262 feições que o repositório tinha',
         ).toBeVisible({ timeout: 300000 });

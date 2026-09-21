@@ -16,7 +16,17 @@ function stableSource(value, opaque = false) {
         .map(key => [key, stableSource(value[key], opaque || key === 'attributes')]));
 }
 
-export async function atomicServerImport(client, payload, images, source) {
+/**
+ * @param {Object} client - The ApiClient
+ * @param {Object} payload - Server import payload
+ * @param {Array<Object>} images - Upload items (`localId`, `mimeType`, `data`, `filename`)
+ * @param {Object} source - What identifies the content across retries
+ * @param {string[]} [missingImageIds] - Originals the payload cites and the client DECLARES it does
+ *   not have, after the person confirmed (`missingImagesUploadConfirm`). The server refuses a
+ *   manifest that leaves a cited original out of both lists, so an undeclared hole still cannot
+ *   be published. Not part of the source key: it is a function of the content and of the blobs.
+ */
+export async function atomicServerImport(client, payload, images, source, missingImageIds = []) {
     const owner = account(client);
     if (!owner) throw new Error('Entre na sua conta antes de importar.');
     const bytes = new TextEncoder().encode(JSON.stringify({ source: stableSource(source), images: images.map(({ mimeType, data }) => ({ mimeType, data })) }));
@@ -25,7 +35,7 @@ export async function atomicServerImport(client, payload, images, source) {
     if (pending.has(key)) return pending.get(key);
     const work = async lock => {
         if (lock === null) throw new Error('Esta importação já está em andamento em outra aba. Aguarde sua conclusão.');
-        return run(client, payload, images, sourceKey, key, owner);
+        return run(client, payload, images, sourceKey, key, owner, missingImageIds);
     };
     const promise = (globalThis.navigator?.locks
         ? navigator.locks.request(`ebgeo-import:${key}`, { ifAvailable: true }, work)
@@ -34,7 +44,7 @@ export async function atomicServerImport(client, payload, images, source) {
     return promise;
 }
 
-async function run(client, payload, images, sourceKey, key, owner) {
+async function run(client, payload, images, sourceKey, key, owner, missingImageIds) {
     const store = getGlobalStore();
     const baseUrl = client.baseUrl;
     const assertContext = () => {
@@ -61,7 +71,12 @@ async function run(client, payload, images, sourceKey, key, owner) {
         return result;
     };
     try {
-        if (!attempt) attempt = await request('POST', '/atlas/imports', { id, sourceKey, payload, imageIds: images.map(image => image.localId) });
+        if (!attempt) {
+            const begin = { id, sourceKey, payload, imageIds: images.map(image => image.localId) };
+            // Sent only when there is something to declare, so the ordinary request is unchanged.
+            if (missingImageIds.length) begin.missingImageIds = missingImageIds;
+            attempt = await request('POST', '/atlas/imports', begin);
+        }
         if (attempt.result) return finish(attempt.result);
         if (attempt.imageIds.length !== images.length) throw new Error('A preparação não corresponde às imagens deste arquivo.');
         // One image per request keeps the existing per-request upload ceiling useful.

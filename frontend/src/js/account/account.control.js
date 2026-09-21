@@ -919,7 +919,15 @@ export class AccountControl {
                         syncEngine.disconnect();
                     }
                     // 1) Upload the LOCAL store as a new atlas (reads the store — must precede the wipe).
-                    const result = await saveLocalAtlasToServer(apiClient, exportService, { name });
+                    const result = await saveLocalAtlasToServer(apiClient, exportService, {
+                        name,
+                        // A figura sem arquivo vira PERGUNTA, antes de qualquer escrita na rede.
+                        confirmMissingImages: (question) => showConfirm(question.title, {
+                            message: question.message,
+                            confirmText: question.confirmText,
+                            cancelText: question.cancelText,
+                        }),
+                    });
                     // 2) Apply the staged sharing (the creator is the owner).
                     await this._applyAtlasSharing(result.atlasId, sharing);
                     // 2.5) Announce the new atlas BEFORE the wipe. The wipe below empties the
@@ -1004,9 +1012,14 @@ export class AccountControl {
                     let msg = `Atlas salvo no servidor (${stats.maps} mapa(s), ${stats.features} feição(ões))`;
                     const lostImages = (imageStats.skipped || 0) + (imageStats.failed || 0);
                     if (lostImages > 0) msg += ` — ${lostImages} imagem(ns) não enviada(s)`;
+                    // Publicado SEM, por decisão da pessoa na pergunta de antes do envio: o toast
+                    // repete a contagem para que o desfecho diga o que o diálogo combinou.
+                    if (imageStats.missing > 0) msg += `. Subiu sem ${imageStats.missing} figura(s) que não tinha(m) arquivo`;
                     showSuccess(msg);
                 } catch (error) {
-                    showError('Falha ao salvar o atlas no servidor');
+                    // "Cancelar" na pergunta das figuras é DECISÃO: nada foi publicado, nada a
+                    // acusar. O erro segue adiante para o modal, que continua aberto.
+                    if (!error?.cancelled) showError('Falha ao salvar o atlas no servidor');
                     console.error('[AccountControl] saveLocalAtlasToServer failed:', error);
                     throw error;
                 }

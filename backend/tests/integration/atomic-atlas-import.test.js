@@ -67,6 +67,48 @@ describe('atomic atlas import preparation and publication', () => {
     await req('post', '/imports').send(draft).expect(400);
     assert.equal(await count(), 0);
   });
+  // DECLARED-MISSING IMAGES (2026-09-21). One original with no file anywhere used to make the whole
+  // atlas impossible to publish. The client may declare it missing after asking the person; the
+  // declaration is checked three ways so it cannot become a way around the manifest.
+  it('publishes with a DECLARED missing original: no image row, the feature kept, and the audit counts it', async () => {
+    const draft = fixture();
+    const orphan = draft.imageIds[0];
+    draft.missingImageIds = [orphan]; draft.imageIds = [];
+    const begun = await req('post', '/imports').send(draft).expect(201);
+    assert.deepEqual(begun.body.data.imageIds, []);
+    const atlas = (await req('post', `/imports/${draft.id}/commit`).send({}).expect(201)).body.data;
+    assert.equal(await count(), 1);
+    assert.equal((await db.query('SELECT 1 FROM images WHERE id=$1', [orphan])).rowCount, 0);
+    assert.equal((await db.query('SELECT 1 FROM features WHERE id=$1 AND deleted_at IS NULL', [orphan])).rowCount, 1);
+    const audit = await db.query("SELECT details FROM audit_trail WHERE target_id=$1 AND action='ATLAS_CREATE'", [atlas.id]);
+    assert.equal(audit.rowCount, 1);
+    assert.equal(audit.rows[0].details.missingImages, 1);
+  });
+  it('a complete import records ZERO missing images in the audit', async () => {
+    const draft = fixture();
+    await req('post', '/imports').send(draft).expect(201);
+    await upload(draft).expect(200);
+    const atlas = (await req('post', `/imports/${draft.id}/commit`).send({}).expect(201)).body.data;
+    const audit = await db.query("SELECT details FROM audit_trail WHERE target_id=$1 AND action='ATLAS_CREATE'", [atlas.id]);
+    assert.equal(audit.rowCount, 1);
+    assert.equal(audit.rows[0].details.missingImages, 0);
+  });
+  it('the missing declaration is no loophole: overlap, uncited id and a still-undeclared original are refused', async () => {
+    const overlap = fixture(); overlap.missingImageIds = [...overlap.imageIds];
+    await req('post', '/imports').send(overlap).expect(400);
+    const uncited = fixture(); uncited.missingImageIds = [randomUUID()];
+    await req('post', '/imports').send(uncited).expect(400);
+    const second = randomUUID();
+    const partial = fixture();
+    partial.payload.maps[0].features.push({ id: second, feature_type: 'image',
+      geometry: { type: 'Point', coordinates: [1, 1] }, properties: { id: second } });
+    partial.missingImageIds = [second]; partial.imageIds = [];
+    await req('post', '/imports').send(partial).expect(400);
+    const malformed = fixture(); malformed.missingImageIds = ['not-a-uuid'];
+    await req('post', '/imports').send(malformed).expect(422); // schema validation, before the service
+    assert.equal(await count(), 0);
+    assert.equal((await db.query('SELECT 1 FROM atlas_import_attempts WHERE user_id=$1', [user.id])).rowCount, 0);
+  });
   it('the legacy metadata-only endpoint cannot create a partial atlas with original images', async () => {
     await req('post', '/import').send(fixture().payload).expect(400);
     assert.equal(await count(), 0);

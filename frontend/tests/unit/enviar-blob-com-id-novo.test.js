@@ -125,10 +125,52 @@ describe('salvar atlas local no servidor: o blob sobe com id novo', () => {
         expect(enviados.map((u) => u.localId)).toContain(idNovoDoIcone);
     });
 
-    it('refuses a missing original before publishing any atlas', async () => {
+    // UMA FIGURA SEM ARQUIVO E PERGUNTA, NAO RECUSA (2026-09-21). Este caso prendia a recusa ("refuses
+    // a missing original"), e ela era a armadilha: um icone cujo arquivo nao existe mais tornava o
+    // atlas impossivel de publicar, para sempre. O que continua valendo, e e o que os tres casos
+    // cobram: NADA vai a rede sem a pessoa decidir. Ver `atlas-sobe-com-figura-orfa.test.js`.
+    it('figura ausente SEM quem pergunte: nada e publicado, e o erro vem marcado como cancelamento', async () => {
         blobs.delete(idLocalDoIcone);
-        await expect(saveLocalAtlasToServer(apiClient, exportService, { name: 'Missing icon' })).rejects.toThrow(/ausente/);
+        await expect(saveLocalAtlasToServer(apiClient, exportService, { name: 'Sem icone' }))
+            .rejects.toMatchObject({ cancelled: true });
         expect(apiClient.importAtlas).not.toHaveBeenCalled();
         expect(enviados).toHaveLength(0);
+    });
+
+    it('figura ausente e a pessoa CANCELA: a pergunta nomeou a perda, e nada foi publicado', async () => {
+        blobs.delete(idLocalDoIcone);
+        const confirmMissingImages = vi.fn(async () => false);
+        await expect(saveLocalAtlasToServer(apiClient, exportService, { name: 'Sem icone', confirmMissingImages }))
+            .rejects.toMatchObject({ cancelled: true });
+        expect(confirmMissingImages).toHaveBeenCalledTimes(1);
+        const pergunta = confirmMissingImages.mock.calls[0][0];
+        expect(pergunta.title).toBe('Este atlas sobe sem 1 figura');
+        expect(pergunta.message).toContain('1 ícone personalizado');
+        expect(apiClient.importAtlas).not.toHaveBeenCalled();
+    });
+
+    it('figura ausente e a pessoa CONFIRMA: sobe o resto, e o servidor e avisado do id NOVO da ausente', async () => {
+        blobs.delete(idLocalDoIcone);
+        const resultado = await saveLocalAtlasToServer(apiClient, exportService, {
+            name: 'Sem icone', confirmMissingImages: async () => true,
+        });
+        expect(apiClient.importAtlas).toHaveBeenCalledTimes(1);
+        const opcoes = apiClient.importAtlas.mock.calls[0][1];
+        const ponto = importado.maps[0].features.find((f) => f.feature_type === 'point');
+        const idNovoDoIcone = ponto.properties.markerSymbol.slice('custom:'.length);
+        // A CONCORDANCIA, de novo: o id declarado ausente e o que o payload cita, nao o local.
+        expect(opcoes.missingImageIds).toEqual([idNovoDoIcone]);
+        expect(opcoes.missingImageIds).not.toContain(idLocalDoIcone);
+        // A imagem que TINHA arquivo subiu, e a ausente nao entrou no manifesto de subida.
+        expect(enviados).toHaveLength(1);
+        expect(enviados.map((u) => u.localId)).not.toContain(idNovoDoIcone);
+        expect(resultado.imageStats).toMatchObject({ total: 2, uploaded: 1, skipped: 0, failed: 0, missing: 1 });
+    });
+
+    it('nada ausente: ninguem e perguntado, e a declaracao vai vazia', async () => {
+        const confirmMissingImages = vi.fn(async () => true);
+        await saveLocalAtlasToServer(apiClient, exportService, { name: 'Inteiro', confirmMissingImages });
+        expect(confirmMissingImages).not.toHaveBeenCalled();
+        expect(apiClient.importAtlas.mock.calls[0][1].missingImageIds).toEqual([]);
     });
 });

@@ -24,7 +24,8 @@
 /**
  * @typedef {Object} RequiredImage
  * @property {string} id - Image id (the feature id, or the custom icon id)
- * @property {'imagem'|'icone'} kind - An image FEATURE, or a custom point ICON
+ * @property {'imagem'|'icone'|'anexo'} kind - An image FEATURE, a custom point ICON, or (only on the
+ *   way UP to a server, see `classifyMissingImages`) a picture attached to a marker or a 3D/360 item
  * @property {string|null} mapName - Map that holds the feature; null for an icon
  */
 
@@ -64,6 +65,30 @@ function count(n, singular, plural) {
 }
 
 /**
+ * "2 imagens (nos mapas "A", "B"), 1 ícone personalizado e 1 figura anexada": what is missing, by
+ * kind, with the maps of the image features. Shared by the two questions below so the same loss is
+ * never worded two ways.
+ *
+ * @param {RequiredImage[]} list - Non-empty
+ * @returns {string}
+ */
+function describeMissing(list) {
+    const images = list.filter((m) => m.kind === 'imagem');
+    const icons = list.filter((m) => m.kind === 'icone');
+    const attached = list.filter((m) => m.kind === 'anexo');
+    const parts = [];
+    if (images.length > 0) {
+        const maps = [...new Set(images.map((m) => m.mapName).filter(Boolean))];
+        parts.push(count(images.length, 'imagem', 'imagens')
+            + (maps.length > 0 ? ` (${maps.length === 1 ? 'no mapa' : 'nos mapas'} ${maps.map((n) => `"${n}"`).join(', ')})` : ''));
+    }
+    if (icons.length > 0) parts.push(count(icons.length, 'ícone personalizado', 'ícones personalizados'));
+    if (attached.length > 0) parts.push(count(attached.length, 'figura anexada', 'figuras anexadas'));
+    if (parts.length <= 1) return parts.join('');
+    return `${parts.slice(0, -1).join(', ')} e ${parts[parts.length - 1]}`;
+}
+
+/**
  * The confirmation the exporter shows when required images have no file, or null when nothing is
  * missing (the caller then asks nothing).
  *
@@ -79,16 +104,6 @@ export function missingImagesConfirm(missing, { remote = false } = {}) {
     const list = Array.isArray(missing) ? missing : [];
     if (list.length === 0) return null;
 
-    const images = list.filter((m) => m.kind === 'imagem');
-    const icons = list.filter((m) => m.kind === 'icone');
-    const parts = [];
-    if (images.length > 0) {
-        const maps = [...new Set(images.map((m) => m.mapName).filter(Boolean))];
-        parts.push(count(images.length, 'imagem', 'imagens')
-            + (maps.length > 0 ? ` (${maps.length === 1 ? 'no mapa' : 'nos mapas'} ${maps.map((n) => `"${n}"`).join(', ')})` : ''));
-    }
-    if (icons.length > 0) parts.push(count(icons.length, 'ícone personalizado', 'ícones personalizados'));
-
     const why = remote
         ? 'Não foi possível obter do servidor o arquivo de: '
         : 'O arquivo de figura não está guardado neste computador para: ';
@@ -99,7 +114,7 @@ export function missingImagesConfirm(missing, { remote = false } = {}) {
 
     return {
         title: `Este arquivo sai sem ${count(total, 'figura', 'figuras')}`,
-        message: `${why}${parts.join(' e ')}.\n\n${wayOut}`
+        message: `${why}${describeMissing(list)}.\n\n${wayOut}`
             + (total === 1
                 ? 'o que usa essa figura continua no arquivo, sem ela, que é como já aparece neste computador.'
                 : 'o que usa essas figuras continua no arquivo, sem elas, que é como já aparece neste computador.')
@@ -107,4 +122,83 @@ export function missingImagesConfirm(missing, { remote = false } = {}) {
         confirmText: 'Exportar assim',
         cancelText: 'Cancelar',
     };
+}
+
+/**
+ * Names the images that are missing on the way UP to a server (2026-09-21).
+ *
+ * The three upload doors learn WHICH ids are missing from the payload builder's list, which is
+ * wider than `requiredImagesOf`: it also cites the pictures attached to a marker or to a 3D/360
+ * item. An id this module can place becomes an image feature (with its map) or a custom icon; any
+ * other id is an attachment, named as such and never dropped from the count, because an uncounted
+ * loss is the silent loss this module exists to close.
+ *
+ * @param {string[]} missingIds - Ids (as the export data cites them) with no file available
+ * @param {Object} data - The export data object the ids came from
+ * @returns {RequiredImage[]} One entry per distinct id, in the order given
+ */
+export function classifyMissingImages(missingIds, data) {
+    const known = new Map(requiredImagesOf(data).map((image) => [image.id, image]));
+    const seen = new Set();
+    const out = [];
+    for (const id of Array.isArray(missingIds) ? missingIds : []) {
+        if (typeof id !== 'string' || id.length === 0 || seen.has(id)) continue;
+        seen.add(id);
+        out.push(known.get(id) ?? { id, kind: 'anexo', mapName: null });
+    }
+    return out;
+}
+
+/**
+ * The confirmation shown before an atlas goes UP to a server without some of its pictures, or null
+ * when nothing is missing.
+ *
+ * Until 2026-09-21 the three doors (send the mounted local atlas, send a local atlas from the atlas
+ * page, import a `.ebgeo` straight into the server) REFUSED on the first missing original ("Uma
+ * imagem original está ausente. Nenhum atlas foi publicado."). Same trap as the exporter's: one
+ * picture whose file no longer exists anywhere made the atlas impossible to publish, forever, and
+ * the sentence did not even say which picture. The refusal protected a real thing (nobody should
+ * publish a hole without knowing), and the question keeps it: the loss is counted, named, and the
+ * person decides. The server is TOLD which originals are missing (`missingImageIds`) and records
+ * the count in the audit trail, so a knowingly incomplete publication leaves a trace.
+ *
+ * Two sources, two ways out: from the DISK there is nowhere to get the file back; from a FILE
+ * there may be a more complete copy of the `.ebgeo`.
+ *
+ * @param {RequiredImage[]} missing - From `classifyMissingImages`
+ * @param {{ from?: 'disco'|'arquivo' }} [options]
+ * @returns {{ title: string, message: string, confirmText: string, cancelText: string }|null}
+ */
+export function missingImagesUploadConfirm(missing, { from = 'disco' } = {}) {
+    const list = Array.isArray(missing) ? missing : [];
+    if (list.length === 0) return null;
+    const fromFile = from === 'arquivo';
+    const total = list.length;
+    const why = fromFile
+        ? 'O arquivo .ebgeo não traz a figura de: '
+        : 'O arquivo de figura não está guardado neste computador para: ';
+    const wayOut = fromFile
+        ? 'Se existir uma cópia mais completa do arquivo, cancele e importe a partir dela. Se continuar, '
+        : 'Não há de onde recuperá-lo. Se continuar, ';
+    return {
+        title: `Este atlas sobe sem ${count(total, 'figura', 'figuras')}`,
+        message: `${why}${describeMissing(list)}.\n\n${wayOut}`
+            + (total === 1
+                ? 'o que usa essa figura vai para o servidor sem ela, e quem abrir o atlas verá um marcador de erro no lugar.'
+                : 'o que usa essas figuras vai para o servidor sem elas, e quem abrir o atlas verá um marcador de erro no lugar.')
+            + ' Todo o resto sobe inteiro.',
+        confirmText: fromFile ? 'Importar assim' : 'Enviar assim',
+        cancelText: 'Cancelar',
+    };
+}
+
+/**
+ * The error a door throws when the person answers "Cancelar", or when the door was given no way to
+ * ask. Tagged so the caller can tell a DECISION from a failure and say nothing: a cancelled send
+ * is not an error to report.
+ *
+ * @returns {Error} With `cancelled: true`
+ */
+export function uploadCancelledError() {
+    return Object.assign(new Error('Envio cancelado: nada foi publicado.'), { cancelled: true, stage: 'leitura' });
 }

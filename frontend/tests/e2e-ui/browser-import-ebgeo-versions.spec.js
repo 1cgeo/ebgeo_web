@@ -68,7 +68,7 @@ test('masked v1 import twice preserves images, legacy fields and references on t
     expect(result[0].photoId).not.toBe(result[1].photoId);
     expect(result[0].iconId).not.toBe(result[1].iconId);
     for (const item of result) {
-        expect(item.imported.imageStats).toEqual({ total: 2, uploaded: 2, skipped: 0, failed: 0 });
+        expect(item.imported.imageStats).toEqual({ total: 2, uploaded: 2, skipped: 0, failed: 0, missing: 0 });
         expect(item.decoded).toEqual([0, 1].map(() => ({ bytes: Array.from(png), width: 1, height: 1 })));
         expect(item.map.features.magnetic_declinations[0].properties).toMatchObject({ declination: -21.3, convergence: 0 });
         expect(item.map.features.coordination_lines).toHaveLength(1);
@@ -101,6 +101,49 @@ test('invalid versions and missing image bytes produce no server import request'
     expect(posts).toBe(0);
 });
 
+// A PICTURE THE ARCHIVE DOES NOT CARRY IS A QUESTION, NOT A REFUSAL (2026-09-21). The case above
+// keeps the fail-closed half: with nobody to ask, nothing reaches the network. This one is the other
+// half, against the REAL server: the person confirms, the atlas is published WITHOUT that picture,
+// the server is told which original is missing (`missingImageIds`) and accepts the manifest, the
+// picture that WAS in the archive is served byte for byte, and the orphan answers 404. Until then
+// one missing picture made the archive impossible to import into a server, and since the exporter
+// may now write a file knowing a picture is missing, that file would have been unusable here.
+test('a confirmed missing picture publishes the rest and tells the server which original is absent', async ({ page }) => {
+    await setup(page);
+    const begins = [];
+    page.on('request', request => {
+        if (request.method() === 'POST' && /\/atlas\/imports$/.test(new URL(request.url()).pathname)) begins.push(request.postDataJSON());
+    });
+    const result = await page.evaluate(async bytes => {
+        const questions = [];
+        const imported = await window.auditImport(new File([new Uint8Array(bytes)], 'orfa.ebgeo'), {
+            apiClient: window.auditApi,
+            confirmMissingImages: async question => { questions.push(question); return true; },
+        });
+        const pulled = await window.auditApi.pullSync(imported.atlasId, 0);
+        const map = pulled.snapshot.maps[0];
+        const photoId = map.features.images[0].properties.id;
+        const iconId = map.features.points[0].properties.markerSymbol.slice('custom:'.length);
+        const icon = await window.auditApi.fetchImageBlob(imported.atlasId, iconId);
+        let photoStatus = null;
+        try { await window.auditApi.fetchImageBlob(imported.atlasId, photoId); photoStatus = 200; } catch (error) { photoStatus = error?.status ?? String(error?.message); }
+        return { imported, questions, photoId, iconId, photoStatus, iconBytes: Array.from(new Uint8Array(await icon.arrayBuffer())) };
+    }, await archive(document(), { missing: true }));
+
+    expect(result.questions).toHaveLength(1);
+    expect(result.questions[0].title).toBe('Este atlas sobe sem 1 figura');
+    expect(result.questions[0].message).toContain('O arquivo .ebgeo não traz a figura de: 1 imagem (no mapa "Principal").');
+    expect(result.questions[0].confirmText).toBe('Importar assim');
+    expect(result.imported.imageStats).toEqual({ total: 2, uploaded: 1, skipped: 0, failed: 0, missing: 1 });
+    // The wire: the orphan is DECLARED under the id the payload cites, never silently dropped.
+    expect(begins).toHaveLength(1);
+    expect(begins[0].missingImageIds).toEqual([result.photoId]);
+    expect(begins[0].imageIds).toEqual([result.iconId]);
+    // The feature survived without its picture, and the picture that existed is intact.
+    expect(result.photoStatus).toBe(404);
+    expect(result.iconBytes).toEqual(Array.from(png));
+});
+
 test('connection loss during preparation publishes nothing; retry after reload resumes the same attempt', async ({ page }) => {
     await setup(page);
     const attempts = [];
@@ -127,7 +170,7 @@ test('connection loss during preparation publishes nothing; retry after reload r
     }, bytes);
     expect(attempts).toHaveLength(1);
     expect(retried.atlas).toHaveLength(1);
-    expect(retried.result.imageStats).toEqual({ total: 2, uploaded: 2, skipped: 0, failed: 0 });
+    expect(retried.result.imageStats).toEqual({ total: 2, uploaded: 2, skipped: 0, failed: 0, missing: 0 });
     expect(retried.bytes).toEqual(Array.from(png));
 });
 

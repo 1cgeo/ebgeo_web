@@ -17,6 +17,8 @@ importAttemptRoutes.use(auth, requireAccountPrincipal, (req, res, next) => {
 importAttemptRoutes.post('/', validate({ body: Joi.object({
   id: Joi.string().uuid().required(), sourceKey: Joi.string().pattern(/^[0-9a-f]{64}$/).required(),
   payload: importSchema.required(), imageIds: Joi.array().items(Joi.string().uuid()).unique().max(1000).required(),
+  // Originals the client DECLARES it does not have (the person confirmed). See `assertImageManifest`.
+  missingImageIds: Joi.array().items(Joi.string().uuid()).unique().max(1000).default([]),
 }) }), asyncHandler(async (req, res) => {
   res.status(201).json({ data: await service.beginImport(req.user.id, req.body) });
 }));

@@ -92,7 +92,7 @@ describe('server migration preserves image references', () => {
         data.cesium3d = { Principal: { markers: [{ id: 'marker', images: ['old-photo'] }] } };
         const file = await archive(data, { masked, images: { 'images/old-photo.png': png, 'images/old-icon.png': png } });
         const first = await importEbgeoAsAtlas(file, { apiClient: api });
-        expect(first.imageStats).toEqual({ total: 2, uploaded: 2, skipped: 0, failed: 0 });
+        expect(first.imageStats).toEqual({ total: 2, uploaded: 2, skipped: 0, failed: 0, missing: 0 });
         const payload = api.importAtlas.mock.calls[0][0];
         const photoId = payload.maps[0].features.find(f => f.feature_type === 'image').id;
         const iconId = payload.atlas.settings.customIcons[0].id;
@@ -109,8 +109,28 @@ describe('server migration preserves image references', () => {
         const data = document();
         data.maps.Principal.features.images = [feature('photo')];
         delete data.maps.Principal.features.images[0].properties.source;
-        await expect(importEbgeoAsAtlas(await archive(data), { apiClient: api })).rejects.toThrow(/ausente/);
+        // A missing original is a QUESTION since 2026-09-21, and with nobody to ask it fails CLOSED:
+        // the error is a tagged cancellation and nothing reaches the network. What this case pins is
+        // unchanged: the bucket WAS collected even without `source`, otherwise nothing would be missing.
+        await expect(importEbgeoAsAtlas(await archive(data), { apiClient: api })).rejects.toMatchObject({ cancelled: true });
         expect(api.importAtlas).not.toHaveBeenCalled();
+    });
+    it('a confirmed missing original is published WITHOUT it, declared to the server under its new id', async () => {
+        const data = document();
+        data.maps.Principal.features.images = [feature('photo')];
+        const questions = [];
+        const result = await importEbgeoAsAtlas(await archive(data), {
+            apiClient: api, confirmMissingImages: async question => { questions.push(question); return true; },
+        });
+        expect(questions).toHaveLength(1);
+        expect(questions[0].message).toContain('O arquivo .ebgeo não traz a figura de: 1 imagem (no mapa "Principal").');
+        expect(api.importAtlas).toHaveBeenCalledTimes(1);
+        const [payload, options] = api.importAtlas.mock.calls[0];
+        const declared = payload.maps[0].features.find(f => f.feature_type === 'image').id;
+        expect(declared).not.toBe('photo');
+        expect(options.missingImageIds).toEqual([declared]);
+        expect(options.images.map(image => image.localId)).not.toContain(declared);
+        expect(result.imageStats.missing).toBe(1);
     });
     it('does not report success when atomic publication cannot be confirmed', async () => {
         const data = document();

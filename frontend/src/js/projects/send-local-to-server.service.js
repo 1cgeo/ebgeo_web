@@ -52,6 +52,7 @@ import { countAtlasContents } from '@store/atlas-contents.js';
 import { buildServerImportPayload } from '@js/import_export/local-atlas-to-server.js';
 import { buildImageUploads } from '@js/import_export/atlas-image-upload.js';
 import { generateUUID, isValidId } from '@utils/uuid.js';
+import { classifyMissingImages, missingImagesUploadConfirm, uploadCancelledError } from '../import_export/ebgeo-missing-images.js';
 
 /**
  * As chaves de disco que este leitor usa, num lugar só.
@@ -373,10 +374,12 @@ function contarPayload(payload, imagens) {
  * Copies a local atlas to the server. Every source section and image must be readable;
  * the server exposes the atlas only after atomic publication. Source data is read-only.
  * @param {Object} entry - Local registry entry.
- * @param {Object} deps - API client, explicit scopeOf resolver, and optional display name.
+ * @param {Object} deps - API client, explicit scopeOf resolver, optional display name, and
+ *   `confirmMissingImages(question)`: resolves true to publish without the pictures that have no
+ *   file. Absent or false, nothing is published and the error carries `cancelled: true`.
  * @returns {Promise<Object>} Confirmed atlas, counts and server conversion summary.
  */
-export async function sendLocalAtlasToServer(entry, { apiClient, scopeOf, name } = {}) {
+export async function sendLocalAtlasToServer(entry, { apiClient, scopeOf, name, confirmMissingImages } = {}) {
     if (!entry?.id) throw new Error('sendLocalAtlasToServer: entry with an id is required');
     const scope = scopeOf(entry);
     const atlasName = String(name || entry.name || 'Atlas').trim();
@@ -398,17 +401,27 @@ export async function sendLocalAtlasToServer(entry, { apiClient, scopeOf, name }
     const built = buildServerImportPayload(exportData, { name: atlasName, imageIdMap });
 
     const found = [];
+    const missing = [];
     for (const id of built.imageIds) {
         const blob = await getStoreFor(StoreName.IMAGES, scope).getItem(id);
-        if (!blob) throw comEtapa(new Error('Uma imagem original está ausente. Nenhum atlas foi publicado.'), 'leitura');
+        // A MISSING ORIGINAL IS A QUESTION, NOT A REFUSAL (2026-09-21). It used to throw here, and
+        // one picture with no file made the whole atlas unpublishable, forever, without saying
+        // which picture. See `missingImagesUploadConfirm`.
+        if (!blob) { missing.push(id); continue; }
         found.push([imageIdMap[id], blob]);
     }
     const { uploads, skipped } = await buildImageUploads(found);
     if (skipped.length || built.stats.droppedFeatures) throw comEtapa(new Error('Há imagens ou feições que não podem ser convertidas. Nenhum atlas foi publicado.'), 'leitura');
+    const question = missingImagesUploadConfirm(classifyMissingImages(missing, exportData), { from: 'disco' });
+    if (question && !(await confirmMissingImages?.(question))) throw uploadCancelledError();
     const local = await countAtlasContents(scope);
     let atlas;
     try {
-        atlas = await apiClient.importAtlas(built.payload, { images: uploads, source: { exportData, name: atlasName } });
+        atlas = await apiClient.importAtlas(built.payload, {
+            images: uploads,
+            source: { exportData, name: atlasName },
+            missingImageIds: missing.map((id) => imageIdMap[id]),
+        });
     } catch (error) {
         throw comEtapa(error, 'preparation');
     }
@@ -422,6 +435,8 @@ export async function sendLocalAtlasToServer(entry, { apiClient, scopeOf, name }
             uploaded: uploads.length,
             skipped: skipped.length,
             failed: 0,
+            // Published WITHOUT, by the person's decision. Not `skipped`: nothing failed.
+            missing: missing.length,
         },
         // O QUE SUBIU, contra O QUE O SLOT TEM: os dois lados do aviso, e nenhum deles se deduz do
         // outro.

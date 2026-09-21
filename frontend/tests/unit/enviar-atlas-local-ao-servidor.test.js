@@ -526,7 +526,7 @@ describe('sendLocalAtlasToServer', () => {
         expect(citados).toEqual(enviados);
 
         expect(itens.every((i) => i.mimeType === 'image/png')).toBe(true);
-        expect(result.imageStats).toEqual({ total: 2, uploaded: 2, skipped: 0, failed: 0 });
+        expect(result.imageStats).toEqual({ total: 2, uploaded: 2, skipped: 0, failed: 0, missing: 0 });
     });
 
     it('NÃO DESTRUTIVO: os dez bancos do slot saem byte a byte como entraram', async () => {
@@ -625,7 +625,9 @@ describe('a OUTRA porta (o mapa): o store local É o atlas que sobe', () => {
         // nenhuma: ela recebe o serviço de exportação e o nome, e lê o escopo ATIVO. É isto que
         // a cláusula chama de "o store local É o atlas que sobe", e é o que a distingue da porta
         // da lista, cuja primeira coisa é o `atlas` do cartão clicado.
-        expect(corpo).toMatch(/saveLocalAtlasToServer\(\s*apiClient,\s*exportService,\s*\{\s*name\s*\}\s*\)/);
+        // O terceiro argumento ganhou `confirmMissingImages` em 2026-09-21 (a figura sem arquivo vira
+        // pergunta antes da rede); o que este caso prende continua sendo QUEM sobe: o store montado.
+        expect(corpo).toMatch(/saveLocalAtlasToServer\(\s*apiClient,\s*exportService,\s*\{\s*name,/);
 
         // 2. A ORDEM É O CONTRATO, e é o que impede o wipe de apagar o que ainda não subiu.
         const posUpload = corpo.indexOf('saveLocalAtlasToServer(');

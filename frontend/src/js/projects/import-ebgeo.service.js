@@ -21,6 +21,7 @@ import { migrateImportDataToV2 } from '@js/import_export/import-normalize.js';
 import { generateUUID } from '@utils/uuid.js';
 import { buildServerImportPayload } from '@js/import_export/local-atlas-to-server.js';
 import { buildImageUploads } from '@js/import_export/atlas-image-upload.js';
+import { classifyMissingImages, missingImagesUploadConfirm, uploadCancelledError } from '@js/import_export/ebgeo-missing-images.js';
 import { atlasNameFromFilename } from './ebgeo-filename.js';
 
 /** Matches `images/<id>.<ext>` entries inside the archive. */
@@ -54,11 +55,14 @@ export { atlasNameFromFilename };
  * @param {Object} deps
  * @param {Object} deps.apiClient - The sync ApiClient (`importAtlas` with atomic image preparation).
  * @param {string} [deps.name] - Overrides the name derived from the filename.
+ * @param {Function} [deps.confirmMissingImages] - `(question) => Promise<boolean>`: true publishes
+ *   without the pictures the archive does not carry. Absent or false, nothing is created and the
+ *   error carries `cancelled: true`.
  * @returns {Promise<{ atlasId: string, name: string, stats: Object, imageStats: Object }>}
  * @throws {Error} On preflight or preparation failure, or when publication cannot be confirmed.
  *   Retrying the same content resumes preparation or recovers the committed receipt.
  */
-export async function importEbgeoAsAtlas(file, { apiClient, name } = {}) {
+export async function importEbgeoAsAtlas(file, { apiClient, name, confirmMissingImages } = {}) {
     const { zip, data } = await readEbgeoArchive(file);
     const refusal = importVersionRefusal(data);
     if (refusal) throw new Error(refusal);
@@ -87,12 +91,20 @@ export async function importEbgeoAsAtlas(file, { apiClient, name } = {}) {
         foundIds.add(match[1]);
         found.push([imageIdMap[match[1]], new Blob([raw], { type: mimeType })]);
     }
+    // A PICTURE THE ARCHIVE DOES NOT CARRY IS A QUESTION, NOT A REFUSAL (2026-09-21). It used to
+    // stop the import, and since the exporter may now write a file KNOWING a picture is missing
+    // (the person confirmed it there), refusing here would make that file unusable on a server.
     const missing = [...wanted].filter(id => !foundIds.has(id));
-    if (missing.length) throw new Error(`Importação interrompida: ${missing.length} imagem(ns) original(is) ausente(s) no arquivo. Nenhum atlas foi criado no servidor.`);
+    const question = missingImagesUploadConfirm(classifyMissingImages(missing, exportData), { from: 'arquivo' });
+    if (question && !(await confirmMissingImages?.(question))) throw uploadCancelledError();
     const { uploads, skipped } = await buildImageUploads(found);
     if (skipped.length) throw new Error(`Importação interrompida: ${skipped.length} imagem(ns) não pode(m) ser enviada(s) ao servidor. Nenhum atlas foi criado.`);
     // All archive reads/conversions above must succeed before creating the atlas.
-    const atlas = await apiClient.importAtlas(built.payload, { images: uploads, source: { exportData: originalData, name: atlasName } });
+    const atlas = await apiClient.importAtlas(built.payload, {
+        images: uploads,
+        source: { exportData: originalData, name: atlasName },
+        missingImageIds: missing.map(id => imageIdMap[id]),
+    });
 
     registrarUso(EventoDeUso.EBGEO_IMPORTADO);
     return {
@@ -104,6 +116,8 @@ export async function importEbgeoAsAtlas(file, { apiClient, name } = {}) {
             uploaded: uploads.length,
             skipped: skipped.length,
             failed: 0,
+            // Created WITHOUT, by the person's decision. Not `skipped`: nothing failed.
+            missing: missing.length,
         },
     };
 }

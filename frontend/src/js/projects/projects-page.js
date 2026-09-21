@@ -468,6 +468,7 @@ async function sendLocalAtlasToServerFromPage(atlas) {
             apiClient,
             scopeOf: scopeOfLocalAtlas,
             name,
+            confirmMissingImages: askAboutMissingImages,
         });
         const notice = sendToServerNotice(result);
         tell(notice);
@@ -475,6 +476,9 @@ async function sendLocalAtlasToServerFromPage(atlas) {
         // Sem destino, a pessoa fica na lista: o cartão local nunca some, então não há o que
         // redesenhar do lado local, e o lado de servidor será relido no próximo boot.
     } catch (error) {
+        // "Cancelar" na pergunta das figuras sem arquivo é DECISÃO, não falha: nada foi publicado e
+        // a pessoa sabe disso, porque foi ela que respondeu.
+        if (error?.cancelled) return;
         console.error('[projects] local atlas send to server failed:', error);
         // A FRASE VEM DA ETAPA, e não do texto cru do erro. Medido em 2026-09-07: com a rede cortada
         // na subida das imagens, esta linha mostrava o literal "Failed to fetch" do navegador no
@@ -764,6 +768,20 @@ function openSignupDialog(abertura) {
 }
 
 /**
+ * Shows the question the upload doors build when some pictures have no file, and resolves the
+ * answer. The SENTENCE is theirs (`missingImagesUploadConfirm`, pure); this is only the dialog.
+ * @param {{ title: string, message: string, confirmText: string, cancelText: string }} question
+ * @returns {Promise<boolean>}
+ */
+function askAboutMissingImages(question) {
+    return showConfirm(question.title, {
+        message: question.message,
+        confirmText: question.confirmText,
+        cancelText: question.cancelText,
+    });
+}
+
+/**
  * Creates a project straight from a `.ebgeo` file and opens it. The importer (and JSZip with it)
  * is loaded ON DEMAND: it is worth ~100 kB and most visits never import anything.
  * @param {File} file
@@ -771,7 +789,10 @@ function openSignupDialog(abertura) {
 async function importProjectFromFile(file) {
     try {
         const { importEbgeoAsAtlas } = await import('./import-ebgeo.service.js');
-        const { atlasId, name, stats, imageStats } = await importEbgeoAsAtlas(file, { apiClient });
+        const { atlasId, name, stats, imageStats } = await importEbgeoAsAtlas(file, {
+            apiClient,
+            confirmMissingImages: askAboutMissingImages,
+        });
         const lost = (imageStats.skipped || 0) + (imageStats.failed || 0);
         if (lost > 0) {
             // A toast would disappear as soon as openAtlas navigates. Keep the
@@ -792,6 +813,7 @@ async function importProjectFromFile(file) {
         }
         openAtlas(atlasId);
     } catch (error) {
+        if (error?.cancelled) return; // The person answered "Cancelar": nothing was created.
         console.error('[projects] .ebgeo import failed:', error);
         showError(error?.message || 'Falha ao importar o arquivo .ebgeo.');
     }

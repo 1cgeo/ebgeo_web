@@ -1937,10 +1937,10 @@ export class ApiClient {
      * @param {Object} payload - Per the backend importSchema ({ atlas, maps, briefings }).
      * @returns {Promise<Object>} The created atlas ({ id, name, ..., summary }).
      */
-    async importAtlas(payload, { images, source = payload } = {}) {
+    async importAtlas(payload, { images, source = payload, missingImageIds = [] } = {}) {
         if (images) {
             const { atomicServerImport } = await import('../../import_export/atomic-server-import.js');
-            return atomicServerImport(this, payload, images, source);
+            return atomicServerImport(this, payload, images, source, missingImageIds);
         }
         return this._request('POST', '/atlas/import', { body: payload });
     }

@@ -23,10 +23,28 @@ async function owned(t, userId, id, lock = true) {
   return row;
 }
 
-export async function beginImport(userId, { id, sourceKey, payload, imageIds }) {
-  assertImportMapCeiling(payload.maps);
+/**
+ * DECLARED-MISSING IMAGES (2026-09-21). Until then every original the payload cites had to be in
+ * the manifest, so ONE image whose file no longer exists anywhere (a feature kept, its blob lost
+ * years ago) made the whole atlas impossible to publish, forever, with no way out on the client.
+ * The client may now DECLARE the originals it does not have, after asking the person. The
+ * declaration is checked three ways so it cannot become a loophole: every cited original is in
+ * exactly one of the two lists, the lists do not overlap, and nothing is declared missing that
+ * the payload does not cite. Nothing is stored: at commit the set is DERIVED again (cited minus
+ * manifest), which is what the audit entry records.
+ */
+function assertImageManifest(payload, imageIds, missingImageIds) {
   const supplied = new Set(imageIds);
-  if ([...importImageIds(payload)].some(id => !supplied.has(id))) throw new BadRequestError('O manifesto não contém todas as imagens originais do atlas.');
+  const missing = new Set(missingImageIds);
+  const cited = importImageIds(payload);
+  if ([...missing].some(id => supplied.has(id))) throw new BadRequestError('Uma imagem foi declarada ao mesmo tempo como enviada e como ausente.');
+  if ([...missing].some(id => !cited.has(id))) throw new BadRequestError('Foi declarada ausente uma imagem que o atlas não cita.');
+  if ([...cited].some(id => !supplied.has(id) && !missing.has(id))) throw new BadRequestError('O manifesto não contém todas as imagens originais do atlas.');
+}
+
+export async function beginImport(userId, { id, sourceKey, payload, imageIds, missingImageIds = [] }) {
+  assertImportMapCeiling(payload.maps);
+  assertImageManifest(payload, imageIds, missingImageIds);
   return tx(async t => {
     // Serialize the per-account staging quota and concurrent repeats of begin.
     await t.any("SELECT pg_advisory_xact_lock(hashtextextended('import:' || $1, 0))", [userId]);
@@ -97,6 +115,9 @@ export async function commitImport(userId, id, { openFile = open, auditRequest =
       if (images.length !== attempt.image_ids.length) throw new ConflictError('Ainda faltam imagens. Nenhum atlas foi publicado.');
       const occupied = await t.any('SELECT id FROM images WHERE id=ANY($1::uuid[]) UNION SELECT id FROM features WHERE id=ANY($1::uuid[])', [attempt.image_ids]);
       if (occupied.length) throw new ConflictError('Um identificador de imagem já está em uso. Nenhum atlas foi publicado.');
+      // Cited minus manifest: the originals the client declared missing at begin (derived, not stored).
+      const manifest = new Set(attempt.image_ids);
+      const missingImages = [...importImageIds(attempt.payload)].filter(imageId => !manifest.has(imageId)).length;
       const atlas = await importAtlas(userId, attempt.payload, { transaction: work => work(t) });
       const directory = join(config.images.dir, atlas.id);
       await mkdir(directory, { recursive: true });
@@ -117,7 +138,7 @@ export async function commitImport(userId, id, { openFile = open, auditRequest =
       await t.none("UPDATE atlas_import_attempts SET result=$2::jsonb, payload=NULL, expires_at=NOW()+INTERVAL '7 days' WHERE id=$1", [id, JSON.stringify(atlas)]);
       await t.none('DELETE FROM atlas_import_images WHERE attempt_id=$1', [id]);
       await createAudit(auditRequest, { action: 'ATLAS_CREATE', actorId: userId, targetType: 'ATLAS',
-        targetId: atlas.id, targetName: atlas.name, details: { via: 'import', summary: atlas.summary ?? null } }, t);
+        targetId: atlas.id, targetName: atlas.name, details: { via: 'import', summary: atlas.summary ?? null, missingImages } }, t);
       return { atlas, reused: false };
     });
   } catch (error) {
