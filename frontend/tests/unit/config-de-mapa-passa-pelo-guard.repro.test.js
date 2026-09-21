@@ -155,7 +155,12 @@ vi.mock('../../src/js/events', () => ({
 vi.mock('../../src/js/catalog/catalog.constants.js', () => ({ CATALOG_ITEM_TYPES: {} }));
 vi.mock('../../src/js/catalog/catalog-layer.ref.js', () => ({ catalogLayerReferenceId: () => null }));
 vi.mock('../../src/js/store/catalog.operations.js', () => ({ getCatalogLayers: vi.fn(async () => []) }));
-vi.mock('../../src/js/store/map.operations.js', () => ({ isCurrentMapLockedSync: () => false }));
+// `isMapLocked` entrou em 2026-09-21: a config temporal passou a perguntar pela trava do mapa AO DISCO
+// (achado C2 da auditoria temporal), e este arquivo mede o eixo do PAPEL, então a trava fica aberta.
+vi.mock('../../src/js/store/map.operations.js', () => ({
+    isCurrentMapLockedSync: () => false,
+    isMapLocked: async () => false
+}));
 vi.mock('../../src/js/store/services/map-resolver.service.js', () => ({
     mapResolver: { resolveToId: (x) => x }
 }));

@@ -76,12 +76,32 @@ export const TRAJECTORY_TYPE_TO_CONTROL = {
 };
 
 /**
- * Playback speeds, expressed as timeline-units advanced per real second.
- * (e.g. with unit HORA, speed 2 advances 2 hours per wall-clock second.)
+ * Real seconds one full pass over the timeline takes at speed 1x.
+ *
+ * Playback used to advance a number of DIVISION UNITS per real second, which made
+ * the length of the show depend on a display choice: the same "1x" ran a three-day
+ * exercise in Minuto for over seven minutes and finished a four-week one in Semana
+ * in two frames. The unit is how the person wants to READ the bar, not how long
+ * they want to watch. Anchoring on the window instead makes every exercise take the
+ * same time to play, whatever its span and unit.
+ *
+ * 60 s is the target: long enough for the eye to follow movement across the whole
+ * window, short enough to watch the whole thing without reaching for 10x, and it
+ * leaves the existing multipliers meaningful at both ends (10x = 6 s for a quick
+ * survey, 0,5x = 2 min for a detailed pass).
+ */
+export const TEMPORAL_PLAYBACK_DURATION_S = 60;
+
+/**
+ * Playback speeds, as multipliers of `TEMPORAL_PLAYBACK_DURATION_S`: 1x plays the
+ * whole timeline window in that many seconds, 2x in half of it, 0,5x in twice.
+ * The labels on the bar stay "0,5x ... 10x"; what changed is that they no longer
+ * mean "units per real second", so the same multiplier now behaves the same way on
+ * any map, whatever its division unit.
  */
 export const TEMPORAL_SPEED_OPTIONS = [0.5, 1, 2, 5, 10];
 
-/** Default playback speed (units per second). */
+/** Default playback speed (multiplier of the target duration). */
 export const DEFAULT_TEMPORAL_SPEED = 1;
 
 /** Max number of tick marks rendered on the scrubber (density cap). */

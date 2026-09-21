@@ -5,11 +5,20 @@
  * component: it renders the scrubber, play/pause, speed selector, current-time
  * label, settings gear and trajectory keypoint pins, and reports user gestures
  * through callbacks. All state lives in TemporalController.
+ *
+ * THE RULER'S INPUT RULES ARE NOT HERE. Who may start a drag, what each pointer
+ * event does to a live one and which cursor a key asks for all live in
+ * `temporal-bar.model.js`, which is pure and node-testable; what stays here is
+ * the wiring (capture, focus, listeners for the length of one gesture). The two
+ * defects that split them were a cancelled touch gesture that left the cursor
+ * following the page forever and a `role="slider"` that answered two keys.
  */
 
 import {
     setupCleanup,
     addDomListener,
+    addScopedDomListener,
+    clearScopedListeners,
     cleanup,
     removeElement,
 } from '../utilities/event-cleanup.js';
@@ -25,6 +34,15 @@ import {
     formatTimelineLabel,
     formatRelative,
 } from './temporal.utils.js';
+import {
+    reduceDragEvent,
+    cursorForKey,
+    DragOutcome,
+    IDLE_DRAG,
+} from './temporal-bar.model.js';
+
+/** Scope name for the listeners that live only while a drag is in flight. */
+const DRAG_SCOPE = 'ruler-drag';
 
 const ICONS = {
     play: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>',
@@ -68,7 +86,11 @@ export class TemporalTimelineBar {
         this._modo = TEMPORAL_MODES.ABSOLUTO;
         this._origem = null;
 
-        this._dragging = false;        // scrubbing the cursor
+        // Cursor scrubbing state. The machine that owns it is pure and lives in
+        // temporal-bar.model.js; this field is only where its output is parked.
+        this._drag = IDLE_DRAG;
+        this._dragMoveBound = (e) => this._onDragMove(e);
+        this._dragEndBound = (e) => this._onDragEnd(e);
 
         setupCleanup(this);
     }
@@ -95,7 +117,7 @@ export class TemporalTimelineBar {
                 </div>
                 <div class="temporal-bar__timeline">
                     <div class="temporal-bar__time" aria-live="polite">—</div>
-                    <div class="temporal-bar__track" tabindex="0" role="slider" aria-label="Cursor temporal">
+                    <div class="temporal-bar__track" tabindex="0" role="slider" aria-orientation="horizontal" aria-label="Cursor temporal" title="Cursor temporal (setas, PageUp/PageDown, Home/End)">
                         <div class="temporal-bar__ticks"></div>
                         <div class="temporal-bar__progress"></div>
                         <div class="temporal-bar__handle"></div>
@@ -128,6 +150,7 @@ export class TemporalTimelineBar {
         this._speedSelect = root.querySelector('.temporal-bar__speed');
 
         parent.appendChild(root);
+        this._syncTrackRange();
         this._wireEvents();
         return root;
     }
@@ -144,39 +167,103 @@ export class TemporalTimelineBar {
             this._cb.onToggleReveal?.()
         );
 
-        // Scrubbing (pointer events cover mouse + touch).
+        // Scrubbing (pointer events cover mouse + touch). Only `pointerdown`
+        // lives here: the move/exit listeners exist for the length of ONE drag,
+        // under DRAG_SCOPE, so nothing survives a gesture. See _onTrackPointerDown.
         addDomListener(this, this._track, 'pointerdown', (e) => this._onTrackPointerDown(e));
-        addDomListener(this, window, 'pointermove', (e) => this._onPointerMove(e));
-        addDomListener(this, window, 'pointerup', (e) => this._onPointerUp(e));
 
-        // Keyboard nudge on the track.
+        // Keyboard on the track (arrows, PageUp/PageDown, Home/End).
         addDomListener(this, this._track, 'keydown', (e) => this._onTrackKeyDown(e));
     }
 
+    /**
+     * Starts a cursor drag, if this pointer may start one.
+     *
+     * THE THREE EXITS ARE ALL MANDATORY, and the one that was missing is a touch
+     * bug. `pointercancel` arrives INSTEAD of `pointerup` whenever the system
+     * takes the pointer away mid-gesture (the page scrolls, a pinch starts, a
+     * notification lands), and `lostpointercapture` covers a capture handed back
+     * without either. While the only exit was `pointerup` and the move listener
+     * sat on `window` for the component's whole life, a cancelled gesture left
+     * the drag flag true and EVERY later movement of the page dragged the
+     * timeline cursor, until a reload.
+     *
+     * The capture is what makes the drag survive the pointer leaving the ruler:
+     * without it the first move over another element hands the events to that
+     * element instead.
+     */
     _onTrackPointerDown(e) {
-        this._dragging = true;
-        this._track.setPointerCapture?.(e.pointerId);
+        const { state, outcome } = reduceDragEvent(this._drag, e);
+        this._drag = state;
+        if (outcome !== DragOutcome.START) return;
+
+        // THE CLICK HAS TO FOCUS THE RULER. The `preventDefault` below suppresses
+        // the browser's own focus, so without this line the keys the tutorial
+        // teaches only ever answered someone who arrived by Tab.
+        this._track.focus?.({ preventScroll: true });
+
+        try {
+            this._track.setPointerCapture?.(e.pointerId);
+        } catch {
+            // The capture is a convenience, never an invariant: without it the
+            // drag still works while the pointer stays over the ruler.
+        }
+        addScopedDomListener(this, DRAG_SCOPE, this._track, 'pointermove', this._dragMoveBound);
+        addScopedDomListener(this, DRAG_SCOPE, this._track, 'pointerup', this._dragEndBound);
+        addScopedDomListener(this, DRAG_SCOPE, this._track, 'pointercancel', this._dragEndBound);
+        addScopedDomListener(this, DRAG_SCOPE, this._track, 'lostpointercapture', this._dragEndBound);
+
         this._scrubToClientX(e.clientX, true);
         e.preventDefault();
     }
 
-    _onPointerMove(e) {
-        if (this._dragging) this._scrubToClientX(e.clientX, true);
+    _onDragMove(e) {
+        const { state, outcome } = reduceDragEvent(this._drag, e);
+        this._drag = state;
+        if (outcome === DragOutcome.MOVE) this._scrubToClientX(e.clientX, true);
     }
 
-    _onPointerUp() {
-        this._dragging = false;
+    _onDragEnd(e) {
+        const { state, outcome } = reduceDragEvent(this._drag, e);
+        this._drag = state;
+        if (outcome === DragOutcome.END) this._releaseDrag(e?.pointerId);
+    }
+
+    /**
+     * Drops the drag listeners and the capture, in that order.
+     *
+     * Releasing the capture FIRES `lostpointercapture`, which is one of the exits
+     * wired above, so the listeners go first and the re-entry finds nothing. The
+     * machine is idle by then anyway, which is the second guard.
+     * @private
+     */
+    _releaseDrag(pointerId) {
+        clearScopedListeners(this, DRAG_SCOPE);
+        if (!Number.isFinite(pointerId)) return;
+        try {
+            this._track?.releasePointerCapture?.(pointerId);
+        } catch {
+            // The browser may have released it already (that is what a
+            // `pointercancel` means), and asking twice throws.
+        }
     }
 
     _onTrackKeyDown(e) {
-        const step = TEMPORAL_UNITS[this._unidade]?.ms || 0;
-        if (e.key === 'ArrowRight') {
-            this._cb.onScrub?.(Math.min(this._fim, this._cursor + step));
-            e.preventDefault();
-        } else if (e.key === 'ArrowLeft') {
-            this._cb.onScrub?.(Math.max(this._inicio, this._cursor - step));
-            e.preventDefault();
-        }
+        const next = cursorForKey({
+            key: e.key,
+            cursor: this._cursor,
+            inicio: this._inicio,
+            fim: this._fim,
+            step: TEMPORAL_UNITS[this._unidade]?.ms || 0,
+            ctrlKey: e.ctrlKey,
+            metaKey: e.metaKey,
+            altKey: e.altKey,
+        });
+        // A null is "not a key of mine": Tab and the browser's own shortcuts have
+        // to keep working on this element, so nothing is prevented here.
+        if (next === null) return;
+        this._cb.onScrub?.(next);
+        e.preventDefault();
     }
 
     _clientXToCursor(clientX) {
@@ -193,20 +280,23 @@ export class TemporalTimelineBar {
 
     // ===== View API (driven by the controller) =====
 
-    /** Shows or hides the entire bar. */
+    /**
+     * Shows or hides the entire bar.
+     *
+     * IT USED TO PUBLISH ITS MEASURED HEIGHT IN `--temporal-bar-height`, and that
+     * property NEVER HAD A CONSUMER (C9). It was written for the trajectory edit
+     * toolbar, which was later moved to the top of the screen (see the comment on
+     * `.trajectory-edit-toolbar` in `css/temporal.css`), and the only other
+     * bottom-centre element, the coordinates readout, is DOCKED INSIDE this bar
+     * rather than stacked above it (`getCoordsSlot`). Overlap with the bottom-left
+     * and bottom-right controls is settled by the `z-index` on `.temporal-bar`,
+     * a decision written down there. What the publication still cost was a forced
+     * reflow on every show. If a bottom overlay ever does need to stack above the
+     * bar, bring it back together with the CSS that reads it.
+     */
     setVisible(visible) {
         if (!this._root) return;
-        const wasVisible = this._root.dataset.hidden === 'false';
         this._root.dataset.hidden = visible ? 'false' : 'true';
-        // Publish the bar's measured height so bottom-anchored overlays (the
-        // trajectory edit toolbar) can stack above it. Only on the actual
-        // visibility transition, to avoid forced reflows on every sync.
-        if (visible && !wasVisible) {
-            const h = Math.round(this._root.getBoundingClientRect().height);
-            document.documentElement.style.setProperty('--temporal-bar-height', `${h}px`);
-        } else if (!visible && wasVisible) {
-            document.documentElement.style.removeProperty('--temporal-bar-height');
-        }
     }
 
     /** @returns {HTMLElement|null} The bottom-row slot that hosts the docked coordinates readout. */
@@ -240,9 +330,29 @@ export class TemporalTimelineBar {
         return { modo: this._modo, origem: this._origem, unidade: this._unidade };
     }
 
+    /**
+     * Publishes the ruler's range to assistive tech.
+     *
+     * A `role="slider"` with no `aria-valuemin`/`aria-valuemax` is announced as an
+     * unbounded control: the reader says the raw epoch of `aria-valuenow` and
+     * nothing about where in the exercise that instant sits. A bound that is not
+     * a number REMOVES the attribute instead of writing `NaN`, which reads worse
+     * than an absent one.
+     * @private
+     */
+    _syncTrackRange() {
+        if (!this._track) return;
+        const pairs = [['aria-valuemin', this._inicio], ['aria-valuemax', this._fim]];
+        for (const [attr, valor] of pairs) {
+            if (Number.isFinite(valor)) this._track.setAttribute(attr, String(Math.round(valor)));
+            else this._track.removeAttribute(attr);
+        }
+    }
+
     /** Re-renders range/axis/cursor labels for the current bounds + context. */
     _renderLabels() {
         const ctx = this._ctx();
+        this._syncTrackRange();
         this._renderTicks();
         if (this._rangeStart) this._rangeStart.textContent = formatTimelineLabel(this._inicio, ctx);
         if (this._rangeEnd) this._rangeEnd.textContent = formatTimelineLabel(this._fim, ctx);
@@ -267,7 +377,13 @@ export class TemporalTimelineBar {
         const label = formatTimelineLabel(cursor, this._ctx());
         if (this._timeLabel) this._timeLabel.textContent = label;
         if (this._track) {
-            this._track.setAttribute('aria-valuenow', String(Math.round(cursor)));
+            // A non-finite cursor (no bounds published yet) drops the attribute
+            // rather than announcing "NaN" as the current instant.
+            if (Number.isFinite(cursor)) {
+                this._track.setAttribute('aria-valuenow', String(Math.round(cursor)));
+            } else {
+                this._track.removeAttribute('aria-valuenow');
+            }
             this._track.setAttribute('aria-valuetext', label);
         }
     }
@@ -337,8 +453,11 @@ export class TemporalTimelineBar {
     }
 
     destroy() {
+        // A bar destroyed mid-drag still holds a pointer capture; `cleanup` takes
+        // the listeners but knows nothing about the capture.
+        this._releaseDrag(this._drag?.pointerId);
+        this._drag = IDLE_DRAG;
         cleanup(this);
-        document.documentElement.style.removeProperty('--temporal-bar-height');
         removeElement(this._root);
         this._root = null;
     }

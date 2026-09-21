@@ -25,6 +25,14 @@ vi.mock('../../src/js/store/sync/permission-guard.js', () => ({
     GuardAction: { UPDATE_MAP: 'UPDATE_MAP' },
 }));
 
+// A TRAVA DO MAPA É ENTRADA DESTE ARQUIVO, e por isso ela é mock. `temporal.operations.js` passou
+// a perguntar `isMapLocked` (achado C2), e importar o módulo real arrastaria `map.operations.js`
+// inteiro (repositório, config, 3D, 360) para uma suíte que dirige uma folha. O padrão é
+// "destravado", que é o estado em que todos os casos abaixo já estavam.
+vi.mock('../../src/js/store/map.operations.js', () => ({
+    isMapLocked: vi.fn(async () => false),
+}));
+
 vi.mock('../../src/js/store/store-errors.js', () => ({
     emitStoreError: vi.fn(),
     StoreErrorEvents: { STORE_OPERATION_BLOCKED: 'store:operationBlocked' },

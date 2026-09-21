@@ -53,6 +53,15 @@ import { runTransaction } from './store-transaction.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { readMapRevision } from './map-revision.js';
+// THE LOCK IS ASKED OF DISK, AND THIS IS THE ONE FUNCTION THAT ASKS IT. `memoryStore.lockedMaps`
+// is only COMPLETE in a server atlas: in a local one just the current map ever enters it, so
+// asking the set about another map answers "unlocked" for a locked map, silently (see
+// `.claude/rules/architecture.md`, "A TRAVA DE OUTRO MAPA"). `map-view.operations.js` imports
+// this same pair (`isMapLocked` here, `setMapTemporalSaved` below), so the direction added here
+// closes a triangle that already existed.
+import { isMapLocked } from './map.operations.js';
+import { withGestureBatch } from './sync/gesture-batch.js';
+import { decisaoDoReagendamento } from '../temporal/temporal-settings.model.js';
 
 const STORE_PREFIX = 'temporal_';
 
@@ -194,10 +203,21 @@ export async function setMapTemporalConfig(mapName, patch) {
 }
 
 /**
- * Writes the SAVED switch of a map. One caller by design: the "save view" gesture
- * (`saveMapView`, `map-view.operations.js`), which runs it inside the same logical batch as the
- * camera and the base layer. It does NOT touch the on-screen switch: the person saving is
- * already looking at the value being saved.
+ * Writes the SAVED switch of a map. It is the ONLY door to that field (`setMapTemporalConfig`
+ * drops `ativo` from every patch it receives), and it does NOT touch the on-screen switch: the
+ * person saving is already looking at the value being saved.
+ *
+ * THREE CALLERS TODAY, all of them a gesture about the map as a whole:
+ * - `saveMapView` (`map-view.operations.js`), which runs it inside the same logical batch as the
+ *   camera and the base layer;
+ * - `clearMapView` (same file), the mirror gesture, which clears it back to false;
+ * - `MapManager._copyTemporalConfig` (`map/map.manager.js`), so a duplicated map inherits the
+ *   saved switch of the map it was copied from.
+ *
+ * THE LOCK GATE BELOW DOES NOT BITE THE COPY, and that is a property of the TARGET, not an
+ * exception: `copyMap` writes into a map that has just been created, so there is no
+ * `mapLocked_<name>` for it to find. The two view gestures already refuse on the lock before
+ * calling any leaf, so here the gate is the closed door for the caller that comes next.
  *
  * @param {string|null} mapName - Map name (null = current).
  * @param {boolean} enabled - The switch to save with the view.
@@ -247,6 +267,33 @@ async function writeMapTemporalConfig(mapName, patch, operation) {
 
     const target = resolveMapName(mapName);
 
+    // A TRAVA DO MAPA É O SEGUNDO EIXO, E ELE FALTAVA AQUI ATÉ 2026-09-21 (achado C2 da auditoria
+    // temporal). Esta função perguntava só pelo PAPEL, enquanto os irmãos que editam o mesmo
+    // documento perguntam pelos dois: `setBaseLayer`, `renameMap` e `clearMapPosition`
+    // (`map.operations.js`), `saveMapView` e `clearMapView` (`map-view.operations.js`). O efeito
+    // medido: um Editor trocava unidade, janela e lente de um mapa que o dono tinha TRAVADO, e a
+    // mudança viajava, porque o servidor também não cobre este caso (a op `mapTemporal` tem o
+    // próprio mapa como alvo, e mapa não está em `LOCKABLE_CHILD_TARGETS`). Ou seja, do lado do
+    // produto o cliente é o único ponto de imposição que existe para esta escrita.
+    //
+    // A PERGUNTA É A ASSÍNCRONA, e isso não é estilo. `memoryStore.lockedMaps` só é COMPLETO em
+    // atlas de SERVIDOR; em atlas local apenas o mapa corrente chega a entrar nele, então
+    // perguntar ao conjunto sobre OUTRO mapa responde "destravado" para um mapa travado, calado.
+    // `isMapLocked` lê o app setting do disco, que todo escritor mantém em dia.
+    //
+    // `setMapTemporalSaved` PASSA POR AQUI E É ISSO QUE SE QUER. Ele é chamado por `saveMapView` e
+    // `clearMapView`, que já recusam pela trava ANTES de chamar folha nenhuma, então na prática a
+    // segunda pergunta nunca recusa e nunca produz um segundo aviso: ela custa uma leitura de app
+    // setting e fecha a porta para o chamador novo que esquecer o gate. É exatamente a forma de
+    // `setBaseLayer`, que aquele mesmo gesto chama e que também repergunta.
+    if (await isMapLocked(target)) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation,
+            reason: 'map_locked'
+        });
+        return null;
+    }
+
     // MERGE de patch sobre o estado anterior, e por isso um read-modify-write de
     // verdade: dois patches concorrentes leem o mesmo `previous` e o segundo merge
     // descarta o campo que o primeiro acabou de gravar. Diferente de `setMapNotes` e
@@ -286,6 +333,61 @@ async function writeMapTemporalConfig(mapName, patch, operation) {
     // map-setting ops, so logging the name silently dropped every temporal sync.
 
     return config;
+}
+
+/**
+ * REAGENDAR: desloca as feições no tempo e, SÓ SE ELAS ANDARAM, grava o novo Dia D e a janela
+ * deslocada. UM lote lógico.
+ *
+ * O DEFEITO QUE ELA EXISTE PARA IMPEDIR (achado S2 da auditoria temporal, 2026-09-21). A
+ * composição morava no modal: ele pedia o deslocamento, IGNORAVA o retorno e gravava a nova
+ * origem na linha seguinte, incondicionalmente. Num mapa travado, ou para um Comentarista, o
+ * deslocamento era recusado e a origem andava assim mesmo, de modo que todo rótulo D+N passava a
+ * mentir pelo delta enquanto o aviso na tela dizia que a escrita tinha sido recusada. O retorno é
+ * lido aqui, por `decisaoDoReagendamento`, e a gravação da origem é CONDICIONADA a ele.
+ *
+ * E AS DUAS METADES SÃO UM LOTE SÓ. Elas não cabem numa transação (o deslocamento toma
+ * `withMapDocument` na chave do mapa e a config toma `withSideDocument`, e a fila de
+ * `document-lock.js` é FIFO sem reentrância), então o que as une é a identidade ambiente de
+ * `withGestureBatch`: o servidor aplica ou recusa as duas juntas. Sem isso, o disparo de 1,5 s
+ * caindo entre elas manda as ops de feição sozinhas, e um par recebe o exercício deslocado com o
+ * Dia D antigo, que é o mesmo defeito visto do outro lado.
+ *
+ * A ORDEM É CONTRATO: deslocar PRIMEIRO, decidir depois. Gravar a origem antes tornaria a decisão
+ * impossível, porque não há como desfazer a op de config já enfileirada.
+ *
+ * @param {string|null} mapName - Map name (null = current).
+ * @param {Object} options
+ * @param {number} options.delta - Deslocamento em ms (finito e não nulo).
+ * @param {number} options.novaOrigem - O novo Dia D (epoch ms).
+ * @param {function(number): Promise<{changed: number, hadCandidates: boolean}>} options.deslocarFeicoes
+ *   Quem move as feições. É injetado porque o deslocamento vivo mora no controlador da barra
+ *   (store MAIS as fontes do MapLibre), e a store não conhece o mapa desenhado.
+ * @returns {Promise<{decisao: Object, gravou: (boolean|null), config: (Object|null)}>} `gravou` é
+ *   null quando a gravação nem foi tentada, e false quando a store a recusou.
+ */
+export async function rescheduleMapTemporal(mapName, { delta, novaOrigem, deslocarFeicoes } = {}) {
+    if (!Number.isFinite(delta) || delta === 0 || !Number.isFinite(novaOrigem)) {
+        throw new Error('rescheduleMapTemporal: delta finito e não nulo, e novaOrigem finita, são obrigatórios');
+    }
+    const target = resolveMapName(mapName);
+
+    return withGestureBatch(async () => {
+        const resultado = typeof deslocarFeicoes === 'function' ? await deslocarFeicoes(delta) : null;
+        const decisao = decisaoDoReagendamento(resultado);
+        if (!decisao.gravarOrigem) return { decisao, gravou: null, config: null };
+
+        // A janela é relida DEPOIS do deslocamento de propósito: mover feições não toca a config,
+        // então o valor é o mesmo, e reler evita carregar de fora um estado que pode ter envelhecido
+        // enquanto a confirmação estava aberta.
+        const anterior = await getMapTemporalConfig(target);
+        const config = await setMapTemporalConfig(target, {
+            origem: novaOrigem,
+            inicio: Number.isFinite(anterior.inicio) ? anterior.inicio + delta : anterior.inicio,
+            fim: Number.isFinite(anterior.fim) ? anterior.fim + delta : anterior.fim,
+        });
+        return { decisao, gravou: config !== null, config };
+    });
 }
 
 /**

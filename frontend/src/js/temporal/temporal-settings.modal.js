@@ -15,6 +15,19 @@
  * D+N axis (the offset inputs recompute) — it does not move features or rescale
  * the absolute window. Moving features in time is a separate, explicit action:
  * "Reagendar" shifts every feature/trajectory by a deliberate delta (confirmed).
+ *
+ * THREE DECISIONS OF THIS MODAL LIVE OUTSIDE IT, in `temporal-settings.model.js` (pure, node
+ * testable) and in `store/temporal.operations.js` (`rescheduleMapTemporal`). It is where the
+ * window validation and the "did Reagendar earn the right to move the D-Day" rule belong: both
+ * were wrong here, and neither had a test, because reaching this file needs a DOM and the store
+ * barrel. What is left here is the screen: reading the inputs, saying the sentence, closing or
+ * NOT closing.
+ *
+ * A REFUSED WRITE DOES NOT CLOSE THE MODAL. `setMapTemporalConfig` answers an expected refusal
+ * (role too low, map locked) with `null` and never throws, so the old `_save` closed exactly like
+ * a successful save and the person watched their settings evaporate. The blocked toast is written
+ * by the global listener (`store/store-error-listener.js`); what this file owes is to keep the
+ * screen open so the sentence lands on something.
  */
 
 import {
@@ -24,9 +37,14 @@ import {
     removeElement,
 } from '../utilities/event-cleanup.js';
 import { getMapTemporalConfig, setMapTemporalConfig, getControl } from '../store';
+// By FILE, not through the barrel above: `rescheduleMapTemporal` is not re-exported by
+// `store/store.js` (that file is outside this change), and a store module is imported by file
+// anyway. No extra weight: the barrel is already in this module's graph, one line up.
+import { rescheduleMapTemporal } from '../store/temporal.operations.js';
 import { showConfirm } from '../modals/index.js';
 import { showSuccess, showWarning, showToast } from '../utilities/index.js';
 import { TEMPORAL_UNIT_KEYS, TEMPORAL_UNITS, TEMPORAL_MODES } from './temporal.constants.js';
+import { resolverPatchDaConfig, avisoDoReagendamento } from './temporal-settings.model.js';
 import {
     epochToDatetimeLocal,
     datetimeLocalToEpoch,
@@ -45,6 +63,14 @@ class TemporalSettingsModal {
         this._original = null;
         this._body = null;
         this._prefixSpans = [];
+        /**
+         * TRUE WHILE A CHILD CONFIRMATION OR A WRITE IS IN FLIGHT. It is what keeps Escape (and
+         * the X, Cancel and backdrop gestures) from tearing the modal down under an await: the
+         * old `_close` nulled `this._overlay` inside a 200 ms timer, so a reschedule that
+         * finished afterwards dereferenced null, and with the `showConfirm` open one Escape
+         * closed BOTH dialogs at once (C12).
+         */
+        this._busy = false;
         setupCleanup(this);
     }
 
@@ -94,7 +120,7 @@ class TemporalSettingsModal {
         closeBtn.setAttribute('aria-label', 'Fechar');
         closeBtn.innerHTML =
             '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
-        addDomListener(this, closeBtn, 'click', () => this._close());
+        addDomListener(this, closeBtn, 'click', () => this._requestClose());
         header.appendChild(closeBtn);
         container.appendChild(header);
 
@@ -139,15 +165,16 @@ class TemporalSettingsModal {
         relGroup.appendChild(
             this._field('Fim', 'Ex.: 300 para D+300.', this._relativeOffsetField('fim'))
         );
+        this._dDateInput = this._datetimeInput(this._pending.dDate, (epoch) => {
+            // Pure lens: keep the absolute bounds, just re-label the D+N axis.
+            this._pending.dDate = epoch;
+            this._refreshOffsetInputs();
+        });
         relGroup.appendChild(
             this._field(
                 'Data de D (origem)',
                 'Apenas a referência de exibição do D+N. NÃO move as feições — só rotula a régua. Para mover, use "Reagendar".',
-                this._datetimeInput(this._pending.dDate, (epoch) => {
-                    // Pure lens: keep the absolute bounds, just re-label the D+N axis.
-                    this._pending.dDate = epoch;
-                    this._refreshOffsetInputs();
-                })
+                this._dDateInput
             )
         );
         relGroup.appendChild(this._rescheduleField());
@@ -163,7 +190,7 @@ class TemporalSettingsModal {
         cancelBtn.type = 'button';
         cancelBtn.className = 'temporal-settings-btn temporal-settings-btn--cancel';
         cancelBtn.textContent = 'Cancelar';
-        addDomListener(this, cancelBtn, 'click', () => this._close());
+        addDomListener(this, cancelBtn, 'click', () => this._requestClose());
         footer.appendChild(cancelBtn);
 
         const saveBtn = document.createElement('button');
@@ -177,10 +204,14 @@ class TemporalSettingsModal {
         this._overlay.appendChild(container);
 
         addDomListener(this, this._overlay, 'click', (e) => {
-            if (e.target === this._overlay) this._close();
+            if (e.target === this._overlay) this._requestClose();
         });
+        // LISTENER EM `document`, E POR ISSO ELE PRECISA DO FREIO. Ele continua vivo enquanto o
+        // `showConfirm` do Reagendar está aberto (a confirmação também escuta `document`), então
+        // sem `_busy` um Escape fechava os DOIS diálogos de uma vez, e um Escape durante o
+        // reagendamento derrubava o modal por baixo do await.
         addDomListener(this, document, 'keydown', (e) => {
-            if (e.key === 'Escape') this._close();
+            if (e.key === 'Escape') this._requestClose();
         });
     }
 
@@ -364,41 +395,50 @@ class TemporalSettingsModal {
      * @param {number|null} newD - New real date for D (epoch ms).
      */
     async _rescheduleFeatures(newD) {
+        if (this._busy) return;
         if (!Number.isFinite(newD)) {
             showWarning('Informe a nova data do Dia D para reagendar.');
             return;
         }
-        const cfg = await getMapTemporalConfig(this._mapName);
-        const refD = Number.isFinite(cfg.origem) ? cfg.origem : this._defaultOrigin();
-        const delta = newD - refD;
-        if (delta === 0) {
-            showToast('A data do Dia D não mudou — nada a reagendar.', 'info');
-            return;
-        }
-
-        const confirmed = await showConfirm('Reagendar todas as feições?', {
-            message:
-                'As feições temporais e trajetórias serão deslocadas no tempo para o novo Dia D.\n' +
-                'Os offsets D+N são mantidos; as datas reais mudam. Esta ação não pode ser desfeita.',
-            confirmText: 'Reagendar',
-        });
-        if (!confirmed) return;
-
+        // O FREIO COBRE TODO O TRECHO ASSÍNCRONO, e não só a escrita: um Escape entre dois awaits
+        // quaisquer derrubava o modal por baixo do resto do gesto, e com o `showConfirm` aberto
+        // ele fechava os DOIS diálogos.
+        this._busy = true;
         try {
-            // Shift features (store + live), then persist the moved origin/bounds so
-            // the D+N picture is identical and the controller re-syncs once.
-            const result = await getControl('TemporalControl')?.shiftFeatureTimes(delta);
-            await setMapTemporalConfig(this._mapName, {
-                origem: newD,
-                inicio: Number.isFinite(cfg.inicio) ? cfg.inicio + delta : cfg.inicio,
-                fim: Number.isFinite(cfg.fim) ? cfg.fim + delta : cfg.fim,
+            const cfg = await getMapTemporalConfig(this._mapName);
+            const refD = Number.isFinite(cfg.origem) ? cfg.origem : this._defaultOrigin();
+            const delta = newD - refD;
+            if (delta === 0) {
+                showToast('A data do Dia D não mudou — nada a reagendar.', 'info');
+                return;
+            }
+
+            const confirmed = await showConfirm('Reagendar todas as feições?', {
+                message:
+                    'As feições temporais e trajetórias serão deslocadas no tempo para o novo Dia D.\n' +
+                    'Os offsets D+N são mantidos; as datas reais mudam. Esta ação não pode ser desfeita.',
+                confirmText: 'Reagendar',
             });
-            this._announceReschedule(result);
+            if (!confirmed) return;
+
+            // UM LOTE LÓGICO, E A ORIGEM SÓ ANDA SE AS FEIÇÕES ANDARAM: as duas regras moram na op
+            // de store, que é quem conhece `withGestureBatch` e quem lê o retorno do deslocamento.
+            const control = getControl('TemporalControl');
+            const { decisao, gravou } = await rescheduleMapTemporal(this._mapName, {
+                delta,
+                novaOrigem: newD,
+                deslocarFeicoes: control ? (d) => control.shiftFeatureTimes(d) : null,
+            });
+            this._announceReschedule(decisao, gravou);
+            // Só fecha quando alguma coisa de fato aconteceu. Fechar numa recusa era o que fazia
+            // a tela se comportar igual nos dois desfechos.
+            if (gravou === true) this._close();
         } catch (error) {
             console.warn('Failed to reschedule features:', error);
             showWarning('Falha ao reagendar as feições.');
+        } finally {
+            this._busy = false;
         }
-        this._close();
     }
 
     /**
@@ -406,23 +446,19 @@ class TemporalSettingsModal {
      * which is how a refused write looked exactly like a completed one. Zero shifted
      * features has TWO causes and they need different words: the map had nothing timed,
      * or the store refused the write (role too low, or the map is locked).
-     * @param {{changed: number, hadCandidates: boolean}|undefined} result
+     *
+     * The sentence needs BOTH halves: what the shift did and whether the D-Day was actually
+     * stored, because since the config write gained its own lock gate a shift can succeed while
+     * the config write is refused. The table itself is pure (`temporal-settings.model.js`).
+     *
+     * @param {{gravarOrigem: boolean, motivo: string, reagendadas: number}} decisao
+     * @param {boolean|null} gravou - Whether the config write happened (null = not attempted).
      */
-    _announceReschedule(result) {
-        if (!result) {
-            showWarning('O controle temporal não está disponível: nenhuma feição foi reagendada.');
-            return;
-        }
-        if (result.changed > 0) {
-            const plural = result.changed === 1 ? 'feição reagendada' : 'feições reagendadas';
-            showSuccess(`${result.changed} ${plural} para o novo Dia D.`);
-            return;
-        }
-        if (result.hadCandidates) {
-            showWarning('Nenhuma feição foi reagendada: a escrita foi recusada (permissão insuficiente ou mapa bloqueado).');
-            return;
-        }
-        showToast('Nenhuma feição temporal para reagendar; apenas o Dia D foi atualizado.', 'info');
+    _announceReschedule(decisao, gravou) {
+        const { tipo, texto } = avisoDoReagendamento(decisao, { gravou });
+        if (tipo === 'success') showSuccess(texto);
+        else if (tipo === 'warning') showWarning(texto);
+        else showToast(texto, 'info');
     }
 
     /** Default relative origin when none is set: resolved timeline start, else today 00:00. */
@@ -435,51 +471,81 @@ class TemporalSettingsModal {
     }
 
     async _save() {
+        if (this._busy) return;
         const p = this._pending;
-        let patch;
 
-        if (p.modo === TEMPORAL_MODES.RELATIVO) {
-            const unitMs = unitToMs(p.unidade);
-            const origem = Number.isFinite(p.dDate)
-                ? p.dDate
-                : (Number.isFinite(this._original.origem) ? this._original.origem : this._defaultOrigin());
-            // Bounds are absolute (offset edits already wrote them); default a window
-            // when unset. Changing the origin/unit is a PURE LENS here — features are
-            // never shifted. Use the explicit "Reagendar" action to move them in time.
-            const inicio = Number.isFinite(p.inicio) ? p.inicio : origem;
-            let fim = Number.isFinite(p.fim) ? p.fim : origem + 30 * unitMs;
-            if (fim <= inicio) fim = inicio + unitMs;
-
-            patch = {
-                modo: TEMPORAL_MODES.RELATIVO,
-                unidade: p.unidade,
-                inicio,
-                fim,
-                origem,
-            };
-        } else {
-            patch = {
-                modo: TEMPORAL_MODES.ABSOLUTO,
-                unidade: p.unidade,
-                inicio: p.inicio,
-                fim: p.fim,
-            };
+        // A JANELA É VALIDADA NOS DOIS MODOS, E A INVERSÃO É RECUSADA, NÃO CONSERTADA. O relativo
+        // empurrava o fim para `inicio + unidade` em silêncio (a pessoa salvava uma janela que
+        // nunca tinha pedido) e o absoluto gravava cru, e uma janela invertida gravada faz a
+        // feição sumir do 3D, do 360 e da legenda do PDF, porque nenhum cursor passa no predicado.
+        const veredito = resolverPatchDaConfig(p, {
+            origemFallback: Number.isFinite(this._original.origem)
+                ? this._original.origem
+                : this._defaultOrigin(),
+            unitMs: unitToMs(p.unidade),
+        });
+        if (!veredito.ok) {
+            showWarning(veredito.mensagem);
+            this._focusField(veredito.campo);
+            return;
         }
 
+        this._busy = true;
         try {
-            await setMapTemporalConfig(this._mapName, patch);
+            // `null` É RECUSA ESPERADA, NÃO EXCEÇÃO (papel insuficiente, ou mapa travado desde
+            // 2026-09-21): a frase já vem do ouvinte global de `STORE_OPERATION_BLOCKED`, e o que
+            // falta é não fechar a tela como se tivesse salvo.
+            const config = await setMapTemporalConfig(this._mapName, veredito.patch);
+            if (config === null) return;
         } catch (error) {
             console.warn('Failed to persist temporal settings:', error);
+            showWarning('Falha ao salvar as configurações temporais.');
+            return;
+        } finally {
+            this._busy = false;
         }
         this._close();
     }
 
+    /**
+     * Puts the caret back on the field the refusal named, in whichever group is on screen.
+     * @param {string} campo - 'fim' | 'origem'
+     * @private
+     */
+    _focusField(campo) {
+        const relativo = this._pending?.modo === TEMPORAL_MODES.RELATIVO;
+        const alvo = campo === 'fim'
+            ? (relativo ? this._endOffsetInput : this._endInput)
+            : this._dDateInput;
+        alvo?.focus?.();
+    }
+
+    /**
+     * A close asked for by a GESTURE (Escape, backdrop, X, Cancel), which is refused while a
+     * child confirmation or a write is in flight. {@link _close} is the teardown itself and stays
+     * callable from the code paths that know they are done.
+     * @private
+     */
+    _requestClose() {
+        if (this._busy) return;
+        this._close();
+    }
+
+    /**
+     * IDEMPOTENTE E À PROVA DE NULO. A versão anterior desreferenciava `this._overlay` na entrada
+     * e o zerava DENTRO do timer de 200 ms, então dois gestos na mesma janela (ou um await
+     * terminando depois de um Escape) batiam em nulo. O overlay é capturado e o campo é zerado
+     * IMEDIATAMENTE, que é o que torna a segunda chamada inofensiva sem esperar o timer.
+     * @private
+     */
     _close() {
-        this._overlay.dataset.visible = 'false';
+        const overlay = this._overlay;
+        if (!overlay) return;
+        this._overlay = null;
+        overlay.dataset.visible = 'false';
         setTimeout(() => {
             cleanup(this);
-            removeElement(this._overlay);
-            this._overlay = null;
+            removeElement(overlay);
             this._previousActiveElement?.focus?.();
         }, 200);
     }
