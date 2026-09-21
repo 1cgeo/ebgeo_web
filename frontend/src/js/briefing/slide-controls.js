@@ -19,6 +19,14 @@
  * view". Those are NEVER shown while presenting, for any slide, so they are not a choice of the
  * author; `css/briefing/briefing-presentation.css` hides them outright.
  *
+ * THE TIMELINE IS A CONTROL OF THE SLIDE SINCE 2026-09-21, AND ITS GEAR IS NOT. The bar escaped
+ * the clean stage entirely: on a slide with the timeline on, the audience dragged the cursor,
+ * started playback and reached "Reagendar" through the gear, which moves every feature in time
+ * and has no undo. The bar itself is a legitimate choice of the author (a slide whose point is
+ * the passage of time wants it on screen), so it joins this list, hidden by default like every
+ * other one. The gear is NOT a choice: it opens a WRITE, and the same CSS file hides it for any
+ * slide while presenting, even one that shows the bar.
+ *
  * The editor is NOT affected by any of this: the author needs the selector and the viewers to
  * build the slide. Only the presenter applies these classes.
  */
@@ -43,6 +51,9 @@ export const SLIDE_CONTROLS = Object.freeze([
     // live in `.bottom-controls-right`; the owner asked for a single checkbox for all of them).
     Object.freeze({ key: 'search', label: 'Busca', bodyClass: 'briefing-show-search' }),
     Object.freeze({ key: 'navigation', label: 'Controles de navegação', bodyClass: 'briefing-show-navigation' }),
+    // The timeline bar. Its gear (settings / "Reagendar") never shows while presenting, whatever
+    // this flag says: it is hidden by its own rule in `briefing-presentation.css`.
+    Object.freeze({ key: 'temporal', label: 'Barra temporal', bodyClass: 'briefing-show-temporal' }),
 ]);
 
 /** Class that marks "a presentation is running", under which the controls above are hidden. */

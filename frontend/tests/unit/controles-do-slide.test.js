@@ -3,10 +3,17 @@
 // OS CONTROLES QUE UM SLIDE MOSTRA AO SER APRESENTADO (regra do dono, 2026-09-20).
 //
 // Uma apresentação é um palco limpo: seletor de mapa base, modelos 3D, imagens 360, terreno,
-// controle de coordenadas, utilitários, busca e controles de navegação ficam ESCONDIDOS, e cada um
-// só volta quando o autor marcou a caixa daquele slide. O padrão de todos é falso. A conta
-// ("Entrar" ou a identidade de quem entrou), o selo com o nome do atlas e o "compartilhar esta
-// vista" não são escolha do autor: somem sempre.
+// controle de coordenadas, utilitários, busca, controles de navegação e a barra temporal ficam
+// ESCONDIDOS, e cada um só volta quando o autor marcou a caixa daquele slide. O padrão de todos é
+// falso. A conta ("Entrar" ou a identidade de quem entrou), o selo com o nome do atlas e o
+// "compartilhar esta vista" não são escolha do autor: somem sempre.
+//
+// V1 (auditoria temporal de 2026-09-21): a BARRA TEMPORAL escapava do palco inteiro, porque não
+// estava nem no vocabulário nem nas regras do CSS. Num slide com o temporal ligado a plateia
+// arrastava o cursor, tocava a reprodução e chegava ao "Reagendar" pela ENGRENAGEM, que desloca
+// todas as feições no tempo e não tem desfazer. A barra virou controle do slide (escondida por
+// padrão, como as outras); a engrenagem NÃO virou escolha do autor, porque ela abre uma ESCRITA,
+// e some para todo slide enquanto se apresenta, o que o último bloco deste arquivo cobra.
 //
 // A CONTAGEM NÃO SE ESCREVE EM PROSA AQUI. Este cabeçalho disse "seis" e envelheceu em uma hora,
 // quando o dono pediu mais dois. A lista é asserida por extenso no primeiro caso, e é ela que vale.
@@ -38,12 +45,14 @@ const ler = (caminho) => readFileSync(new URL(caminho, import.meta.url), 'utf8')
 describe('a lista fechada', () => {
     it('são os controles que o dono pediu, nesta ordem', () => {
         expect(SLIDE_CONTROLS.map((c) => c.key)).toEqual(
-            ['basemap', 'models3d', 'views360', 'terrain', 'coordinates', 'utilities', 'search', 'navigation'],
+            ['basemap', 'models3d', 'views360', 'terrain', 'coordinates', 'utilities', 'search',
+                'navigation', 'temporal'],
         );
         // Rótulo é texto de interface: pt-BR, com acento.
         expect(SLIDE_CONTROLS.map((c) => c.label)).toEqual([
             'Seletor de mapa base', 'Modelos 3D', 'Imagens 360', 'Terreno',
             'Controle de coordenadas', 'Utilitários', 'Busca', 'Controles de navegação',
+            'Barra temporal',
         ]);
     });
 
@@ -60,7 +69,7 @@ describe('a lista fechada', () => {
 describe('normalizeSlideControls', () => {
     const TUDO_ESCONDIDO = {
         basemap: false, models3d: false, views360: false, terrain: false, coordinates: false, utilities: false,
-        search: false, navigation: false,
+        search: false, navigation: false, temporal: false,
     };
 
     it.each([undefined, null, {}, [], 'basemap', 42, true])('%j: tudo escondido, que é o padrão do dono', (bruto) => {
@@ -162,5 +171,33 @@ describe('a fiação: CSS, apresentador e editor', () => {
         const controles = editor.indexOf('this._slideEditorEl.appendChild(this._createSlideControlsGroup(slide))');
         expect(conteudo).toBeGreaterThan(-1);
         expect(controles).toBeGreaterThan(conteudo);
+    });
+});
+
+// V1. A barra é escolha do autor; a ENGRENAGEM não é, e as duas metades falham por caminhos
+// diferentes: sem a primeira a barra nunca some, sem a segunda ela some por padrão e volta INTEIRA,
+// com o "Reagendar" dentro, no slide em que o autor marcou a caixa.
+describe('a barra temporal no palco limpo (V1)', () => {
+    const css = ler('../../src/css/briefing/briefing-presentation.css');
+
+    it('a barra está no vocabulário e some por padrão ao apresentar', () => {
+        const barra = SLIDE_CONTROLS.find((c) => c.key === 'temporal');
+        expect(barra, 'a barra temporal saiu do vocabulário de controles do slide').toBeDefined();
+        expect(barra.bodyClass).toBe('briefing-show-temporal');
+        // O padrão é escondido, como o de todos: slide sem `controls` não pede a classe dela.
+        expect(slideControlClasses(undefined)).not.toContain('briefing-show-temporal');
+        expect(slideControlClasses({ temporal: true })).toEqual(['briefing-show-temporal']);
+        // E a regra mira a RAIZ da barra, não um pedaço dela.
+        expect(css).toContain('body.briefing-presenting:not(.briefing-show-temporal) .temporal-bar');
+    });
+
+    it('a ENGRENAGEM some para TODO slide, inclusive o que mostra a barra', () => {
+        // Ela precisa estar no bloco incondicional (sem `:not(.briefing-show-...)`), senão o slide
+        // que marca a caixa devolve o "Reagendar" à plateia.
+        expect(css).toMatch(/body\.briefing-presenting \.temporal-bar__settings,/);
+        expect(css).not.toMatch(/briefing-show-temporal\)\s+\.temporal-bar__settings/);
+        // E não existe classe que a traga de volta: ela não é escolha do autor.
+        expect(SLIDE_CONTROLS.map((c) => c.bodyClass)).not.toContain('briefing-show-temporal-settings');
+        expect(css).not.toMatch(/briefing-show-(settings|reagendar|temporal-settings)/);
     });
 });

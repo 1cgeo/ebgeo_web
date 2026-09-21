@@ -43,6 +43,7 @@ import {
     setMapTemporalView
 } from '@store/index.js';
 import { resolveSlideView } from '@js/briefing/slide-view.js';
+import { slideTemporalCursor } from '@js/briefing/slide-temporal.js';
 import { EventTypes } from '@events/event_types.js';
 import { flyTo } from '@js/map/animation.service.js';
 
@@ -254,7 +255,7 @@ class TransitionService {
                 this._currentModelId = null;
             }
 
-            // Restore the slide's remembered temporal cursor (2D slides only).
+            // Restore the instant the slide remembers, in all three modes.
             this._restoreTemporalCursor(slide);
 
             return true;
@@ -276,6 +277,12 @@ class TransitionService {
      */
     async _switchMapIfNeeded(slide) {
         this._mapChangedDuringTransition = false;
+
+        // THE SCREEN OF THE PERSON IS REMEMBERED BEFORE THE FIRST MAP SWITCH, and that order is
+        // the whole point of the call being here: the instant and the switch belong to the map
+        // they were on, not to the map of the first slide. While this ran only from
+        // `_applySlideView`, `setCurrentMap` had already happened.
+        this._rememberPersonView(getCurrentMapNameSync());
 
         const mapChanged = !!slide.mapId && getCurrentMapNameSync() !== slide.mapId;
         if (mapChanged) {
@@ -315,7 +322,7 @@ class TransitionService {
             temporalEnabled: await isMapTemporalSavedEnabled(),
         }, baseLayerControl?.availableBasemaps);
 
-        this._rememberPersonView(baseLayerControl, mapName);
+        this._rememberPersonView(mapName);
 
         if (baseLayerControl) {
             if (mapChanged) {
@@ -330,24 +337,52 @@ class TransitionService {
     }
 
     /**
-     * Remembers the base layer of the person once, and the temporal switch of each map the first
-     * time a slide touches it.
+     * Remembers the base layer AND THE INSTANT of the person once, and the temporal switch of
+     * each map the first time a slide touches it.
+     *
+     * THE INSTANT WAS MISSING UNTIL 2026-09-21, and it is the half the person notices: leaving
+     * the presentation gave the base layer and the switch back and left the timeline parked on
+     * the instant of the last slide, with no way to tell that it had been moved. It is read from
+     * the CONTROLLER (the store holds no cursor) and stamped with the map it was read on, so the
+     * restore can address it the same way a slide does.
+     *
+     * PLAYBACK IS STOPPED HERE TOO. Every slide pins its own instant, so a running timeline
+     * would drift the cursor between slides; the controller already stops on
+     * `BRIEFING_PRESENT_STARTED`, but the editor preview and the PDF export drive transitions
+     * without that event, and this path covers all three. `togglePlay` is the public door, and
+     * the `isPlaying` guard is what makes calling it on every slide a no-op.
      * @private
-     * @param {Object|null} baseLayerControl
      * @param {string} mapName - Map whose temporal switch is about to be set
      */
-    _rememberPersonView(baseLayerControl, mapName) {
+    _rememberPersonView(mapName) {
+        const temporalControl = getControl('TemporalControl');
+
         if (!this._personView) {
-            this._personView = { baseLayer: baseLayerControl?.currentLayer ?? null, temporal: new Map() };
+            const cursor = temporalControl?.getCursor?.();
+            this._personView = {
+                baseLayer: getControl('BaseLayerControl')?.currentLayer ?? null,
+                temporal: new Map(),
+                cursor: {
+                    mapName: mapName || null,
+                    value: Number.isFinite(cursor) ? cursor : null,
+                },
+            };
         }
+
+        if (temporalControl?.isPlaying?.()) temporalControl.togglePlay();
+
         if (mapName && !this._personView.temporal.has(mapName)) {
             this._personView.temporal.set(mapName, isMapTemporalEnabledSync(mapName));
         }
     }
 
     /**
-     * Gives the screen back to the person: the base layer and the temporal switches they had
-     * before the first slide was applied. Draw-only, like everything else about the view.
+     * Gives the screen back to the person: the base layer, the temporal switches and the INSTANT
+     * they had before the first slide was applied. Draw-only, like everything else about the view.
+     *
+     * The instant goes back addressed to the map it was read on (`{ mapName }`), because the way
+     * out does not switch maps: the person may be standing on the map of the last slide, and the
+     * controller holds the value pending until the bounds of their own map are published again.
      * @private
      */
     async _restorePersonView() {
@@ -355,8 +390,15 @@ class TransitionService {
         this._personView = null;
         if (!saved) return;
 
+        const temporalControl = getControl('TemporalControl');
+        if (temporalControl?.isPlaying?.()) temporalControl.togglePlay();
+
         for (const [mapName, enabled] of saved.temporal) {
             setMapTemporalView(mapName, enabled, { automatico: true });
+        }
+
+        if (saved.cursor?.value !== null && saved.cursor?.value !== undefined) {
+            temporalControl?.setCursor(saved.cursor.value, { mapName: saved.cursor.mapName });
         }
 
         const baseLayerControl = getControl('BaseLayerControl');
@@ -492,18 +534,27 @@ class TransitionService {
     }
 
     /**
-     * Restores the temporal timeline cursor saved on a 2D slide.
-     * No-op for non-2D slides or slides without a finite saved cursor.
-     * The TemporalControl shows/hides itself based on the active map's config;
-     * here we only move the cursor to the slide's remembered position.
+     * Restores the temporal timeline cursor the slide remembers, in ALL THREE MODES.
+     * No-op for a slide without a finite saved cursor.
+     *
+     * THE MODE GATE THAT LIVED HERE WAS WRONG (removed 2026-09-21): the switch of a slide was
+     * never 2D-only, because the 3D and the 360 markers filter by the timeline too, so a 3D slide
+     * showed the marker set of whichever slide preceded it. `briefing/slide-temporal.js` is the
+     * pure half of the pair, and the capture no longer writes null outside 2D.
+     *
+     * THE MAP OF THE SLIDE TRAVELS WITH THE INSTANT. The controller clamps the cursor to the
+     * bounds it has published, and on a slide-to-slide map change those are still the bounds of
+     * the PREVIOUS map, so the instant of the new slide was clipped to the old timeline (usually
+     * to its start). `{ mapName }` tells the controller which map the instant belongs to; it
+     * holds it pending until that map's bounds exist.
      * @private
      * @param {Object} slide - Target slide
      */
     _restoreTemporalCursor(slide) {
-        if ((slide.mode || SlideMode.MAP_2D) !== SlideMode.MAP_2D) return;
-        if (!Number.isFinite(slide.temporalCursor)) return;
+        const cursor = slideTemporalCursor(slide);
+        if (cursor === null) return;
 
-        getControl('TemporalControl')?.setCursor(slide.temporalCursor);
+        getControl('TemporalControl')?.setCursor(cursor, { mapName: slide.mapId || null });
     }
 
     /**
@@ -851,7 +902,7 @@ class TransitionService {
                 this._currentModelId = null;
             }
 
-            // Restore the slide's remembered temporal cursor (2D slides only).
+            // Restore the instant the slide remembers, in all three modes.
             this._restoreTemporalCursor(slide);
 
             return true;

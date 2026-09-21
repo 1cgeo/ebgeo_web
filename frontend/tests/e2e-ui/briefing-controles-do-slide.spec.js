@@ -89,7 +89,8 @@ describeOrSkip('controles do slide na apresentação', () => {
         const caixas = page.locator('.briefing-editor-control-check');
         // Uma caixa por controle da lista fechada, e nenhuma marcada.
         expect(await caixas.evaluateAll((els) => els.map((el) => el.dataset.control))).toEqual(
-            ['basemap', 'models3d', 'views360', 'terrain', 'coordinates', 'utilities', 'search', 'navigation'],
+            // `temporal` entrou em 2026-09-21 (achado V1): a barra da linha do tempo virou o nono controle.
+            ['basemap', 'models3d', 'views360', 'terrain', 'coordinates', 'utilities', 'search', 'navigation', 'temporal'],
         );
         expect(await caixas.evaluateAll((els) => els.filter((el) => el.checked).length)).toBe(0);
 

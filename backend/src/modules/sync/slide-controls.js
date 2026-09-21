@@ -17,6 +17,9 @@
 export const SLIDE_CONTROL_KEYS = Object.freeze([
   'basemap', 'models3d', 'views360', 'terrain', 'coordinates', 'utilities',
   'search', 'navigation',
+  // 'temporal' (2026-09-21): the timeline bar. Its GEAR is not a key of this list, on purpose:
+  // it opens a write ("Reagendar") and the client hides it for every slide while presenting.
+  'temporal',
 ]);
 
 /**

@@ -373,12 +373,20 @@
    any slide. The same goes for the rest of the SESSION chrome, which only exists for a signed-in
    user on a server atlas and is therefore invisible to an anonymous capture: the sync status
    badge and the online users roster (inventory taken on a server atlas, 2026-09-20). The navigation cluster (zoom, fullscreen, compass) is ONE choice, not three.
+
+   THE GEAR OF THE TIMELINE BAR JOINED THAT GROUP IN 2026-09-21, while the bar itself became a
+   choice of the author (`briefing-show-temporal`). The bar was escaping the clean stage whole:
+   the audience of a slide with the timeline on dragged the cursor, started playback and reached
+   "Reagendar" through the gear, which shifts every feature in time and has no undo. Showing the
+   bar is a legitimate slide; offering a WRITE to the audience is not, so the gear is hidden for
+   every slide while presenting, including one that ticked the box.
    ========================================================================= */
 
 body.briefing-presenting .account-control,
 body.briefing-presenting .atlas-name-badge,
 body.briefing-presenting .sync-status-badge,
 body.briefing-presenting .online-users,
+body.briefing-presenting .temporal-bar__settings,
 body.briefing-presenting .toolbar-standalone-btn[data-tool-id="share-view"] {
     display: none !important;
 }
@@ -391,6 +399,7 @@ body.briefing-presenting:not(.briefing-show-coordinates) .coordinates-control,
 body.briefing-presenting:not(.briefing-show-coordinates) .coordinates-control-3d,
 body.briefing-presenting:not(.briefing-show-utilities) .toolbar-group[data-group-id="utility"],
 body.briefing-presenting:not(.briefing-show-search) .search-bar-container,
-body.briefing-presenting:not(.briefing-show-navigation) .bottom-controls-right {
+body.briefing-presenting:not(.briefing-show-navigation) .bottom-controls-right,
+body.briefing-presenting:not(.briefing-show-temporal) .temporal-bar {
     display: none !important;
 }

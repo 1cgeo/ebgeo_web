@@ -1001,16 +1001,22 @@ export class BriefingEditorControl {
      */
     async _applySlideViewToScreen(slide) {
         try {
+            // THE MAP OF THE SLIDE, in all three reads. The box is built against `slide.mapId`
+            // (`_createSlideViewGroup` asks `isMapTemporalSavedEnabled(slide.mapId)`), and until
+            // 2026-09-21 the effect of ticking it landed on the map the store happened to have
+            // current, which is not the same map while the editor is still switching: the author
+            // ticked the box of one map and turned the timeline on in another.
+            const mapName = slide?.mapId || null;
             const baseLayerControl = getControl('BaseLayerControl');
             const view = resolveSlideView(slide, {
-                baseLayer: await getCurrentBaseLayer(),
-                temporalEnabled: await isMapTemporalSavedEnabled(),
+                baseLayer: await getCurrentBaseLayer(mapName),
+                temporalEnabled: await isMapTemporalSavedEnabled(mapName),
             }, baseLayerControl?.availableBasemaps);
 
             if (view.baseLayer && baseLayerControl && view.baseLayer !== baseLayerControl.currentLayer) {
                 await baseLayerControl.applySharedBasemap(view.baseLayer);
             }
-            setMapTemporalView(null, view.temporalEnabled, { automatico: true });
+            setMapTemporalView(mapName, view.temporalEnabled, { automatico: true });
         } catch (error) {
             console.warn('Failed to apply the slide view to the screen:', error);
         }
@@ -1294,8 +1300,6 @@ export class BriefingEditorControl {
 
                 slide.photoId = getCurrentPhotoName();
                 slide.modelId = null;
-                // Temporal cursor only applies to 2D slides.
-                slide.temporalCursor = null;
 
             } else if (isViewer3DOpen()) {
                 // Capture from live Cesium 3D viewer camera
@@ -1326,8 +1330,6 @@ export class BriefingEditorControl {
 
                 slide.modelId = getCurrentTilesetId() || slide.modelId;
                 slide.photoId = null;
-                // Temporal cursor only applies to 2D slides.
-                slide.temporalCursor = null;
 
             } else {
                 // Capture from 2D map
@@ -1356,24 +1358,22 @@ export class BriefingEditorControl {
 
                 slide.modelId = null;
                 slide.photoId = null;
-
-                // Capture the temporal timeline cursor when the active map's
-                // temporal control is enabled; otherwise mark as absent (null).
-                // getCursor() can return NaN when off/unbounded, so store only
-                // finite values (null = permanent / no remembered cursor).
-                const temporalControl = getControl('TemporalControl');
-                const cursor = (temporalControl && temporalControl.isEnabled())
-                    ? temporalControl.getCursor()
-                    : NaN;
-                slide.temporalCursor = Number.isFinite(cursor) ? cursor : null;
             }
 
             // Auto-capture current map
             slide.mapId = getCurrentMapNameSync();
 
-            // AND THE VIEW, read off the screen of the author: the base layer (2D only) and the
-            // temporal switch. They are view state of each person since 2026-09-20, so the slide
-            // is the only place left that can say what the audience should see.
+            // AND THE VIEW, read off the screen of the author: the base layer (2D only), the
+            // temporal switch and the INSTANT. They are view state of each person since
+            // 2026-09-20, so the slide is the only place left that can say what the audience
+            // should see.
+            //
+            // THE THREE MODES GET THE INSTANT, since 2026-09-21. The two branches above used to
+            // write `temporalCursor = null` and the 2D one read the switch off the CONTROLLER
+            // while this line read it off the STORE: a 3D slide never pinned an instant (so its
+            // markers came from whatever slide preceded it) and a 2D slide could be born with the
+            // switch on and no instant, because the two readings drift apart by an async turn.
+            // `briefing/screen-view.js` now does the single reading for all three.
             Object.assign(slide, slideViewFromScreen(slide.mode));
 
             this._scheduleAutosave();
