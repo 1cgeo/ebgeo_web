@@ -2050,7 +2050,7 @@ export function eventoDeUsoLabel(evento) {
  */
 export const PROP_LABEL_POR_EVENTO = Object.freeze({
     'medicao.aberta': Object.freeze({ distancia: 'Distância', area: 'Área', angulo: 'Ângulo' }),
-    'migracao.resultado': Object.freeze({ inicio: 'Iniciada', sucesso: 'Concluída', falha: 'Interrompida', 'aba-antiga': 'Versão antiga aberta', 'storage-error': 'Falha no armazenamento' }),
+    'migracao.resultado': Object.freeze({ inicio: 'Iniciada', sucesso: 'Concluída', falha: 'Interrompida', 'aba-antiga': 'Versão antiga aberta', 'storage-error': 'Falha no armazenamento', juncao: 'Alterações da versão antiga incorporadas', conflito: 'Alterações da versão antiga em conflito' }),
     'sync.resultado': Object.freeze({ sucesso: 'Concluída', falha: 'Falhou' }),
     'logout.descarte': Object.freeze({ 'com-pendencias': 'Pendências confirmadas', desconhecido: 'Quantidade desconhecida' }),
     'ferramenta.ativada': FERRAMENTA_LABEL,

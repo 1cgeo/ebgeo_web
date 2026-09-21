@@ -137,7 +137,7 @@ export const RE_PROP_LIVRE = /^[a-z0-9_-]{1,40}$/;
  * @type {Readonly<Object<string, ReadonlyArray<string>|null>>}
  */
 export const PROPS_PERMITIDAS = Object.freeze({
-    'migracao.resultado': Object.freeze(['inicio', 'sucesso', 'falha', 'aba-antiga', 'storage-error']),
+    'migracao.resultado': Object.freeze(['inicio', 'sucesso', 'falha', 'aba-antiga', 'storage-error', 'juncao', 'conflito']),
     'sync.resultado': Object.freeze(['sucesso', 'falha']),
     'logout.descarte': Object.freeze(['com-pendencias', 'desconhecido']),
     'preferencia.base': null,
@@ -190,6 +190,10 @@ export const PropDeUso = Object.freeze({
     MIGRACAO_FALHA: 'falha',
     MIGRACAO_ABA_ANTIGA: 'aba-antiga',
     MIGRACAO_STORAGE_ERROR: 'storage-error',
+    /** A versão anterior gravou depois da transição e o portão incorporou sozinho. */
+    MIGRACAO_JUNCAO: 'juncao',
+    /** A versão anterior gravou depois da transição e as duas mexeram no mesmo mapa: a tela ficou. */
+    MIGRACAO_CONFLITO: 'conflito',
     SYNC_SUCESSO: 'sucesso',
     SYNC_FALHA: 'falha',
     DESCARTE_PENDENCIAS: 'com-pendencias',

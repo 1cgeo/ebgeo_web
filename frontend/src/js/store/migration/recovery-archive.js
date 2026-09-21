@@ -53,7 +53,9 @@ export async function buildRecoveryArchive() {
     }
     for (const entry of entries) await add(localScope(entry.id, entry.dbSuffix), entry.name);
     if (state) {
-        for (const suffix of [state.destination, ...(state.history || [])]) {
+        // `late.staging` is the absorption of late legacy changes in flight (`legacy-transition.js`):
+        // until it completes, it is in no list the sweep or this exporter would otherwise read.
+        for (const suffix of [state.destination, ...(state.history || []), state.late?.staging].filter(Boolean)) {
             await add(localScope(state.entry.id, suffix), 'Cópia da atualização');
         }
     }

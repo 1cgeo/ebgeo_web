@@ -243,16 +243,23 @@ it('falha no mapa durante o degrau retoma com os mesmos ids do plano', async () 
     expect(await readKey('ebgeo_app_settings', 'schemaVersion')).toBe('1.7');
 });
 
-it('aba antiga que volta nao sobrescreve o destino e gera recuperacao explicita', async () => {
+// ATÉ 2026-09-21 ESTE CASO ESPERAVA A TELA, e a decisão do dono o inverteu: o atlas atualizado não
+// foi tocado desde a transição, então trazer o mapa novo da versão antiga não perde nada. O caso de
+// conflito, que continua dando tela, mora em `alteracoes-tardias-legado.test.js`.
+it('aba antiga que volta com o destino intocado entra sozinha, sem tela e sem escrever a origem', async () => {
     await seed('2.4');
     const { transition, ns } = await modules();
     const { state } = await transition.prepareLegacyTransition();
     const scope = ns.localScope(state.entry.id, state.destination);
-    const destination = await transition.inventoryScope(scope);
     await seedDatabase('ebgeo_maps', { Depois: { features: { points: [] } } });
-    await expect(transition.prepareLegacyTransition()).rejects.toMatchObject({ code: 'legacy_changes' });
-    expect(await transition.inventoryScope(scope)).toEqual(destination);
-    expect(await readKey('ebgeo_maps', 'Depois')).toBeTruthy();
+    const original = await transition.inventoryScope(ns.localScope('original', ''));
+    const second = await transition.prepareLegacyTransition();
+    expect(second.late).toMatchObject({ outcome: 'absorbed', records: 1 });
+    expect(second.state.destination).toBe(state.destination);
+    expect(await ns.getStoreFor(ns.StoreName.MAPS, scope).getItem('Depois')).toBeTruthy();
+    expect(await transition.inventoryScope(ns.localScope('original', ''))).toEqual(original);
+    expect(await transition.legacyHasChanged()).toBe(false);
+    expect((await transition.prepareLegacyTransition()).late).toBeUndefined();
 });
 
 it('dois boots convergem para uma copia e uma entrada no registro', async () => {

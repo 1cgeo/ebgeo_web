@@ -1,15 +1,17 @@
 // Path: js/store/migration/legacy-transition.js
 /** Isolate the databases main still knows. Originals are never written by this procedure. */
 import {
-    ATLAS_RECORD_KEY, GlobalKey, StoreName, StoreScopeKind,
+    ATLAS_RECORD_KEY, GlobalKey, StoreName, StoreScopeKind, atlasMountLockName,
     getGlobalStore, getStoreFor, listAtlasStores, localAtlasRegistryKey, localScope, readLocalAtlasRegistry
 } from '../atlas-namespace.js';
 import { legacyScope } from './migration-scope.js';
 import { generateUUID } from '../../utilities/uuid.js';
+import { otherClientHoldsLock } from '../../utilities/tab-lock.js';
 import { compareVersions, MIN_SCHEMA_VERSION } from '../repository.utils.js';
 import { ATLAS_SCHEMA_VERSION } from '../atlas/atlas.entity.js';
 import { prepareIsolatedScope } from './prepare-scope.js';
 import { fingerprint, sameStorageValue } from './storage-value.js';
+import { LateOutcome, planLateLegacyChanges } from './late-legacy-plan.js';
 import {
     LEGACY_TRANSITION_KEY, TRANSITION_LOCK, MigrationRecoveryError,
     TransitionStatus, readLegacyTransition, transitionIsSettled
@@ -186,8 +188,12 @@ export async function prepareLegacyTransition({ onProgress } = {}) {
             await save(state);
         }
         if (transitionIsSettled(state)) {
-            if (await legacyHasChanged(state)) {
-                throw new MigrationRecoveryError('legacy_changes', 'Uma janela antiga gravou alterações. Salve uma cópia de recuperação antes de continuar.');
+            if (state.late || await legacyHasChanged(state)) {
+                const late = await absorbLateLegacyChanges(state);
+                if (late.outcome === LateResult.CONFLICT) {
+                    throw new MigrationRecoveryError('legacy_changes', 'Uma janela antiga gravou alterações. Salve uma cópia de recuperação antes de continuar.');
+                }
+                return { kind: 'ready', state, late };
             }
             return { kind: 'ready', state };
         }
@@ -219,6 +225,215 @@ async function semLock(classification, onProgress) {
     if (state.status === TransitionStatus.READY) await commitDestination(state);
     if (!transitionIsSettled(state)) throw new MigrationRecoveryError('unreadable', 'A etapa da atualização não foi reconhecida.');
     return { kind: 'ready', state };
+}
+
+/**
+ * What an attempt to absorb the late legacy changes ended in.
+ *
+ * `DEFERRED` is not a failure: the destination is mounted by a live tab (possibly this one), and
+ * writing under a running editor would be undone by its next save of the same map, with the
+ * journal already saying the change was absorbed. The next check with nobody mounted does it.
+ */
+export const LateResult = Object.freeze({
+    ABSORBED: 'absorbed',
+    NOTHING: 'nothing',
+    DEFERRED: 'deferred',
+    CONFLICT: 'conflict'
+});
+
+/** Statuses of `state.late`, the journal of ONE absorption in flight. */
+const LateStatus = Object.freeze({ COPYING: 'copying', APPLYING: 'applying' });
+
+/**
+ * Copies the legacy acervo into a staging scope, checking each record against the inventory it
+ * was listed with.
+ * @param {Object} scope - Staging scope.
+ * @param {Array} inventory - Legacy inventory taken just before.
+ * @returns {Promise<boolean>} False when the legacy acervo changed during the copy.
+ */
+async function copyLegacyInto(scope, inventory) {
+    for (const [id, key, expected] of inventory) {
+        const value = await getStoreFor(id, SOURCE).getItem(key);
+        if (await fingerprint(value) !== expected) return false;
+        const target = getStoreFor(id, scope);
+        await target.setItem(key, value);
+        if (!await sameStorageValue(value, await target.getItem(key))) {
+            throw new MigrationRecoveryError('copy_failed', 'A cópia dos dados não passou na verificação.');
+        }
+    }
+    return equalInventory(inventory, await inventoryScope(scope));
+}
+
+/**
+ * @param {Object} scope
+ * @returns {Promise<Array<{ key: string, id?: string, name?: string }>>} Every address of every map.
+ */
+async function mapAddresses(scope) {
+    const maps = [];
+    await getStoreFor(StoreName.MAPS, scope).iterate((map, key) => { maps.push({ key, id: map?.id, name: map?.name }); });
+    return maps;
+}
+
+/**
+ * The inventory the destination must have after a plan, derived from the snapshot the plan was
+ * made on. Compared as a set because `inventoryScope` orders by store and key, and a derived list
+ * would have to reproduce that order to be comparable.
+ * @param {Object} late - `state.late` at `APPLYING`.
+ * @returns {Map<string, string>}
+ */
+function expectedAfterPlan({ destinationBefore, staged, writes, deletes }) {
+    const expected = new Map(destinationBefore.map(([id, key, hash]) => [JSON.stringify([id, key]), hash]));
+    const stagedHash = new Map(staged.map(([id, key, hash]) => [JSON.stringify([id, key]), hash]));
+    for (const [id, key] of writes) expected.set(JSON.stringify([id, key]), stagedHash.get(JSON.stringify([id, key])));
+    for (const [id, key] of deletes) expected.delete(JSON.stringify([id, key]));
+    return expected;
+}
+
+/**
+ * @param {Array} inventory
+ * @param {Map<string, string>} expected
+ * @returns {boolean}
+ */
+function inventoryMatches(inventory, expected) {
+    return inventory.length === expected.size
+        && inventory.every(([id, key, hash]) => expected.get(JSON.stringify([id, key])) === hash);
+}
+
+/**
+ * Sends a staging address to the history, where `pruneAbandonedCopies` collects it.
+ * @param {Object} state
+ * @param {string} staging
+ */
+function retireStaging(state, staging) {
+    if (staging && !state.history.includes(staging)) state.history.push(staging);
+}
+
+/**
+ * Brings into the adopted atlas what the previous product line wrote after the transition, when
+ * nothing can be lost by doing so. The rule is `planLateLegacyChanges`; this is the part that
+ * touches disk.
+ *
+ * THE DESTINATION IS WRITTEN IN PLACE, and only after the plan is on the journal. A crash in the
+ * middle leaves `state.late` at `APPLYING` with the plan, the staging scope and the snapshot the
+ * plan was made on, and the next call re-applies the same writes, which are idempotent. The
+ * staging scope enters the history only when the absorption is complete, so the sweep cannot
+ * collect it while a plan still reads from it.
+ *
+ * A CONFLICT IS REMEMBERED with the two inventories it was decided on, so a boot that finds the
+ * same two acervos answers from the journal instead of copying and migrating the whole legacy
+ * acervo again.
+ *
+ * Runs under `TRANSITION_LOCK`; the caller holds it.
+ *
+ * @param {Object} state - Journal record, settled.
+ * @returns {Promise<{ outcome: string, reason?: string, records?: number }>}
+ */
+async function absorbLateLegacyChanges(state) {
+    // Only a live copy of a still-whole origin has the base this rule needs: after an ordered
+    // deletion the origin's inventories are emptied, and an empty base would read the whole
+    // migrated atlas as "removed by the old version".
+    if (state.status !== TransitionStatus.COMMITTED || !Array.isArray(state.resultInventory)) {
+        return { outcome: LateResult.CONFLICT, reason: 'not_absorbable' };
+    }
+    // `null` (the runtime cannot tell) defers too: guessing "free" is the one wrong answer.
+    if (await otherClientHoldsLock(globalThis.navigator?.locks, atlasMountLockName(state.destination), 0) !== false) {
+        return { outcome: LateResult.DEFERRED };
+    }
+    const destination = localScope(state.entry.id, state.destination);
+    if (state.late?.status === LateStatus.APPLYING) return applyLatePlan(state, destination);
+    if (state.late) {
+        // A copy interrupted before any decision: nothing was written to the destination.
+        retireStaging(state, state.late.staging);
+        delete state.late;
+        await save(state);
+    }
+
+    const rawNow = await inventoryScope(SOURCE);
+    const destinationNow = await inventoryScope(destination);
+    const known = state.lateConflict;
+    if (known && equalInventory(known.legacy, rawNow) && equalInventory(known.destination, destinationNow)) {
+        return { outcome: LateResult.CONFLICT, reason: known.reason };
+    }
+
+    const staging = `upgrade-${generateUUID()}`;
+    state.late = { status: LateStatus.COPYING, staging };
+    await save(state);
+    const stagingScope = localScope(state.entry.id, staging);
+    if (!await copyLegacyInto(stagingScope, rawNow)) {
+        retireStaging(state, staging);
+        delete state.late;
+        await save(state);
+        return { outcome: LateResult.CONFLICT, reason: 'source_changed' };
+    }
+    await prepareIsolatedScope(stagingScope, state.entry.name, { empty: rawNow.length === 0 });
+    const staged = await inventoryScope(stagingScope);
+    const base = state.lateBase
+        ?? { raw: state.sourceInventory, migrated: state.resultInventory, destination: state.resultInventory };
+    const plan = planLateLegacyChanges({
+        migratedBase: base.migrated, staged, destinationBase: base.destination, destination: destinationNow,
+        rawBase: base.raw, rawNow, maps: [...await mapAddresses(stagingScope), ...await mapAddresses(destination)]
+    });
+    if (plan.outcome === LateOutcome.CONFLICT) {
+        retireStaging(state, staging);
+        delete state.late;
+        state.lateConflict = { reason: plan.reason, legacy: rawNow, destination: destinationNow };
+        await save(state);
+        return { outcome: LateResult.CONFLICT, reason: plan.reason };
+    }
+    state.late = {
+        status: LateStatus.APPLYING, staging, source: rawNow, staged,
+        destinationBefore: destinationNow, writes: plan.writes, deletes: plan.deletes
+    };
+    await save(state);
+    return applyLatePlan(state, destination);
+}
+
+/**
+ * Applies the plan on the journal to the destination and moves both bases forward.
+ * @param {Object} state - Journal record with `late` at `APPLYING`.
+ * @param {Object} destination - Destination scope.
+ * @returns {Promise<{ outcome: string, records: number }>}
+ */
+async function applyLatePlan(state, destination) {
+    const late = state.late;
+    const stagingScope = localScope(state.entry.id, late.staging);
+    for (const [id, key] of late.writes) {
+        const value = await getStoreFor(id, stagingScope).getItem(key);
+        const target = getStoreFor(id, destination);
+        await target.setItem(key, value);
+        if (!await sameStorageValue(value, await target.getItem(key))) {
+            throw new MigrationRecoveryError('copy_failed', 'A incorporação das alterações antigas não passou na verificação.');
+        }
+    }
+    for (const [id, key] of late.deletes) await getStoreFor(id, destination).removeItem(key);
+    const landed = await inventoryScope(destination);
+    if (!inventoryMatches(landed, expectedAfterPlan(late))) {
+        throw new MigrationRecoveryError('copy_failed', 'O atlas não ficou como a incorporação previa.');
+    }
+    state.lateBase = { raw: late.source, migrated: late.staged, destination: landed };
+    state.acknowledgedInventory = late.source;
+    retireStaging(state, late.staging);
+    delete state.late;
+    delete state.lateConflict;
+    await save(state);
+    const records = late.writes.length + late.deletes.length;
+    if (records) console.info(`Alterações da versão antiga incorporadas: ${records} registros.`);
+    return { outcome: records ? LateResult.ABSORBED : LateResult.NOTHING, records };
+}
+
+/**
+ * The same absorption for a page that is already running: the in-session watcher calls it when
+ * the old version writes while the new one is open.
+ * @returns {Promise<{ outcome: string, reason?: string, records?: number }>}
+ */
+export async function absorbLateLegacyChangesNow() {
+    if (!globalThis.navigator?.locks?.request) return { outcome: LateResult.CONFLICT, reason: 'lock_unavailable' };
+    return navigator.locks.request(TRANSITION_LOCK, async () => {
+        const state = await readLegacyTransition();
+        if (!transitionIsSettled(state)) return { outcome: LateResult.NOTHING, records: 0 };
+        if (!state.late && !await legacyHasChanged(state)) return { outcome: LateResult.NOTHING, records: 0 };
+        return absorbLateLegacyChanges(state);
+    });
 }
 
 export async function restartLegacyCopy() {

@@ -201,6 +201,18 @@ Três consequências que não se adivinham:
 - **Os inventários do diário são esvaziados junto com os bancos.** São eles que `legacyHasChanged` compara, então deixá-los faria todo boot seguinte acusar "a versão anterior gravou alterações" sobre o que o usuário acabou de apagar. Esvaziá-los mantém a acusação VIVA para o caso que ainda importa: uma janela da versão anterior que grave no endereço depois disso volta a ser alteração recuperável.
 - **O detector de schema passou a perguntar outra coisa.** Ele lia `legacySourceIsProtected` e agora lê `legacyTransitionExists`, porque a atualização da instalação acontece UMA vez: apagada a origem, um "precisa migrar" sobre o endereço esvaziado mandaria a cadeia criar um registro de atlas e registrar um slot #1 fantasma. Os demais consumidores continuam na pergunta antiga, e para eles o falso é a liberação pretendida.
 
+## O que a versão anterior grava depois da transição entra sozinho, salvo conflito
+
+As duas linhas do produto dividem a origem, então a versão anterior continua escrevendo nos bancos sem sufixo depois que a transição copiou o acervo. Até 2026-09-21 toda gravação tardia parava o boot na tela de recuperação, inclusive quando o atlas novo estava intocado; desde então o portão incorpora sozinho o caso trivial (`absorbLateLegacyChanges`, em `frontend/src/js/store/migration/legacy-transition.js`), e a regra mora em `frontend/src/js/store/migration/late-legacy-plan.js`. O porquê e as alternativas recusadas estão na decisão do dia.
+
+O que não se adivinha lendo o código:
+
+- **As bases são duas, uma de cada lado.** A do lado antigo é o acervo antigo migrado na última junção; a do destino é o destino como a última junção o deixou. Quando a versão nova tinha edição própria, as duas diferem, e comparar a origem migrada com o DESTINO leria cada edição da versão nova como mudança da antiga, gravando o valor velho por cima.
+- **O mapa é a unidade de conflito, e ele se reconhece por chave, id e nome.** Os registros de um mapa se espalham por vários bancos e dependem uns dos outros, e a versão nova move a contagem de cores do nome para o id sem avisar (`getColorUsageCompat`). Dois lados que mexeram em registros diferentes do mesmo mapa continuam sendo conflito.
+- **Atlas montado adia, e "não sei" também.** Escrever por baixo de uma aba com o atlas aberto seria desfeito pela próxima gravação dela, com o diário dizendo que a junção aconteceu. O vigia da página aberta só avisa, e a junção acontece ao recarregar.
+- **A cópia de trabalho entra no histórico do diário só no fim**, e a poda a recolhe como qualquer cópia abandonada. Enquanto um plano lê dela, ela fica fora de toda lista que a poda alcança. O conflito fica memorizado com os dois inventários, para o boot seguinte não copiar e migrar a origem inteira de novo.
+- **Com a origem apagada por ordem a junção não roda.** A base esvaziada leria o atlas inteiro como removido pela versão antiga, e ali vale a tela, como antes.
+
 ## O que existe hoje, e o que ainda não
 
 **A persistência suporta N atlas locais nomeados, e desde 2026-08-16 a interface expõe todos.** `atlas.html` lista os slots locais ao lado dos de servidor, para visitante deslogado inclusive, com criar, abrir, renomear, copiar e excluir (`frontend/src/js/projects/atlas-drive.js`). Esta seção afirmou o contrário ("a interface expõe um caminho só", "`setCurrentLocalAtlas` e `deleteLocalAtlas` continuam sem chamador", "não tem caminho de UI de volta") até a tela existir, e a frase mais cara era a última: ela descrevia como perda permanente o que era só ausência de tela.
@@ -216,6 +228,7 @@ Duas entradas continuam sendo o que eram, e o motivo delas não mudou com a tela
 
 ## Histórico
 
+- **2026-09-21.** A gravação tardia da versão anterior deixou de parar o boot no caso trivial, a partir de um relato de produção em que o atlas novo estava intocado desde a transição. A seção acima diz a regra e os guardas.
 - **2026-09-13, mais tarde.** A faixa legada 1.3 a 1.7 ganhou certificação de ponta a ponta, uma entrada por FORMA e não por carimbo, e a recusa abaixo do piso passou a ser medida junto com a exportação que ela oferece. Junto saiu uma linha de console que prometia apagar dado preservado.
 - **2026-09-13.** As cópias abandonadas da transição legada passaram a ser podadas com uma reserva, e a origem ganhou o único caminho de exclusão que ela pode ter, que é o explícito. A seção acima diz onde e com que guardas. A medida de ESPAÇO das duas cópias, que a pendência daquele bloco também pedia, continua por fazer.
 - **2026-09-07, noite.** A bancada em navegador mediu que o campo `data.name` envenenado pela outra linha sobrevive à adoção em 13 de 14 registros, porque o reparo que a `main` ganhou no mesmo dia não alcança quem atravessa. O degrau passou a repará-lo, e as duas seções acima dizem onde e com que guardas.

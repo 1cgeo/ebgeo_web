@@ -95,7 +95,7 @@ export const EVENTOS_DE_USO = Object.freeze([
  * medido, com o teto que o contém, no cabeçalho de `011_uso_e_presenca.sql`.
  */
 export const PROPS_PERMITIDAS = Object.freeze({
-    'migracao.resultado': Object.freeze(['inicio', 'sucesso', 'falha', 'aba-antiga', 'storage-error']),
+    'migracao.resultado': Object.freeze(['inicio', 'sucesso', 'falha', 'aba-antiga', 'storage-error', 'juncao', 'conflito']),
     'sync.resultado': Object.freeze(['sucesso', 'falha']),
     'logout.descarte': Object.freeze(['com-pendencias', 'desconhecido']),
     'preferencia.base': null,

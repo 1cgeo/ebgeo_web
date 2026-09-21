@@ -5,7 +5,11 @@ import { relatarErro } from '@js/session/erro-telemetria.js';
 import { OrigemDeErro } from '@js/session/origens-de-erro.js';
 import { instalarMonitoramentoDePendencias } from '@js/session/pendencias-monitoramento.js';
 import { createTabLock, noneKey } from '../utilities/tab-lock.js';
-import { prepareLegacyTransition, legacyHasChanged, restartLegacyCopy } from '../store/migration/legacy-transition.js';
+import {
+    LateResult, absorbLateLegacyChangesNow, prepareLegacyTransition, legacyHasChanged, restartLegacyCopy
+} from '../store/migration/legacy-transition.js';
+// Direct, never through `@utils`: the barrel drags the store into the three pages that boot without it.
+import { showToast } from '../utilities/toast_service.js';
 import { describeLegacySource, dropLegacySource, pruneAbandonedCopies } from '../store/migration/legacy-cleanup.js';
 import {
     DROP_SOURCE_CANCEL_LABEL, DROP_SOURCE_CONFIRM_LABEL, DROP_SOURCE_LABEL, DROP_SOURCE_RUNNING,
@@ -156,7 +160,9 @@ export function showMigrationRecovery(error = {}) {
     const message = code === 'legacy_tab'
         ? 'Salve o trabalho e feche a janela que está usando a versão antiga. Depois, tente novamente aqui.'
         : code === 'legacy_changes'
-            ? 'A versão antiga gravou alterações. Você pode recuperá-las em outro atlas sem substituir o trabalho atualizado.'
+            // Generic on purpose: the screen is reached by several reasons (`planLateLegacyChanges`),
+            // and naming one of them would be false for the others.
+            ? 'A versão antiga gravou alterações que não podem entrar sozinhas neste atlas sem risco de perder trabalho. Você pode recuperá-las em outro atlas sem substituir o trabalho atualizado.'
             : error.name === 'QuotaExceededError' || error.cause?.name === 'QuotaExceededError'
                 ? 'Não há espaço para concluir a atualização. Salve uma cópia de recuperação; não apague os dados deste site.'
                 : 'Não foi possível abrir o acervo com segurança. Os dados disponíveis continuam neste computador. Você pode tentar novamente ou salvar uma cópia de recuperação.';
@@ -248,7 +254,7 @@ export async function runLegacyUpgradeGate() {
     try {
         await probe.acquire(noneKey(), { settleMs: 100 });
         if (probe.legacyPeerDetected) throw new MigrationRecoveryError('legacy_tab', 'Há uma janela da versão antiga aberta.');
-        await prepareLegacyTransition({ onProgress: ({ copied, total }) => {
+        const result = await prepareLegacyTransition({ onProgress: ({ copied, total }) => {
             progress.setText(`Copiando e verificando seus dados: ${copied} de ${total} registros. Aguarde a conclusão.`);
             // A copy tick means the wait is REAL: the person's data is being rewritten, so say so now.
             progress.showNow();
@@ -257,6 +263,7 @@ export async function runLegacyUpgradeGate() {
         // progress card over a boot that already succeeded.
         progress.cancel();
         closeScreen();
+        reportLateOutcome(result?.late);
         registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_SUCESSO);
         descarregarUso();
         instalarMonitoramentoDePendencias();
@@ -266,6 +273,7 @@ export async function runLegacyUpgradeGate() {
         // Same reason, other exit: a late timer would REPLACE the recovery screen drawn below.
         progress.cancel();
         if (error.code === 'legacy_tab') registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_ABA_ANTIGA);
+        else if (error.code === 'legacy_changes') registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_CONFLITO);
         else if (error instanceof MigrationRecoveryError) registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_FALHA);
         else registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_STORAGE_ERROR);
         descarregarUso();
@@ -276,6 +284,35 @@ export async function runLegacyUpgradeGate() {
     } finally { probe.destroy(); }
 }
 
+/**
+ * The notice for late legacy changes that could not be absorbed YET is said once per page, until
+ * an absorption happens: the watcher runs on every focus, and repeating the toast would turn a
+ * fact into noise.
+ */
+let deferredNoticeShown = false;
+
+/**
+ * What the person hears about an absorption of late legacy changes (`absorbLateLegacyChanges`).
+ *
+ * ABSORBED IS SILENT ON PURPOSE, apart from the telemetry: the owner's rule is that the trivial case
+ * resolves itself, and the evidence of it is the map showing the work, not a message about it.
+ * DEFERRED speaks, because the change is real and is not on screen yet: the atlas is open in a tab
+ * (possibly this one) and writing under a running editor would be undone by its next save.
+ *
+ * @param {{ outcome: string }|undefined} late - The outcome, when there was a late change at all.
+ */
+function reportLateOutcome(late) {
+    if (!late) return;
+    if (late.outcome === LateResult.ABSORBED) {
+        deferredNoticeShown = false;
+        registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_JUNCAO);
+        descarregarUso();
+    } else if (late.outcome === LateResult.DEFERRED && !deferredNoticeShown) {
+        deferredNoticeShown = true;
+        showToast('A versão antiga gravou alterações. Elas entram neste atlas ao recarregar a página, desde que nenhuma outra aba esteja com ele aberto.', 'info');
+    }
+}
+
 export function watchLegacyChanges() {
     if (watching) return;
     watching = true;
@@ -284,7 +321,15 @@ export function watchLegacyChanges() {
         if (running || screen || document.visibilityState === 'hidden') return;
         running = true;
         try {
-            if (await legacyHasChanged()) showMigrationRecovery({ code: 'legacy_changes' });
+            if (!await legacyHasChanged()) return;
+            const late = await absorbLateLegacyChangesNow();
+            if (late.outcome === LateResult.CONFLICT) {
+                registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_CONFLITO);
+                descarregarUso();
+                showMigrationRecovery({ code: 'legacy_changes' });
+                return;
+            }
+            reportLateOutcome(late);
         } catch (error) { showMigrationRecovery(error); } finally { running = false; }
     };
     window.addEventListener('focus', check);

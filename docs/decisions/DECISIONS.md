@@ -196,3 +196,4 @@ que envelheceu na decisão seguinte.)
 - 2026-09-15: o empréstimo por atlas alcança o TILE, e a cláusula 6.7 fecha, [registro](decisions-2026.md).
 - 2026-09-16: o cursor de presença ganha SUPERFÍCIE, e o apply remoto de documento lateral passa a tomar a trava, [registro](decisions-2026.md).
 - 2026-09-17: o botão do meio gira e inclina o mapa, sem tecla nenhuma, [registro](decisions-2026.md).
+- 2026-09-21: o que a versão anterior grava depois da transição entra sozinho, e a tela fica para o conflito, [registro](decisions-2026.md).
