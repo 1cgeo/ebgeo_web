@@ -106,6 +106,41 @@ it('o caso do relato: duas linhas da versão antiga entram sozinhas, com a conta
     expect(journal.history).toHaveLength(1);
 });
 
+// O QUE A PRODUÇÃO MOSTROU NO MESMO DIA, e o caso acima não pegava: a fixture dele já tinha a
+// contagem de cores do Principal, e a da pessoa não tinha. A primeira abertura da versão nova CRIA
+// o registro (`performInitialColorAnalysis`), e a primeira versão da regra leu isso como edição do
+// Principal e deu a tela. Medido no navegador com a cópia de recuperação da pessoa.
+it('o relato como a produção mostrou: a versão nova cria a contagem de cores ao abrir, e a junção passa', async () => {
+    await seed24();
+    await storeAt('ebgeo_app_settings').removeItem('color_usage_Principal');
+    const { transition, ns, loja } = await transicao();
+    expect(await loja(ns.StoreName.SETTINGS).getItem('color_usage_Principal')).toBeNull();
+    await loja(ns.StoreName.SETTINGS).setItem('color_usage_Principal', {});
+    await antigaDesenha(2);
+
+    expect((await transition.prepareLegacyTransition()).late).toMatchObject({ outcome: 'absorbed' });
+    expect((await loja(ns.StoreName.MAPS).getItem('Principal')).features.coordination_lines).toHaveLength(2);
+    expect(await loja(ns.StoreName.SETTINGS).getItem('color_usage_Principal')).toEqual({ '#000000': 2 });
+});
+
+it('conflito lembrado por uma regra mais antiga é decidido de novo', async () => {
+    await seed24();
+    const { transition, ns, loja, destino, origem, state } = await transicao();
+    await antigaDesenha(2);
+    // O diário como a primeira versão da regra o deixou: a recusa lembrada, sem versão.
+    const journal = await state.readLegacyTransition();
+    journal.lateConflict = {
+        reason: 'same_unit',
+        legacy: await transition.inventoryScope(origem),
+        destination: await transition.inventoryScope(destino)
+    };
+    await ns.getGlobalStore().setItem(state.LEGACY_TRANSITION_KEY, journal);
+
+    expect((await transition.prepareLegacyTransition()).late).toMatchObject({ outcome: 'absorbed' });
+    expect((await loja(ns.StoreName.MAPS).getItem('Principal')).features.coordination_lines).toHaveLength(2);
+    expect((await state.readLegacyTransition()).lateConflict).toBeUndefined();
+});
+
 it('o pior caso: as duas versões desenharam no mesmo mapa, a tela fica e nada é escrito', async () => {
     await seed24();
     const { transition, ns, loja, destino, origem, state } = await transicao();
@@ -126,11 +161,11 @@ it('o pior caso: as duas versões desenharam no mesmo mapa, a tela fica e nada �
     expect((await state.readLegacyTransition()).history).toEqual(primeira.history);
 });
 
-it('o mapa é a unidade: a versão nova mexeu só na contagem de cores, a antiga só no mapa, e isso conflita', async () => {
+it('o mapa é a unidade: a versão nova mexeu só nas camadas, a antiga só no mapa, e isso conflita', async () => {
     await seed24();
     const { transition, ns, loja, destino } = await transicao();
-    await loja(ns.StoreName.SETTINGS).setItem('color_usage_Principal', { '#ff0000': 1 });
-    // SÓ o registro do mapa, de propósito: com a contagem de cores junto, os dois lados teriam
+    await loja(ns.StoreName.LAYERS).setItem('layers_Principal', [{ id: 'camada-nova', name: 'Camada nova' }]);
+    // SÓ o registro do mapa, de propósito: com outro registro dele junto, os dois lados teriam
     // mexido no MESMO registro, e o caso passaria sem exercitar a regra do mapa.
     await seedDatabase('ebgeo_maps', { Principal: mapa('Principal', 'Principal', [linha(1)]) });
     const destinoAntes = await transition.inventoryScope(destino);
@@ -138,17 +173,17 @@ it('o mapa é a unidade: a versão nova mexeu só na contagem de cores, a antiga
     expect(await transition.inventoryScope(destino)).toEqual(destinoAntes);
 });
 
-it('o mapa se reconhece pelo id: a contagem de cores que a versão nova já moveu para o id ainda é o mesmo mapa', async () => {
+it('o mapa se reconhece pelo id: o estilo da grade que a versão nova guarda pelo id ainda é o mesmo mapa', async () => {
     await seed24();
     const { transition, ns, loja, destino } = await transicao();
-    // `getColorUsageCompat` faz esta troca quando o mapa é lido pela versão nova. Ela entra na base
-    // com uma primeira junção de outro mapa, para que o caso abaixo mexa SÓ na chave pelo id.
-    await loja(ns.StoreName.SETTINGS).setItem(`color_usage_${SEGUNDO_ID}`, {});
-    await loja(ns.StoreName.SETTINGS).removeItem('color_usage_Segundo');
+    // A versão nova chaveia as preferências do mapa pelo id resolvido (`setGridStyleCompat`). A
+    // chave entra na base com uma primeira junção de outro mapa, para que o caso abaixo mexa SÓ
+    // numa chave que nomeia o mapa pelo id.
+    await loja(ns.StoreName.SETTINGS).setItem(`gridStyle_${SEGUNDO_ID}`, { format: 'latlong', visible: false });
     await antigaDesenha(1);
     expect((await transition.prepareLegacyTransition()).late).toMatchObject({ outcome: 'absorbed' });
 
-    await loja(ns.StoreName.SETTINGS).setItem(`color_usage_${SEGUNDO_ID}`, { '#ff0000': 1 });
+    await loja(ns.StoreName.SETTINGS).setItem(`gridStyle_${SEGUNDO_ID}`, { format: 'utm', visible: true });
     await seedDatabase('ebgeo_maps', { Segundo: mapa('Segundo', SEGUNDO_ID, [linha(1)]) });
     const destinoAntes = await transition.inventoryScope(destino);
     await expect(transition.prepareLegacyTransition()).rejects.toMatchObject({ code: 'legacy_changes' });

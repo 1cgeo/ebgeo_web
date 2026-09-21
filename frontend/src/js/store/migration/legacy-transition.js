@@ -11,7 +11,7 @@ import { compareVersions, MIN_SCHEMA_VERSION } from '../repository.utils.js';
 import { ATLAS_SCHEMA_VERSION } from '../atlas/atlas.entity.js';
 import { prepareIsolatedScope } from './prepare-scope.js';
 import { fingerprint, sameStorageValue } from './storage-value.js';
-import { LateOutcome, planLateLegacyChanges } from './late-legacy-plan.js';
+import { LATE_RULE_VERSION, LateOutcome, planLateLegacyChanges } from './late-legacy-plan.js';
 import {
     LEGACY_TRANSITION_KEY, TRANSITION_LOCK, MigrationRecoveryError,
     TransitionStatus, readLegacyTransition, transitionIsSettled
@@ -321,7 +321,9 @@ function retireStaging(state, staging) {
  *
  * A CONFLICT IS REMEMBERED with the two inventories it was decided on, so a boot that finds the
  * same two acervos answers from the journal instead of copying and migrating the whole legacy
- * acervo again.
+ * acervo again. The memory carries the version of the rule that decided it (`LATE_RULE_VERSION`),
+ * and a conflict decided by an older rule is decided again: the first version of this rule
+ * refused a case it should have taken, and every browser that met it remembered the refusal.
  *
  * Runs under `TRANSITION_LOCK`; the caller holds it.
  *
@@ -351,7 +353,8 @@ async function absorbLateLegacyChanges(state) {
     const rawNow = await inventoryScope(SOURCE);
     const destinationNow = await inventoryScope(destination);
     const known = state.lateConflict;
-    if (known && equalInventory(known.legacy, rawNow) && equalInventory(known.destination, destinationNow)) {
+    if (known?.rule === LATE_RULE_VERSION
+        && equalInventory(known.legacy, rawNow) && equalInventory(known.destination, destinationNow)) {
         return { outcome: LateResult.CONFLICT, reason: known.reason };
     }
 
@@ -376,7 +379,7 @@ async function absorbLateLegacyChanges(state) {
     if (plan.outcome === LateOutcome.CONFLICT) {
         retireStaging(state, staging);
         delete state.late;
-        state.lateConflict = { reason: plan.reason, legacy: rawNow, destination: destinationNow };
+        state.lateConflict = { rule: LATE_RULE_VERSION, reason: plan.reason, legacy: rawNow, destination: destinationNow };
         await save(state);
         return { outcome: LateResult.CONFLICT, reason: plan.reason };
     }

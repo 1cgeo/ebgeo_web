@@ -64,18 +64,61 @@ describe('planLateLegacyChanges', () => {
     });
 
     it('mesmo registro nos dois lados: conflito', () => {
-        expect(planLateLegacyChanges(entrada({ legado: { 'settings/lastActiveMap': 'l1' }, destino: { 'settings/lastActiveMap': 'l9' } })))
+        expect(planLateLegacyChanges(entrada({ legado: { 'settings/mapBadgeColors': 'b1' }, destino: { 'settings/mapBadgeColors': 'b9' } })))
             .toMatchObject({ outcome: 'conflict', reason: 'same_unit' });
     });
 
+    it('o ponteiro do último mapa aberto mudou nos dois lados: fica o da versão nova, sem conflito', () => {
+        const plan = planLateLegacyChanges(entrada({
+            legado: { 'maps/Principal': 'p1', 'settings/lastActiveMap': 'l1' }, destino: { 'settings/lastActiveMap': 'l9' }
+        }));
+        expect(plan).toMatchObject({ outcome: 'absorb', writes: [['maps', 'Principal']], deletes: [] });
+    });
+
+    it('o ponteiro do último mapa aberto mudou só na antiga: entra', () => {
+        expect(planLateLegacyChanges(entrada({ legado: { 'settings/lastActiveMap': 'l1' } })).writes)
+            .toEqual([['settings', 'lastActiveMap']]);
+    });
+
     it('registros diferentes do MESMO mapa: conflito', () => {
-        expect(planLateLegacyChanges(entrada({ legado: { 'maps/Principal': 'p1' }, destino: { 'settings/color_usage_Principal': 'c9' } })))
+        expect(planLateLegacyChanges(entrada({ legado: { 'maps/Principal': 'p1' }, destino: { 'layers/layers_Principal': 'y9' } })))
             .toMatchObject({ outcome: 'conflict', reason: 'same_unit' });
     });
 
     it('o mesmo mapa por id de um lado e por chave do outro: conflito', () => {
-        expect(planLateLegacyChanges(entrada({ legado: { 'maps/Segundo': 's1' }, destino: { 'settings/color_usage_uuid-2': 'c9' } })))
+        expect(planLateLegacyChanges(entrada({ legado: { 'maps/Segundo': 's1' }, destino: { 'settings/gridStyle_uuid-2': 'g9' } })))
             .toMatchObject({ outcome: 'conflict', reason: 'same_unit' });
+    });
+
+    // O CASO DA PRODUÇÃO (2026-09-21): a primeira abertura da versão nova grava a contagem de cores
+    // de um mapa que não tinha nenhuma, e isso não é edição de ninguém.
+    it('contagem de cores gravada pela versão nova não conflita, e a do mapa que veio da antiga entra junto', () => {
+        const plan = planLateLegacyChanges(entrada({
+            legado: { 'maps/Principal': 'p1', 'settings/color_usage_Principal': 'c1' },
+            destino: { 'settings/color_usage_Principal': 'c9' }
+        }));
+        expect(plan).toMatchObject({ outcome: 'absorb', deletes: [] });
+        expect(plan.writes).toEqual([['maps', 'Principal'], ['settings', 'color_usage_Principal']]);
+    });
+
+    it('a contagem de cores segue o mapa que veio da antiga mesmo quando a antiga não a mudou', () => {
+        const plan = planLateLegacyChanges(entrada({ legado: { 'maps/Principal': 'p1' }, destino: { 'settings/color_usage_Principal': 'c9' } }));
+        expect(plan.writes).toEqual([['maps', 'Principal'], ['settings', 'color_usage_Principal']]);
+    });
+
+    it('contagem que só a versão nova tem sai quando o mapa vem da antiga sem ela, pelo id do mapa', () => {
+        const plan = planLateLegacyChanges(entrada({ legado: { 'maps/Segundo': 's1' }, destino: { 'settings/color_usage_uuid-2': 'c9' } }));
+        expect(plan).toMatchObject({ outcome: 'absorb', writes: [['maps', 'Segundo']], deletes: [['settings', 'color_usage_uuid-2']] });
+    });
+
+    it('contagem de cores de um mapa que NÃO veio da antiga fica como a versão nova deixou', () => {
+        const plan = planLateLegacyChanges(entrada({ legado: { 'maps/Principal': 'p1' }, destino: { 'settings/color_usage_uuid-2': 'c9' } }));
+        expect(plan.writes).toEqual([['maps', 'Principal']]);
+        expect(plan.deletes).toEqual([]);
+    });
+
+    it('só a contagem de cores mudou na antiga: nada a fazer', () => {
+        expect(planLateLegacyChanges(entrada({ legado: { 'settings/color_usage_Principal': 'c1' } })).outcome).toBe('nothing');
     });
 
     it('registros fora de mapa e diferentes: absorve', () => {

@@ -39,8 +39,9 @@ import { StoreName } from '../atlas-namespace.js';
  * records are coupled: a feature names a layer, a colour count follows the features. Two sides
  * that edited different records of the SAME map would merge into a map whose parts disagree, so
  * every record that belongs to a map is judged as the map. Measured on 2026-09-21: drawing one
- * point in the new version changes `maps/Principal` and `color_usage_Principal`, and opening,
- * panning and zooming changes nothing.
+ * point in the new version changes `maps/Principal` and `color_usage_Principal`. Opening, panning
+ * and zooming changed nothing on the acervo that measure used, and production showed the case it
+ * missed: a map with NO colour count gets one written on first open (see `DERIVED_KEYS`).
  *
  * A map is addressed by key, id AND name, because the new version moves per-map settings from
  * the name to the id lazily (`getColorUsageCompat`): the same map can be `color_usage_Principal`
@@ -49,6 +50,13 @@ import { StoreName } from '../atlas-namespace.js';
  * ===========================================================================================
  * WHAT MAKES A CASE NON-TRIVIAL (the screen stays)
  * ===========================================================================================
+ * Two kinds of record never make a case non-trivial: the caches the app recomputes
+ * (`DERIVED_KEYS`) and the navigation pointers (`PREFERENCE_KEYS`). A LIMIT that is known and
+ * left open: the PNG that three tools regenerate under a feature id (declination, coordination
+ * measure, military symbol) is an ordinary image record here, so both sides regenerating the
+ * same one is a conflict. It needs the feature type to be told apart from an image feature's
+ * bytes, which live under the feature id too.
+ *
  *   same_unit          both sides changed the same map, or the same record outside a map
  *   map_removed        the legacy side deleted a whole map: never propagated in silence
  *   image_removed      the legacy side deleted an image while the destination has edits of its
@@ -75,6 +83,40 @@ const MAP_SCOPED_KEYS = Object.freeze([
     [StoreName.SETTINGS, 'gridStyle_'],
     [StoreName.SETTINGS, 'temporal_'],
 ]);
+
+/**
+ * Records that are a CACHE of the map, recomputed by the app from the features, and therefore
+ * never an edit of anybody.
+ *
+ * MEASURED IN PRODUCTION ON 2026-09-21, the same day this rule shipped without it: the first
+ * open of the new version runs `performInitialColorAnalysis` on a map whose colour count is
+ * missing, and CREATES `color_usage_Principal` in the destination. The plan read that as "the
+ * new version edited Principal", and a person who had only opened the new version got the
+ * screen this module exists to remove. So a derived record is never a destination change, and it
+ * FOLLOWS the side whose map was taken: when a map comes from the legacy side, its derived
+ * records come with it, or go, so the cache never describes features the map no longer has.
+ */
+const DERIVED_KEYS = Object.freeze([
+    [StoreName.SETTINGS, 'color_usage_'],
+]);
+
+/**
+ * Records that say where the person WAS, not what they made: when both sides changed one, the
+ * destination's value stays and nobody is asked. Measured on 2026-09-21 on the 11-map production
+ * fixture: switching maps in the new version, with no edit at all, writes `lastActiveMap`, and
+ * switching maps in the old version does the same, so without this every person who navigated
+ * in both would meet the screen over a pointer.
+ */
+const PREFERENCE_KEYS = Object.freeze([
+    [StoreName.SETTINGS, 'lastActiveMap'],
+]);
+
+/**
+ * Version of the rule, stamped on every remembered conflict. A conflict decided by an older rule
+ * is decided again: without this, the fix above would never reach a browser that had already
+ * remembered the conflict, because the two acervos it compares are exactly the same ones.
+ */
+export const LATE_RULE_VERSION = 2;
 
 /** Outcomes of `planLateLegacyChanges`. */
 export const LateOutcome = Object.freeze({
@@ -146,6 +188,24 @@ function unitOf(id, resolve) {
 }
 
 /**
+ * @param {string} id - Record id from `recordId`.
+ * @returns {boolean} True for a cache the app recomputes from the map (`DERIVED_KEYS`).
+ */
+function isDerived(id) {
+    const [store, key] = JSON.parse(id);
+    return DERIVED_KEYS.some(([derivedStore, prefix]) => store === derivedStore && key.startsWith(prefix));
+}
+
+/**
+ * @param {string} id - Record id from `recordId`.
+ * @returns {boolean} True for a navigation pointer (`PREFERENCE_KEYS`).
+ */
+function isPreference(id) {
+    const [store, key] = JSON.parse(id);
+    return PREFERENCE_KEYS.some(([preferenceStore, name]) => store === preferenceStore && key === name);
+}
+
+/**
  * Decides what to do with the late legacy changes.
  *
  * @param {Object} input
@@ -167,21 +227,35 @@ export function planLateLegacyChanges({ migratedBase, staged, destinationBase, d
     if (legacyChanges.size === 0) return plan;
 
     const conflict = reason => ({ outcome: LateOutcome.CONFLICT, reason, writes: [], deletes: [] });
-    const destinationChanges = changedRecords(indexInventory(destinationBase), indexInventory(destination));
+    const destinationIndex = indexInventory(destination);
+    const destinationChanges = [...changedRecords(indexInventory(destinationBase), destinationIndex)]
+        .filter(id => !isDerived(id));
     const raw = { base: indexInventory(rawBase), now: indexInventory(rawNow) };
     const resolve = mapResolver(maps);
-    const destinationUnits = new Set([...destinationChanges].map(id => unitOf(id, resolve)));
+    const destinationUnits = new Set(destinationChanges.map(id => unitOf(id, resolve)));
+    const takenUnits = new Set();
 
     for (const id of legacyChanges) {
         const [store] = JSON.parse(id);
         const isLegacyRecord = raw.base.has(id) || raw.now.has(id);
         if (isLegacyRecord && raw.base.get(id) === raw.now.get(id)) return conflict('unstable_migration');
+        if (isDerived(id)) continue;
+        if (isPreference(id) && destinationChanges.includes(id)) continue;
         const removed = !stagedIndex.has(id);
         if (removed && store === StoreName.MAPS) return conflict('map_removed');
-        if (removed && store === StoreName.IMAGES && destinationChanges.size > 0) return conflict('image_removed');
-        if (destinationUnits.has(unitOf(id, resolve))) return conflict('same_unit');
+        if (removed && store === StoreName.IMAGES && destinationChanges.length > 0) return conflict('image_removed');
+        const unit = unitOf(id, resolve);
+        if (destinationUnits.has(unit)) return conflict('same_unit');
+        takenUnits.add(unit);
         (removed ? plan.deletes : plan.writes).push(JSON.parse(id));
     }
-    plan.outcome = LateOutcome.ABSORB;
+
+    // The caches of every map taken from the legacy side follow it, whichever side last wrote them.
+    for (const id of new Set([...stagedIndex.keys(), ...destinationIndex.keys()])) {
+        if (!isDerived(id) || !takenUnits.has(unitOf(id, resolve))) continue;
+        if (stagedIndex.get(id) === destinationIndex.get(id)) continue;
+        (stagedIndex.has(id) ? plan.writes : plan.deletes).push(JSON.parse(id));
+    }
+    plan.outcome = plan.writes.length || plan.deletes.length ? LateOutcome.ABSORB : LateOutcome.NOTHING;
     return plan;
 }
