@@ -28,6 +28,7 @@ import {
 } from './kml-style.js';
 import { buildDescription, buildExtendedData } from './kml-balloon.js';
 import { buildPlacemark, buildGroundOverlay } from './kml-document.js';
+import { buildTimePrimitive, hasMovingTrajectory } from './kml-time.js';
 import {
     resolvePointIcon,
     resolveStoredImage,
@@ -116,15 +117,30 @@ function measureGeometryLength(geometry) {
 }
 
 /**
- * Human-readable notes about style that KML cannot reproduce.
+ * A frase da trajetória, escrita uma vez e lida pelo teste.
+ *
+ * A JANELA DE VALIDADE NÃO ESTÁ AQUI, e a ausência é o ponto: desde 2026-09-21 ela é
+ * EXPORTADA, como `<TimeSpan>` (`kml-time.js`). A trajetória continua fora, porque KML só a
+ * representaria por `gx:Track`, que substitui a geometria do Placemark e some para quem não
+ * implementa a extensão; o porquê por extenso está no cabeçalho daquele arquivo.
+ * @type {string}
+ */
+export const TRAJECTORY_DEGRADATION_NOTE =
+    'Trajetória (ponto móvel) não é representada pelo KML — a feição é exportada na posição de origem.';
+
+/**
+ * Human-readable notes about what KML cannot reproduce.
  *
  * @param {Object} properties - Feature properties
  * @returns {Array<string>} Notes in pt-BR for the balloon
  */
-function degradationNotes(properties) {
+export function degradationNotes(properties) {
     const notes = [];
     if (properties?.hatchEnabled === true) {
         notes.push('Hachura não é suportada pelo KML — exibida como preenchimento sólido.');
+    }
+    if (hasMovingTrajectory(properties)) {
+        notes.push(TRAJECTORY_DEGRADATION_NOTE);
     }
     return notes;
 }
@@ -135,7 +151,7 @@ function degradationNotes(properties) {
  * @param {Object} feature - GeoJSON feature
  * @param {string} featureType - Source feature type
  * @param {Array<{href: string, name: string}>} photos - Photo references
- * @returns {{description: string, extendedData: string}} Prebuilt elements
+ * @returns {{description: string, time: string, extendedData: string}} Prebuilt elements
  */
 function buildTextBlocks(feature, featureType, photos) {
     const properties = feature.properties || {};
@@ -153,6 +169,10 @@ function buildTextBlocks(feature, featureType, photos) {
             photos,
             notes: degradationNotes(properties),
         }),
+        // A JANELA DE VALIDADE vive aqui, e não no `ExtendedData`: quem lê o arquivo de
+        // volta (o nosso importador e o Google Earth) procura `<TimeSpan>`, não um par de
+        // atributos com nome nosso.
+        time: buildTimePrimitive(properties),
         extendedData: buildExtendedData(properties, extras),
     };
 }
@@ -178,30 +198,30 @@ export async function mapFeatureToKml({ feature, featureType, styles, assets, op
     const visible = properties.visivel !== false;
 
     const photos = includePhotos ? collectPhotos(assets, feature) : [];
-    const { description, extendedData } = buildTextBlocks(feature, featureType, photos);
+    const { description, time, extendedData } = buildTextBlocks(feature, featureType, photos);
 
     const category = classifyFeatureType(featureType);
 
     if (category === FeatureCategory.SKIPPED) return null;
 
     if (category === FeatureCategory.IMAGE) {
-        return mapImageFeature({ feature, assets, description, extendedData, visible });
+        return mapImageFeature({ feature, assets, description, time, extendedData, visible });
     }
 
     if (category === FeatureCategory.SYMBOL) {
         return mapSymbolFeature({
-            feature, featureType, styles, assets, description, extendedData, visible,
+            feature, featureType, styles, assets, description, time, extendedData, visible,
         });
     }
 
     if (category === FeatureCategory.POINT) {
         return mapPointFeature({
-            feature, styles, assets, description, extendedData, visible,
+            feature, styles, assets, description, time, extendedData, visible,
         });
     }
 
     if (category === FeatureCategory.TEXT) {
-        return mapTextFeature({ feature, styles, description, extendedData, visible });
+        return mapTextFeature({ feature, styles, description, time, extendedData, visible });
     }
 
     const dashMeters = resolveDashMeters(properties, feature.geometry, simulateDash);
@@ -218,6 +238,7 @@ export async function mapFeatureToKml({ feature, featureType, styles, assets, op
         name: properties.nome,
         styleId,
         description,
+        time,
         extendedData,
         geometry,
         visible,
@@ -230,7 +251,7 @@ export async function mapFeatureToKml({ feature, featureType, styles, assets, op
  * @param {Object} params - Mapping inputs
  * @returns {Promise<string|null>} KML Placemark
  */
-async function mapPointFeature({ feature, styles, assets, description, extendedData, visible }) {
+async function mapPointFeature({ feature, styles, assets, description, time, extendedData, visible }) {
     const properties = feature.properties || {};
 
     const geometry = buildGeometry(feature.geometry);
@@ -263,6 +284,7 @@ async function mapPointFeature({ feature, styles, assets, description, extendedD
         name: showLabel ? properties.labelText : properties.nome,
         styleId,
         description,
+        time,
         extendedData,
         geometry,
         visible,
@@ -278,7 +300,7 @@ async function mapPointFeature({ feature, styles, assets, description, extendedD
  * @param {Object} params - Mapping inputs
  * @returns {string|null} KML Placemark
  */
-function mapTextFeature({ feature, styles, description, extendedData, visible }) {
+function mapTextFeature({ feature, styles, description, time, extendedData, visible }) {
     const properties = feature.properties || {};
 
     const geometry = buildGeometry(feature.geometry);
@@ -297,6 +319,7 @@ function mapTextFeature({ feature, styles, description, extendedData, visible })
         name: properties.text || properties.nome,
         styleId,
         description,
+        time,
         extendedData,
         geometry,
         visible,
@@ -310,7 +333,7 @@ function mapTextFeature({ feature, styles, description, extendedData, visible })
  * @returns {Promise<string|null>} KML Placemark
  */
 async function mapSymbolFeature({
-    feature, featureType, styles, assets, description, extendedData, visible,
+    feature, featureType, styles, assets, description, time, extendedData, visible,
 }) {
     const properties = feature.properties || {};
 
@@ -364,6 +387,7 @@ async function mapSymbolFeature({
         name: properties.nome,
         styleId,
         description,
+        time,
         extendedData,
         geometry,
         visible,
@@ -377,7 +401,7 @@ async function mapSymbolFeature({
  * @param {Object} params - Mapping inputs
  * @returns {Promise<string|null>} KML element
  */
-async function mapImageFeature({ feature, assets, description, extendedData, visible }) {
+async function mapImageFeature({ feature, assets, description, time, extendedData, visible }) {
     const properties = feature.properties || {};
 
     const asset = await resolveStoredImage(assets, properties.id, { keyPrefix: 'image' });
@@ -402,6 +426,7 @@ async function mapImageFeature({ feature, assets, description, extendedData, vis
         return buildPlacemark({
             name: properties.nome || 'Imagem',
             description,
+            time,
             extendedData,
             geometry: buildGeometry(feature.geometry),
             visible,
@@ -415,6 +440,7 @@ async function mapImageFeature({ feature, assets, description, extendedData, vis
         color: toKmlColor('#ffffff', Number.isFinite(properties.opacity) ? properties.opacity : 1),
         visible,
         description,
+        time,
         extendedData,
     });
 }

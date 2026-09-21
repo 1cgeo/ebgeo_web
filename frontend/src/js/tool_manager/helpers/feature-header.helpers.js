@@ -20,6 +20,13 @@
  * linha e mais nada, não consultavam permissão nenhuma e deixavam artefato órfão na tela; o
  * porquê de cada passo está no cabeçalho daqueles dois. As conversões de PONTO continuam aqui,
  * e continuam sem gate: elas ficaram fora daquela mudança, e é dívida declarada, não simetria.
+ *
+ * O QUE ATRAVESSA UMA CONVERSÃO DE PONTO também deixou de morar aqui: o bloco de
+ * propriedades da feição convertida é montado por `point-conversion.model.js` (puro,
+ * node-testável), pela mesma razão do irmão linear. Até 2026-09-21 as duas conversões
+ * copiavam uma lista fixa escrita à mão e descartavam em silêncio a janela de validade, a
+ * trajetória, os atributos e as imagens do usuário (achado E1), enquanto o ponto de origem
+ * era apagado no mesmo lote.
  */
 
 import { getLayers, isCurrentMapLockedSync, isFeatureEffectivelyLocked, addFeature, removeFeature, removeImage, updateFeature, storeImage, getGroupManager, getControl, startBatchUndo, commitBatchUndo } from '../../store';
@@ -39,6 +46,7 @@ import {
     linearConversionActions,
 } from './linear-conversion.model.js';
 import { convertLinearFeature } from './linear-conversion.helpers.js';
+import { buildConvertedPointProperties } from './point-conversion.model.js';
 
 // ── Arrow merge/split helpers ─────────────────────────────────────────────────
 // These inline checks avoid a static import from military_tools (which would
@@ -1200,14 +1208,15 @@ async function convertPointToMilitarySymbol(pointFeature, selectionManager, uiMa
             type: 'Feature',
             id: geoJsonId,
             properties: {
-                ...DefaultProps,
-                layerId: pointFeature.properties.layerId || 'default',
-                id: featureId,
-                nome: pointFeature.properties.nome || featureName,
-                descricao: pointFeature.properties.descricao || '',
-                visivel: pointFeature.properties.visivel !== false,
-                bloqueado: pointFeature.properties.bloqueado || false,
-                opacity: pointFeature.properties.opacity ?? DefaultProps.opacity,
+                // O que atravessa (identidade, texto, anexos, janela de validade e
+                // trajetória) é montado por `point-conversion.model.js`; aqui fica só o que
+                // é do DESTINO. Ver o cabeçalho daquele arquivo para o `_temporalHome`.
+                ...buildConvertedPointProperties({
+                    feature: pointFeature,
+                    defaults: DefaultProps,
+                    id: featureId,
+                    nome: featureName,
+                }),
                 sidc: sidc30,
                 createdAtZoom: currentZoom,
                 calculatedSize: DefaultProps.size,
@@ -1334,14 +1343,13 @@ async function convertPointToCoordinationMeasure(pointFeature, selectionManager,
             type: 'Feature',
             id: geoJsonId,
             properties: {
-                ...DefaultProps,
-                layerId: pointFeature.properties.layerId || 'default',
-                id: featureId,
-                nome: pointFeature.properties.nome || featureName,
-                descricao: pointFeature.properties.descricao || '',
-                visivel: pointFeature.properties.visivel !== false,
-                bloqueado: pointFeature.properties.bloqueado || false,
-                opacity: pointFeature.properties.opacity ?? DefaultProps.opacity,
+                // Mesma montagem da conversão para símbolo militar, logo acima.
+                ...buildConvertedPointProperties({
+                    feature: pointFeature,
+                    defaults: DefaultProps,
+                    id: featureId,
+                    nome: featureName,
+                }),
                 pointCode: pointCode,
                 createdAtZoom: currentZoom,
                 calculatedSize: DefaultProps.size,

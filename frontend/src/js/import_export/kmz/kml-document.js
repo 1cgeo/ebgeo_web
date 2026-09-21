@@ -81,6 +81,7 @@ export class StyleRegistry {
  * @param {string} [params.name] - Display name (escaped here)
  * @param {string} [params.styleId] - Registered style id
  * @param {string} [params.description] - Prebuilt `<description>` element
+ * @param {string} [params.time] - Prebuilt `<TimeSpan>` element (see `kml-time.js`)
  * @param {string} [params.extendedData] - Prebuilt `<ExtendedData>` element
  * @param {string} params.geometry - Prebuilt geometry element
  * @param {boolean} [params.visible=true] - Whether the feature starts visible
@@ -90,6 +91,7 @@ export function buildPlacemark({
     name,
     styleId,
     description = '',
+    time = '',
     extendedData = '',
     geometry,
     visible = true,
@@ -100,8 +102,10 @@ export function buildPlacemark({
     const styleXml = styleId ? `<styleUrl>#${styleId}</styleUrl>` : '';
     const visibilityXml = visible ? '' : '<visibility>0</visibility>';
 
+    // O tempo entra DEPOIS da descrição e ANTES do `ExtendedData`, que é a ordem relativa do
+    // schema do KML para esses três (description -> AbstractTimePrimitive -> ExtendedData).
     return `<Placemark>${nameXml}${visibilityXml}${styleXml}`
-        + `${description}${extendedData}${geometry}</Placemark>`;
+        + `${description}${time}${extendedData}${geometry}</Placemark>`;
 }
 
 /**
@@ -115,6 +119,7 @@ export function buildPlacemark({
  * @param {number} [params.drawOrder=10] - Stacking order below vector Placemarks
  * @param {boolean} [params.visible=true] - Whether the overlay starts visible
  * @param {string} [params.description] - Prebuilt `<description>` element
+ * @param {string} [params.time] - Prebuilt `<TimeSpan>` element (see `kml-time.js`)
  * @param {string} [params.extendedData] - Prebuilt `<ExtendedData>` element
  * @returns {string|null} KML fragment, or null when inputs are unusable
  */
@@ -126,6 +131,7 @@ export function buildGroundOverlay({
     drawOrder = 10,
     visible = true,
     description = '',
+    time = '',
     extendedData = '',
 } = {}) {
     if (!href || !box) return null;
@@ -137,7 +143,7 @@ export function buildGroundOverlay({
     const rotation = Number.isFinite(box.rotation) ? box.rotation : 0;
 
     return `<GroundOverlay>${nameXml}${visibilityXml}${colorXml}`
-        + `<drawOrder>${drawOrder}</drawOrder>${description}${extendedData}`
+        + `<drawOrder>${drawOrder}</drawOrder>${description}${time}${extendedData}`
         + `<Icon><href>${escapeXml(href)}</href></Icon>`
         + `<LatLonBox><north>${box.north}</north><south>${box.south}</south>`
         + `<east>${box.east}</east><west>${box.west}</west>`
