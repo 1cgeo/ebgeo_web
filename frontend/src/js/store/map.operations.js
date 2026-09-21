@@ -80,6 +80,94 @@ const deps = {
  */
 export function setMapDependencies(dependencies) {
     Object.assign(deps, dependencies);
+    subscribeRemoteMapRename(deps.eventBus);
+}
+
+// ===== REMOTE RENAME RE-KEYING =====
+
+/** @type {(() => void)|null} Unsubscribe of the current MAP_RENAMED_REMOTELY listener. */
+let _unsubscribeRemoteRename = null;
+
+/**
+ * Subscribes the ONE listener that re-keys this client's memory when a PEER renames a map.
+ *
+ * WHY IT LIVES HERE, ao lado de `renameMap` e nao dentro do tratador de entrada. O tratador de
+ * operacoes remotas nao pode importar `store-state-manager.js` (guarda estrutural P8 em
+ * `frontend/tests/integration/remote-operation-handler.test.js`, que existe para manter o undo
+ * fora do caminho remoto), entao a ligacao entre os dois so' pode ser um evento. E o assinante
+ * mora no MESMO arquivo que o autor porque as duas chamadas de re-chaveagem passam a ter um
+ * unico sitio: duas copias da regra divergem, e a divergencia e' o defeito N1 em outra forma.
+ *
+ * A inscricao e' refeita a cada `setMapDependencies`, e a anterior e' solta antes: sem isso uma
+ * segunda inicializacao (os testes fazem isso o tempo todo) acumularia ouvintes e a re-chaveagem
+ * rodaria N vezes por rename.
+ *
+ * @param {import('../events/event_bus.js').EventBus|null} eventBus - Bus to listen on.
+ */
+function subscribeRemoteMapRename(eventBus) {
+    _unsubscribeRemoteRename?.();
+    _unsubscribeRemoteRename = null;
+    if (typeof eventBus?.on !== 'function') return;
+    const solta = eventBus.on(EventTypes.MAP_RENAMED_REMOTELY, (payload) => {
+        // O emissor e' sincrono; a escrita do ponteiro de disco nao e'. Um `catch` aqui impede
+        // que uma falha de IndexedDB derrube o apply da operacao remota que anunciou o rename.
+        applyRemoteMapRename(payload).catch((error) => {
+            console.warn('[Store] Falha ao re-chavear a memoria apos rename remoto:', error);
+        });
+    });
+    // O barramento da casa devolve a funcao que solta a inscricao, e um duble de teste devolve o
+    // que quiser: guardar um nao-funcao faria a proxima passada estourar num `?.()`.
+    _unsubscribeRemoteRename = typeof solta === 'function' ? solta : null;
+}
+
+/**
+ * Re-chaveia a memoria deste cliente depois que um PAR renomeou um mapa.
+ *
+ * O NOME DO MAPA E' CHAVE EM SEIS LUGARES DA MEMORIA (`memoryStore.currentMap`, `maps`, `groups`,
+ * `layers`, `lockedMaps` e as duas metades temporais) mais o indice nome<->id. Quem renomeia
+ * move os sete por `renameMapInMemory` + `mapResolver.renameMap`, e o par nao movia nenhum: o
+ * disco passava a dizer o nome novo e a memoria continuava no velho. Medido em 2026-09-21 com
+ * duas browsers reais: a aba Mapas do par ficava SEM nenhum cartao marcado como atual, o campo de
+ * nome do cabecalho mostrava o nome velho, e uma feicao desenhada pelo par depois disso ia parar
+ * num mapa FANTASMA gravado sob a chave do nome velho (`getMapDataCompat` nao acha documento com
+ * aquele nome, devolve o documento vazio de compatibilidade e a gravacao o crava), de onde a op
+ * nunca saiu da fila. Spec: `frontend/tests/e2e-ui/browser-collab-rename-remoto.spec.js`.
+ *
+ * A GUARDA E' DE IDENTIDADE, E UMA PERGUNTA SO' COBRE AS TRES ARMADILHAS: o indice tem de dizer
+ * que o nome VELHO pertence a ESTE mapa. Se ele apontar para outro mapa, o nome velho ja' foi
+ * adotado por um homonimo e re-chavear roubaria a memoria DELE (camadas, grupos e pilha de
+ * desfazer); se ele nao conhecer o nome, nao ha como provar a posse, e recusar e' a escolha
+ * conservadora. Isso torna a funcao IDEMPOTENTE de graca: aplicada uma vez, `mapResolver.renameMap`
+ * apaga a entrada do nome velho, entao a segunda entrega do mesmo anuncio nao passa da guarda.
+ * A pergunta so' e' verdadeira no instante certo porque `saveMap` REGISTRA o nome novo sem apagar
+ * o velho: no anuncio os dois nomes ainda apontam para este mapa.
+ *
+ * O PONTEIRO DE MAPA CORRENTE NO DISCO ANDA JUNTO, e ele nao e' memoria: `lastActiveMap` guarda
+ * um NOME, a aba Mapas le ele (e nao `getCurrentMapNameSync`) para decidir qual cartao esta
+ * ativo, e sem esta linha a tela do par continuava sem cartao atual mesmo com a memoria certa. O
+ * autor ganha isso de graça porque a tela dele chama `setCurrentMap` logo depois do rename; o par
+ * nao troca de mapa, entao ninguem o reescreveria.
+ *
+ * @param {{mapId?: string, oldName?: string, newName?: string}} payload - MAP_RENAMED_REMOTELY.
+ * @returns {Promise<boolean>} True quando a memoria foi re-chaveada.
+ */
+export async function applyRemoteMapRename({ mapId, oldName, newName } = {}) {
+    if (!mapId || !oldName || !newName || oldName === newName) return false;
+    if (mapResolver.resolveToId(oldName) !== mapId) return false;
+
+    const eraOCorrente = memoryStore.currentMap === oldName;
+    mapManager.renameMapInMemory(oldName, newName);
+    mapResolver.renameMap(oldName, newName);
+
+    if (eraOCorrente) {
+        await setAppSetting('lastActiveMap', newName);
+        // O REPINTE VEM DEPOIS DA ESCRITA, e nao antes. O `LAYERS_CHANGED` que o tratador de
+        // entrada emite no fim do apply chega enquanto o ajuste acima ainda esta em voo, e a aba
+        // leria o nome velho de novo. Este segundo anuncio e' o mesmo que a tela do autor emite
+        // depois de renomear.
+        deps.eventBus?.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
+    }
+    return true;
 }
 
 // ===== BRIEFING LOCK OVERRIDE =====
@@ -452,7 +540,13 @@ export async function renameMap(oldName, newName) {
         return false;
     }
 
-    if (memoryStore.lockedMaps.has(oldName)) {
+    // THE LOCK IS ASKED OF THE DISK TOO (2026-09-21, the last entry of the N3 inventory). The
+    // in-memory set is only COMPLETE on a server atlas; on a LOCAL atlas it holds the current map
+    // alone, so renaming ANOTHER locked map passed in silence, and the `map {name}` op targets the
+    // map itself, which the server does not lock-gate. `isMapLocked` and not `isTargetMapLocked`:
+    // the briefing overlay is about the map being SHOWN, and folding it in here would start
+    // refusing a rename during briefing editing, which is a different decision.
+    if (memoryStore.lockedMaps.has(oldName) || await isMapLocked(oldName)) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'renameMap', reason: 'map_locked' });
         return false;
     }
@@ -855,7 +949,7 @@ export async function hasAnyMapFeatures() {
 // ===== MAP CONFIGURATION =====
 
 /**
- * Lock question for a map that may NOT be the current one.
+ * THE LOCK QUESTION OF EVERY MAP-SETTING WRITE, for a map that may NOT be the current one.
  *
  * The three functions below all accept an explicit `mapName` and all used to ask
  * `isCurrentMapLockedSync()`, which reads `memoryStore.lockedMaps` — a set that is COMPLETE
@@ -871,11 +965,22 @@ export async function hasAnyMapFeatures() {
  * every map read-only during briefing edit/present without persisting a lock, so disk cannot
  * know about it. Reading disk alone would have re-opened writing during a briefing.
  *
+ * IT IS EXPORTED SINCE 2026-09-21 (ponto N3), AND THE EXPORT IS THE POINT. The server only
+ * enforces `maps.locked` against operations whose target is a CHILD of the map
+ * (`LOCKABLE_CHILD_TARGETS`, `backend/src/modules/sync/sync.service.js`: feature, group, layer,
+ * cesium3d, streetview360, catalog_layer, group_feature). An adjustment of the map ITSELF
+ * (position, base layer, notes, grid, temporal config) has the MAP as its target, so it passes
+ * the server gate and the client is the ONLY point of enforcement that exists for it. The owner
+ * decided on 2026-09-21 not to close that on the server and to treat these writes as a client
+ * convention, like the layer, group and feature locks already are — and a convention only holds
+ * if every writer asks the SAME question. `setMapNotes` and `setGridStyle`
+ * (`settings.operations.js`) import this one; asking `isCurrentMapLockedSync()` there ignored
+ * their own `mapName` argument and answered about whatever map happened to be on screen.
+ *
  * @param {string} targetMap - Map name (already resolved, never null)
  * @returns {Promise<boolean>} True when that map must refuse writes
- * @private
  */
-async function isTargetMapLocked(targetMap) {
+export async function isTargetMapLocked(targetMap) {
     if (briefingLockOverride) return true;
     return isMapLocked(targetMap);
 }
@@ -988,8 +1093,14 @@ export async function setBaseLayer(layer, mapName = null) {
     }
 
     const targetMap = mapName || mapManager.getCurrentMapName();
+    // A RECUSA FALA, e até 2026-09-21 ela era um `console.warn` que ninguém lê. O mapa travado é
+    // bloqueio por ESTADO, reversível, e o clique é como o motivo chega à pessoa: o listener
+    // global de `STORE_OPERATION_BLOCKED` (`store/store-error-listener.js`) já tem a frase de
+    // `map_locked`, então emitir é o que faz a tela dizer o que aconteceu. É a mesma forma dos
+    // dois gates acima e ao lado (papel, e a recusa por recuperação em `refusingDuringRecovery`),
+    // que já emitem: só este eixo era mudo, nas três funções deste bloco.
     if (await isTargetMapLocked(targetMap)) {
-        console.warn('Map is locked. Cannot change base layer.');
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'setBaseLayer', reason: 'map_locked' });
         return;
     }
 
@@ -1040,8 +1151,12 @@ export async function updateMapPosition(center_lat, center_long, zoom, bearing, 
     }
 
     const targetMap = mapName || mapManager.getCurrentMapName();
+    // Fala pela mesma razão de `setBaseLayer` acima. O menu por mapa já desenha "Salvar posição"
+    // e recusa o clique nomeando a trava (`mapMenuActions`, `sidebar/tabs/map-menu-actions.js`),
+    // então na prática esta recusa é a segunda linha; ela existe para o chamador que não passa
+    // por aquele menu, e um segundo aviso é melhor que nenhum.
     if (await isTargetMapLocked(targetMap)) {
-        console.warn('Map is locked. Cannot update position.');
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'updateMapPosition', reason: 'map_locked' });
         return;
     }
 
@@ -1146,8 +1261,9 @@ export async function clearMapPosition(mapName = null) {
     }
 
     const targetMapName = mapName || mapManager.getCurrentMapName();
+    // Fala pela mesma razão das duas irmãs acima.
     if (await isTargetMapLocked(targetMapName)) {
-        console.warn('Map is locked. Cannot clear position.');
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'clearMapPosition', reason: 'map_locked' });
         return;
     }
 

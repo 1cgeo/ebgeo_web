@@ -1743,6 +1743,12 @@ describe('S1 (metade REMOTA) — o rename vindo do par carrega os laterais chave
     // vista fixada dele, e `temporal_<nomeAntigo>` ficava orfao no disco. A metade LOCAL mora em
     // `LocalRepository.renameMap`; esta e' a de entrada, e ela REUSA a mesma transferencia do
     // repositorio, porque duas listas de "o que pendura no NOME" divergem.
+    //
+    // O QUE MUDOU EM 2026-09-21 (ponto N1): este tratador cuida do DISCO e ANUNCIA. A
+    // re-chaveagem da MEMORIA saiu daqui, onde era parcial (so' as duas metades temporais, e so'
+    // quando o par nao estava com o mapa aberto), e virou `EventTypes.MAP_RENAMED_REMOTELY` mais
+    // um assinante em `store/map.operations.js`, que chama as mesmas duas re-chaveagens do autor.
+    // O tratador nao pode chama-las aqui porque nao pode importar o gerente de estado (P8).
     let mapaCorrenteAntes;
 
     beforeEach(() => {
@@ -1751,8 +1757,6 @@ describe('S1 (metade REMOTA) — o rename vindo do par carrega os laterais chave
         memoryStore.temporalView.clear();
         transferCalls.length = 0;
         mapaCorrenteAntes = memoryStore.currentMap;
-        // O par esta em OUTRO mapa: e' o caso em que a memoria pode viajar sem contradizer os
-        // leitores sincronos (ver o caso do mapa aberto, adiante).
         memoryStore.currentMap = 'Outro Mapa';
         mapDataStore.set('map-s1', { ...createTestMapData(), id: 'map-s1', name: 'Mapa Velho' });
     });
@@ -1778,43 +1782,45 @@ describe('S1 (metade REMOTA) — o rename vindo do par carrega os laterais chave
         expect(transferCalls).toEqual([{ oldName: 'Mapa Velho', newName: 'Mapa Novo', ownKeys: ['map-s1'] }]);
     });
 
-    it('a VISTA da pessoa viaja junto, e ela nao existe em disco nenhum', async () => {
-        // A borda que nada mais no produto conserta: `temporalView` e' o interruptor que ESTA
-        // pessoa ligou nesta sessao. Sem nada em disco, a transferencia do repositorio nao tem o
-        // que levar e mesmo assim ha o que perder.
-        memoryStore.temporalView.set('Mapa Velho', true);
-
-        await applyRemoteOperation({
-            entityType: EntityType.MAP, operationType: OperationType.UPDATE,
-            entityId: 'map-s1', mapId: null, data: { name: 'Mapa Novo' },
-        });
-
-        expect(memoryStore.temporalView.get('Mapa Novo')).toBe(true);
-        expect(memoryStore.temporalView.has('Mapa Velho')).toBe(false);
-        expect(settingStore.has('temporal_Mapa Novo')).toBe(false);
-    });
-
-    it('o espelho da config tambem e re-chaveado', async () => {
-        memoryStore.temporalConfigs.set('Mapa Velho', CONFIG_TEMPORAL);
+    it('N1: o ANUNCIO sai, com os dois nomes, e DEPOIS de o disco ja dizer o nome novo', async () => {
+        // A ORDEM E' O CONTRATO. O assinante re-chaveia a memoria para o nome NOVO e a aba Mapas
+        // le o registro e o ajuste `lastActiveMap` do DISCO logo em seguida: anunciar antes do
+        // `saveMap` poria a memoria a frente do disco, que e' o mesmo defeito ao contrario. O
+        // caso mede isso do unico jeito que nao depende de ler o codigo: tirando um retrato do
+        // disco DENTRO do emissor.
         settingStore.set('temporal_Mapa Velho', CONFIG_TEMPORAL);
+        const noMomentoDoAnuncio = [];
+        const bus = createMockEventBus();
+        bus.emit = vi.fn((tipo, payload) => {
+            if (tipo !== EventTypes.MAP_RENAMED_REMOTELY) return;
+            noMomentoDoAnuncio.push({
+                payload,
+                nomeNoDisco: mapDataStore.get('map-s1')?.name ?? null,
+                temporalNovoNoDisco: settingStore.get('temporal_Mapa Novo') ?? null,
+            });
+        });
+        setRemoteHandlerEventBus(bus);
 
         await applyRemoteOperation({
             entityType: EntityType.MAP, operationType: OperationType.UPDATE,
             entityId: 'map-s1', mapId: null, data: { name: 'Mapa Novo' },
         });
 
-        expect(memoryStore.temporalConfigs.get('Mapa Novo')).toEqual(CONFIG_TEMPORAL);
-        expect(memoryStore.temporalConfigs.has('Mapa Velho')).toBe(false);
+        expect(noMomentoDoAnuncio).toEqual([{
+            payload: { mapId: 'map-s1', oldName: 'Mapa Velho', newName: 'Mapa Novo' },
+            nomeNoDisco: 'Mapa Novo',
+            temporalNovoNoDisco: CONFIG_TEMPORAL,
+        }]);
     });
 
-    it('com o mapa ABERTO no par, a memoria fica onde os leitores sincronos a procuram', async () => {
-        // FRONTEIRA DECLARADA, e nao esquecimento: nenhum caminho de ENTRADA re-chaveia
-        // `memoryStore.currentMap` (nem `groups`, `layers` ou `lockedMaps`), entao enquanto o par
-        // esta no mapa o alvo dos leitores sincronos continua sendo o nome VELHO. Mover a config
-        // para o nome NOVO nesse estado faria a barra dele responder os PADROES, que e' pior que
-        // o achado. O disco viaja de qualquer forma: e' ele que a proxima entrada le.
-        memoryStore.currentMap = 'Mapa Velho';
+    it('N1: a re-chaveagem de MEMORIA nao e mais daqui, nem mesmo a temporal', async () => {
+        // CONTROLE DA MUDANCA, e nao um verde vazio: este tratador ja' movia `temporalConfigs` e
+        // `temporalView` por conta propria, e SO' quando o par nao estava com o mapa aberto. Com
+        // o assinante chamando `renameMapInMemory` (que move as duas), manter a copia aqui as
+        // moveria duas vezes, com a condicao invertida entre as copias. O sinal de que a metade
+        // de memoria saiu e' esta: sem assinante no barramento, a memoria NAO se mexe.
         memoryStore.temporalConfigs.set('Mapa Velho', CONFIG_TEMPORAL);
+        memoryStore.temporalView.set('Mapa Velho', true);
         settingStore.set('temporal_Mapa Velho', CONFIG_TEMPORAL);
 
         await applyRemoteOperation({
@@ -1825,6 +1831,25 @@ describe('S1 (metade REMOTA) — o rename vindo do par carrega os laterais chave
         expect(settingStore.get('temporal_Mapa Novo')).toEqual(CONFIG_TEMPORAL);
         expect(memoryStore.temporalConfigs.get('Mapa Velho')).toEqual(CONFIG_TEMPORAL);
         expect(memoryStore.temporalConfigs.has('Mapa Novo')).toBe(false);
+        expect(memoryStore.temporalView.get('Mapa Velho')).toBe(true);
+        expect(memoryStore.temporalView.has('Mapa Novo')).toBe(false);
+    });
+
+    it('N1: o anuncio sai TAMBEM quando o par esta COM o mapa aberto', async () => {
+        // Era exatamente o caso que a versao anterior deixava de fora, com o motivo escrito: com
+        // `memoryStore.currentMap` no nome velho, mover so' a config temporal faria a barra do
+        // par responder os PADROES. A saida nao era mover menos, era mover TUDO, e quem move tudo
+        // e' o assinante. Aqui so' se afirma que o anuncio nao depende de onde o par esta.
+        memoryStore.currentMap = 'Mapa Velho';
+
+        await applyRemoteOperation({
+            entityType: EntityType.MAP, operationType: OperationType.UPDATE,
+            entityId: 'map-s1', mapId: null, data: { name: 'Mapa Novo' },
+        });
+
+        expect(eventBus.emit).toHaveBeenCalledWith(EventTypes.MAP_RENAMED_REMOTELY, {
+            mapId: 'map-s1', oldName: 'Mapa Velho', newName: 'Mapa Novo',
+        });
     });
 
     it('com um XARA vivo a chave velha e copiada, nunca removida', async () => {
@@ -1857,5 +1882,10 @@ describe('S1 (metade REMOTA) — o rename vindo do par carrega os laterais chave
         expect(transferCalls).toEqual([]);
         expect(settingStore.get('temporal_Mapa Velho')).toEqual(CONFIG_TEMPORAL);
         expect(memoryStore.temporalConfigs.get('Mapa Velho')).toEqual(CONFIG_TEMPORAL);
+        // E NAO ANUNCIA. O assinante recusaria por conta propria (nome igual dos dois lados),
+        // mas um anuncio por gesto do par e' ruido que qualquer assinante futuro paga.
+        expect(eventBus.emit).not.toHaveBeenCalledWith(
+            EventTypes.MAP_RENAMED_REMOTELY, expect.anything(),
+        );
     });
 });

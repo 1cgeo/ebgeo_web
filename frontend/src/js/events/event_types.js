@@ -188,6 +188,22 @@ export const EventTypes = Object.freeze({
     MAP_MODIFIED: 'map:modified',
     /** Payload: { mapId } */
     MAP_DELETED: 'map:deleted',
+    /**
+     * UM PAR RENOMEOU UM MAPA E O DISCO JA' FOI GRAVADO: a memoria deste cliente ainda responde
+     * pelo nome VELHO. Payload: { mapId, oldName, newName }.
+     *
+     * ELE E' DO CAMINHO REMOTO E SO' DELE, e isso e' desenho, nao omissao. O AUTOR de um rename
+     * re-chaveia a memoria DENTRO da propria transacao (`renameMap`, `store/map.operations.js`),
+     * antes de evento nenhum, entao nao ha o que anunciar para ele e um evento compartilhado com
+     * um carimbo `remote: true` daria ao autor um segundo caminho de re-chaveagem, que e'
+     * exatamente a segunda regra que este anuncio existe para evitar. Quem o consome e' o
+     * assinante de `map.operations.js`, que chama as MESMAS duas re-chaveagens do autor.
+     *
+     * O tratador de entrada nao pode importar o gerente de estado (guarda estrutural P8 em
+     * `tests/integration/remote-operation-handler.test.js`), e e' por isso que a ligacao entre os
+     * dois e' um evento.
+     */
+    MAP_RENAMED_REMOTELY: 'map:renamedRemotely',
 
     // ===== MAP LOCK =====
     /** Payload: { mapName, locked } */

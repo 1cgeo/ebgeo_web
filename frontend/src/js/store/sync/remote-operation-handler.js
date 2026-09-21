@@ -1185,7 +1185,10 @@ function findFeatureIndexById(arr, id) {
  * @param {Object} repo - Active repository
  * @param {string} mapId - Map UUID
  * @param {Object} data - The partial map payload of the live op
- * @returns {Promise<Object>} The merged record that was written
+ * @returns {Promise<{merged: Object, renomeadoDe: string|null}>} The merged record that was
+ *   written, plus the name the map answered to BEFORE this op when (and only when) it renamed it.
+ *   `renomeadoDe` is read from the stored record, which is the only place the old name survives:
+ *   the payload already carries the new one, so after the `saveMap` nobody knows where to start.
  */
 function mergeRemoteMapUpdate(repo, mapId, data) {
     // The same lock key as every other writer of this document: this is a read-modify-write and it
@@ -1216,13 +1219,16 @@ function mergeRemoteMapUpdate(repo, mapId, data) {
         await repo.saveMap?.(mapId, merged);
         // A RENOMEACAO VINDA DO PAR MUDA A CHAVE DOS DOCUMENTOS LATERAIS CHAVEADOS POR NOME, e
         // este caminho nao passa por `LocalRepository.renameMap`: ele grava o registro por fora,
-        // com `saveMap`. Sem a carga abaixo, o par que RECEBE um rename perde a config temporal
-        // daquele mapa (janela, unidade, modo relativo, Dia D) e a vista fixada dele, e o registro
-        // velho fica orfao no disco. E' a metade REMOTA do achado S1 de 2026-09-21; a metade local
-        // mora em `LocalRepository.renameMap`. O nome ANTIGO so' existe no registro lido acima: o
-        // payload ja traz o novo, entao depois do `saveMap` ninguem mais sabe de onde sair.
+        // com `saveMap`. Sem a carga abaixo, o par que RECEBE um rename perde no DISCO a config
+        // temporal daquele mapa (janela, unidade, modo relativo, Dia D), e o registro velho fica
+        // orfao. E' a metade REMOTA do achado S1 de 2026-09-21; a metade local mora em
+        // `LocalRepository.renameMap`. A memoria e' outra historia e nao e' daqui: ver o N1, no
+        // cabecalho de `carryNameKeyedStoresAcrossRemoteRename`. O nome ANTIGO so' existe no
+        // registro lido acima: o payload ja traz o novo, entao depois do `saveMap` ninguem mais
+        // sabe de onde sair, e e' por isso que ele volta no retorno desta funcao.
         await carryNameKeyedStoresAcrossRemoteRename(repo, mapId, existing?.name, merged.name);
-        return merged;
+        const renomeou = !!existing?.name && !!merged.name && existing.name !== merged.name;
+        return { merged, renomeadoDe: renomeou ? existing.name : null };
     });
 }
 
@@ -1235,21 +1241,15 @@ function mergeRemoteMapUpdate(repo, mapId, data) {
  * registro atende por aquele nome. Duas implementacoes de "o que pendura no NOME" divergem, e a
  * divergencia e' exatamente o defeito que o S1 descreve.
  *
- * O ESPELHO EM MEMORIA E' DAQUI, E SO' A METADE TEMPORAL. `temporalView` (o interruptor que ESTA
- * pessoa ligou) nao existe em disco em lugar nenhum, entao nada mais no produto pode traze-lo de
- * volta: e' o unico estado do rename remoto que se perde para sempre.
- *
- * E ELE SO' ANDA QUANDO O PAR NAO ESTA COM O MAPA ABERTO, que e' a parte que nao se adivinha.
- * Nenhum caminho de ENTRADA re-chaveia `memoryStore.currentMap` (nem `groups`, `layers` ou
- * `lockedMaps`): quem faz isso e' `renameMapInMemory`, chamado so' pelo AUTOR do rename. Enquanto
- * o par esta no mapa, `currentMap` continua sendo o nome VELHO, e os leitores sincronos resolvem
- * o alvo por ele (`resolveMapName`, `temporal.operations.js`). Mover a config para o nome NOVO
- * nesse estado faria `getMapTemporalConfigSync` responder os PADROES na barra de quem esta
- * olhando, que e' pior que o achado. Com o mapa fechado nao ha leitor sincrono apontado para o
- * nome velho, e mover preserva o interruptor da pessoa para a proxima visita. O re-chaveamento
- * completo da memoria do par e' achado novo, nao esta aqui.
- *
- * NENHUM EVENTO SAI DAQUI, de proposito: o interruptor nao mudou de valor, mudou de endereco.
+ * SO' O DISCO MORA AQUI DESDE 2026-09-21 (ponto N1), e a metade de memoria que morava junto SAIU.
+ * Ela re-chaveava `temporalConfigs` e `temporalView` e SO' quando o par nao estava com o mapa
+ * aberto, porque `memoryStore.currentMap` continuava no nome VELHO e mover a config para o nome
+ * NOVO teria feito `getMapTemporalConfigSync` responder os PADROES na barra de quem estava
+ * olhando. Isso era contornar o defeito, nao conserta-lo: quem re-chaveia a memoria INTEIRA e'
+ * `mapManager.renameMapInMemory`, e as duas metades temporais estao nele desde a mesma data. O
+ * tratador passou a ANUNCIAR o rename (`EventTypes.MAP_RENAMED_REMOTELY`) e o assinante de
+ * `store/map.operations.js` chama as MESMAS duas re-chaveagens do autor. Duplicar as duas
+ * metades temporais aqui seria move-las duas vezes, com a condicao invertida entre as copias.
  *
  * @param {Object} repo - Active repository.
  * @param {string} mapId - Map UUID being renamed.
@@ -1260,14 +1260,6 @@ function mergeRemoteMapUpdate(repo, mapId, data) {
 async function carryNameKeyedStoresAcrossRemoteRename(repo, mapId, oldName, newName) {
     if (!oldName || !newName || oldName === newName) return;
     await repo.transferNameKeyedSideStores?.(oldName, newName, [mapId]);
-    present(() => {
-        if (memoryStore.currentMap === oldName) return;
-        for (const cache of [memoryStore.temporalConfigs, memoryStore.temporalView]) {
-            if (!cache?.has(oldName)) continue;
-            cache.set(newName, cache.get(oldName));
-            cache.delete(oldName);
-        }
-    });
 }
 
 /**
@@ -1301,7 +1293,20 @@ async function applyRemoteMapOp(opType, mapId, data, serverVersion) {
             break;
         }
         case OperationType.UPDATE: {
-            const merged = data ? await mergeRemoteMapUpdate(repo, mapId, data) : data;
+            const aplicado = data ? await mergeRemoteMapUpdate(repo, mapId, data) : null;
+            const merged = aplicado ? aplicado.merged : data;
+            // O ANUNCIO SAI DEPOIS DO DISCO, E ESSA ORDEM E' O CONTRATO. O assinante re-chaveia a
+            // memoria pelo nome NOVO, e quem ler o disco logo depois (a aba Mapas le o registro e
+            // o ajuste `lastActiveMap`) tem de encontrar o nome novo la'. Emitir antes do
+            // `saveMap` deixaria a memoria a' frente do disco, que e' o mesmo defeito ao
+            // contrario. Nada e' anunciado quando o nome nao mudou.
+            if (aplicado?.renomeadoDe) {
+                emit(EventTypes.MAP_RENAMED_REMOTELY, {
+                    mapId,
+                    oldName: aplicado.renomeadoDe,
+                    newName: merged.name,
+                });
+            }
             emit(EventTypes.MAP_MODIFIED, { mapId, map: merged });
             break;
         }
