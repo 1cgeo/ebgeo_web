@@ -287,7 +287,14 @@ const ORCAMENTO = Object.freeze({
     // dele (JSZip, `atlas.entity.js` e `repository.utils.js`) já estavam no grafo ansioso desta
     // página pelo próprio serviço, então subiram 5,7 kB de fonte e nenhum pacote externo novo.
     import_export: 15,
-    temporal: 12,
+    // 16 em 2026-09-21, com as QUATRO folhas puras que a execução da auditoria temporal tirou de
+    // dentro de componentes de DOM para que a regra fosse testável em node: `temporal-attributes.model.js`
+    // (janela invertida, troca de âncora, GDH derivado), `temporal-bar.model.js` (arraste e teclas da
+    // régua), `temporal-playback.model.js` (avanço por fração da janela, última célula, cursor
+    // pendente) e `temporal-settings.model.js` (validação da engrenagem e decisão do reagendar).
+    // Nenhuma traz pacote externo: os imports delas são `temporal.utils.js`, `temporal-model.js` e
+    // `temporal.constants.js`, que já eram ansiosos pelo controlador.
+    temporal: 16,
     azimuth_distance_tool: 0,
     processing: 10,
     attribute_table: 10,
@@ -303,7 +310,9 @@ const ORCAMENTO = Object.freeze({
     // editor e a aba de briefings as leem, e os tres ja eram ansiosos.
     // 11 no mesmo dia: `briefing/slide-controls.js`, a lista FECHADA (zero imports) dos controles que
     // um slide mostra ao ser apresentado, lida pelo editor, pelo apresentador e pelo envio ao servidor.
-    briefing: 11,
+    // 12 em 2026-09-21: `briefing/slide-temporal.js`, folha de zero imports com a regra de captura do
+    // instante do slide nos três modos, lida por `screen-view.js` e pelo serviço de transição.
+    briefing: 12,
     measurement_tool: 3,
     analysis_tools: 0,
     '3d_models_viewer_tool': 5,
@@ -681,7 +690,14 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // encerra um arrasto não é clique, perdida quando o arrasto de alça virou de ponteiro. Os
         // dois módulos da faixa de visita, removidos no mesmo lote, NÃO descontam daqui: entravam
         // por `index.js`, e este grafo parte de `map_sig.js`.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(739);
+        //
+        // 2026-09-21, décimo terceiro lote: 746, medido pela reprovação deste caso (746 contra 739 com
+        // SETE arquivos novos), todos folhas puras nascidas da execução da auditoria temporal: as
+        // quatro de `temporal/` e a de `briefing/` que o orçamento por pasta acima nomeia, mais
+        // `tool_manager/helpers/point-conversion.model.js` (o bloco de propriedades que a conversão de
+        // ponto preserva, janela e trajetória inclusive) e `import_export/kmz/kml-time.js` (o
+        // TimeSpan do KML, que só entra seguindo `import()`).
+        expect(completo.arquivos.size).toBeLessThanOrEqual(746);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);

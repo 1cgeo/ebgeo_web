@@ -3129,3 +3129,73 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
 - **Custo declarado:** um banco de desenvolvimento aplicado pela sequência anterior tem schema
   idêntico e tracking divergente. O migrador o recusa na próxima vez que houver migração a aplicar,
   e a saída é recriá-lo. O servidor não migra no boot, então até lá ele continua servindo.
+
+### 2026-09-21: a presença não leva o instante de ninguém, e a auditoria temporal é executada
+
+- **Decisão (dono, P1):** o instante da linha do tempo de uma pessoa NÃO se propaga. A presença diz
+  se a pessoa está no mapa ou não; a linha do tempo é visualização de cada um, como já eram o ligar
+  e desligar, a reprodução e a velocidade desde 2026-09-20. O quadro temporal de presença saiu dos
+  dois pacotes (envio, recepção, retenção no socket e o rótulo na lista de online), com dois guardas
+  estruturais e um teste contra o backend real. Alternativa recusada: manter o quadro e só limpar o
+  rótulo quando o colega desliga a linha do tempo, que era o que o achado S9 pedia.
+- **Decisão (execução):** a auditoria do sistema temporal (seis frentes de leitura, 65 achados de
+  pé depois de uma segunda passada que refutou um) foi executada no mesmo dia, por catorze frentes
+  em paralelo com posse de arquivos disjunta: 64 corrigidos, e o do antimeridiano fora por decisão
+  de custo (não é alcançável em operação no Brasil). O documento de diagnóstico foi REMOVIDO ao
+  fim, por ordem do dono: a tabela de onde cada conserto ficou preso está no fim desta entrada, e
+  o que continua aberto (N1 a N10) mora em [`docs/wiki/modulo-temporal.md`](../wiki/modulo-temporal.md),
+  seção de limites conhecidos. O texto integral do diagnóstico está no histórico do git, nos
+  commits `7cfc2dd3` e `4486fde7`.
+- **Cinco decisões de desenho tomadas na execução, cada uma com a alternativa recusada:**
+  1. **A lente não muda o dado.** A derivação de GDH automático roda em qualquer modo; o modo
+     relativo trava só a CHAVE do vínculo (ligar e desligar). Recusada: pausar a derivação no modo
+     relativo, que chegou a ser escrita e anulava a rederivação do reagendar, que só existe nesse modo.
+  2. **Janela invertida nunca é visível, e nenhuma porta a grava.** O painel e a engrenagem recusam
+     nomeando o campo; a importação e o servidor descartam o FIM, porque fim nulo é o limite
+     automático e a leitura que nunca esconde feição. Recusada: trocar início e fim de lugar, que
+     inventaria um intervalo que o arquivo não afirmou.
+  3. **A velocidade é fração da janela.** 1x percorre a janela inteira em 60 s, em qualquer unidade.
+     Recusada: manter unidades por segundo, que fazia o mesmo 1x durar dois quadros num mapa e sete
+     minutos em outro.
+  4. **Arrastar a feição leva a rota inteira**, como o celular e o colar já faziam. Arrastar o
+     ponto-chave de partida dentro do editor continua movendo só ele.
+  5. **O desfazer de propriedade é opt-in por gesto** (`recordUndo`), e a janela de validade fica
+     de fora enquanto o GDH derivado for uma segunda escrita sem espera.
+- **Contrato que mudou nos dois lados:** `temporal_config` e `temporal_cursor` têm domínio no
+  servidor (`backend/src/modules/sync/temporal-config.js`, espelhado por
+  `frontend/tests/unit/configuracao-temporal-espelha-cliente.test.js`). Valor fora do domínio
+  degrada para o padrão e a op NUNCA é recusada, senão a fila de saída daquele cliente congela.
+  Nenhuma migração: as colunas já existiam.
+- **Onde cada conserto ficou preso** (os códigos são os das frentes da auditoria: M modelo, C
+  controlador, S store e sync, E edição, V visualizadores e briefing, I importação, D documentação):
+
+| achado | o que mudou | onde ficou preso |
+|---|---|---|
+| S1 (= I4) | renomear leva `temporal_<nome>` e `mapLocked_<nome>` nos dois ramos do repositório e re-chaveia config e vista em memória; o rename vindo do PAR transfere o disco por `transferNameKeyedSideStores` | `frontend/tests/integration/renomear-mapa-leva-config-temporal.repro.test.js`, `frontend/tests/integration/remote-operation-handler.test.js` |
+| S4 | duplicar copia janela, unidade, modo, origem e o `ativo` SALVO, antes de entrar na cópia | `frontend/tests/integration/duplicar-mapa-leva-config-temporal.repro.test.js` |
+| E1 | a conversão de ponto monta as propriedades por `buildConvertedPointProperties`: janela, trajetória, atributos, imagens e a posição de origem viajam | `frontend/tests/unit/conversao-de-ponto-preserva-tempo.repro.test.js` |
+| E2 | a escrita de propriedade aceita `recordUndo`, aceso uma vez por gesto no editor e no painel de trajetória (Limpar, remover ponto, trocar instante) | `frontend/tests/unit/desfazer-escrita-de-propriedade.repro.test.js`, `frontend/tests/unit/editor-de-trajetoria-gestos.repro.test.js`, `frontend/tests/unit/painel-temporal-recusa-janela-e-ancora.test.js` |
+| M4 (= I1), M5, I2, M11 | o leitor de datas casa formas declaradas (dia antes do mês, ISO com e sem fuso, GDH militar, epoch ms), recusa data impossível e aplica a faixa 1900 a 2200; `Date.parse` saiu | `frontend/tests/unit/leitor-de-data-da-importacao.repro.test.js` |
+| I3, M6 (importação), I10 | coordenada ilegível descarta o ponto-chave, janela invertida perde o fim, e a precedência de chaves é declarada | `frontend/tests/unit/temporal-import.test.js` |
+| I5 | célula de data ilegível e janela invertida são CONTADAS e avisadas, no CSV e no importador geral, pela mesma `describeTemporalIssues` | `frontend/tests/unit/csv-celula-temporal-ilegivel.repro.test.js`, `frontend/tests/unit/importacao-degradacao-temporal-avisa.repro.test.js` |
+| I8 | os nomes temporais reservados saem de `TEMPORAL_SOURCE_KEYS`, sem cópia à mão, e a comparação ignora caixa | `frontend/tests/unit/nomes-temporais-reservados.repro.test.js`, `frontend/tests/unit/user-data-atributos-de-importacao.test.js` |
+| C3 | um limite configurado completa o outro em vez de derrubar a régua para o relógio | `frontend/tests/unit/temporal-utils.test.js` |
+| I6 | o KMZ exporta a janela como TimeSpan (`toKmlDateTime`) e declara em nota que a trajetória não é representada | `frontend/tests/unit/kmz-exporta-janela-temporal.repro.test.js` |
+| C2, S2 | a config temporal pergunta pela trava AO DISCO; o reagendar virou `rescheduleMapTemporal`, um lote lógico que só grava o Dia D se as feições andaram | `frontend/tests/integration/temporal-mapa-travado.repro.test.js` |
+| C4, C12 | fim anterior ao início é recusado nos dois modos sem fechar a tela; fechar é idempotente e não age com operação em curso | `frontend/tests/unit/temporal-settings-modelo.test.js`, `frontend/tests/unit/temporal-settings-modal-fechamento.test.js` |
+| S6, S7 | o servidor saneia a config temporal por `normalizeTemporalConfig`, na coluna e no payload ecoado, sem recusar a op; o e2e passou a usar o contrato real | `backend/tests/integration/configuracao-temporal-saneada.repro.test.js`, `frontend/tests/unit/configuracao-temporal-espelha-cliente.test.js`, `frontend/tests/e2e/temporal-mapconfig.e2e.test.js` |
+| S3 (= I7) | o cursor do slide viaja no clone, no import e no envio, e as três portas mais o sync incremental leem a mesma `normalizeEpochMs` | `backend/tests/integration/cursor-do-slide-sobrevive-a-copia.repro.test.js`, `backend/tests/integration/cursor-do-slide-saneado-no-sync.repro.test.js`, `frontend/tests/unit/cursor-do-slide-no-envio.test.js` |
+| S8, S9 (= V2), decisão P1 | o quadro temporal de presença saiu dos dois pacotes: envio, recepção, retenção no socket e rótulo | `frontend/tests/unit/presenca-temporal-nao-volta.test.js`, `backend/tests/unit/presenca-temporal-nao-volta.test.js`, `backend/tests/ws/presenca-temporal-removida.test.js` |
+| V4, E4, E8, E11, E12, M6 (painel) | painéis de marcador seguem a regra de somente leitura; troca de âncora e janela invertida são recusadas nomeando o campo; GDH vazio quando o instante some; o calendário não restringe; a caixa de GDH recusa o clique nomeando o estado | `frontend/tests/unit/painel-temporal-recusa-janela-e-ancora.test.js`, `frontend/tests/unit/gdh-automatico-com-instante-ausente.repro.test.js`, `frontend/tests/unit/rederiva-dtg-reagendar.repro.test.js` |
+| M1 (= V6), M6, M9, V7 | uma regra de visibilidade: `isTemporallyVisibleInWindow`, consumida por 3D, 360 e legenda do PDF por `isVisibleUnderTemporal`, comparada com a expressão do filtro no mesmo corpus; janela invertida nunca é visível; o revelar alcança as três superfícies | `frontend/tests/unit/visibilidade-temporal-uma-regra-so.test.js` |
+| M3, M2 | o revelar usa a janela do passo e virou um fator DENTRO do aplicador de opacidade (`setRevealDimWindow`), dono único da tinta | `frontend/tests/unit/revelar-ocultas-usa-a-janela.test.js`, `frontend/tests/unit/opacidade-de-camada-nao-escreve-a-toa.test.js` |
+| V8 | o PDF declara o instante retratado, nos dois motores e na capa do mosaico | `frontend/tests/unit/pdf-declara-o-instante-temporal.test.js` |
+| C1, E9, C11, M7, C10 | limites e cursor são zerados com o temporal desligado e na troca de mapa, com o cursor lembrado por mapa; o sync aplica por dentro da mesma cadeia; o ramo desligado só trabalha quando há o que desfazer; entrar em 3D ou 360 pausa | `frontend/tests/unit/temporal-controller-estado-e-aplicacao.repro.test.js`, `frontend/tests/unit/derivacao-nao-deriva-com-temporal-desligado.repro.test.js`, `frontend/tests/unit/temporal-render-retained-source.test.js` |
+| C5, M10 | a velocidade é fração da janela (1x percorre a janela em 60 s) por `playbackAdvanceMs`, e o instante final mantém a última célula inteira | `frontend/tests/unit/temporal-playback-model.test.js` |
+| V1 | a barra temporal é o nono controle do slide, oculta por padrão ao apresentar, e a engrenagem nunca aparece no palco | `frontend/tests/unit/controles-do-slide.test.js` |
+| V3, V9, V5, V10, V11 | o instante do slide é capturado nos três modos por `captureSlideTemporal`, de uma fonte só; a saída devolve o instante da pessoa e para a reprodução; o cursor viaja com o nome do mapa; o interruptor do editor age no mapa do slide | `frontend/tests/unit/instante-do-slide-nos-tres-modos.repro.test.js`, `frontend/tests/unit/briefing-devolve-o-instante.repro.test.js`, `frontend/tests/unit/interruptor-temporal-do-slide-no-mapa-do-slide.repro.test.js` |
+| S5, S12 | o retrato repõe o espelho da config temporal e o anuncia; a op temporal que chega antes do mapa espera por ele em vez de gravar sob o id | `frontend/tests/integration/remote-operation-handler.test.js` |
+| E3, E5, E7 | o clique numa alça do editor não desseleciona (`isHandleAt`); o arrasto de alça é de ponteiro, com cancelamento que descarta; arrastar a feição leva a rota inteira | `frontend/tests/unit/editor-de-trajetoria-gestos.repro.test.js`, `frontend/tests/unit/rota-inteira-acompanha-o-arrasto.repro.test.js` |
+| C7, C8, C9 | o arraste da régua é máquina de estados pura (`reduceDragEvent`) com as três saídas; a régua tem ARIA completo, foco no clique e Home, End, Page Up e Page Down (`cursorForKey`); a variável de altura sem leitor saiu | `frontend/tests/unit/barra-temporal-arraste-e-teclas.repro.test.js`, `frontend/tests/unit/barra-temporal-fiacao.test.js` |
+| C6, E10, S11 | os três arquivos foram reescritos para medir o efeito; os dois de interface rodaram contra o app real | `frontend/tests/e2e-ui/temporal-local.spec.js`, `frontend/tests/e2e-ui/browser-temporal-advanced.spec.js`, `frontend/tests/unit/temporal-migration.test.js` |
+| D1, D2, D3, D4 | a página do módulo e o tutorial descrevem o estado vigente | `docs/wiki/modulo-temporal.md`, `frontend/public/docs/README.md` |

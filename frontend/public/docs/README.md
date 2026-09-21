@@ -145,6 +145,12 @@ Também é possível importar simplesmente arrastando o arquivo e soltando sobre
 
 Existe um limitador da quantidade de feições que podem ser importadas de uma única vez. Caso a mensagem indique que foi excedido o limite de feições, sugere-se dividir o arquivo que se deseja carregar em mais partes.
 
+**Dados com tempo.** Os arquivos importados podem trazer a dimensão temporal junto, e ela entra direto na linha do tempo do mapa (Módulo 11). O que o EBGeo lê, por tipo de arquivo:
+
+- **CSV**: no painel de configuração do CSV, abaixo das colunas de coordenadas, existem os seletores **Coluna de início** e **Coluna de fim**. A coluna escolhida vira a validade temporal de cada feição. São aceitas a data brasileira dd/mm/aaaa, com hora opcional (dd/mm/aaaa hh:mm ou hh:mm:ss), a data ISO 8601 aaaa-mm-dd e a data e hora ISO completa (aaaa-mm-ddThh:mm), com ou sem fuso indicado, o GDH militar de seis dígitos mais mês e ano (por exemplo 010830MAR24, sempre em Zulu) e o número puro de milissegundos. Uma célula que o leitor não conseguir interpretar não vira janela de validade, mas o texto original é preservado como atributo comum da feição e um aviso diz quantas linhas ficaram nessa situação. Uma janela invertida (fim antes do início) perde o fim e entra no mesmo aviso, em vez de ser corrigida por conta própria.
+- **GeoJSON, KML e KMZ**: aqui não há seletor de coluna. As datas são reconhecidas pelo **nome do atributo**, sem acento e sem diferenciar maiúsculas de minúsculas: inicio, data_inicio, temporalInicio, begin, start e start_time marcam o começo; fim, data_fim, temporalFim, end e end_time marcam o término. Um atributo de instante isolado (when, timestamp, datetime, date, time) preenche só o começo, e a feição passa a valer daquele momento em diante. Os formatos de data aceitos são os mesmos do CSV. Do KML também são lidos os marcadores de tempo do próprio formato: o intervalo (TimeSpan) vira começo e término, e o instante (TimeStamp) cai na regra acima.
+- **GPX e KML cronometrados**: aqui a mudança é maior e é a que mais surpreende. Um trajeto que traga a hora de cada ponto (uma trilha gravada por GPS, um trajeto cronometrado do Google Earth) **deixa de ser uma linha e vira um ponto móvel**: uma única feição de ponto, posicionada no primeiro registro, carregando a trajetória inteira e a validade do primeiro ao último instante. Com o controle temporal ligado, ela percorre o caminho durante a reprodução, em vez de ficar desenhada como um traço parado. Pontos registrados com intervalo menor que um minuto são reduzidos a um por minuto, que é a menor divisão da linha do tempo. Trajetos **sem** hora continuam sendo importados como linha, como sempre foram.
+
 <video src="./images/Importar.mp4" controls width="60%"></video>
 
 #### Exportar
@@ -480,9 +486,9 @@ O Briefing permite montar apresentações navegáveis (story maps) combinando ma
 Na aba **Briefings** do painel lateral esquerdo, crie um novo briefing. No editor:
 
 - Adicione slides; ao criar um slide, a **posição atual** é capturada automaticamente (enquadramento do mapa 2D, câmera 3D ou orientação 360°, conforme o que estiver ativo).
-- Abaixo de **Salvar Posição**, escolha o **mapa base do slide** e se o **controle temporal** fica ligado nele. Salvar Posição preenche os dois com o que está na sua tela; a opção "O do mapa" faz o slide usar o mapa base salvo com o mapa. Ao sair da apresentação, o mapa base e o controle temporal voltam ao que você tinha antes.
+- Abaixo de **Salvar Posição**, escolha o **mapa base do slide** e se o **controle temporal** fica ligado nele. Salvar Posição preenche os dois com o que está na sua tela e guarda também o **instante da linha do tempo** em que você estava, nos três tipos de slide (2D, 3D e 360°). Ao apresentar, o slide repõe aquele instante, de modo que cada slide mostra a situação na hora que lhe corresponde, sem que o apresentador precise mover a régua. Um slide salvo com o controle temporal desligado não guarda instante nenhum e não mexe na linha do tempo. A opção "O do mapa" faz o slide usar o mapa base salvo com o mapa. Ao sair da apresentação, o mapa base e o controle temporal voltam ao que você tinha antes.
 - Escreva o texto de cada slide em um editor de texto formatado.
-- Abaixo do conteúdo, em **Controles visíveis na apresentação**, marque o que o público pode ver e usar naquele slide: seletor de mapa base, modelos 3D, imagens 360, terreno, controle de coordenadas, utilitários, busca e controles de navegação (zoom, tela cheia e bússola, numa caixa só). Todos começam desmarcados, ou seja, a apresentação mostra só o mapa e o texto. O botão de entrar, a área do usuário, o nome do atlas, o indicador de sincronia, a lista de usuários online e o botão de compartilhar a vista nunca aparecem durante a apresentação.
+- Abaixo do conteúdo, em **Controles visíveis na apresentação**, marque o que o público pode ver e usar naquele slide: seletor de mapa base, modelos 3D, imagens 360, terreno, controle de coordenadas, utilitários, busca, controles de navegação (zoom, tela cheia e bússola, numa caixa só) e a barra temporal. Todos começam desmarcados, ou seja, a apresentação mostra só o mapa e o texto. **A barra da linha do tempo, em particular, não aparece na apresentação a menos que você a marque aqui**, mesmo nos slides que repõem um instante: o instante é reposto de qualquer forma, e a barra só entra quando você quer que o público possa mover a régua. Mesmo marcada, a engrenagem de configurações temporais continua escondida enquanto se apresenta. O botão de entrar, a área do usuário, o nome do atlas, o indicador de sincronia, a lista de usuários online e o botão de compartilhar a vista nunca aparecem durante a apresentação.
 - Reordene os slides arrastando, renomeie ou exclua.
 - Importe a nota do mapa para o conteúdo do slide atual, ou importe slides de outro briefing.
 
@@ -528,21 +534,35 @@ No card do mapa atual (aba **Mapas**), clique no botão de **relógio** para ati
 
 - **Reproduzir/Pausar**: anima o cursor ao longo do intervalo, mostrando feições e trajetórias evoluindo no tempo.
 - **Velocidade**: seletor da velocidade de reprodução.
-- **Cursor (régua)**: arraste para navegar até um instante específico; as setas ← → do teclado avançam/retrocedem um passo (a unidade configurada). A régua exibe o instante atual.
+- **Cursor (régua)**: arraste para navegar até um instante específico. Clicar na régua também lhe dá o foco do teclado, e então: as setas ← → (ou ↑ ↓) avançam e retrocedem um passo, que é a unidade configurada; **Page Up** e **Page Down** saltam dez passos; **Home** e **End** vão direto ao início e ao fim do intervalo. A régua exibe o instante atual.
 - **Olho (modo revelar)**: mostra temporariamente as feições que estariam ocultas fora do intervalo atual — útil durante a edição, sem precisar mover o cursor.
 - **Engrenagem (configurações)**: abre as configurações temporais do mapa.
 
-Cada usuário navega sua própria linha do tempo: reproduzir, pausar e mover o cursor são ações locais e não afetam os demais.
+Cada usuário navega sua própria linha do tempo: reproduzir, pausar, mover o cursor e mostrar feições ocultas são ações locais, não afetam os demais e não aparecem para ninguém. A lista de usuários online diz quem está no mapa, nunca em que instante cada um está.
+
+Um slide de briefing é a exceção deliberada a isso: ele guarda o instante em que foi salvo e o repõe ao ser apresentado, para todos que assistem. Veja o Módulo 9.
 
 #### Configurações temporais
 
-Na engrenagem da barra, defina:
+A engrenagem da barra abre as configurações do mapa. **A tela não é a mesma nos dois modos**: dois campos aparecem sempre, dois trocam de rótulo e de unidade, e dois só existem no modo Relativo.
 
-- **Unidade de divisão**: minuto, hora, dia ou semana (granularidade da régua e do passo do cursor).
+Sempre presentes:
+
 - **Modo**: **Absoluto** (datas e horas reais) ou **Relativo** (offsets militares D+N a partir de uma origem).
-- **Início/Fim do mapa**: os limites do intervalo. Em branco, são deduzidos automaticamente das feições.
-- **Data de D (origem)**: a referência para o eixo D+N no modo relativo. Ela apenas **rotula** a régua — não move as feições.
-- **Reagendar feições**: ação explícita que **desloca todas as feições e trajetórias no tempo** para que o Dia D caia em outra data real, mantendo os offsets D+N. Use ao reprogramar a operação (não pode ser desfeito).
+- **Unidade de divisão**: minuto, hora, dia ou semana (granularidade da régua e do passo do cursor).
+
+No modo **Absoluto**, os limites do intervalo aparecem como:
+
+- **Início do mapa** e **Fim do mapa**, preenchidos com data e hora reais. Em branco, são deduzidos automaticamente das feições.
+
+No modo **Relativo**, os mesmos dois limites aparecem como **Início** e **Fim** em offsets da unidade (por exemplo, Fim igual a 300 para D+300), e surgem mais dois campos que não existem no modo absoluto:
+
+- **Data de D (origem)**: a referência para o eixo D+N. Ela apenas **rotula** a régua e não move as feições.
+- **Reagendar feições**: ação explícita que **desloca todas as feições e trajetórias no tempo** para que o Dia D caia em outra data real, mantendo os offsets D+N. Use ao reprogramar a operação. Ela pede confirmação e não pode ser desfeita.
+
+Trocar de modo não mexe nos limites: o intervalo é o mesmo nos dois, só muda como ele é escrito na tela.
+
+Duas recusas valem nos dois modos. O fim precisa ser posterior ao início: uma janela invertida é recusada com um aviso e o cursor volta ao campo que a causou, em vez de a janela ser corrigida por conta própria. E, com o mapa travado, salvar é recusado: a tela continua aberta com o que você digitou e o aviso nomeia a trava.
 
 #### Validade temporal das feições
 

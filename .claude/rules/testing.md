@@ -298,6 +298,15 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   no stdout, que é o caminho independente da imagem; e ao receber de um subagente um relatório que
   diz "li a imagem", abra a imagem, porque a frase é prosa e o arquivo é o pixel.
 
+  **E PARA TOAST O ESTADO É A OPACIDADE COMPUTADA, não a visibilidade do Playwright** (medido em
+  2026-09-21). O toast nasce com `opacity: 0` e anima até 1, e `toBeVisible()` não olha opacidade:
+  logo depois de ele passar, o toast já está por cima da tela e a frase ainda é invisível, de modo
+  que a captura sai sem o texto enquanto o spec "prova" que ele estava lá. Espere a opacidade
+  computada passar de 0,9 (`expect.poll` sobre `getComputedStyle`) antes do screenshot. Da mesma
+  família: ler `getPaintProperty` logo depois de um `aria-pressed` virar devolve a tinta do estado
+  ANTERIOR, porque o rótulo é escrito pela view e a tinta passa pelo controlador; espere a própria
+  expressão.
+
   **VERDE COM "flaky" NÃO É VERDE, e é o default aqui.**
   `frontend/playwright.config.js` tem `retries: 1`, então a única camada que
   exercita a UI re-executa o caso que falhou e, se ele passar na segunda tentativa,
