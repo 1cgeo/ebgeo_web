@@ -526,6 +526,24 @@ export async function setCurrentMap(mapName) {
 
     const locked = memoryStore.lockedMaps.has(mapName);
     deps.eventBus.emit(EventTypes.MAP_LOCK_CHANGED, { mapName, locked });
+
+    // QUEM ENTRA NUM MAPA ANUNCIA O INTERRUPTOR TEMPORAL DELE, como anuncia a trava logo acima.
+    //
+    // Desde 2026-09-20 o interruptor é VISTA da pessoa, e `mapManager.setCurrentMap` o FIXA na
+    // entrada (a partir do valor salvo) sem emitir nada, porque aquele módulo não pode importar
+    // `temporal.operations.js`. O anúncio ficou sem dono, e o defeito medido em 2026-09-21 foi o
+    // que sobra disso: a aba de mapas LÊ a vista e mostrava o relógio LIGADO, enquanto a barra da
+    // linha do tempo só se atualiza por evento e ficava com a leitura que tinha feito ANTES de o
+    // boot trocar de escopo. `applySavedMapTemporalView` não salvava o caso: ela só emite quando o
+    // valor MUDA, e a fixação acabara de torná-lo igual. Abrindo o atlas local pela tela de atlas,
+    // 1 abertura em 3 ficava com a vista ligada e a barra escondida.
+    //
+    // `automatico`: ninguém clicou, então a telemetria de uso não conta como ativação.
+    deps.eventBus.emit(EventTypes.MAP_TEMPORAL_CHANGED, {
+        mapName,
+        enabled: memoryStore.temporalView?.get(mapName) === true,
+        automatico: true,
+    });
 }
 
 /**

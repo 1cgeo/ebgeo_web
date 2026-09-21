@@ -27,6 +27,12 @@
  * touched the switch. Pinning freezes what the person saw when they came in; a saved value that
  * arrives later is picked up on the NEXT entry, like a saved camera.
  *
+ * THE PIN IS SILENT, SO THE ENTRY ANNOUNCES IT: `setCurrentMap` of `map.operations.js` emits
+ * `MAP_TEMPORAL_CHANGED` (flagged `automatico`) right after the pin, next to the lock event it
+ * already emits. `setMapTemporalView` below emits only when the value CHANGES, and the pin has just
+ * made it equal, so without that announcement the timeline bar (event-driven) kept whatever it had
+ * read before, while the maps tab (which READS the view) showed the clock on (2026-09-21).
+ *
  * THE TRAP THIS SPLIT CLOSES BY CONSTRUCTION: the server replaces `temporal_config` with the
  * keys the op carries, so the payload must KEEP carrying `ativo`, and it must be the SAVED one.
  * `setMapTemporalConfig` therefore drops any `ativo` from the patch it receives: no caller of

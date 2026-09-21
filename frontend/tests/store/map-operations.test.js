@@ -27,7 +27,8 @@ const { mockMapManager, mockLockedMaps, mockMemoryStore, mockSettings, mockMaps,
         mockMemoryStore: {
             get lockedMaps() { return mockLockedMaps.value; },
             set lockedMaps(v) { mockLockedMaps.value = v; },
-            currentMap: 'TestMap'
+            currentMap: 'TestMap',
+            temporalView: new Map()
         },
         mockSettings: { value: {} },
         mockMaps: { value: {} },
@@ -173,7 +174,8 @@ vi.mock('../../src/js/events', () => ({
     EventTypes: {
         MAP_LOCK_CHANGED: 'map:lockChanged',
         LAYERS_CHANGED: 'layers:changed',
-        MAP_CREATED: 'map:created'
+        MAP_CREATED: 'map:created',
+        MAP_TEMPORAL_CHANGED: 'temporal:mapChanged'
     }
 }));
 
@@ -701,6 +703,40 @@ describe('setCurrentMap', () => {
         expect(mockEventBus.emit).toHaveBeenCalledWith(
             'map:lockChanged',
             { mapName: 'LockedMap', locked: true }
+        );
+    });
+
+    // O INTERRUPTOR TEMPORAL É ANUNCIADO NA ENTRADA, como a trava (dono, 2026-09-21: a aba de mapas
+    // mostrava o relógio LIGADO e a barra da linha do tempo não aparecia). A vista é FIXADA por
+    // `mapManager.setCurrentMap` sem evento nenhum, e a barra só se atualiza por evento: se ela já
+    // tinha lido o estado antes de o boot trocar de escopo, ficava com a leitura velha. Este caso É
+    // a ordem perdedora, tornada determinística: a fixação acontece DENTRO do dublê, como no
+    // módulo real, e o anúncio tem de sair DEPOIS dela, com o valor fixado.
+    it('anuncia MAP_TEMPORAL_CHANGED com a vista FIXADA na entrada, marcada como automática', async () => {
+        const ordem = [];
+        mockMapManager.setCurrentMap.mockImplementationOnce(async (nome) => {
+            ordem.push('fixa');
+            mockMemoryStore.temporalView.set(nome, true);
+        });
+        mockEventBus.emit.mockImplementation((evento) => { if (evento === 'temporal:mapChanged') ordem.push('anuncia'); });
+
+        await setCurrentMap('MapaTemporal');
+
+        expect(ordem).toEqual(['fixa', 'anuncia']);
+        expect(mockEventBus.emit).toHaveBeenCalledWith(
+            'temporal:mapChanged',
+            { mapName: 'MapaTemporal', enabled: true, automatico: true }
+        );
+        mockEventBus.emit.mockReset();
+        mockMemoryStore.temporalView.clear();
+    });
+
+    it('mapa sem vista ligada anuncia DESLIGADO: a barra de um mapa anterior não sobra na tela', async () => {
+        await setCurrentMap('MapaSemTemporal');
+
+        expect(mockEventBus.emit).toHaveBeenCalledWith(
+            'temporal:mapChanged',
+            { mapName: 'MapaSemTemporal', enabled: false, automatico: true }
         );
     });
 });
