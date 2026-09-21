@@ -1931,7 +1931,10 @@ async function handleSaveOrientation() {
     };
 
     try {
-        await saveOrientation(photoName, orientation);
+        // THE STORE'S ANSWER DECIDES: a refusal does not throw, and it already speaks through the
+        // global refusal listener, so announcing success here put two contradictory toasts on screen.
+        const saved = await saveOrientation(photoName, orientation);
+        if (saved !== true) return;
         updateOrientationButtonState(true);
         showSuccess('Orientação salva');
     } catch (error) {

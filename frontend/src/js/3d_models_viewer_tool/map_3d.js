@@ -856,7 +856,10 @@ export async function saveCurrentCameraPosition() {
         roll: camera.roll
     };
 
-    await saveCameraPosition(_currentTilesetId, position, orientation);
+    // THE STORE'S ANSWER DECIDES, not the fact that the call returned: a refusal (role, locked map,
+    // a map the atlas no longer has) does not throw, and the caller announces success on `true`.
+    const saved = await saveCameraPosition(_currentTilesetId, position, orientation);
+    if (saved !== true) return false;
     updateCameraButtonState(true);
     return true;
 }
