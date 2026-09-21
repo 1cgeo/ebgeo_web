@@ -29,7 +29,7 @@ O timer da janela de graça `away` é `unref()`ado, então não segura o shutdow
 
 O único lock com enforcement server-side é o do **mapa**:
 
-- Antes de aplicar uma op de alvo filho (o conjunto `LOCKABLE_CHILD_TARGETS`), o servidor consulta `maps.locked` e **recusa aquela op**, sem derrubar o lote (`lockedMapDenialReason`, `backend/src/modules/sync/sync.service.js`). Op de nível mapa não passa por esse gate, que é justamente o que permite ao dono destravar.
+- Antes de aplicar uma op de alvo filho (o conjunto `LOCKABLE_CHILD_TARGETS`), o servidor consulta `maps.locked` e **recusa aquela op**, sem derrubar o lote (`lockedMapDenialReason`, `backend/src/modules/sync/sync.service.js`). Op de nível mapa não passa por esse gate, que é justamente o que permite ao dono destravar. A consequência, declarada em 2026-09-21: os AJUSTES do próprio mapa (config temporal, mapa base, posição, grade, notas e o nome) também não passam, e num mapa travado eles são convenção de CLIENTE, como as travas de camada, grupo e feição abaixo. O cliente pergunta pela trava ao disco em todos eles, e `frontend/tests/unit/ajuste-de-mapa-pergunta-pela-trava.test.js` é o censo que cobra isso.
 - Deletar mapa exige `manage` ou acima; virar o `locked` é exclusivo do `owner` (`operationDenialReason`). Ambos são recusa por-op, não 403 do lote.
 - As duas, e as outras quatro da família, passaram a deixar UMA linha agregada por lote no log do servidor em 2026-09-01 (`refusedOpsLogPayload`). Antes disso a recusa por-op era invisível dos dois lados, que é o que tornava impossível confirmar ou negar um relato de fila congelada.
 

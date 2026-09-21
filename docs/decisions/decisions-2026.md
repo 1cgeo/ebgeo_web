@@ -3212,3 +3212,62 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
   - *Unidade por registro.* Deixaria entrar a contagem de cores de um lado com as feições do outro no mesmo mapa.
   - *Fundir feição a feição dentro do mapa.* Exige guardar o CONTEÚDO do acervo no instante da cópia, e não só a impressão, e só valeria para quem migrar depois. Fica condicionada à medida: o evento de migração ganhou os resultados de junção e de conflito, e a fusão por feição se constrói se o conflito aparecer de fato.
 - **Onde ficou preso:** `frontend/tests/unit/late-legacy-plan.test.js` (a regra em tabela, com o pior caso de cada cláusula) e `frontend/tests/integration/alteracoes-tardias-legado.test.js` (o relato em forma sintética, o pior caso, as duas bases, o mapa pelo id, a montagem, a interrupção e a origem apagada). Controle negativo: cada uma das nove guardas foi desfeita, uma de cada vez, e o teste dela reprovou; duas não reprovavam na primeira escrita dos testes, e os casos foram refeitos para isolar a regra. O relato também foi reproduzido no navegador com a cópia de recuperação da pessoa, que não foi versionada porque o repositório é público, e a mesma prova reprovou o comportamento antigo.
+
+### 2026-09-21: quatro pontos abertos da auditoria temporal são fechados, e a trava de ajuste de mapa vira convenção de cliente declarada
+
+- **Decisão (dono, N3):** o servidor NÃO passa a recusar ajuste do próprio mapa em mapa travado. Ele
+  tranca os alvos FILHOS (`LOCKABLE_CHILD_TARGETS`), e os ajustes cujo alvo é o mapa (config
+  temporal, mapa base, posição, grade, notas e o nome) são convenção de CLIENTE, como já eram as
+  travas de camada, de grupo e de feição. Alternativa recusada por ora: uma segunda regra no
+  servidor para alvo `map` com sub-tipo. Os riscos que a adiaram: op recusada não sai da fila de
+  saída e segura o lote, então cliente e servidor teriam de mudar no mesmo commit; salvar posição é
+  um lote lógico, e recusar um membro recusa a câmera junto; o sub-tipo da própria trava teria de
+  ficar de fora, senão ninguém destrava; clone e import escrevem esses ajustes pelo servidor. Reabrir
+  se aparecer caso real de abuso.
+- **O inventário que sustenta a convenção** (onze sítios em três arquivos, fechado por dois caminhos:
+  o vocabulário de `frontend/src/js/store/sync/operation-types.js` e as colunas que o servidor aceita):
+
+| operação | função | papel | trava | estado em 2026-09-21 |
+|---|---|---|---|---|
+| criar mapa, e as notas do mapa novo | `addMap` | `CREATE_MAP` | não pergunta | certo por natureza: o mapa não existe |
+| excluir mapa | `removeMap` | `DELETE_MAP` | regra própria do menu | classificado, sem mudança |
+| renomear | `renameMap` | `UPDATE_MAP` | memória OU disco | CORRIGIDO: perguntava só à memória |
+| travar e destravar | `toggleMapLock` | `LOCK_MAP` | não pergunta | certo por desenho: precisa continuar destravável |
+| mapa base salvo | `setBaseLayer` | `UPDATE_MAP` | disco, mais briefing | recusa era muda, agora avisa |
+| posição salva, gravar e limpar | `updateMapPosition`, `clearMapPosition` | `UPDATE_MAP` | disco, mais briefing | recusa era muda, agora avisa |
+| notas | `setMapNotes` | `UPDATE_MAP` | disco, mais briefing | CORRIGIDO: perguntava pelo mapa CORRENTE |
+| grade | `setGridStyle` | `UPDATE_MAP` | disco, mais briefing | CORRIGIDO: perguntava pelo mapa CORRENTE |
+| config temporal | `writeMapTemporalConfig` | `UPDATE_MAP` | disco | molde, sem mudança |
+
+  O defeito das duas corrigidas: recebiam o nome do mapa e perguntavam `isCurrentMapLockedSync()`, que
+  responde sobre o mapa corrente e descarta o argumento; em atlas LOCAL o conjunto em memória só
+  conhece o mapa corrente, então numa aba recém-aberta a resposta era "destravado" para todos. O
+  editor de notas dizia "Notas salvas com sucesso!" sem ler a resposta da store, o que era falso para
+  todo Leitor. Guardas: `frontend/tests/unit/ajuste-de-mapa-pergunta-pela-trava.test.js` (censo: o
+  sub-tipo novo reprova até ser classificado) e
+  `frontend/tests/store/ajuste-de-mapa-em-mapa-travado.repro.test.js` (trava só no disco, conjunto
+  vazio de propósito).
+- **N1, o rename vindo do colega.** MEDIDO antes de consertar, em duas browsers: 17 asserções
+  reprovavam, e o achado maior não era de tela. A feição que o par desenhava depois do rename caía
+  num mapa FANTASMA (chave no nome velho) e a op morria na fila; um F5 consertava, então o defeito
+  era de sessão viva. Conserto no desenho aprovado: o tratador de entrada emite
+  `MAP_RENAMED_REMOTELY` depois do disco, e um assinante em `frontend/src/js/store/map.operations.js`
+  chama as MESMAS duas re-chaveagens do autor (`renameMapInMemory` e a do resolvedor), o que respeita
+  a proibição de importar o gerente de estado de dentro do tratador. Recusada: carimbar um evento do
+  autor com origem remota, porque o autor não emite evento de rename e um evento compartilhado lhe
+  daria um segundo caminho de re-chaveagem. Depois: 30 de 30 em série, sem retry
+  (`frontend/tests/e2e-ui/browser-collab-rename-remoto.spec.js`). O que a medição abriu está na wiki
+  do módulo como N12.
+- **N2, a conversão de ponto.** Ganhou a tabela de decisão do irmão linear (`pointConversionActions`,
+  em `frontend/src/js/tool_manager/helpers/point-conversion.model.js`), com as frases e a lista de
+  capacidades IMPORTADAS dele: posto sem criar ou sem apagar esconde os dois itens; mapa travado,
+  camada ou feição bloqueada desenham os itens e recusam o clique nomeando o estado. As duas funções
+  reconsultam antes de qualquer efeito. Guarda:
+  `frontend/tests/unit/conversao-de-ponto-respeita-trava.repro.test.js`.
+- **N5, o aviso por quadro.** O tipo de mensagem desconhecido é avisado UMA vez por tipo por socket
+  (`backend/src/modules/collab/unknown-type-warning.js`), com teto de 16 tipos e rótulo cortado em 64
+  caracteres, porque o tipo vem do cliente e a correção não pode virar vetor de memória nem de volume
+  de log. Nada responde ao remetente e nada fecha o socket. Limite declarado: o conjunto vive no
+  socket, então um cliente em laço de reconexão ainda rende uma linha por reconexão. Guardas:
+  `backend/tests/unit/aviso-de-tipo-desconhecido.test.js` e
+  `backend/tests/ws/tipo-desconhecido-avisa-uma-vez.test.js`.

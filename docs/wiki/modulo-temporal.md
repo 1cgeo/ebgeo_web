@@ -63,18 +63,18 @@ Esta seção afirmou o contrário até 2026-09-21, nas duas pontas: dizia que a 
 
 ## Limites conhecidos, abertos em 2026-09-21
 
+**N1, N2, N3 e N5 foram fechados no mesmo dia** (entrada própria no diário de decisões) e saíram desta lista; a numeração dos que ficam não foi refeita, para o código continuar valendo como referência.
+
 Sobraram da execução da auditoria do módulo (registro em [`../decisions/decisions-2026.md`](../decisions/decisions-2026.md), entrada de 2026-09-21). Nenhum é defeito esquecido: cada um pede decisão de desenho ou de contrato, e por isso ficou escrito em vez de consertado.
 
-- **N1.** O rename de mapa vindo de um colega não re-chaveia a memória do par (`currentMap`, grupos, camadas, trava): `renameMapInMemory` só roda no autor, e levá-la ao tratador de entrada esbarra na proibição estrutural de importar o gerente de estado dali. O disco viaja; a memória fica no nome velho até a próxima entrada no mapa.
-- **N2.** As conversões de ponto (para símbolo militar e para medida de coordenação) não perguntam por papel nem por trava, ao contrário das lineares. Dívida anterior a esta auditoria, declarada no cabeçalho de `frontend/src/js/tool_manager/helpers/feature-header.helpers.js`.
-- **N3.** O servidor não recusa, em mapa travado, as ops de ajuste do próprio mapa (temporal, mapa base, posição, grade, notas): o alvo delas é o mapa, que não está em `LOCKABLE_CHILD_TARGETS`. O cliente gateia. Fechar no servidor é mudança de contrato dos dois lados, com cinco riscos nomeados no relatório da frente, o primeiro deles a op recusada que congela a fila de saída.
+- **N3 (o que sobrou dele).** Ajuste do próprio mapa em mapa travado (config temporal, mapa base, posição, grade, notas e o nome) é CONVENÇÃO DE CLIENTE, por decisão do dono: o servidor só tranca os alvos FILHOS do mapa (`LOCKABLE_CHILD_TARGETS`), e um cliente modificado escreve por cima. Todo caminho de escrita do cliente pergunta pela trava AO DISCO, e `frontend/tests/unit/ajuste-de-mapa-pergunta-pela-trava.test.js` reprova o sub-tipo novo que nascer sem a pergunta.
 - **N4.** A barra temporal continua invisível dentro do 3D e do 360. O que mudou é que a reprodução pausa ao entrar, em vez de correr escondida.
-- **N5.** Uma aba antiga, não recarregada, continua mandando o quadro temporal removido, e o servidor registra um aviso por quadro, cerca de doze linhas por segundo por cliente em reprodução.
 - **N6.** Epoch em SEGUNDOS continua lido como milissegundos na importação (cai em janeiro de 1970, dentro da faixa plausível). Recusá-lo exigiria um piso acima de 1970, que reprovaria data legítima do século XX.
 - **N7.** Os nomes que a importação consome como tempo (início, fim, date, time e afins) ficaram fechados também para atributo criado à mão. É coerente com a importação, e fecha vocabulário plausível para o usuário.
 - **N8.** A edição da JANELA de validade no painel segue sem desfazer: ela dispara uma segunda escrita (o GDH derivado) e meio desfazer custa mais que nenhum. A condição para acender está escrita em `frontend/src/js/temporal/temporal-attributes-section.js`.
 - **N9.** O cliente aceita localmente uma unidade fora do vocabulário em `setMapTemporalConfig`; o servidor a saneia, e autor e servidor divergem até o próximo retrato. Nenhum caminho de tela produz esse valor.
 - **N10.** A posição do selo de instante na folha única do PDF não foi medida em pixel; o texto, o desenho no mosaico, a capa e a fiação estão presos por teste.
+- **N12.** `mapResolver.isInitialized` é FALSO num atlas de servidor recém-aberto (medido em 2026-09-21): isso desliga a via rápida de nome para id de `LocalRepository.getMap`, e qualquer estado em que `memoryStore.currentMap` nomeie um mapa cujo registro no disco atenda por outro nome faz a escrita cunhar um mapa FANTASMA, em silêncio, com a op morrendo na fila. Foi o que transformou o rename remoto (N1) em perda de dado. O gatilho conhecido foi removido; a fragilidade continua, e o conserto mora no resolvedor e no repositório local.
 - **N11.** O antimeridiano: a interpolação de trajetória caminha em longitude e latitude cruas, então um trecho que cruze os 180 graus dá a volta pelo lado errado. Fora do plano por custo, porque não é alcançável em operação no Brasil; a propriedade de colinearidade de `frontend/tests/unit/temporal-model.test.js` aprova esse trajeto, e o teste diz isso.
 
 ## Acoplamentos que atravessam arquivos
