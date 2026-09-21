@@ -32,6 +32,7 @@ import {
     E2E_SKIP,
 } from './helpers/harness.js';
 import { createBatchOperations } from '../../src/js/store/sync/operation-factory.js';
+import { clearedPositionPayload } from '../../src/js/store/map-position-clear.js';
 
 // Dois dos cinco mapas base semeados, diferentes entre si e do default (`carta-topografica`).
 const BASE_SALVA = 'carta-ortoimagem';
@@ -131,5 +132,47 @@ describe.skipIf(E2E_SKIP)('e2e: a vista salva do mapa é um lote de três ops do
         expect(Number(depois.zoom)).toBe(9);
         expect(depois.base_layer).toBe(BASE_SALVA);
         expect(depois.temporal_config).toMatchObject({ ativo: true });
+    });
+    // LIMPAR A VISTA SALVA é o espelho (dono, 2026-09-21): as mesmas três unidades do mesmo mapa,
+    // num lote só. O que este caso prende é o lado do SERVIDOR: a câmera vazia é um UPDATE de
+    // colunas nulas (um DELETE de `mapPosition` é um ato sobre o MAPA), a base volta à de
+    // nascimento porque `maps.base_layer` é NOT NULL, e o interruptor salvo desliga.
+    it('3) LIMPAR a vista é o mesmo lote ao contrário: câmera vazia, base de nascimento, temporal desligado', async () => {
+        const antes = await linhaDoMapa();
+        // PISO: há uma vista salva para limpar, a do caso 1. Sem isto o caso mediria um mapa limpo.
+        expect(antes.base_layer).toBe(BASE_SALVA);
+        expect(antes.temporal_config).toMatchObject({ ativo: true });
+        expect(antes.center_lat).not.toBeNull();
+        const observado = { confirmedVersion: Number(antes.version) };
+
+        const ops = createBatchOperations([
+            {
+                entityType: 'mapPosition', operationType: 'update', entityId: mapId, mapId,
+                data: clearedPositionPayload(), previousData: { ...observado },
+            },
+            {
+                entityType: 'baseLayer', operationType: 'update', entityId: mapId, mapId,
+                data: { baseLayer: 'carta-topografica' },
+                previousData: { baseLayer: BASE_SALVA, ...observado },
+            },
+            {
+                entityType: 'mapTemporal', operationType: 'update', entityId: mapId, mapId,
+                data: { ativo: false, unidade: 'DIA', inicio: null, fim: null, modo: 'absoluto', origem: null },
+                previousData: { ativo: true, ...observado },
+            },
+        ]);
+        expect(new Set(ops.map((op) => op.batchId)).size).toBe(1);
+
+        const res = await api.pushOperations(atlasId, ops);
+        const recusadas = (res.results ?? []).filter((r) => r.rejected || r.success === false || r.conflict);
+        expect(recusadas).toEqual([]);
+
+        const depois = await linhaDoMapa();
+        expect(depois.deleted_at ?? null, 'limpar a vista NÃO apaga o mapa').toBeNull();
+        expect(depois.center_lat).toBeNull();
+        expect(depois.center_long).toBeNull();
+        expect(depois.zoom).toBeNull();
+        expect(depois.base_layer).toBe('carta-topografica');
+        expect(depois.temporal_config).toMatchObject({ ativo: false, unidade: 'DIA' });
     });
 });

@@ -1768,7 +1768,10 @@ export class MapsTab {
      * @param {string} mapName - Map to clear position for
      */
     async _handleClearMapPosition(mapName) {
-        const confirmed = await showConfirm(`Limpar a posição salva do mapa "${mapName}"?`);
+        const confirmed = await showConfirm(
+            `Limpar a posição salva do mapa "${mapName}"? Saem junto o mapa base e o estado do `
+            + 'controle temporal salvos com ele. O que está na sua tela não muda.'
+        );
         if (!confirmed) return;
 
         try {

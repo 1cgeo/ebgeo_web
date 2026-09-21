@@ -94,6 +94,7 @@ No canto inferior esquerdo há um seletor de mapa de fundo. Clique para expandir
 <img src="./images/todos_mapas.png" alt="Painel Todos os Mapas" width="30%"/>
 
 - Salvar Posição: salva a vista atual do mapa, que são três coisas: a posição, o mapa base que está na tela e se o controle temporal está ligado. Quando o arquivo .ebgeo for aberto em outra máquina ou o mapa for selecionado no painel, o mapa vai para a posição salva, com o mapa base e o controle temporal salvos. Em atlas compartilhado, é este o gesto que define o que os outros usuários veem ao entrar no mapa.
+- Limpar posição salva: remove a vista salva do mapa inteira, ou seja, a posição, o mapa base e o estado do controle temporal salvos com ela. O que está na sua tela não muda; o que muda é o que encontra quem entrar no mapa depois.
 - Duplicar: duplicar o mapa atual, para edição em outro mapa com as informações do mapa anterior.
 - Renomear: alterar o nome do mapa atual.
 - Puxar outros mapas: puxa as camadas de outro mapa para o mapa atual, permitindo a mescla de dois mapas distintos.

@@ -1072,7 +1072,7 @@ export {
 
 // ===== RE-EXPORTS FROM MAP VIEW OPERATIONS =====
 
-export { saveMapView } from './map-view.operations.js';
+export { saveMapView, clearMapView } from './map-view.operations.js';
 
 // ===== RE-EXPORTS FROM CUSTOM ICON OPERATIONS =====
 

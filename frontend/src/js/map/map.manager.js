@@ -8,7 +8,7 @@ import {
     saveMapView,
     isMapTemporalEnabledSync,
     hasMapSavedPosition,
-    clearMapPosition,
+    clearMapView,
     getAllMapNamesStore,
     getCurrentMapName,
     moveFeaturesToMap,
@@ -214,8 +214,12 @@ class MapManager {
 
     async clearMapPosition(mapName) {
         try {
-            await clearMapPosition(mapName);
-            return { success: true, message: `Posição salva removida de "${mapName}"` };
+            // THE WHOLE SAVED VIEW, not only the camera (owner, 2026-09-21): the base layer and the
+            // temporal switch saved with it leave in the same batch. A refusal (level, map lock)
+            // already spoke through STORE_OPERATION_BLOCKED, so it must not be reported as done.
+            const cleared = await clearMapView(mapName);
+            if (!cleared) return { success: false, message: `A posição salva de "${mapName}" não foi removida` };
+            return { success: true, message: `Posição salva removida de "${mapName}", com o mapa base e o controle temporal salvos` };
         } catch (error) {
             console.error('Erro ao limpar posição:', error);
             return { success: false, message: 'Erro ao limpar posição salva' };

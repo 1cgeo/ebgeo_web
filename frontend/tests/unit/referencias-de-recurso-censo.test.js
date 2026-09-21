@@ -263,7 +263,11 @@ const CENSO = [
     // da pessoa, e só dois gestos a gravam. `saveMapView` leva a base da tela ao documento do
     // mapa (superfície `mapa.baseLayer`, que já existia); a captura de posição do editor de
     // briefing a grava no slide, superfície NOVA `briefing.slide.baseLayer`.
-    { arquivo: 'src/js/store/map-view.operations.js', campo: 'baseLayer', n: 3, classe: PERSISTE },
+    // A QUARTA OCORRÊNCIA (2026-09-21) é a de `birthBaseLayer`, que LÊ a base com que um mapa
+    // nasce (`getEmptyMapData().baseLayer`) para o gesto de LIMPAR a vista salva: `clearMapView`
+    // grava essa base no documento do mapa, pela mesma superfície `mapa.baseLayer`. É base pública
+    // por construção, a mesma que todo mapa novo já carrega.
+    { arquivo: 'src/js/store/map-view.operations.js', campo: 'baseLayer', n: 4, classe: PERSISTE },
     { arquivo: 'src/js/map/map.manager.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/store/briefing.operations.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/briefing/slide-view.js', campo: 'baseLayer', n: 6, classe: PERSISTE },

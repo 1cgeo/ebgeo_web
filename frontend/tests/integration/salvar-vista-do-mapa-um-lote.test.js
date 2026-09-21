@@ -27,7 +27,7 @@ import { enableOperationLogging } from '../../src/js/store/sync/operation-dispat
 import { memoryStore } from '../../src/js/store/memory-store.js';
 import { mapResolver } from '../../src/js/store/services/map-resolver.service.js';
 import { setMapDependencies, toggleMapLock } from '../../src/js/store/map.operations.js';
-import { saveMapView } from '../../src/js/store/map-view.operations.js';
+import { saveMapView, clearMapView, birthBaseLayer } from '../../src/js/store/map-view.operations.js';
 import { getMapTemporalConfig, isMapTemporalEnabledSync, setMapTemporalView } from '../../src/js/store/temporal.operations.js';
 import { setStoreErrorEventBus, StoreErrorEvents } from '../../src/js/store/store-errors.js';
 import { checkPermission } from '../../src/js/store/sync/permission-guard.js';
@@ -163,5 +163,86 @@ describe('saveMapView', () => {
     ])('argumento inválido (%s) é defeito do chamador: lança e não grava', async (_nome, vista) => {
         await expect(saveMapView(vista, mapa.name)).rejects.toThrow(/finite camera/);
         expect(await operationQueue.count()).toBe(0);
+    });
+});
+
+// LIMPAR A VISTA SALVA É O ESPELHO DE SALVÁ-LA (dono, 2026-09-21). "Limpar posição salva" limpava só
+// a câmera, e o mapa ficava sem posição mas com o mapa base e o interruptor temporal que alguém
+// tinha salvo com ela, que nada na tela mostrava e nenhum gesto removia.
+describe('clearMapView', () => {
+    const salvarTudo = async () => {
+        await saveMapView({ ...CAMERA, baseLayer: 'osm', temporalEnabled: true }, mapa.name);
+        const antes = await operationQueue.count();
+        expect(antes).toBe(3);
+        return antes;
+    };
+
+    it('as três folhas saem no MESMO lote: câmera vazia, base de nascimento e temporal desligado', async () => {
+        const antes = await salvarTudo();
+
+        await expect(clearMapView(mapa.name)).resolves.toBe(true);
+
+        const fila = (await operationQueue.getAll()).slice(antes);
+        expect(fila.map(op => op.entityType)).toEqual(['mapPosition', 'baseLayer', 'mapTemporal']);
+        const lotes = new Set(fila.map(op => op.batchId));
+        expect(lotes.size).toBe(1);
+        expect([...lotes][0]).toBeTruthy();
+        expect(fila.map(op => op.batchIndex)).toEqual([0, 1, 2]);
+        // UPDATE, nunca DELETE: um delete de `mapPosition` no servidor é um ato sobre o MAPA.
+        expect(fila.every(op => op.type === 'update' || op.operationType === 'update')).toBe(true);
+
+        const documento = await localRepository.getMap(mapa.id);
+        expect(documento.savedPosition).toBeUndefined();
+        expect(documento.center_lat).toBeNull();
+        expect(documento.baseLayer).toBe(birthBaseLayer());
+        expect((await getMapTemporalConfig(mapa.name)).ativo).toBe(false);
+    });
+
+    it('a base de nascimento vem de UM lugar só, o mesmo de onde o mapa nasce', () => {
+        expect(birthBaseLayer()).toBe('carta-topografica');
+    });
+
+    it('folha que já está limpa NÃO vira operação: só a câmera tinha o que limpar', async () => {
+        await saveMapView({ ...CAMERA }, mapa.name);
+        const antes = await operationQueue.count();
+
+        await clearMapView(mapa.name);
+
+        expect((await operationQueue.getAll()).slice(antes).map(op => op.entityType)).toEqual(['mapPosition']);
+    });
+
+    it('limpar NÃO mexe na tela de quem limpou: o interruptor de vista fica onde estava', async () => {
+        await salvarTudo();
+        setMapTemporalView(mapa.name, true);
+
+        await clearMapView(mapa.name);
+
+        expect(isMapTemporalEnabledSync(mapa.name)).toBe(true);
+        expect((await getMapTemporalConfig(mapa.name)).ativo).toBe(false);
+    });
+
+    it('o LEITOR é recusado UMA vez, antes de qualquer folha, e a vista salva fica inteira', async () => {
+        const antes = await salvarTudo();
+        recusas.length = 0;
+        checkPermission.mockReturnValue({ allowed: false, reason: 'somente leitura', required: 'write' });
+
+        await expect(clearMapView(mapa.name)).resolves.toBe(false);
+
+        expect(recusas).toHaveLength(1);
+        expect(recusas[0]).toMatchObject({ operation: 'clearMapView', required: 'write' });
+        expect(await operationQueue.count()).toBe(antes);
+        expect((await localRepository.getMap(mapa.id)).baseLayer).toBe('osm');
+    });
+
+    it('mapa TRAVADO recusa o gesto inteiro', async () => {
+        await salvarTudo();
+        await toggleMapLock(mapa.name);
+        const antes = await operationQueue.count();
+
+        await expect(clearMapView(mapa.name)).resolves.toBe(false);
+
+        expect(await operationQueue.count()).toBe(antes);
+        expect(recusas.at(-1)).toMatchObject({ operation: 'clearMapView', reason: 'map_locked' });
+        expect((await localRepository.getMap(mapa.id)).savedPosition).toMatchObject(CAMERA);
     });
 });

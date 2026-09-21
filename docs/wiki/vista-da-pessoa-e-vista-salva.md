@@ -17,9 +17,11 @@ Escolher mapa base e ligar a linha do tempo eram ESCRITAS no documento do mapa, 
 | estado | dono | viaja quando |
 |---|---|---|
 | feições, camadas, janela temporal (`inicio`, `fim`), lentes (`modo`, `unidade`, `origem`) | atlas | a cada edição |
-| vista salva: câmera, base, interruptor temporal | mapa | só no gesto de salvar posição, num lote só |
+| vista salva: câmera, base, interruptor temporal | mapa | só no gesto de salvar posição e no de limpá-la, cada um num lote só |
 | vista do slide: câmera, base, interruptor, cursor | slide | na captura e na edição do slide |
 | base na tela, interruptor na tela, play, velocidade, revelar ocultas, cursor | pessoa, em memória | nunca |
+
+**Limpar a posição salva é o espelho de salvar, e limpa as três** (`clearMapView`, `frontend/src/js/store/map-view.operations.js`, desde 2026-09-21). Antes limpava só a câmera, e o mapa ficava sem posição mas com a base e o interruptor que alguém salvara com ela, que nada na tela mostrava e nenhum gesto removia. A base não tem como ficar AUSENTE, porque `maps.base_layer` é NOT NULL no servidor: limpar grava a base de nascimento do mapa (`birthBaseLayer`). Como o salvar, o gesto não mexe na tela de quem o faz, e a folha que já está limpa não vira operação.
 
 A regra de entrada é a da câmera: **entrar num mapa COM vista salva aplica as três coisas; sem vista salva, o que está na tela fica.** A exceção é a primeira pintura depois de um boot ou de um wipe da store, que lê a base do documento porque ainda não há tela a manter. Um F5 devolve a pessoa à vista salva: a escolha pessoal mora em memória, de propósito, porque persisti-la criaria uma disputa de precedência com a base salva que a regra de entrada já resolve.
 

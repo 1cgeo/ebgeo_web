@@ -25,7 +25,10 @@
  * nothing and can be refused on behalf of an edit nobody made.
  */
 
-import { updateMapPosition, setBaseLayer, getCurrentBaseLayer, isMapLocked } from './map.operations.js';
+import {
+    updateMapPosition, clearMapPosition, setBaseLayer, getCurrentBaseLayer, isMapLocked,
+} from './map.operations.js';
+import { getEmptyMapData } from './repository.utils.js';
 import { setMapTemporalSaved, isMapTemporalSavedEnabled } from './temporal.operations.js';
 import mapManager from './store-state-manager.js';
 import { withGestureBatch } from './sync/gesture-batch.js';
@@ -82,6 +85,64 @@ export async function saveMapView(view, mapName = null) {
             view.bearing ?? 0, view.pitch ?? 0, targetMap);
         if (baseChanged) await setBaseLayer(view.baseLayer, targetMap);
         if (temporalChanged) await setMapTemporalSaved(targetMap, view.temporalEnabled);
+    });
+    return true;
+}
+
+/**
+ * The base layer a map is BORN with, which is what "no saved base layer" means: `maps.base_layer`
+ * is NOT NULL on the server, so clearing cannot write an absence, it writes the birth value. Read
+ * off the one place that defines it, so the two cannot drift.
+ * @returns {string}
+ */
+export function birthBaseLayer() {
+    return getEmptyMapData().baseLayer;
+}
+
+/**
+ * Clears the saved view of a map: the mirror of {@link saveMapView}.
+ *
+ * "LIMPAR POSIÇÃO SALVA" USED TO CLEAR THE CAMERA ONLY (owner, 2026-09-21). Since the saved
+ * position became the saved VIEW, that left a map with no saved camera still carrying the base
+ * layer and the temporal switch somebody saved with it, which nothing on screen showed and no
+ * gesture could remove. The three now leave together, in ONE logical batch, for the same reason
+ * they are saved together.
+ *
+ * IT DOES NOT TOUCH THE SCREEN of the person clearing, like the save does not: the base layer and
+ * the temporal switch on screen are their own view. What changes is what the NEXT arrival finds.
+ *
+ * A LEAF WHOSE VALUE IS ALREADY THE CLEARED ONE IS NOT CALLED, same rule and same reason as in the
+ * save: an op that rewrites the stored value claims a dispute unit for nothing. The camera is
+ * always cleared, because the gesture is offered only on a map that has one.
+ *
+ * @param {string} [mapName=null] - Map name (null = current).
+ * @returns {Promise<boolean>} False when the gesture was refused (level or map lock).
+ */
+export async function clearMapView(mapName = null) {
+    const perm = checkPermission(GuardAction.UPDATE_MAP);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation: 'clearMapView', reason: perm.reason, required: perm.required
+        });
+        return false;
+    }
+
+    const targetMap = mapName || mapManager.getCurrentMapName();
+    if (await isMapLocked(targetMap)) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation: 'clearMapView', reason: 'map_locked'
+        });
+        return false;
+    }
+
+    const baseDeNascimento = birthBaseLayer();
+    const baseChanged = await getCurrentBaseLayer(targetMap) !== baseDeNascimento;
+    const temporalChanged = await isMapTemporalSavedEnabled(targetMap);
+
+    await withGestureBatch(async () => {
+        await clearMapPosition(targetMap);
+        if (baseChanged) await setBaseLayer(baseDeNascimento, targetMap);
+        if (temporalChanged) await setMapTemporalSaved(targetMap, false);
     });
     return true;
 }
