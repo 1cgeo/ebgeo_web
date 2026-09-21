@@ -3430,3 +3430,50 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
   recarregamento da sessão repuxa a cauda INTEIRA desde que o atlas foi aberto, e numa sessão longa
   ela só cresce. É o mesmo mecanismo que fez a reconciliação acima funcionar, então mexer nele pede
   decisão: avançar o cursor a cada cauda aplicada economiza rede e tira esta reconciliação de graça.
+
+### 2026-09-21: uma imagem sem arquivo deixa de impedir a exportação do atlas inteiro, e a perda vira pergunta
+
+- **O que estava quebrado, e desde quando.** O commit `35f15bcb` (2026-09-19) fez o exportador de
+  `.ebgeo` LANÇAR quando uma feição de imagem ou um ícone personalizado não tinha o blob, com a
+  frase "Imagem (id) indisponível. Aguarde a conexão e tente exportar novamente". A intenção era
+  fechar a perda muda de antes, em que o arquivo saía com um buraco que ninguém via. O efeito foi
+  pior que o defeito: UMA imagem órfã tornava o atlas INTEIRO impossível de exportar, para sempre,
+  e em atlas local a frase prometia uma saída que não existe, porque nenhuma conexão devolve um
+  blob que só existiria naquele disco.
+- **A órfã é real, e foi medida.** A fixture `frontend/tests/fixtures/ebgeo-2.2/01-completo.ebgeo`,
+  cópia byte a byte de um arquivo da outra linha do produto, declara QUATRO feições de imagem e
+  carrega o blob de TRÊS (conferido abrindo o arquivo: a quarta está no mapa "Principal"). Foi ela
+  que manteve `frontend/tests/e2e-ui/ebgeo-round-trip-arquivo.spec.js` vermelho no HEAD limpo
+  durante dois dias, lido como "vermelho de outra frente" em três lotes seguidos.
+- **A regra que guarda as duas intenções: a perda nunca é MUDA e nunca é ARMADILHA.** O exportador
+  lê os blobs ANTES de escrever o arquivo, conta o que falta entre o que é exigido (feição de imagem
+  e ícone personalizado, por `requiredImagesOf`), nomeia a contagem e o mapa, e pergunta
+  (`missingImagesConfirm`, em `frontend/src/js/import_export/ebgeo-missing-images.js`, folha de zero
+  imports). Cancelar não produz arquivo nenhum. Confirmar exporta tudo, e a feição sem figura segue
+  no arquivo sem ela, que é exatamente o estado que ela já tem naquele computador.
+- **São DUAS frases, porque a saída é diferente.** Em atlas de servidor o blob pode só não ter sido
+  baixado, então cancelar e tentar com conexão é opção real e a frase a nomeia. Em atlas local não
+  é, e a frase diz "não há de onde recuperá-lo". Uma falha de LEITURA do blob (rede caída no meio)
+  cai na mesma pergunta em vez de abortar, e a variante de servidor é a que cobre esse caso.
+- **Alternativas recusadas.** Manter a recusa e corrigir só a frase: continuaria sendo uma trava
+  sem chave em atlas local. Voltar ao pulo silencioso: reabriria o defeito que `35f15bcb` fechou.
+  Retirar a feição órfã do arquivo: o exportador passaria a decidir sozinho o que o atlas contém, e
+  o import do outro lado não teria como distinguir poda de perda.
+- **Guardas:** `frontend/tests/unit/ebgeo-exporta-com-imagem-orfa.test.js` (a parte pura e a ordem
+  da fiação), `frontend/tests/unit/mime-da-imagem-do-ebgeo.test.js` (cancelar não baixa nada,
+  confirmar exporta, foto com arquivo não pergunta) e o spec de round-trip, que confirma o diálogo e
+  reimporta o arquivo produzido. Controle negativo: com o retorno do cancelamento retirado, quatro
+  casos reprovam.
+- **Aberto, medido, e é a MESMA órfã por outra porta.** Enviar um atlas local ao servidor recusa
+  com "Uma imagem original está ausente. Nenhum atlas foi publicado", nas duas portas
+  (`frontend/src/js/import_export/save-local-atlas.service.js` e
+  `frontend/src/js/projects/send-local-to-server.service.js`), desde `07278ef6` (2026-09-19, a
+  publicação atômica). É a mesma forma de armadilha: um atlas local com uma imagem sem blob nunca
+  sobe, e nada na tela diz qual imagem nem o que fazer. Quem acusa é
+  `frontend/tests/e2e-ui/cadeia-completa-atlas.spec.js`, vermelho duas de duas na perna 3, com a
+  causa lida no console por uma cópia diagnóstica do spec (o toast de erro some em segundos e o
+  retrato da falha não o mostra). NÃO foi consertado aqui, de propósito: a recusa é regra escrita
+  daquele commit ("toda imagem precisa ser legível"), e trocá-la por pergunta é decidir que um
+  atlas pode ser PUBLICADO sabendo-se incompleto, o que é diferente de gerar um arquivo. O conserto
+  seria só de cliente: o servidor confere o manifesto que o cliente declara, então retirar a órfã
+  do manifesto depois da confirmação passa na conferência de contagem do commit da tentativa.
