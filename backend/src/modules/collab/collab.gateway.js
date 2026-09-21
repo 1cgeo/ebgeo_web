@@ -13,6 +13,11 @@ import { toFrontendRole } from '../../utils/roles.js';
 import * as collabService from './collab.service.js';
 import * as handlers from './collab.handlers.js';
 import { installOutboundResourcePrune } from './collab.send.js';
+import {
+  decidirAvisoDeTipoDesconhecido,
+  MSG_TETO_DE_TIPOS,
+  MSG_TIPO_DESCONHECIDO,
+} from './unknown-type-warning.js';
 
 // The only path this WebSocket gateway serves (matches the documented contract).
 const COLLAB_WS_PATH = '/api/v1/collab';
@@ -801,8 +806,36 @@ async function handleMessage(ws, data) {
       handlers.handleBriefingEditEnd(ws, data);
       break;
 
-    default:
-      logger.warn({ type: data.type, userId: ws.userId }, 'Unknown message type');
+    // TIPO DESCONHECIDO: UMA LINHA POR TIPO, POR SOCKET, e não uma por quadro.
+    //
+    // O cliente antigo é TOLERADO aqui por contrato (nada volta ao remetente, o socket não cai),
+    // e era justamente ele que pagava o preço: a fila de saída do cliente é append-only, então
+    // uma aba carregada antes de um deploy continua mandando um quadro aposentado por tempo
+    // indefinido — o `temporal`, removido em 2026-09-21, chega cerca de doze vezes por segundo
+    // durante uma reprodução da linha do tempo. Uma linha de log por quadro, por cliente, no
+    // arquivo do dia. A decisão (e as duas bordas de `data.type` ser valor arbitrário de cliente)
+    // mora em `unknown-type-warning.js`, folha e testável em node.
+    default: {
+      const { avisar, tipo, tetoAtingido } = decidirAvisoDeTipoDesconhecido(
+        (ws.unknownTypesWarned ||= new Set()),
+        data.type
+      );
+      if (avisar) {
+        logger.warn(
+          {
+            type: tipo,
+            userId: ws.userId,
+            atlasId: ws.atlasId,
+            // O campo é o que diz ao leitor do log que a contagem NÃO é a contagem de quadros:
+            // sem ele, um aviso único sobre uma rajada de milhares se lê como um quadro isolado.
+            soUmaVezPorTipoNesteSocket: true,
+            tetoAtingido,
+          },
+          tetoAtingido ? MSG_TETO_DE_TIPOS : MSG_TIPO_DESCONHECIDO
+        );
+      }
+      break;
+    }
   }
 }
 
