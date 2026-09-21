@@ -1941,10 +1941,13 @@ async function applyRemoteCatalogLayerOp(opType, layerId, mapId, data) {
  * - terrainExaggeration → atlas.settings.terrainExaggeration + terrain control (§24.8)
  * - mapBadgeColors (datamodel-13) → repo.saveSetting('mapBadgeColors', obj)
  *      (the setSettingCompat key map.operations.js uses)
- * - colorUsage (datamodel-13) → per map: repo.saveSetting('color_usage_<mapName>', counts)
- *      (the setColorUsageCompat key; payload is { [mapName]: counts })
  * - customIcons (datamodel-14) → repo.saveSetting('custom_icons', list)
  *      (the SETTING_KEY customIcons.operations.js uses; blobs sync via images)
+ *
+ * NOT handled, since 2026-09-21: `colorUsage`. The colour count stopped being synced (see
+ * `setColorUsageCompat`, `store/repositories/index.js`); an old server or an old snapshot that
+ * still carries the key is IGNORED here, in silence and without a warning, because it names no
+ * failure — it is a derived number this client recounts from its own features.
  *
  * @param {Object} [data] - Setting payload.
  * @returns {Promise<void>}
@@ -1964,11 +1967,14 @@ async function applyRemoteSettingOp(data) {
 }
 
 /**
- * Applies the datamodel-13/14 app-state setting keys (mapBadgeColors, colorUsage,
- * customIcons) from a remote `setting` op or a snapshot's atlas.settings, writing
- * each to the same local store key its local setter uses. Best-effort per key.
+ * Applies the datamodel-13/14 app-state setting keys (mapBadgeColors, customIcons,
+ * mapOrder) from a remote `setting` op or a snapshot's atlas.settings, writing each
+ * to the same local store key its local setter uses. Best-effort per key.
  *
- * @param {Object} data - Object that may carry mapBadgeColors/colorUsage/customIcons.
+ * A key this function does not know is skipped without a word, which is what makes the
+ * removal of `colorUsage` (2026-09-21) safe for a client that meets a server still holding it.
+ *
+ * @param {Object} data - Object that may carry mapBadgeColors/customIcons/mapOrder.
  * @returns {Promise<void>}
  */
 async function applyRemoteAppStateSettings(data) {
@@ -1980,13 +1986,12 @@ async function applyRemoteAppStateSettings(data) {
         await repo.saveSetting?.('mapBadgeColors', data.mapBadgeColors);
     }
 
-    if (data.colorUsage && typeof data.colorUsage === 'object') {
-        // Per-map nested object { [mapName]: counts }; write each under color_usage_<mapName>
-        // (the setColorUsageCompat key) so getColorUsage(mapName) reads it back.
-        for (const [mapName, counts] of Object.entries(data.colorUsage)) {
-            await repo.saveSetting?.(`color_usage_${mapName}`, counts);
-        }
-    }
+    // `data.colorUsage` is DELIBERATELY not read. It used to be written here as
+    // `color_usage_<mapName>` per map, which is the NAME key, while the local writer uses the
+    // RESOLVED key: that pair is what produced the ping-pong (`getColorUsageCompat` migrates the
+    // name key to the id and deletes it; the next snapshot recreated it). Dropping the branch is
+    // what ends the ping-pong, and it costs nothing, because a map that arrives with no count of
+    // its own gets one from `performInitialColorAnalysis`, which recounts it from its features.
 
     if (Array.isArray(data.customIcons)) {
         // setSettingCompat('custom_icons', list) — the customIcons.operations SETTING_KEY.
@@ -2445,7 +2450,7 @@ async function applyRemoteSnapshotInner(snapshot) {
     const pending = await (queue.getPendingProjection?.() ?? queue.getAll());
 
     // datamodel-13/14: distribute the synced app-state settings the backend keeps in
-    // atlas.settings (mapBadgeColors, colorUsage, customIcons) into the SAME local
+    // atlas.settings (mapBadgeColors, customIcons, mapOrder) into the SAME local
     // store keys their local setters use, so a fresh snapshot rehydrates them. Uses
     // the analogous reshape the map fields get (reshapeSnapshotMap), but for atlas
     // settings keys.

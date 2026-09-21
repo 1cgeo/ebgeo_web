@@ -10,8 +10,15 @@
 // com retenção de cabeça, nada mais daquele cliente sairia dali em diante.
 //
 // `logAtlasSetting` é a porta ÚNICA das preferências de atlas (mapOrder, mapBadgeColors,
-// colorUsage, customIcons, terrainExaggeration), então o guarda mora nela e vale por todos os
-// chamadores — inclusive os que ninguém lembrou de auditar.
+// customIcons, terrainExaggeration), então o guarda mora nela e vale por todos os chamadores —
+// inclusive os que ninguém lembrou de auditar.
+//
+// A CHAVE QUE CAUSOU O DEFEITO NÃO PASSA MAIS POR AQUI, e por isso os casos abaixo usam outra.
+// Em 2026-09-21 a contagem de cores deixou de ser sincronizada (é derivada das feições, e cada
+// cliente a recalcula), então `setColorUsageCompat` não chama mais esta porta: ver
+// `tests/unit/contagem-de-cores-nao-sincroniza.test.js`. Isso FECHA o caso medido por uma segunda
+// porta e não aposenta o guarda, que continua valendo para as quatro preferências que viajam; se
+// os casos continuassem escritos com `colorUsage` eles mediriam um chamador que não existe mais.
 //
 // Irmão de `config-de-mapa-passa-pelo-guard.repro.test.js`, que fechou a mesma classe nas três
 // configurações POR MAPA. A diferença é o eixo: lá era o mapa, aqui é o atlas.
@@ -89,14 +96,14 @@ describe('preferência de atlas passa pelo guarda', () => {
     it('CONTROLE POSITIVO: com permissão de escrita, a preferência é enfileirada', async () => {
         // Sem este caso, o teste da recusa passaria verde com um `logAtlasSetting` que não
         // enfileira nada em hipótese nenhuma.
-        await logAtlasSetting({ colorUsage: { 'Mapa 1': { '#ff0000': 2 } } });
+        await logAtlasSetting({ mapBadgeColors: { 'Mapa 1': '#ff0000' } });
         expect(enfileiradas.length).toBeGreaterThan(0);
         expect(enfileiradas.at(-1).entityType).toBe('setting');
     });
 
     it('com papel de LEITURA, não enfileira nada', async () => {
         sessao.podeEditar = false;
-        await logAtlasSetting({ colorUsage: { 'Mapa 1': { '#ff0000': 2 } } });
+        await logAtlasSetting({ mapBadgeColors: { 'Mapa 1': '#ff0000' } });
         expect(enfileiradas).toEqual([]);
     });
 
@@ -126,7 +133,7 @@ describe('preferência de atlas passa pelo guarda', () => {
 
     it('com o registro de operações desligado, ninguém enfileira (o caminho do visitante público)', async () => {
         disableOperationLogging();
-        await logAtlasSetting({ colorUsage: {} });
+        await logAtlasSetting({ mapBadgeColors: {} });
         expect(enfileiradas).toEqual([]);
     });
 });

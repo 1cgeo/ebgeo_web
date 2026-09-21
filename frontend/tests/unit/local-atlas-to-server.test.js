@@ -157,13 +157,18 @@ describe('buildServerImportPayload', () => {
         const iconId = generateUUID();
         const { payload, imageIds } = buildServerImportPayload({
             maps: { M: { features: { images: [pointFeature({ id: imgId, source: 'image' })] } } },
+            // A contagem de cores VEM no objeto de exportação (o `.ebgeo` continua levando a
+            // seção) e NÃO pode entrar no payload do servidor desde 2026-09-21: ela deixou de ser
+            // sincronizada, então plantá-la em `atlas.settings` deixaria um valor que ninguém lê
+            // e que nada poda. O destinatário recalcula do zero ao abrir cada mapa
+            // (`performInitialColorAnalysis`).
             colorUsage: { M: { '#ff0000': 3 } },
             customIcons: [{ id: iconId, name: 'icon', type: 'image/png' }],
             mapOrder: ['M'],
         }, { name: 'A' });
         expect(imageIds).toContain(imgId);
         expect(imageIds).toContain(iconId);
-        expect(payload.atlas.settings.colorUsage).toEqual({ M: { '#ff0000': 3 } });
+        expect('colorUsage' in payload.atlas.settings).toBe(false);
         expect(payload.atlas.settings.customIcons).toHaveLength(1);
         expect(payload.atlas.settings.mapOrder).toEqual(['M']);
     });

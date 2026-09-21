@@ -420,8 +420,15 @@ export function buildServerImportPayload(exportData, meta = {}) {
     }));
 
     // Atlas-level app settings (local-only preference state that syncs through atlas.settings).
+    //
+    // `data.colorUsage` is deliberately NOT carried over (2026-09-21). The colour count stopped
+    // being synced, so writing it into `atlas.settings` here would plant a value that no client
+    // reads back and that nothing ever prunes (the server deep-merges that sub-object and a
+    // renamed map leaves its old name behind forever). The receiving client recounts each map
+    // from its own features on first open (`performInitialColorAnalysis`), which is where the
+    // number comes from now. The `.ebgeo` FILE still carries the section: that is a file, not
+    // sync.
     const settings = {};
-    if (data.colorUsage && Object.keys(data.colorUsage).length) settings.colorUsage = data.colorUsage;
     if (Array.isArray(data.customIcons) && data.customIcons.length) {
         settings.customIcons = data.customIcons.map((icon) => ({ ...icon, id: imageIdMap[icon.id] || icon.id }));
         for (const icon of data.customIcons) if (icon?.id) imageSink.add(icon.id);

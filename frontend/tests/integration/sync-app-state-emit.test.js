@@ -5,8 +5,13 @@
 // logging is disabled. These tests assert the EXACT op shape the backend whitelist
 // expects:
 //   - mapBadgeColors → data: { mapBadgeColors: { [mapName]: color } }  (full object)
-//   - colorUsage     → data: { colorUsage: { [mapName]: counts } }     (per-map nested)
 //   - customIcons    → data: { customIcons: [ ...registry ] }          (full list)
+//
+// `colorUsage` ERA A TERCEIRA e saiu em 2026-09-21 (decisão do dono): a contagem de cores é
+// DERIVADA das feições e cada cliente a calcula sozinho, então ela deixou de ser sincronizada na
+// fonte (`setColorUsageCompat`, `store/repositories/index.js`, não chama mais esta porta). Quem
+// cobra a ausência é `tests/unit/contagem-de-cores-nao-sincroniza.test.js`; aqui ficam as duas que
+// continuam viajando, e o caso do irmão é o que impede a poda de levar junto o que não é derivado.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -78,14 +83,6 @@ describe('logAtlasSetting emit shape (datamodel-13/14)', () => {
         expect(op.entityId).toBe('550e8400-e29b-41d4-a716-446655440000');
         expect(op.mapId).toBeNull();
         expect(op.data).toEqual({ mapBadgeColors });
-    });
-
-    it('datamodel-13: colorUsage emits a per-map nested object ({ [mapName]: counts })', async () => {
-        await logAtlasSetting({ colorUsage: { Alfa: { '#ff0000': 3 } } });
-
-        expect(h.queued).toHaveLength(1);
-        expect(h.queued[0].entityType).toBe('setting');
-        expect(h.queued[0].data).toEqual({ colorUsage: { Alfa: { '#ff0000': 3 } } });
     });
 
     it('datamodel-14: customIcons emits the full registry list', async () => {

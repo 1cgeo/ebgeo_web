@@ -460,16 +460,26 @@ export async function setColorUsageCompat(mapNameOrId, colorUsageData) {
     const repo = getRepository();
     const key = `color_usage_${_resolveSettingsKey(mapNameOrId)}`;
     await repo.saveSetting(key, colorUsageData);
-    // datamodel-13: sync this map's color usage to the atlas as a per-map nested
-    // object ({ [mapName]: counts }). No-op offline; the backend deep-merges into
-    // atlas.settings.colorUsage so a single-map write does not clobber siblings.
-    // Dynamic import avoids a static cycle (dispatcher dynamically imports this module).
-    try {
-        const { logAtlasSetting } = await import('../sync/operation-dispatcher.js');
-        await logAtlasSetting({ colorUsage: { [mapNameOrId]: colorUsageData } });
-    } catch {
-        // best-effort: a failure to queue the sync op must not break the local write.
-    }
+    // THE COLOUR COUNT IS NO LONGER SYNCED (owner's decision, 2026-09-21). Until that date this
+    // write also emitted `logAtlasSetting({ colorUsage: { [mapNameOrId]: ... } })`, and the two
+    // sides never agreed on a key: the op carried the map NAME while this local write carries the
+    // RESOLVED key (the UUID whenever `mapResolver` is up), and the peer's snapshot wrote the
+    // counts back under `color_usage_<name>`. `getColorUsageCompat` then either ignored the
+    // name-keyed copy (it already had an id-keyed one) or migrated and deleted it, only for the
+    // next snapshot to recreate it. A renamed or deleted map also left its old name in
+    // `atlas.settings.colorUsage` forever, because the server deep-merges that sub-object and
+    // never prunes it.
+    //
+    // Nothing is lost by dropping it: the value is DERIVED. `updateColorUsage` adds and subtracts
+    // on every colour change of a feature, and `performInitialColorAnalysis` recounts a map from
+    // its own features whenever the key is missing (`store-state-manager.js`), so each client
+    // computes locally, from features it already receives, what used to travel. It feeds only the
+    // frequent-colour swatches of the colour picker.
+    //
+    // The `.ebgeo` file STILL carries it (`import_export/export-optional-sections.js`): that is a
+    // file, not sync, and it is a seed on the other side, not a second writer competing with this
+    // one. The alternative that was REJECTED was keying the sync by id, which fixes the ping-pong
+    // and keeps in flight a number every client already knows how to compute.
 }
 
 /**

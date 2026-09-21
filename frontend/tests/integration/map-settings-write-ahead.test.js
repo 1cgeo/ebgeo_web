@@ -419,13 +419,13 @@ describe('Create and remove write-ahead persistence', () => {
         // Com o diario ligado o mapa nasce sob a chave UUID, que e' o contrato de `mintMapDocument`.
         expect((await reread(criado.id))?.name).toBe('Novo');
         expect(await localRepository.getMapNotes(criado.id)).toEqual({ title: 'Ordem', description: 'Corpo' });
-        // As duas viraram enviaveis. A TERCEIRA op da fila e' a contagem de cores
-        // (`setColorUsageCompat` -> `logAtlasSetting`), que roda DEPOIS da transacao, continua no
-        // caminho antigo e nao e' parte desta edicao: nomea-la aqui e' o que impede que ela seja
-        // lida como intencao do mapa.
+        // As duas viraram enviaveis, e sao SO' as duas. Ate' 2026-09-21 havia uma TERCEIRA op na
+        // fila, um `setting` com a contagem de cores (`setColorUsageCompat` -> `logAtlasSetting`),
+        // que rodava DEPOIS da transacao. A contagem deixou de viajar naquela data (e' derivada das
+        // feicoes, e cada cliente a recalcula), entao criar um mapa enfileira exatamente o que a
+        // pessoa fez. A igualdade ABSOLUTA e' o ponto: uma op de ajuste voltando a nascer aqui reprova.
         const enviaveis = (await operationQueue.peek(10)).map(op => op.entityType);
-        expect(enviaveis.slice(0, 2)).toEqual(['map', 'mapNotes']);
-        expect(enviaveis).toEqual(['map', 'mapNotes', 'setting']);
+        expect(enviaveis).toEqual(['map', 'mapNotes']);
     });
 
     it('criar com gravacao recusada PRESERVA as intencoes e nao deixa mapa nenhum no disco', async () => {

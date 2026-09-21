@@ -105,7 +105,7 @@ describe('o contrato de mutação por entidade', () => {
         // Membresia de grupo (junção idempotente) e preferência de atlas (merge por chave) não
         // têm perdedor. Declarar base ali ligaria uma verificação que o servidor não sabe fazer.
         expect(mutationContract('groupFeature', 'create', { group_id: 'g' }, null)).toEqual({});
-        expect(mutationContract('setting', 'update', { colorUsage: {} }, { colorUsage: {} })).toEqual({});
+        expect(mutationContract('setting', 'update', { mapBadgeColors: {} }, { mapBadgeColors: {} })).toEqual({});
     });
 
     it('a feição continua pelo contrato dela, com o patch dentro de `properties`', () => {

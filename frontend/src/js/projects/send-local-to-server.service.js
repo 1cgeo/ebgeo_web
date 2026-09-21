@@ -62,7 +62,7 @@ import { generateUUID, isValidId } from '@utils/uuid.js';
  * chaves daqui faria instrumento e sujeito concordarem por construção, e a tabela passaria a ser o
  * que ela mesma disser que é.
  *
- * A ASSIMETRIA É REAL E NÃO É ENGANO: `layers_`, `gridStyle_`, `map_notes_` e `color_usage_` são
+ * A ASSIMETRIA É REAL E NÃO É ENGANO: `layers_`, `gridStyle_` e `map_notes_` são
  * indexadas pela CHAVE do mapa (que num atlas sincronizado é o UUID), enquanto `temporal_` é
  * indexada pelo NOME. Uniformizá-las aqui leria a gaveta errada.
  */
@@ -73,7 +73,6 @@ const KEY = Object.freeze({
     streetview360: (mapKey) => `streetview360_${mapKey}`,
     mapNotes: (mapKey) => `map_notes_${mapKey}`,
     gridStyle: (mapKey) => `gridStyle_${mapKey}`,
-    colorUsage: (mapKey) => `color_usage_${mapKey}`,
     temporal: (mapName) => `temporal_${mapName}`,
     customIcons: 'custom_icons',
     mapOrder: 'mapOrder',
@@ -202,7 +201,7 @@ export async function buildLocalAtlasExportData(scope) {
         currentMap: null,
         mapOrder: [],
         maps: {},
-        colorUsage: {}, mapNotes: {}, groups: {}, layers: {},
+        mapNotes: {}, groups: {}, layers: {},
         cesium3d: {}, streetview360: {}, temporal: {}, gridStyle: {},
         briefings: [],
     };
@@ -280,11 +279,9 @@ export async function buildLocalAtlasExportData(scope) {
             await ler(StoreName.SETTINGS, scope, KEY.gridStyle(mapKey)));
         porSecao(data.temporal, mapName,
             await ler(StoreName.SETTINGS, scope, KEY.temporal(mapName)));
-        // AS DUAS VARIANTES, e a legada por último: `color_usage_` é gravada sob a chave RESOLVIDA,
-        // então um atlas migrado para UUID pode ter resíduo ainda sob o nome.
-        porSecao(data.colorUsage, mapName,
-            await ler(StoreName.SETTINGS, scope, KEY.colorUsage(mapKey))
-            ?? await ler(StoreName.SETTINGS, scope, KEY.colorUsage(mapName)));
+        // A CONTAGEM DE CORES NÃO É LIDA (2026-09-21): ela deixou de viajar ao servidor, porque é
+        // derivada das feições e cada cliente a recalcula (`performInitialColorAnalysis`). Eram duas
+        // leituras de disco por mapa para montar uma seção que o payload descartava.
     }
 
     const briefings = [];

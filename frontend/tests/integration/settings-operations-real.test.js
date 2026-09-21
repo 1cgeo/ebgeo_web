@@ -8,10 +8,12 @@
 // in logOperation: a SETTING op whose entityId is neither a valid UUID nor the 'atlas'
 // sentinel is silently dropped before it can be enqueued.
 //
-// Conversely, the genuinely-synced app-state settings (mapBadgeColors / customIcons /
-// colorUsage) DO emit a `setting` UPDATE op, scoped to the atlas UUID (or 'atlas'
-// sentinel), with the documented data shape — exactly as sync-app-state-emit.test.js
-// asserts for the wrapper logAtlasSetting.
+// Conversely, the genuinely-synced app-state settings (mapBadgeColors / customIcons)
+// DO emit a `setting` UPDATE op, scoped to the atlas UUID (or 'atlas' sentinel), with
+// the documented data shape — exactly as sync-app-state-emit.test.js asserts for the
+// wrapper logAtlasSetting. `colorUsage` was a third one until 2026-09-21, when the
+// colour count stopped being synced (it is derived from the features each client
+// already has); see tests/unit/contagem-de-cores-nao-sincroniza.test.js.
 //
 // Two concerns, two mock graphs, isolated into separate describe blocks via dynamic
 // import after vi.resetModules() — the image part stubs settings.operations.js's import
@@ -220,15 +222,6 @@ describe('SETTING-op local-vs-synced invariant (bug d²)', () => {
         expect(emit.queued[0].entityType).toBe('setting');
         expect(emit.queued[0].entityId).toBe(ATLAS_UUID);
         expect(emit.queued[0].data).toEqual({ customIcons });
-    });
-
-    it('colorUsage emits a per-map nested object scoped to the atlas UUID', async () => {
-        await logAtlasSetting({ colorUsage: { Alfa: { '#ff0000': 3 } } });
-
-        expect(emit.queued).toHaveLength(1);
-        expect(emit.queued[0].entityType).toBe('setting');
-        expect(emit.queued[0].entityId).toBe(ATLAS_UUID);
-        expect(emit.queued[0].data).toEqual({ colorUsage: { Alfa: { '#ff0000': 3 } } });
     });
 
     it('falls back to the "atlas" sentinel entityId when the atlas has no id', async () => {

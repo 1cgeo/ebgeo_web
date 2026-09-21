@@ -568,8 +568,8 @@ export const logSettingOperation = createEntityLogger(EntityType.SETTING, true);
 
 /**
  * Convenience wrapper for syncing a WHITELISTED atlas-level app-preference patch
- * (datamodel-13/14: mapBadgeColors, colorUsage, customIcons — and §24.8
- * terrainExaggeration). Resolves the atlas id best-effort so the op carries the
+ * (datamodel-13/14: mapBadgeColors, customIcons, and §24.8 terrainExaggeration; `colorUsage` left
+ * this door on 2026-09-21, because it is derived from the features and each client recomputes it). Resolves the atlas id best-effort so the op carries the
  * real entityId, then emits a `setting` UPDATE op. Offline-safe: when operation
  * logging is disabled (not connected) `logSettingOperation` is a no-op, so callers
  * may invoke this unconditionally from any write site. Never throws — a failure to

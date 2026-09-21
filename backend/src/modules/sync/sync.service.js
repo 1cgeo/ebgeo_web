@@ -32,11 +32,28 @@ import { UNSEEN_RESOURCE_REASONS, declaredResourceRefs } from './resource-ref.ex
  * deep-merged (one level) into its own sub-object inside atlas.settings, so a
  * per-map write accumulates instead of clobbering sibling maps:
  *  - mapBadgeColors: { [mapName]: color }     (datamodel-13)
- *  - colorUsage:     { [mapName]: { color: count } }  (datamodel-13)
  * Plain/scalar keys (terrainExaggeration) and list keys (customIcons) are
  * replaced wholesale via the top-level shallow merge instead.
+ *
+ * `colorUsage` WAS the second member and left on 2026-09-21 (owner's decision): the colour count
+ * is DERIVED from the features each client already receives, and the two sides never agreed on a
+ * key (the client wrote the local copy under the map's resolved id and sent the op under the map's
+ * NAME), so it ping-ponged between the two and a renamed map left its old name in this sub-object
+ * forever, since a deep merge never prunes.
+ *
+ * AN OLD CLIENT THAT STILL SENDS THE KEY IS NOT REFUSED. It falls off this list and is dropped in
+ * silence, exactly like `malicious` in the negative test, and the rest of the same op is applied.
+ * That is not politeness: a refused op never leaves the client's outbound queue, and the queue is
+ * FIFO with head-of-line retention, so refusing here would freeze everything that client has to
+ * send. Same doctrine as `temporal-config.js`: discard, never reject.
+ *
+ * The value ALREADY stored in `atlas.settings.colorUsage` of existing atlases is left where it is,
+ * inert. No migration was written (the owner's dev database has divergent migration tracking, and
+ * a new file breaks it), and the snapshot keeps serving the column whole: the client simply no
+ * longer reads the key. Serving it costs nothing and removing it from the snapshot would mean a
+ * second place to remember.
  */
-const SETTING_OBJECT_KEYS = ['mapBadgeColors', 'colorUsage'];
+const SETTING_OBJECT_KEYS = ['mapBadgeColors'];
 
 /**
  * As coleções do snapshot que NÃO dependem de nada além do `atlasId`, na ordem em que viajam
@@ -2418,7 +2435,7 @@ export async function pushOperations(atlasId, operations, userId, permission = '
             op.type,
             op.target,
             // The operations LOG has entity_id UUID NOT NULL. Atlas-level ops (settings such as
-            // colorUsage / mapBadgeColors / terrainExaggeration) carry a non-UUID sentinel targetId
+            // mapBadgeColors / terrainExaggeration) carry a non-UUID sentinel targetId
             // ('atlas'), which fails the UUID cast (22P02) and 400s the whole push. Record those against
             // the atlas's OWN id — the entity these ops target — so the log insert succeeds. UUID-keyed
             // ops (features/layers/maps/etc.) are recorded under their real id, unchanged.
@@ -3705,12 +3722,12 @@ async function applyOperation(t, atlasId, op, userId, permission) {
     // through the SAME whitelist mechanism as terrainExaggeration. customIcons is the
     // icon REGISTRY (metadata list under the frontend key `custom_icons`; the blobs
     // sync via the images endpoint, not here) — a list, replaced wholesale on each
-    // write. mapBadgeColors (map-name→color) and colorUsage (per-map color counts,
-    // frontend key `color_usage`, nested as { [mapName]: counts }) are keyed objects:
-    // they are shallow-merged into their OWN sub-object (see SETTING_OBJECT_KEYS) so a
-    // per-map write accumulates instead of clobbering sibling maps. None of these is a
-    // resource-availability key (features/basemaps/etc.), which stay rejected so a
-    // write user cannot rewrite what the atlas exposes.
+    // write. mapBadgeColors (map-name→color) is a keyed object: it is shallow-merged
+    // into its OWN sub-object (see SETTING_OBJECT_KEYS) so a per-map write accumulates
+    // instead of clobbering sibling maps. None of these is a resource-availability key
+    // (features/basemaps/etc.), which stay rejected so a write user cannot rewrite what
+    // the atlas exposes. `colorUsage` left the whitelist on 2026-09-21 and an op still
+    // carrying it is accepted with that one key dropped — see SETTING_OBJECT_KEYS.
     if (patch.customIcons !== undefined) safe.customIcons = patch.customIcons;
     // mapOrder (array of map names) — the maps-list ordering; a plain array replaced
     // wholesale. Not a resource-availability key, so a write user may reorder the list.

@@ -12,8 +12,9 @@
  *  - a later `mapOrder` op replaces the previous order wholesale;
  *  - a sibling object-key write (`mapBadgeColors`) deep-merges WITHOUT dropping the
  *    previously-stored `mapOrder` (shallow-merge preservation) — this also exercises
- *    the atlas-settings sync path (mapBadgeColors/colorUsage/customIcons) end-to-end,
- *    which had no E2E before.
+ *    the atlas-settings sync path (mapBadgeColors/customIcons) end-to-end, which had
+ *    no E2E before. `colorUsage` was on that list until 2026-09-21, when the colour
+ *    count stopped being synced; no case here ever asserted its round-trip.
  */
 
 import { describe, it, beforeAll, expect } from 'vitest';

@@ -248,7 +248,7 @@ describe('buildLocalAtlasExportData :: endereço', () => {
         expect(data.maps['Mapa Alfa'].features.points).toHaveLength(1);
     });
 
-    it('lê `layers_`, `gridStyle_`, `map_notes_` e `color_usage_` pela CHAVE do mapa', async () => {
+    it('lê `layers_`, `gridStyle_` e `map_notes_` pela CHAVE do mapa, e NÃO lê a contagem de cores', async () => {
         const scope = escopoAlvo();
         await semearAtlas(scope);
 
@@ -257,7 +257,10 @@ describe('buildLocalAtlasExportData :: endereço', () => {
         expect(data.layers['Mapa Alfa']).toHaveLength(1);
         expect(data.gridStyle['Mapa Alfa']).toEqual({ visible: true, type: 'utm' });
         expect(data.mapNotes['Mapa Alfa']).toEqual({ title: 'Nota', description: 'Corpo' });
-        expect(data.colorUsage['Mapa Alfa']).toEqual({ '#ff0000': 2 });
+        // A contagem de cores saiu do envio em 2026-09-21: é derivada das feições, e o servidor
+        // deixou de guardá-la. A semente `color_usage_*` continua no disco do atlas local (o caso a
+        // semeia), e o que se afirma é que ela não entra nos dados do envio.
+        expect(data).not.toHaveProperty('colorUsage');
         expect(data.groups['Mapa Alfa'].g1.name).toBe('Grupo Um');
     });
 

@@ -1,14 +1,26 @@
 // Path: tests/integration/sync-atlas-settings-app-state.test.js
 // datamodel-13/14: app-level state that used to be local-only (mapBadgeColors,
-// colorUsage, customIcons) now syncs through the SAME `setting` op + whitelist as
-// terrainExaggeration, shallow-merged into atlas.settings and round-tripped in the
-// snapshot. The payload SHAPE here mirrors exactly what the frontend logger emits
-// (logSettingOperation puts the patch in `data`):
+// customIcons) syncs through the SAME `setting` op + whitelist as terrainExaggeration,
+// shallow-merged into atlas.settings and round-tripped in the snapshot. The payload
+// SHAPE here mirrors exactly what the frontend logger emits (logSettingOperation puts
+// the patch in `data`):
 //   - mapBadgeColors → data: { mapBadgeColors: { [mapName]: color } }  (full object)
-//   - colorUsage     → data: { colorUsage: { [mapName]: { color: count } } }  (per-map)
 //   - customIcons    → data: { customIcons: [ { id, name, ... } ] }    (full registry)
 // Resource-availability keys (features/basemaps/...) MUST stay rejected. An editor
 // (write share) may do it (§24.8 is editor-allowed, not owner-only).
+//
+// E `colorUsage`, QUE ERA O TERCEIRO E SAIU EM 2026-09-21 (decisão do dono). A contagem de cores
+// é DERIVADA das feições que todo cliente já recebe, e as duas pontas nunca concordaram numa
+// chave (o cliente gravava o disco sob o id resolvido do mapa e mandava a op sob o NOME dele),
+// de modo que ela ia e voltava sem nunca convergir, e o mapa renomeado deixava o nome velho no
+// sub-objeto para sempre, porque a mescla profunda nunca poda.
+//
+// O CASO QUE ESTE ARQUIVO PRENDE AGORA É O DO CLIENTE ANTIGO, e é o oposto de uma recusa: a op
+// que ainda traz a chave tem de ser ACEITA (200), a chave DESCARTADA em silêncio como qualquer
+// outra fora da lista, e o RESTO da mesma op aplicado. Recusar seria pior que gravar: uma op
+// recusada não desenfileira, e a fila de saída é FIFO com retenção de cabeça, então o cliente
+// antigo pararia de sincronizar TUDO. É a mesma doutrina de `src/modules/sync/temporal-config.js`:
+// descartar, nunca recusar.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -69,12 +81,31 @@ describe('Sync atlas-level app-state settings (datamodel-13/14)', () => {
     assert.equal(s.mapBadgeColors.Charlie, '#10b981', 'new map color added');
   });
 
-  it('datamodel-13: merges colorUsage as a per-map nested object ({ [mapName]: counts }) and accumulates', async () => {
-    await pushSetting(ownerTok, { colorUsage: { Alfa: { '#ff0000': 3, '#00ff00': 1 } } }).expect(200);
-    await pushSetting(ownerTok, { colorUsage: { Bravo: { '#0000ff': 5 } } }).expect(200);
+  it('2026-09-21: uma op de cliente ANTIGO com colorUsage é ACEITA e a chave NÃO é gravada', async () => {
+    // O 200 é metade da asserção, e é a metade que se esquece: um 4xx aqui congelaria a fila de
+    // saída inteira daquele cliente, que é um estrago maior que o do valor que se quer podar.
+    const res = await pushSetting(ownerTok, { colorUsage: { Alfa: { '#ff0000': 3, '#00ff00': 1 } } })
+      .expect(200);
+    assert.equal(res.body.data.results[0].status, 'applied',
+      'a op volta aplicada, e não recusada: recusa retém a cabeça da fila do cliente');
+
     const s = await settings();
-    assert.deepEqual(s.colorUsage.Alfa, { '#ff0000': 3, '#00ff00': 1 }, 'Alfa color usage persisted');
-    assert.deepEqual(s.colorUsage.Bravo, { '#0000ff': 5 }, 'Bravo color usage accumulated (sibling not clobbered)');
+    assert.equal(s.colorUsage, undefined, 'a chave descartada não foi criada em atlas.settings');
+  });
+
+  it('2026-09-21: o IRMÃO mapBadgeColors da MESMA op continua sendo gravado', async () => {
+    // Sem este caso a poda passaria verde tendo levado junto o irmão, que NÃO é derivado: a cor
+    // do crachá é escolha do usuário. É o mesmo par do caso `malicious` mais abaixo, e é o que
+    // distingue "a chave saiu da lista" de "o ramo inteiro parou de escrever".
+    await pushSetting(ownerTok, {
+      colorUsage: { Bravo: { '#0000ff': 5 } },
+      mapBadgeColors: { Foxtrot: '#6366f1' },
+    }).expect(200);
+
+    const s = await settings();
+    assert.equal(s.mapBadgeColors.Foxtrot, '#6366f1', 'o irmão da mesma op foi aplicado');
+    assert.equal(s.colorUsage, undefined, 'e a chave podada continua sem ser criada');
+    assert.equal(s.mapBadgeColors.Alfa, '#3b82f6', 'e o merge profundo do irmão não perdeu vizinho');
   });
 
   it('datamodel-14: merges customIcons (the icon registry list) into atlas.settings and round-trips', async () => {

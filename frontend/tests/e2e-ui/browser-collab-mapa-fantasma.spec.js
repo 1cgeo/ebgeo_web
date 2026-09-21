@@ -397,13 +397,14 @@ collabTest.describe('Mapa fantasma: a marca do resolvedor e os dois gatilhos que
         expect.soft(retratoA.resolvedorInicializado, 'mapResolver.isInitialized em A depois do retrato de abertura').toBe(true);
         // O EFEITO, que e' o que a marca custa de verdade: a contagem de cores fica sob o ID.
         //
-        // A ASSERÇAO E' POSITIVA, E ISSO FOI MEDIDO. A chave por NOME existe TAMBEM depois do
-        // conserto, e nao e' esta escrita: o ajuste de atlas `colorUsage` e' sincronizado com o
-        // NOME do mapa como chave, e `applyRemoteAppStateSettings` o reidrata como
-        // `color_usage_<nome>` a cada retrato. Exigir a ausencia dela mediria aquele outro
-        // mecanismo. O que a marca decide e' se `_resolveSettingsKey` resolve para o id, e a
-        // evidencia disso e' a chave por id EXISTIR: antes do conserto ela nao existia, e as duas
-        // unicas chaves eram as de nome.
+        // A ASSERÇAO E' POSITIVA, E ISSO FOI MEDIDO. Quando este caso nasceu, a chave por NOME
+        // existia TAMBEM depois do conserto, por outro mecanismo: o ajuste de atlas `colorUsage`
+        // viajava com o NOME do mapa como chave e `applyRemoteAppStateSettings` o reidratava como
+        // `color_usage_<nome>` a cada retrato, de modo que exigir a ausencia dela mediria aquele
+        // outro mecanismo. Esse mecanismo SAIU em 2026-09-21 (a contagem de cores deixou de ser
+        // sincronizada), mas a forma da asserçao continua sendo a certa: o que a marca decide e'
+        // se `_resolveSettingsKey` resolve para o id, e a evidencia disso e' a chave por id
+        // EXISTIR. Antes do conserto ela nao existia, e as duas unicas chaves eram as de nome.
         expect.soft(depoisDoDesenho.chavesDeColorUsage,
             'a contagem de cores do mapa aberto e gravada sob o ID dele')
             .toContain(`color_usage_${mapId}`);
