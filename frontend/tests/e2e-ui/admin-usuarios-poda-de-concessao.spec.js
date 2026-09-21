@@ -75,6 +75,20 @@ async function contarConcessoesVivas(granterId) {
     return row.n;
 }
 
+/**
+ * Escolhe uma OM num campo buscável do formulário de usuário (`ui/searchable-select.js`), que desde
+ * 2026-09-21 substitui o `<select>`: limpa o texto, abre a lista e clica na linha daquele id.
+ * @param {import('@playwright/test').Page} page
+ * @param {string} testid - `data-testid` do campo.
+ * @param {string} id - Id da OM.
+ */
+async function escolherOm(page, testid, id) {
+    const campo = page.locator(`[data-testid="${testid}"]`);
+    await campo.fill('');
+    await page.locator(`[data-testid="${testid}-list"] [data-value="${id}"]`).click();
+    await expect(campo).not.toHaveValue('');
+}
+
 /** Boota anônimo, entra pela interface e para na página de Administração, aba Usuários. */
 async function abrirAbaUsuarios(page, creds) {
     await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${state.baseUrl}/api/v1`);
@@ -128,7 +142,7 @@ describeOrSkip('Aba Usuários — a confirmação de poda ao trocar papel ou OM 
         await expect(page.locator('[data-testid="admin-user-form"]')).toBeVisible({ timeout: 10000 });
         const seletorOm = page.locator('[data-testid="admin-userform-producer-org"]');
         await expect(seletorOm).toBeVisible();
-        await seletorOm.selectOption(omB.id);
+        await escolherOm(page, 'admin-userform-producer-org', omB.id);
         await page.locator('[data-testid="admin-userform-save"]').click();
 
         // PRIMEIRA METADE: o diálogo nomeia o gesto e CITA A QUANTIDADE.
@@ -180,7 +194,7 @@ describeOrSkip('Aba Usuários — a confirmação de poda ao trocar papel ou OM 
         await expect(linha).toBeVisible({ timeout: 10000 });
         await linha.locator('[data-testid="admin-user-edit"]').click();
         await expect(page.locator('[data-testid="admin-user-form"]')).toBeVisible({ timeout: 10000 });
-        await page.locator('[data-testid="admin-userform-producer-org"]').selectOption(omB.id);
+        await escolherOm(page, 'admin-userform-producer-org', omB.id);
         await page.locator('[data-testid="admin-userform-save"]').click();
 
         // A CONFIRMAÇÃO CONTINUA APARECENDO (a autoridade muda de fato, e a contagem da

@@ -22,7 +22,8 @@ import { showConfirm } from '@modals/confirm.modal.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
 import config from '@js/config.js';
 import { sectionHeader, card, avatar, emptyState, ICON_USERS, failureState } from './admin-dom.js';
-import { orgLabel, buildDomainOptions } from './org-options.js';
+import { orgLabel, buildDomainOptions, buildOrgSearchItems } from './org-options.js';
+import { createSearchableSelect } from '@ui/searchable-select.js';
 import {
     verdictOfChange,
     producerScopeChangeTitle,
@@ -121,7 +122,7 @@ class UsersTab {
         this._users = [];   // set before any search input can fire _applyFilter (avoids a load-window crash)
         this._filter = '';
         this._renderList();
-        return () => { this._alive = false; clearTimeout(this._searchTimer); this._pararPresenca?.(); };
+        return () => { this._alive = false; clearTimeout(this._searchTimer); this._pararPresenca?.(); this._resetCombos(); };
     }
 
     // ----- list -----
@@ -138,10 +139,47 @@ class UsersTab {
         return p;
     }
 
+    /**
+     * @private Adds a searchable OM field to a form. The combo is kept so the form can `mount()`
+     * it once it is in the document, and so every re-render can `destroy()` it.
+     * @param {HTMLFormElement} form
+     * @param {string} label
+     * @param {string} testid - Also the input id.
+     * @param {Array<{value: string, label: string, sigla?: string|null}>} items
+     * @param {string} value - Row id to pre-select, or ''.
+     * @returns {import('@ui/searchable-select.js').SearchableSelect}
+     */
+    _comboField(form, label, testid, items, value) {
+        const combo = createSearchableSelect({
+            id: testid,
+            label,
+            testid,
+            items,
+            placeholder: 'Digite o nome ou a sigla…',
+            emptyText: 'Nenhuma unidade encontrada',
+            fieldClass: 'admin-form__field',
+        });
+        combo.setValue(value);
+        form.appendChild(combo.element);
+        this._combos.push(combo);
+        return combo;
+    }
+
+    /**
+     * @private THE LIST OF EACH COMBO LIVES IN `document.body` (a portal, see
+     * `ui/searchable-select.js`), so replacing the tab's content does not take it along: without
+     * this, every form opened would leave a listbox and its document listeners behind.
+     */
+    _resetCombos() {
+        for (const combo of this._combos || []) combo.destroy();
+        this._combos = [];
+    }
+
     /** @private */
     async _renderList() {
         const c = this._container;
         this._pararPresenca?.();
+        this._resetCombos();
         c.replaceChildren();
 
         const newBtn = button('+ Novo usuário', 'admin-btn admin-btn--primary', 'admin-users-new',
@@ -427,6 +465,7 @@ class UsersTab {
         const isEdit = !!user;
         const c = this._container;
         this._pararPresenca?.();
+        this._resetCombos();
         c.replaceChildren();
 
         const form = document.createElement('form');
@@ -460,8 +499,11 @@ class UsersTab {
         const posto = selectField(form, 'Posto/Graduação', 'admin-userform-posto',
             buildDomainOptions(config.postos, user?.rank_id, user?.posto_graduacao,
                 undefined, (p) => p.abrev || p.name), user?.rank_id || '');
-        const om = selectField(form, 'Organização Militar (lotação)', 'admin-userform-om',
-            buildDomainOptions(config.organizacoesMilitares, user?.organization_id, user?.organizacao_militar), user?.organization_id || '');
+        // AS DUAS LISTAS DE OM SÃO BUSCÁVEIS (pedido do dono, 2026-09-21): são dezenas de unidades,
+        // e num `<select>` achar uma é caçar na rolagem. O componente é o mesmo do auto-cadastro,
+        // que casa pelo nome e pela sigla.
+        const om = this._comboField(form, 'Organização Militar (lotação)', 'admin-userform-om',
+            buildOrgSearchItems(user?.organization_id, user?.organizacao_militar), user?.organization_id || '');
         form.appendChild(hint('Lotação: rótulo institucional da pessoa, declarado por ela no '
             + 'auto-cadastro. NÃO autoriza nada — quem autoriza é o par Papel + OM produtora abaixo.'));
 
@@ -474,11 +516,10 @@ class UsersTab {
         // BICONDICIONAL no banco: crachá sem escopo e escopo sem crachá são os dois estados
         // impossíveis, e o servidor recusa os dois. O campo desaparece fora do papel Produtor
         // porque um seletor cinza sem explicação vira chamado de suporte.
-        const producerOm = selectField(form, 'OM produtora', 'admin-userform-producer-org',
-            buildDomainOptions(config.organizacoesMilitares, user?.producer_org_id, user?.producer_org_nome,
-                '— escolha a OM'),
+        const producerOm = this._comboField(form, 'OM produtora', 'admin-userform-producer-org',
+            buildOrgSearchItems(user?.producer_org_id, user?.producer_org_nome),
             user?.producer_org_id || '');
-        const producerField = producerOm.closest('.admin-form__field');
+        const producerField = producerOm.element;
         const producerHint = hint('Um produtor mantém TODOS os recursos de UMA OM (catálogo e 360) '
             + 'e nada fora dela. Acima disso, use Administrador.');
         form.appendChild(producerHint);
@@ -486,8 +527,8 @@ class UsersTab {
             const ehProdutor = role.value === PRODUCER_ROLE;
             if (producerField) producerField.hidden = !ehProdutor;
             producerHint.hidden = !ehProdutor;
-            producerOm.disabled = !ehProdutor || role.disabled;
-            if (!ehProdutor) producerOm.value = '';
+            producerOm.input.disabled = !ehProdutor || role.disabled;
+            if (!ehProdutor) producerOm.setValue('');
         };
         role.addEventListener('change', syncProducerField);
 
@@ -573,6 +614,12 @@ class UsersTab {
                 showFormError(error, 'Preencha nome e usuário.');
                 return;
             }
+            // Texto digitado que não virou escolha na lista não pode viajar calado como "sem OM".
+            if (om.text.trim() && !om.value) {
+                showFormError(error, 'Escolha a Organização Militar na lista.');
+                om.input.focus();
+                return;
+            }
             // Cobrado aqui para que o erro chegue com o nome do campo em pt-BR. Sem isto, o
             // usuário recebe o 400 do CHECK do banco, que fala de constraint e não diz o que fazer.
             if (ehProdutor && !payload.producer_org_id) {
@@ -647,6 +694,9 @@ class UsersTab {
         });
 
         c.appendChild(form);
+        // DEPOIS de entrar no documento: `mount()` posiciona a lista pelo campo, que antes disso
+        // não tem caixa nenhuma.
+        for (const combo of this._combos) combo.mount();
     }
 
     // ----- reset password -----
@@ -658,6 +708,7 @@ class UsersTab {
     _renderPasswordForm(user) {
         const c = this._container;
         this._pararPresenca?.();
+        this._resetCombos();
         c.replaceChildren();
 
         const form = document.createElement('form');
@@ -812,6 +863,7 @@ class UsersTab {
     _renderTransfer(user) {
         const c = this._container;
         this._pararPresenca?.();
+        this._resetCombos();
         c.replaceChildren();
 
         const wrap = document.createElement('div');

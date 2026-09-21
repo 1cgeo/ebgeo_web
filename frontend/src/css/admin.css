@@ -657,6 +657,15 @@
     background: #fff;
 }
 
+/* O campo buscável de OM ocupa a linha inteira, como o `<select>` vizinho: dentro da casca do
+   componente, que é `display: block`, o input ficaria na largura natural, com a seta longe dele
+   (medido na captura de 2026-09-21). E guarda à direita o lugar da seta: a regra acima tem mais
+   especificidade que a do componente e zeraria esse recuo, pondo o texto por baixo da seta. */
+.admin-form__field .searchable-select__input {
+    width: 100%;
+    padding-right: var(--space-8);
+}
+
 .admin-form__field input:focus,
 .admin-form__field select:focus {
     border-color: var(--primary);

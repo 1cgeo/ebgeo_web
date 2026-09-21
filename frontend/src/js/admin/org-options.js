@@ -63,3 +63,20 @@ export function buildDomainOptions(list, currentId, currentLabel, emptyLabel = '
     }
     return opts;
 }
+
+/**
+ * The OM list as the rows of a `SearchableSelect` (`ui/searchable-select.js`): the same rows as
+ * {@link buildDomainOptions}, current id included, WITHOUT the "(nenhum)" row, and with the
+ * `sigla`, which is what the component also matches on ("DSG" finds the Diretoria). Clearing is
+ * erasing the field, so an empty row would only be a second way to say the same thing.
+ * @param {string} [currentId]
+ * @param {string} [currentLabel]
+ * @returns {Array<{value: string, label: string, sigla: string|null}>}
+ */
+export function buildOrgSearchItems(currentId, currentLabel) {
+    const list = Array.isArray(config.organizacoesMilitares) ? config.organizacoesMilitares : [];
+    const siglaById = new Map(list.filter((o) => o?.id).map((o) => [o.id, o.sigla ?? null]));
+    return buildDomainOptions(list, currentId, currentLabel)
+        .filter((opt) => opt.value)
+        .map((opt) => ({ ...opt, sigla: siglaById.get(opt.value) ?? null }));
+}

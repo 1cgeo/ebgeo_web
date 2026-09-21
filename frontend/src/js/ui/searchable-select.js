@@ -174,6 +174,19 @@ export class SearchableSelect {
         return this._input.value;
     }
 
+    /**
+     * Pre-selects a row by id, which a host that EDITS an existing record needs. Silent: it fires
+     * no `ebgeo:select`, because nobody chose anything. An id that is not in the list clears the
+     * field instead of showing text that would not submit.
+     * @param {string} value - Row id, or '' to clear.
+     */
+    setValue(value) {
+        const item = value ? this._items.find((it) => it.value === value) : null;
+        this._value = item ? item.value : '';
+        this._chosenLabel = item ? item.label : '';
+        this._input.value = this._chosenLabel;
+    }
+
     /** Adds every listener. Call once, after the field is in the document. */
     mount() {
         document.body.appendChild(this._list);
