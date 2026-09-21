@@ -7,7 +7,13 @@
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
 import { catalogLayerReferenceId } from '../catalog/catalog-layer.ref.js';
 import { getCatalogLayers } from './catalog.operations.js';
-import { isCurrentMapLockedSync } from './map.operations.js';
+// A PERGUNTA DA TRAVA É A DE `map.operations.js`, E ELA É ASSÍNCRONA. As duas funções gateadas
+// deste arquivo recebem um `mapName` explícito e perguntavam `isCurrentMapLockedSync()`, que lê
+// `memoryStore.lockedMaps` e responde sobre o mapa CORRENTE: o argumento delas era descartado, e
+// em atlas LOCAL aquele conjunto só chega a conter o mapa corrente (ver `.claude/rules/
+// architecture.md`, "A TRAVA DE OUTRO MAPA"). `isTargetMapLocked` lê o app setting do DISCO e
+// repergunta pela sobreposição de briefing, que só existe em memória.
+import { isTargetMapLocked } from './map.operations.js';
 import {
     deleteImageCompat as removeImageData,
     getGridStyleCompat as getGridStyleRepo,
@@ -67,9 +73,15 @@ export async function getMapNotes(mapName = null) {
 /**
  * Sets map notes.
  *
+ * O RETORNO É BOOLEANO DESDE 2026-09-21, e é o que tira a mentira da tela. As duas recusas
+ * (papel e trava) devolviam `undefined` exatamente como o sucesso, então o editor de notas
+ * (`sidebar/panels/notes-panel.js`) fechava o modo de edição e dizia "Notas salvas com sucesso!"
+ * por cima de uma escrita que não aconteceu. Quem grava responde se gravou.
+ *
  * @param {string} mapName - Map name
  * @param {import('./store.types.js').MapNotes} notes - Notes data
- * @returns {Promise<void>}
+ * @returns {Promise<boolean>} True quando as notas foram gravadas; false quando a escrita foi
+ *   recusada (papel insuficiente ou mapa travado).
  */
 export async function setMapNotes(mapName, notes) {
     // Same gate, same reason as `setMapTemporalConfig` (the long version of the rationale
@@ -84,15 +96,30 @@ export async function setMapNotes(mapName, notes) {
             reason: perm.reason,
             required: perm.required
         });
-        return;
-    }
-
-    if (isCurrentMapLockedSync()) {
-        console.warn('Map is locked. Cannot set map notes.');
-        return;
+        return false;
     }
 
     const targetMap = resolveMapName(mapName);
+
+    // A TRAVA DO MAPA É O SEGUNDO EIXO, E ELE PERGUNTAVA PELO MAPA ERRADO ATÉ 2026-09-21 (ponto
+    // N3). Esta função recebe um `mapName` e perguntava `isCurrentMapLockedSync()`, sobre o mapa
+    // CORRENTE: escrever as notas de OUTRO mapa passava pelo gate lendo a trava de um terceiro, e
+    // em atlas local o conjunto em memória sequer conhece os outros mapas. Como a op `mapNotes`
+    // tem o MAPA como alvo, e o servidor só impõe `maps.locked` a alvos FILHOS do mapa
+    // (`LOCKABLE_CHILD_TARGETS`), este gate é o único ponto de imposição que existe para esta
+    // escrita: um erro aqui viaja e é aplicado.
+    //
+    // E A RECUSA FALA. Era um `console.warn`, que não chega a ninguém; o listener global de
+    // `STORE_OPERATION_BLOCKED` já tem a frase de `map_locked`. Mesma forma de
+    // `writeMapTemporalConfig` (`temporal.operations.js`), que é o molde deste bloco.
+    if (await isTargetMapLocked(targetMap)) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation: 'setMapNotes',
+            reason: 'map_locked'
+        });
+        return false;
+    }
+
     await runTransaction(async tx => {
         const mapId = mapResolver.resolveToId(targetMap) || targetMap;
         const previousNotes = await getMapNotesRepo(targetMap);
@@ -105,6 +132,7 @@ export async function setMapNotes(mapName, notes) {
         tx.recordOperation(EntityType.MAP_NOTES, OperationType.UPDATE, mapId, mapId, notes, previous);
         return () => setMapNotesRepo(targetMap, notes);
     });
+    return true;
 }
 
 /**
@@ -133,9 +161,12 @@ export async function getGridStyle(mapName) {
 /**
  * Sets grid style.
  *
+ * Booleano pela mesma razão de `setMapNotes` acima: quem grava responde se gravou.
+ *
  * @param {string} mapName - Map name
  * @param {import('./store.types.js').GridStyle} gridStyle - Grid style
- * @returns {Promise<void>}
+ * @returns {Promise<boolean>} True quando a grade foi gravada; false quando a escrita foi
+ *   recusada (papel insuficiente ou mapa travado).
  */
 export async function setGridStyle(mapName, gridStyle) {
     // Same gate, same reason as `setMapNotes` above: `logGridStyleOperation` at the tail is a
@@ -147,15 +178,21 @@ export async function setGridStyle(mapName, gridStyle) {
             reason: perm.reason,
             required: perm.required
         });
-        return;
-    }
-
-    if (isCurrentMapLockedSync()) {
-        console.warn('Map is locked. Cannot set grid style.');
-        return;
+        return false;
     }
 
     const targetMap = resolveMapName(mapName);
+
+    // Mesma pergunta, mesma razão e mesmo molde de `setMapNotes` acima: a op `gridStyle` tem o
+    // MAPA como alvo, então o servidor não a recusa por trava, e este gate é o único que existe.
+    if (await isTargetMapLocked(targetMap)) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation: 'setGridStyle',
+            reason: 'map_locked'
+        });
+        return false;
+    }
+
     await runTransaction(async tx => {
         const mapId = mapResolver.resolveToId(targetMap) || targetMap;
         const previousGridStyle = await getGridStyleRepo(targetMap);
@@ -177,6 +214,7 @@ export async function setGridStyle(mapName, gridStyle) {
         tx.recordOperation(EntityType.GRID_STYLE, OperationType.UPDATE, mapId, mapId, gridStyle, previous);
         return () => setGridStyleRepo(targetMap, gridStyle);
     });
+    return true;
 }
 
 // ===== HILLSHADE =====

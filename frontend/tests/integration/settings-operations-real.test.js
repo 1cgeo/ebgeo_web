@@ -46,7 +46,10 @@ vi.mock('../../src/js/store/sync/image-sync.js', () => ({
 // Stub the rest of settings.operations.js's import graph so it loads in node.
 vi.mock('../../src/js/catalog/catalog.constants.js', () => ({ CATALOG_ITEM_TYPES: {} }));
 vi.mock('../../src/js/store/catalog.operations.js', () => ({ getCatalogLayers: vi.fn() }));
-vi.mock('../../src/js/store/map.operations.js', () => ({ isCurrentMapLockedSync: () => false }));
+// `isTargetMapLocked` entrou em 2026-09-21 (ponto N3): `setMapNotes` e `setGridStyle` passaram a
+// perguntar pela trava do mapa ALVO, lida do DISCO, no lugar de `isCurrentMapLockedSync()`, que
+// respondia sobre o mapa corrente. Aqui a trava fica aberta: este arquivo mede outro eixo.
+vi.mock('../../src/js/store/map.operations.js', () => ({ isTargetMapLocked: async () => false }));
 vi.mock('../../src/js/store/services/map-resolver.service.js', () => ({ mapResolver: { resolveToId: (x) => x } }));
 vi.mock('../../src/js/store/store-state-manager.js', () => ({ default: {} }));
 vi.mock('../../src/js/store/sync/index.js', () => ({

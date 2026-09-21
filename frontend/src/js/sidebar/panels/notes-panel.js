@@ -270,7 +270,17 @@ export async function createNotesPanelContent({ mapName, readOnly = false }) {
                 title: titleInput.value.trim(),
                 description: description
             };
-            await setMapNotes(mapName, notes);
+            // O SUCESSO É O QUE A STORE RESPONDE, E NÃO O FATO DE A CHAMADA TER VOLTADO.
+            // `setMapNotes` recusa por PAPEL e por TRAVA devolvendo `false`, sem lançar (recusa
+            // esperada não estoura, pela regra dos três casos da store). Até 2026-09-21 este
+            // bloco fechava o modo de edição e anunciava "Notas salvas com sucesso!" nos dois
+            // desfechos: todo Leitor que clicasse em Salvar era informado de que tinha salvo, e
+            // um par que travasse o mapa com o editor já aberto produzia o mesmo. O texto
+            // continua na caixa, em modo de edição, e quem nomeia o motivo é o aviso da própria
+            // store (o listener global de `STORE_OPERATION_BLOCKED`), que sabe QUAL dos dois
+            // eixos recusou; repeti-lo aqui seria uma segunda frase capaz de divergir.
+            const gravou = await setMapNotes(mapName, notes);
+            if (gravou !== true) return;
 
             // Update stored data
             notesData.title = notes.title;

@@ -157,9 +157,13 @@ vi.mock('../../src/js/catalog/catalog-layer.ref.js', () => ({ catalogLayerRefere
 vi.mock('../../src/js/store/catalog.operations.js', () => ({ getCatalogLayers: vi.fn(async () => []) }));
 // `isMapLocked` entrou em 2026-09-21: a config temporal passou a perguntar pela trava do mapa AO DISCO
 // (achado C2 da auditoria temporal), e este arquivo mede o eixo do PAPEL, então a trava fica aberta.
+// `isTargetMapLocked` entrou no MESMO dia, pelo ponto N3: `setMapNotes` e `setGridStyle` deixaram de
+// perguntar `isCurrentMapLockedSync()` (que responde sobre o mapa CORRENTE, descartando o `mapName`
+// que elas recebem) e passaram a usar a mesma pergunta de disco das irmãs de `map.operations.js`.
 vi.mock('../../src/js/store/map.operations.js', () => ({
     isCurrentMapLockedSync: () => false,
-    isMapLocked: async () => false
+    isMapLocked: async () => false,
+    isTargetMapLocked: async () => false
 }));
 vi.mock('../../src/js/store/services/map-resolver.service.js', () => ({
     mapResolver: { resolveToId: (x) => x }
@@ -304,10 +308,14 @@ describe('atlas remoto com permissao de leitura (o defeito)', () => {
         }
     });
 
-    it('a recusa nao estoura: setMapTemporalConfig devolve null e as outras undefined', async () => {
+    it('a recusa nao estoura: setMapTemporalConfig devolve null e as outras false', async () => {
+        // AS DUAS DE `settings.operations.js` PASSARAM A RESPONDER `false` EM 2026-09-21 (ponto
+        // N3), e antes devolviam `undefined` — o mesmo que o sucesso. O editor de notas lia essa
+        // volta como "salvou": fechava o modo de edicao e dizia "Notas salvas com sucesso!" para
+        // todo Leitor que clicasse em Salvar. Quem grava responde se gravou.
         await expect(setMapTemporalConfig(MAPA, PATCH)).resolves.toBeNull();
-        await expect(setMapNotes(MAPA, NOTAS)).resolves.toBeUndefined();
-        await expect(setGridStyle(MAPA, GRADE)).resolves.toBeUndefined();
+        await expect(setMapNotes(MAPA, NOTAS)).resolves.toBe(false);
+        await expect(setGridStyle(MAPA, GRADE)).resolves.toBe(false);
     });
 
     it('toggleMapTemporal NAO e recusado: o interruptor e estado de vista e nao enfileira nada', async () => {

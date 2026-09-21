@@ -65,7 +65,10 @@ vi.mock('@js/store/sync/permission-guard.js', () => ({
     GuardAction: { UPDATE_MAP: 'UPDATE_MAP' },
 }));
 
-vi.mock('@js/store/map.operations.js', () => ({ isCurrentMapLockedSync: () => false }));
+// `isTargetMapLocked` entrou em 2026-09-21 (ponto N3): as duas operacoes deste arquivo passaram a
+// perguntar pela trava do mapa ALVO, lida do disco. Aqui ela fica aberta, porque o assunto e a
+// base observada e nao o gate.
+vi.mock('@js/store/map.operations.js', () => ({ isTargetMapLocked: async () => false }));
 vi.mock('@js/store/services/map-resolver.service.js', () => ({
     mapResolver: { resolveToId: (x) => x },
 }));
