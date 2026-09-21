@@ -257,7 +257,8 @@ describe('camera positions', () => {
     const ORI = { heading: 1, pitch: -0.5, roll: 0 };
 
     it('saveCameraPosition CREATE: persists keyed by tilesetId and emits CREATE op with full shape', async () => {
-        await saveCameraPosition('tsA', POS, ORI);
+        // The boolean is the contract the viewer reads before announcing success (2026-09-21).
+        expect(await saveCameraPosition('tsA', POS, ORI)).toBe(true);
 
         const saved = persisted().cameraPositions.tsA;
         expect(saved).toBeDefined();
@@ -1282,7 +1283,9 @@ describe('permission gate on 3D writes', () => {
         ))).toBe(true);
 
         // Neutral returns match each signature (a truthy return would make the UI lie).
-        expect(results.saveCameraPosition).toBeUndefined();
+        // `false`, not `undefined`, since 2026-09-21: success and refusal used to be the same value,
+        // and the viewer announced success on both.
+        expect(results.saveCameraPosition).toBe(false);
         expect(results.clearCameraPosition).toBe(false);
         expect(results.addMarker).toBeNull();
         expect(results.updateMarker).toBeNull();

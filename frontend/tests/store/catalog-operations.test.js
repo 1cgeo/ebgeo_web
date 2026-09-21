@@ -45,6 +45,11 @@ const h = vi.hoisted(() => {
 
 vi.mock('../../src/js/store/repositories/index.js', () => ({
     getMapDataCompat: vi.fn(async () => h.mockMapData.value),
+    // D2 (mapa FANTASMA): a leitura ESTRITA irma de `getMapDataCompat`, que devolve `null`
+    // no lugar de fabricar um documento vazio. `store/mapa-inexistente.js` a consulta antes
+    // de toda escrita de documento de mapa, entao o duplo precisa dela; ele responde `null`
+    // exatamente onde a tolerante acima fabrica.
+    getExistingMapData: vi.fn(async () => h.mockMapData.value ?? null),
     updateMapDataCompat: vi.fn(async (mapName, data) => {
         h.mockMapData.value = data;
     })
@@ -133,7 +138,7 @@ import {
     catalogLayerDisplayName,
     resolveCatalogLayerDefinition
 } from '../../src/js/catalog/catalog-layer.ref.js';
-import { getMapDataCompat, updateMapDataCompat } from '../../src/js/store/repositories/index.js';
+import { getExistingMapData, getMapDataCompat, updateMapDataCompat } from '../../src/js/store/repositories/index.js';
 import { logCatalogLayerOperation, OperationType } from '../../src/js/store/sync/index.js';
 import { checkPermission } from '../../src/js/store/sync/permission-guard.js';
 import { emitStoreError } from '../../src/js/store/store-errors.js';
@@ -254,7 +259,8 @@ describe('addCatalogLayer', () => {
     it('targets an explicit map name when provided', async () => {
         await addCatalogLayer(makeLayer('cl-1'), 'OtherMap');
 
-        expect(getMapDataCompat).toHaveBeenCalledWith('OtherMap');
+        // D2: quem escreve le pela porta ESTRITA (`editCatalogLayers`), nao pela tolerante.
+        expect(getExistingMapData).toHaveBeenCalledWith('OtherMap');
         expect(updateMapDataCompat.mock.calls[0][0]).toBe('OtherMap');
         // current-map resolution is not consulted
         expect(h.mockMapManager.getCurrentMapName).not.toHaveBeenCalled();
@@ -408,7 +414,8 @@ describe('toggleCatalogLayerVisibility', () => {
 
         await toggleCatalogLayerVisibility('cl-1', false, 'OtherMap');
 
-        expect(getMapDataCompat).toHaveBeenCalledWith('OtherMap');
+        // D2: quem escreve le pela porta ESTRITA (`editCatalogLayers`), nao pela tolerante.
+        expect(getExistingMapData).toHaveBeenCalledWith('OtherMap');
         expect(updateMapDataCompat.mock.calls[0][0]).toBe('OtherMap');
     });
 });

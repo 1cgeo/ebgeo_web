@@ -233,7 +233,8 @@ beforeEach(() => {
 
 describe('saveOrientation', () => {
     it('CREATEs a new orientation with the frozen flat-camera shape', async () => {
-        await saveOrientation('photo-1.jpg', makeOrientation({ lon: 12.5, lat: -3.25, fov: 90 }));
+        // The boolean is the contract the viewer reads before announcing success (2026-09-21).
+        expect(await saveOrientation('photo-1.jpg', makeOrientation({ lon: 12.5, lat: -3.25, fov: 90 }))).toBe(true);
 
         const data = h.store.get('TestMap');
         const saved = data.orientations['photo-1.jpg'];
@@ -1162,7 +1163,9 @@ describe('permission gate on 360 writes', () => {
         ]);
 
         // Neutral returns match each signature (a truthy return would make the UI lie).
-        expect(results.saveOrientation).toBeUndefined();
+        // `false`, not `undefined`, since 2026-09-21: success and refusal used to be the same value,
+        // and the viewer announced success on both.
+        expect(results.saveOrientation).toBe(false);
         expect(results.clearOrientation).toBe(false);
         expect(results.addMarker360).toBeNull();
         expect(results.updateMarker360).toBeNull();

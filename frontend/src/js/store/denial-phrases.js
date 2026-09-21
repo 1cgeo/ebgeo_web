@@ -23,6 +23,20 @@
  * refusal that carries none, gets a sentence that says the level is insufficient WITHOUT naming
  * a capability the person may well have. Inventing "somente leitura" for an unrecognized refusal
  * is exactly the bug above, reintroduced by the default branch.
+ *
+ * ================= O SEGUNDO VOCABULÁRIO: ESTADO, NÃO CAPACIDADE =============
+ *
+ * `STORE_OPERATION_BLOCKED` carrega DUAS espécies de `reason`, e confundi-las é o que fez a
+ * segunda morar solta no listener: uma CAPACIDADE (`canEdit`, `canDeleteMap`, o que
+ * `checkPermission().required` devolveu) e um ESTADO do produto (`map_locked`,
+ * `target_map_locked`, `map_missing`). A diferença que importa é a afordância: capacidade é
+ * bloqueio por POSTO, permanente enquanto o papel for o que é; estado é reversível, e a frase tem
+ * de NOMEAR o estado para a pessoa saber o que fazer a seguir.
+ *
+ * Os dois vocabulários NÃO se misturam numa tabela só. Uma capacidade nova é uma linha na escada
+ * de permissões; um estado novo é uma condição da tela, e uma tabela única deixaria
+ * `denialNotice('map_locked')` responder a frase genérica de papel, que é falsa e manda a pessoa
+ * pedir um nível que ela já tem.
  */
 
 /**
@@ -79,4 +93,50 @@ export function denialNotice(capability) {
  */
 export function phrasedCapabilities() {
     return Object.keys(CAPABILITY_DENIAL);
+}
+
+/**
+ * Estado do produto -> a frase, que NOMEIA o estado e diz o passo seguinte.
+ *
+ * As duas travas compartilham a frase de propósito: `target_map_locked` é a mesma trava vista do
+ * outro lado de uma transferência, e inventar um segundo texto para ela faria a mesma condição se
+ * anunciar de duas maneiras conforme o caminho.
+ *
+ * `map_missing` (D2, 2026-09-21) é o mapa que o atlas não tem mais: um par o apagou, ou o nome
+ * corrente desta aba ficou para trás de um rename remoto. A frase diz a SAÍDA (escolher outro
+ * mapa) porque a pessoa não pode fazer nada sobre a causa, e sem ela o gesto seria recusado em
+ * silêncio, que é o defeito com outro nome.
+ * @type {Object<string, string>}
+ */
+const STATE_DENIAL = Object.freeze({
+    map_locked: 'Mapa bloqueado. Desbloqueie para editar.',
+    target_map_locked: 'Mapa bloqueado. Desbloqueie para editar.',
+    map_missing: 'Este mapa não existe mais neste atlas. Escolha outro mapa na aba Mapas.'
+});
+
+/**
+ * A frase de uma recusa por ESTADO, ou `null` quando a recusa não é de estado.
+ *
+ * O `null` é o contrato, e não um descuido: é por ele que o chamador sabe que a recusa é de
+ * CAPACIDADE e deve seguir para `denialNotice`. Devolver o texto genérico de papel aqui faria toda
+ * recusa parecer de nível.
+ *
+ * `Object.hasOwn` pela mesma razão que em `denialNotice`: o `reason` vem do payload de um evento,
+ * isto é, de mais de vinte sítios de emissão, e `'toString'` devolveria uma função pelo `??`.
+ *
+ * @param {string|null|undefined} reason - O `reason` de `STORE_OPERATION_BLOCKED`.
+ * @returns {string|null} A frase do estado, ou null.
+ */
+export function stateDenialNotice(reason) {
+    if (typeof reason !== 'string') return null;
+    return Object.hasOwn(STATE_DENIAL, reason) ? STATE_DENIAL[reason] : null;
+}
+
+/**
+ * Os estados que este módulo sabe nomear. Exportado para o censo: um `reason` de estado novo sem
+ * frase não estoura, ele cai na frase genérica de PAPEL e mente sobre o motivo.
+ * @returns {string[]}
+ */
+export function phrasedStates() {
+    return Object.keys(STATE_DENIAL);
 }

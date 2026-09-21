@@ -56,6 +56,11 @@ vi.mock('../../src/js/store/repositories/index.js', () => ({
     getMapDataCompat: vi.fn(async (mapName) => {
         return mockMaps.value[mapName] || null;
     }),
+    // D2 (mapa FANTASMA): a leitura ESTRITA irma de `getMapDataCompat`, que devolve `null`
+    // no lugar de fabricar um documento vazio. `store/mapa-inexistente.js` a consulta antes
+    // de toda escrita de documento de mapa, entao o duplo precisa dela; ele responde `null`
+    // exatamente onde a tolerante acima fabrica.
+    getExistingMapData: vi.fn(async (mapName) => mockMaps.value[mapName] || null),
     updateMapDataCompat: vi.fn(async (mapName, data) => {
         mockMaps.value[mapName] = data;
     }),
@@ -518,15 +523,35 @@ describe('moveFeaturesToMap - guards', () => {
         expect(updateMapDataCompat).not.toHaveBeenCalled();
     });
 
-    it('throws when target map does not exist', async () => {
+    // ESTE CASO MEDIA O DUBLE, E NAO O PRODUTO (corrigido em 2026-09-21, achado D2).
+    //
+    // Ele afirmava um `throw new Error('Target map ... not found')`, e a condicao que o disparava
+    // era `Object.keys(targetMapData).length === 0` sobre a resposta de `getMapDataCompat`. No
+    // codigo REAL aquela funcao nunca devolve vazio: um mapa ausente sai dela como
+    // `getEmptyMapData()`, um documento com catorze chaves. A condicao era falsa por construcao e o
+    // `throw` era codigo morto; quem fazia o caso passar era o duble deste arquivo, que devolvia
+    // `null` onde o modulo real fabrica. Verde medindo a fantasia do mock.
+    //
+    // O que o produto faz hoje: le pela porta ESTRITA e RECUSA em vez de estourar, emitindo
+    // `STORE_OPERATION_BLOCKED` com `map_missing`, que e a forma da casa para falha ESPERADA (os
+    // outros dois gates da mesma funcao ja recusam assim). A recusa vale em atlas de SERVIDOR; o
+    // duble deste arquivo nao ativa escopo nenhum, entao aqui ela chega pelo `null` do proprio
+    // duble. A metade REMOTA, com escopo de verdade, esta em
+    // `tests/store/escrita-de-conteudo-em-mapa-inexistente.repro.test.js`.
+    it('recusa sem estourar quando o mapa de destino nao existe, e nao toca na origem', async () => {
         const feature = makeFeature('p1');
         mockMaps.value.SourceMap.features.points.push(feature);
 
-        await expect(moveFeaturesToMap([feature], 'NonexistentMap'))
-            .rejects.toThrow('Target map "NonexistentMap" not found');
+        await expect(moveFeaturesToMap([feature], 'NonexistentMap')).resolves.toBeUndefined();
 
-        // Source untouched after error
+        expect(emitStoreError).toHaveBeenCalledWith(
+            'store:operationBlocked',
+            expect.objectContaining({ operation: 'moveFeaturesToMap', reason: 'map_missing' })
+        );
+        // Source untouched, and the phantom was never written
         expect(mockMaps.value.SourceMap.features.points).toHaveLength(1);
+        expect(mockMaps.value.NonexistentMap).toBeUndefined();
+        expect(updateMapDataCompat).not.toHaveBeenCalled();
     });
 
     it('blocks when permission denied: emits correct error details', async () => {

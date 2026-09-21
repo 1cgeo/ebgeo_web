@@ -8,6 +8,9 @@
 
 import { memoryStore } from './memory-store.js';
 import { getStreetview360Compat, setStreetview360Compat } from './repositories/index.js';
+// A pergunta de EXISTÊNCIA do mapa alvo (D2): este arquivo não lê o documento do mapa, só precisa
+// saber se ele existe antes de gravar o lateral `streetview360_<chave>`.
+import { mapExistsForGesture } from './mapa-inexistente.js';
 import mapManager from './store-state-manager.js';
 import { EventTypes } from '../events';
 import { validateImageFile, processImageFile } from '../utilities/image_utils.js';
@@ -135,6 +138,13 @@ function getCachedMarkers(mapName) {
  *
  * `prepare` returning null means "nothing to do": no op, no write, and `missing` comes back.
  *
+ * O MAPA ALVO TEM DE EXISTIR (D2, 2026-09-21), pelas mesmas razões escritas no funil gêmeo
+ * `editCesium3d` (`store/cesium3d.operations.js`): a pergunta vem DENTRO da transação, antes da leitura do lateral (para ficar sob o carimbo de escopo), e a
+ * recusa devolve `missing`, que é o valor que cada entrada deste arquivo já trata como "nada
+ * aconteceu". Os seis escritores daqui são TODOS de gesto, salvo a porta de import, que não passa
+ * por este funil: `saveOrientation` e `clearOrientation` chegam de um botão do visualizador 360
+ * (`street_view_tool/street_view_viewer.js`), não de quem olha em volta.
+ *
  * @param {string} targetMap - Resolved map name or id
  * @param {string} label - Operation label, for the deadlock report and the error payload
  * @param {function(Object): (Promise<Streetview360Edit|null>|Streetview360Edit|null)} prepare
@@ -146,6 +156,13 @@ async function editStreetview360(targetMap, label, prepare, missing = undefined)
     let output = missing;
     // Leaf read-modify-write of the sv360 document; see document-lock.js.
     await withSideDocument('sv360', targetMap, label, () => runTransaction(async tx => {
+        // THE EXISTENCE QUESTION LIVES INSIDE THE TRANSACTION (2026-09-21). It was first placed
+        // BEFORE the side-document lock, to spare a refusal the cost of lock plus transaction. That
+        // put a disk read outside the transaction's scope stamp: an atlas switch during it went
+        // unnoticed and the write could land in the OTHER atlas. The sibling guard of the map
+        // settings was caught by `map-settings-write-ahead.test.js` the same day; this funnel had
+        // the same shape and no test looking at that read. Correctness over the cost of a rare path.
+        if (!await mapExistsForGesture(targetMap, label)) return async () => {};
         const data = await getStreetview360Data(targetMap);
         const edit = await prepare(data);
         if (!edit) return async () => {};
@@ -246,7 +263,10 @@ export async function saveOrientation(photoName, orientation, mapName = null) {
     // Orientation is a distinct entity from a marker, but it rides the same EDIT
     // capability; a dedicated GuardAction key would need permission-guard.js, which is
     // outside this change.
-    if (!guardStreetview360Write(GuardAction.CREATE_MARKER_360, 'saveOrientation')) return;
+    // RETURNS A BOOLEAN since 2026-09-21. It used to return `undefined` on success AND on every
+    // refusal (role, lock, and now a map the atlas no longer has), so the viewer announced
+    // success unconditionally: a refused save showed the success toast next to the refusal.
+    if (!guardStreetview360Write(GuardAction.CREATE_MARKER_360, 'saveOrientation')) return false;
 
     const targetMap = resolveMapName(mapName);
     return editStreetview360(targetMap, 'saveOrientation', data => {
@@ -282,9 +302,10 @@ export async function saveOrientation(photoName, orientation, mapName = null) {
                     memoryStore.streetview360.orientations[photoName] = saved;
                 }
                 deps.eventBus?.emit(EventTypes.ORIENTATION_360_SAVED, { photoName, mapName: targetMap });
-            }
+            },
+            result: true
         };
-    });
+    }, false);
 }
 
 /**

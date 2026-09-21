@@ -82,17 +82,44 @@ export { RepositoryMethods, validateRepository, getMissingMethods };
 // to ease migration from the legacy repository.js
 
 /**
+ * Gets map data ONLY when the map exists. Fabricates nothing.
+ *
+ * THE STRICT SIBLING OF `getMapDataCompat`, AND THE REASON IT HAD TO EXIST (D2, 2026-09-21).
+ * The tolerant read answers a MISSING map with `getEmptyMapData()`: a full-shaped document with
+ * `id: null`. Nothing about it says "absent", so a caller that reads, mutates and writes back
+ * CREATES the map — and `LocalRepository.saveMap` keys it under whatever `_resolveMapKey` could
+ * not resolve, which is the NAME. That is the phantom map: a record whose `id` is a name, drawn
+ * by nobody, and in a SERVER atlas the operation it carries names a map context that is not a
+ * UUID, so the anti-leak filter drops it before the flush. The gesture is accepted on screen and
+ * thrown away, with no error anywhere.
+ *
+ * READING IS NOT THE DEFECT, and that is why `getMapDataCompat` was left exactly as it was: it has
+ * dozens of legitimately tolerant readers (the feature panel, the export builder, the revision
+ * hash) for which an empty document is the right answer. What needed a second door is the read
+ * that precedes a WRITE. `store/mapa-inexistente.js` is the only thing that should call this
+ * directly; it is what turns `null` into the refusal, and it is where the local/remote asymmetry
+ * is argued.
+ *
+ * @param {string} mapNameOrId - Map name or ID
+ * @returns {Promise<Object|null>} The stored document, or null when no map answers to that key
+ */
+export async function getExistingMapData(mapNameOrId) {
+    const repo = getRepository();
+    return (await repo.getMap(mapNameOrId)) ?? null;
+}
+
+/**
  * Gets map data with default empty structure if not found.
  * Compatible with legacy getMapData(mapName) signature.
+ *
+ * It is `getExistingMapData` plus the fabrication, and written that way on purpose: the two reads
+ * differ in exactly one line, and two independent copies of the lookup would be free to drift.
  * @param {string} mapNameOrId - Map name or ID
  * @returns {Promise<Object>} Map data or empty structure
  */
 export async function getMapDataCompat(mapNameOrId) {
-    const repo = getRepository();
-    const data = await repo.getMap(mapNameOrId);
-    if (data) return data;
     // Return empty structure for backward compatibility
-    return getEmptyMapData();
+    return (await getExistingMapData(mapNameOrId)) ?? getEmptyMapData();
 }
 
 /**

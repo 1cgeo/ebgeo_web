@@ -24,6 +24,9 @@ import {
     resolveCatalogLayerDefinition
 } from '../catalog/catalog-layer.ref.js';
 import { getMapDataCompat, updateMapDataCompat } from './repositories/index.js';
+// A leitura ESTRITA das escritas (D2); `getCatalogLayers` continua tolerante, que é o certo para
+// uma leitura pura, e `revalidateCatalogLayers` é derivada (ver o comentário sobre ela).
+import { mapDocumentForGesture } from './mapa-inexistente.js';
 import mapManager from './store-state-manager.js';
 import { EntityType, OperationType } from './sync/operation-types.js';
 import { runTransaction } from './store-transaction.js';
@@ -98,10 +101,20 @@ function guardCatalogWrite(operation, action) {
     return true;
 }
 
-/** Journal the reference edit before the containing map is written. */
+/**
+ * Journal the reference edit before the containing map is written.
+ *
+ * A LEITURA É ESTRITA DESDE 2026-09-21 (D2). A tolerante devolvia `getEmptyMapData()` para um mapa
+ * AUSENTE, e `addCatalogLayer` é a única das três que ESCREVE nessa lista vazia (as outras duas
+ * acham índice -1 e voltam): ligar uma camada de catálogo num mapa que não existe gravava o
+ * registro sob a CHAVE DO NOME, ou seja, cunhava o mapa fantasma. A guarda de identidade remota
+ * logo abaixo pegava metade disso e pela outra razão (ela estoura, e só sobre o `id`); esta
+ * pergunta chega antes e recusa na forma da casa.
+ */
 async function editCatalogLayers(targetMap, label, prepare) {
     return withMapDocument(targetMap, label, () => runTransaction(async tx => {
-        const mapData = await getMapDataCompat(targetMap);
+        const mapData = await mapDocumentForGesture(targetMap, label);
+        if (!mapData) return async () => {};
         const layers = deepClone(mapData.catalogLayers || []);
         const edit = prepare(layers);
         if (!edit) return async () => {};
@@ -297,6 +310,11 @@ export async function updateCatalogLayerStatus(layerId, status, mapName = null) 
 export async function revalidateCatalogLayers(mapName = null) {
     const targetMap = resolveMapName(mapName);
     return withMapDocument(targetMap, 'revalidateCatalogLayers', async () => {
+        // ESCRITA DERIVADA, e ela é SEGURA POR CONSTRUÇÃO, não por guarda: num mapa ausente a
+        // lista é vazia, o laço não roda, `hasChanges` fica falso e nada é gravado. A leitura
+        // segue tolerante de propósito — trocá-la por estrita obrigaria a inventar uma recusa
+        // para uma revalidação que ninguém pediu, que é o ruído descrito em
+        // `store/mapa-inexistente.js`.
         const mapData = await getMapDataCompat(targetMap);
         const catalogLayers = mapData.catalogLayers || [];
 

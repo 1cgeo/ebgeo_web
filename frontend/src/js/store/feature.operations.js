@@ -6,6 +6,10 @@
 
 import { cleanFeature } from './repository.utils.js';
 import { getMapDataCompat, updateMapDataCompat, getLayersCompat } from './repositories/index.js';
+// A LEITURA ESTRITA DAS ESCRITAS (D2). Toda leitura deste arquivo que termine gravando o
+// documento do mapa passa por aqui; as duas leituras PURAS (`getCurrentMapFeatures`,
+// `getFeatureById`) seguem no `getMapDataCompat` tolerante, que é o certo para elas.
+import { mapDocumentForDerivedWrite, mapDocumentForGesture } from './mapa-inexistente.js';
 import { FEATURE_TYPE_MAPPINGS, getAllStorageTypes, getStorageTypeFromSource, getSourceTypeFromStorage, IMAGE_RESOURCE_FEATURE_TYPES } from './store.constants.js';
 import { removeImage } from './settings.operations.js';
 import mapManager from './store-state-manager.js';
@@ -245,8 +249,16 @@ export async function addFeature(type, feature, mapName = null, options = {}) {
     // The read-modify-write below must not interleave with another writer of the same map
     // document, or the later save drops this feature. See document-lock.js.
     return withMapDocument(targetMap, 'addFeature', async () => {
+        // A LEITURA SAIU DE DENTRO DE `runTransaction` (D2), e o que ela NÃO perdeu é o que
+        // importa: ela continua dentro de `withMapDocument`, que é quem fecha a janela de leitura
+        // obsoleta. O que ela deixa de fazer é ABRIR uma transação para descobrir que não há
+        // escrita nenhuma a fazer, o que custava a barreira de logout, o carimbo do escopo e uma
+        // chamada de `persistOperationIntents` com lista VAZIA. É também a forma que as outras dez
+        // funções deste arquivo já usam: `addFeature` era a única que lia lá dentro.
+        const currentMapData = await mapDocumentForGesture(targetMap, 'addFeature');
+        if (!currentMapData) return;
+
         await runTransaction(async (tx) => {
-            const currentMapData = await getMapDataCompat(targetMap);
             if (!currentMapData.features[type]) {
                 currentMapData.features[type] = [];
             }
@@ -301,7 +313,8 @@ export async function updateFeature(type, feature, mapName = null, { preserveUse
     // The lock opens BEFORE the read: the stale-read window is the defect, so a read taken
     // outside it would be exactly as lost-update-prone as before.
     return withMapDocument(targetMap, 'updateFeature', async () => {
-        const currentMapData = await getMapDataCompat(targetMap);
+        const currentMapData = await mapDocumentForGesture(targetMap, 'updateFeature');
+        if (!currentMapData) return;
         const index = currentMapData.features[type].findIndex(f => f.properties.id === cleanedFeature.properties.id);
         if (index === -1) return;
 
@@ -357,7 +370,8 @@ export async function removeFeature(type, id, mapName = null) {
     if (guardWrite(GuardAction.DELETE_FEATURE, 'removeFeature', targetMap).blocked) return;
 
     return withMapDocument(targetMap, 'removeFeature', async () => {
-        const currentMapData = await getMapDataCompat(targetMap);
+        const currentMapData = await mapDocumentForGesture(targetMap, 'removeFeature');
+        if (!currentMapData) return;
         const featureIndex = currentMapData.features[type].findIndex(f => f.properties.id === id);
         if (featureIndex === -1) return;
 
@@ -451,7 +465,8 @@ export async function removeFeatureFromMap(type, id, mapName, { logOperation = t
     // Leaf: it takes the lock, so its caller `moveFeaturesToMap` must NOT (it awaits this
     // one and `addFeatureToMap`, and a section awaiting a section on the same key hangs).
     return withMapDocument(mapName, 'removeFeatureFromMap', async () => {
-        const mapData = await getMapDataCompat(mapName);
+        const mapData = await mapDocumentForGesture(mapName, 'removeFeatureFromMap');
+        if (!mapData) return null;
         const featureIndex = mapData.features[type].findIndex(f => f.properties.id === id);
         if (featureIndex === -1) return null;
 
@@ -519,7 +534,11 @@ export async function addFeatureSilent(type, feature, mapName = null) {
 
     const targetMap = resolveMap(mapName);
     return withMapDocument(targetMap, 'addFeatureSilent', async () => {
-        const currentMapData = await getMapDataCompat(targetMap);
+        // ESCRITA DERIVADA: as duas funções `*Silent` não têm gesto a quem responder (não
+        // consultam papel, não gravam desfazer e não registram intenção), então um mapa ausente
+        // as faz sumir CALADAS, no lugar de anunciar uma recusa que ninguém pediu.
+        const currentMapData = await mapDocumentForDerivedWrite(targetMap);
+        if (!currentMapData) return;
         currentMapData.features[type].push(cleanedFeature);
         await updateMapDataCompat(targetMap, currentMapData);
     });
@@ -534,7 +553,8 @@ export async function addFeatureSilent(type, feature, mapName = null) {
 export async function removeFeatureSilent(type, id, mapName = null) {
     const targetMap = resolveMap(mapName);
     return withMapDocument(targetMap, 'removeFeatureSilent', async () => {
-        const currentMapData = await getMapDataCompat(targetMap);
+        const currentMapData = await mapDocumentForDerivedWrite(targetMap);
+        if (!currentMapData) return;
         const featureIndex = currentMapData.features[type].findIndex(f => f.properties.id === id);
         if (featureIndex === -1) return;
 
@@ -553,7 +573,8 @@ export async function addFeatures(featuresMap, mapName = null, options = {}) {
     if (guardWrite(GuardAction.CREATE_FEATURE, 'addFeatures', targetMap).blocked) return;
 
     return withMapDocument(targetMap, 'addFeatures', async () => {
-        const currentMapData = await getMapDataCompat(targetMap);
+        const currentMapData = await mapDocumentForGesture(targetMap, 'addFeatures');
+        if (!currentMapData) return;
         const action = { type: 'addMultiple', features: {} };
         const colorDeferrals = [];
 
@@ -686,8 +707,11 @@ export async function stampGeneratedBitmap(feature, result, mapName = null, isCu
 
     return withMapDocument(targetMap, 'stampGeneratedBitmap', async () => {
         if (!isCurrent()) return false;
-        const currentMapData = await getMapDataCompat(targetMap);
-        if (!isCurrent()) return false;
+        // ESCRITA DERIVADA, e este é o exemplo canônico da classe: o PNG é cache por cliente, nada
+        // aqui responde a um gesto (ver o cabeçalho acima), então um mapa ausente devolve `false`
+        // como qualquer outro "não achei", sem anunciar recusa nenhuma.
+        const currentMapData = await mapDocumentForDerivedWrite(targetMap);
+        if (!isCurrent() || !currentMapData) return false;
         const bucket = currentMapData?.features?.[storageType];
         if (!Array.isArray(bucket)) return false;
 
@@ -734,7 +758,8 @@ export async function updateFeatureProperty(featureType, featureId, property, va
     if (guardWrite(GuardAction.UPDATE_FEATURE, 'updateFeatureProperty', targetMap).blocked) return false;
 
     return withMapDocument(targetMap, 'updateFeatureProperty', async () => {
-        const currentMapData = await getMapDataCompat(targetMap);
+        const currentMapData = await mapDocumentForGesture(targetMap, 'updateFeatureProperty');
+        if (!currentMapData) return false;
         const feature = currentMapData.features[featureType].find(f => f.properties.id === featureId);
 
         if (!feature) {
@@ -846,7 +871,8 @@ export async function shiftMapTemporalTimes(mapName, deltaMs) {
     if (guardWrite(GuardAction.UPDATE_FEATURE, 'shiftMapTemporalTimes', targetMap).blocked) return 0;
 
     return withMapDocument(targetMap, 'shiftMapTemporalTimes', async () => {
-        const currentMapData = await getMapDataCompat(targetMap);
+        const currentMapData = await mapDocumentForGesture(targetMap, 'shiftMapTemporalTimes');
+        if (!currentMapData) return 0;
         // Collect shifted features so each can emit a feature UPDATE op after the single
         // persist. Snapshot the pre-shift feature for the op's previousData, mirroring
         // updateFeature's logFeatureOperation(UPDATE, ...) call shape.
@@ -919,10 +945,18 @@ export async function moveFeaturesToMap(features, targetMapName) {
         return;
     }
 
-    const targetMapData = await getMapDataCompat(targetMapName);
-    if (!targetMapData || Object.keys(targetMapData).length === 0) {
-        throw new Error(`Target map "${targetMapName}" not found`);
-    }
+    // A CHECAGEM QUE MORAVA AQUI NUNCA DISPAROU, e é a forma pura do defeito D2: ela perguntava
+    // `Object.keys(targetMapData).length === 0` sobre a resposta de `getMapDataCompat`, que num
+    // mapa AUSENTE devolve `getEmptyMapData()` — um documento com catorze chaves e vinte e dois
+    // baldes de feição. A condição era falsa por construção, com ou sem mapa, e o
+    // `throw new Error('Target map not found')` era código morto: a mudança dos itens para um mapa
+    // inexistente seguia adiante e os cravava num registro novo sob o NOME.
+    //
+    // A leitura estrita a torna verdadeira de novo, e a recusa troca de forma junto: mover itens é
+    // um gesto ESPERADO de falhar (o mapa de destino pode ter acabado de ser apagado por um par),
+    // então ela emite e volta, como os outros dois gates desta mesma função, em vez de estourar.
+    const targetMapData = await mapDocumentForGesture(targetMapName, 'moveFeaturesToMap');
+    if (!targetMapData) return;
 
     const layerIdMapping = await buildLayerMappingForMove(features, sourceMapName, targetMapName);
 
@@ -1088,7 +1122,8 @@ async function batchUpdateAnalysisFeatures(mainType, mainFeature, processedFeatu
     const processedType = getProcessedType(mainType);
 
     return withMapDocument(targetMap, operationName, async () => {
-        const currentMapData = await getMapDataCompat(targetMap);
+        const currentMapData = await mapDocumentForGesture(targetMap, operationName);
+        if (!currentMapData) return;
 
         // Defensive init: older/imported maps may predate these arrays.
         if (!currentMapData.features[mainType]) currentMapData.features[mainType] = [];
@@ -1183,7 +1218,8 @@ export async function deleteLayerFeatures(layerId, mapName = null, { releaseImag
     if (guardWrite(GuardAction.DELETE_FEATURE, 'deleteLayerFeatures', targetMap).blocked) return false;
 
     return withMapDocument(targetMap, 'deleteLayerFeatures', async () => {
-        const currentMapData = await getMapDataCompat(targetMap);
+        const currentMapData = await mapDocumentForGesture(targetMap, 'deleteLayerFeatures');
+        if (!currentMapData) return false;
         let modified = false;
         const groupCleanups = [];
         const imageCleanups = [];
@@ -1317,7 +1353,8 @@ export async function moveFeaturesToLayer(featureRefs, targetLayerId, mapName = 
     if (guardWrite(GuardAction.UPDATE_FEATURE, 'moveFeaturesToLayer', targetMap).blocked) return false;
 
     return withMapDocument(targetMap, 'moveFeaturesToLayer', async () => {
-        const currentMapData = await getMapDataCompat(targetMap);
+        const currentMapData = await mapDocumentForGesture(targetMap, 'moveFeaturesToLayer');
+        if (!currentMapData) return false;
         let modified = false;
         const moved = [];
         const isLayerIdArray = typeof featureRefs[0] === 'string';

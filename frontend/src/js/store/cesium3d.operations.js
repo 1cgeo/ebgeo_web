@@ -7,6 +7,9 @@
 
 import { memoryStore } from './memory-store.js';
 import { getCesium3dCompat, setCesium3dCompat } from './repositories/index.js';
+// A pergunta de EXISTÊNCIA do mapa alvo (D2): este arquivo não lê o documento do mapa, só precisa
+// saber se ele existe antes de gravar o lateral `cesium3d_<chave>`.
+import { mapExistsForGesture } from './mapa-inexistente.js';
 import mapManager from './store-state-manager.js';
 import { EventTypes } from '../events';
 import { validateImageFile, processImageFile } from '../utilities/image_utils.js';
@@ -151,8 +154,24 @@ function mirrorCesium3dInMemory(mapName, data) {
  *
  * `prepare` returning null means "nothing to do": no op, no write, and `missing` comes back.
  *
+ * O MAPA ALVO TEM DE EXISTIR (D2, 2026-09-21), e a pergunta mora AQUI porque este é o funil: todos
+ * os escritores deste arquivo passam por ele, e nenhum deles é escrita DERIVADA — conferido um a
+ * um em 2026-09-21, inclusive os dois que a intuição diria que são. Ver o bloco de classificação
+ * em `tests/unit/escrita-de-conteudo-nao-fabrica-mapa.test.js`.
+ *
+ * ELA VEM DENTRO DA TRANSAÇÃO, antes da leitura do lateral. A primeira versão a punha ANTES de
+ * `withSideDocument`, para poupar à recusa a trava, a transação e um lote de intenções vazio; o
+ * preço apareceu no mesmo dia: uma leitura de disco fora da transação fica fora do carimbo de
+ * escopo, e uma troca de atlas durante ela deixava a escrita cair no OUTRO atlas. O custo da recusa
+ * (caminho raro) é o preço declarado.
+ *
+ * A RECUSA DEVOLVE `missing`, QUE É O VALOR QUE O CHAMADOR JÁ TRATA. Cada entrada deste arquivo
+ * passa o seu (`null`, `false`, `0`, `undefined`) como "não achei / não fiz nada", então nenhuma
+ * delas precisa mudar e nenhum contrato de retorno se desloca. O motivo REAL não se perde: ele sai
+ * no `STORE_OPERATION_BLOCKED`, que o listener global traduz em frase.
+ *
  * @param {string} targetMap - Resolved map name or id
- * @param {string} label - Operation label, for the deadlock report
+ * @param {string} label - Operation label, for the deadlock report AND for the refusal payload
  * @param {function(Object): (Promise<Cesium3dEdit|null>|Cesium3dEdit|null)} prepare - Receives
  *   the cesium3d document to mutate in place
  * @param {*} [missing] - Value returned when `prepare` declines the edit
@@ -162,6 +181,13 @@ async function editCesium3d(targetMap, label, prepare, missing = undefined) {
     let output = missing;
     // Leaf read-modify-write of the cesium3d document; see document-lock.js.
     await withSideDocument('cesium3d', targetMap, label, () => runTransaction(async tx => {
+        // THE EXISTENCE QUESTION LIVES INSIDE THE TRANSACTION (2026-09-21). It was first placed
+        // BEFORE the side-document lock, to spare a refusal the cost of lock plus transaction. That
+        // put a disk read outside the transaction's scope stamp: an atlas switch during it went
+        // unnoticed and the write could land in the OTHER atlas. The sibling guard of the map
+        // settings was caught by `map-settings-write-ahead.test.js` the same day; this funnel had
+        // the same shape and no test looking at that read. Correctness over the cost of a rare path.
+        if (!await mapExistsForGesture(targetMap, label)) return async () => {};
         const data = await getCesium3dDataWithCache(targetMap);
         const edit = await prepare(data);
         if (!edit) return async () => {};
@@ -404,7 +430,10 @@ async function removeByTileset(tilesetId, collectionKey, changeEvent, mapName, e
  * @returns {Promise<void>}
  */
 export async function saveCameraPosition(tilesetId, position, orientation, mapName = null) {
-    if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'saveCameraPosition')) return;
+    // RETURNS A BOOLEAN since 2026-09-21. It used to return `undefined` on success AND on every
+    // refusal (role, lock, and now a map the atlas no longer has), so the viewer announced
+    // success unconditionally: a refused save showed the success toast next to the refusal.
+    if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'saveCameraPosition')) return false;
 
     const targetMap = getTargetMapName(mapName);
     return editCesium3d(targetMap, 'saveCameraPosition', data => {
@@ -434,9 +463,10 @@ export async function saveCameraPosition(tilesetId, position, orientation, mapNa
                 data: newPosition,
                 previous: isUpdate ? previousData : null
             }],
-            effect: () => emit(EventTypes.CAMERA_3D_SAVED, { tilesetId, mapName: targetMap })
+            effect: () => emit(EventTypes.CAMERA_3D_SAVED, { tilesetId, mapName: targetMap }),
+            result: true
         };
-    });
+    }, false);
 }
 
 /**

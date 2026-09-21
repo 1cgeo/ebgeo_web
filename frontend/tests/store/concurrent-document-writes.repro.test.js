@@ -56,23 +56,34 @@ const tick = async (n = 1) => { for (let i = 0; i < n; i++) await Promise.resolv
 // Mocks
 // ============================================================================
 
-vi.mock('../../src/js/store/repositories/index.js', () => ({
-    // Structured clone in BOTH directions, exactly like IndexedDB: the caller mutates a
-    // private copy, and only its save decides what the next reader sees.
-    getMapDataCompat: vi.fn(async (mapName) => {
+vi.mock('../../src/js/store/repositories/index.js', () => {
+    // A CONTAGEM E O GANCHO MORAM NA LEITURA ESTRITA, e não na tolerante (D2, mapa FANTASMA).
+    // Desde que `store/mapa-inexistente.js` passou a ser a porta de toda escrita de documento de
+    // mapa, quem o caminho de escrita chama é `getExistingMapData`; deixar `h.beforeRead` pendurado
+    // só na tolerante faria o interleaving determinístico destes casos nunca disparar, e eles
+    // ficariam verdes medindo nada. A tolerante é a estrita MAIS a fabricação, como no módulo real,
+    // então `h.reads` continua contando UMA leitura por chamada.
+    const lerDocumento = async (mapName) => {
         const n = ++h.reads;
         if (h.beforeRead) await h.beforeRead(n);
         await tick(h.readHops);
         const raw = h.docs.get(mapName);
-        return raw ? JSON.parse(raw) : getEmptyMapData();
-    }),
-    updateMapDataCompat: vi.fn(async (mapName, data) => {
-        await tick(h.writeHops);
-        h.writes += 1;
-        h.docs.set(mapName, JSON.stringify(data));
-    }),
-    getLayersCompat: vi.fn(async () => [])
-}));
+        // Structured clone in BOTH directions, exactly like IndexedDB: the caller mutates a
+        // private copy, and only its save decides what the next reader sees.
+        return raw ? JSON.parse(raw) : null;
+    };
+
+    return {
+        getExistingMapData: vi.fn(lerDocumento),
+        getMapDataCompat: vi.fn(async (mapName) => (await lerDocumento(mapName)) ?? getEmptyMapData()),
+        updateMapDataCompat: vi.fn(async (mapName, data) => {
+            await tick(h.writeHops);
+            h.writes += 1;
+            h.docs.set(mapName, JSON.stringify(data));
+        }),
+        getLayersCompat: vi.fn(async () => [])
+    };
+});
 
 vi.mock('../../src/js/store/store-errors.js', () => ({
     StoreErrorEvents: {

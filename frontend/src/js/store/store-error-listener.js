@@ -10,7 +10,7 @@
  */
 
 import { StoreErrorEvents } from './store-errors.js';
-import { denialNotice } from './denial-phrases.js';
+import { denialNotice, stateDenialNotice } from './denial-phrases.js';
 import { sessionContext } from './sync/session-context.js';
 import { overwriteNotice } from './sync/overwrite-notice.js';
 import { presenceStore } from '../presence/presence-store.js';
@@ -23,14 +23,23 @@ import { OrigemDeErro } from '@js/session/origens-de-erro.js';
 const BLOCKED_DEBOUNCE_MS = 3000;
 
 /**
- * Block reasons that mean "the map is locked" (vs an insufficient-role / read-only block). The store
- * ops emit `map_locked` (current map) and `target_map_locked` (a move into a locked destination map);
- * every other reason is a permission string from the permission-guard.
+ * AS FRASES DE ESTADO SAÍRAM DAQUI EM 2026-09-21, e a mudança é de lugar, não de texto.
+ *
+ * Moravam neste arquivo um conjunto `LOCK_REASONS` e a sentença da trava escrita à mão no `else
+ * if`. O segundo estado a precisar de frase (`map_missing`, D2) ia repetir as duas coisas, e um
+ * terceiro repetiria de novo: o `reason` de `STORE_OPERATION_BLOCKED` tem DOIS vocabulários (ver o
+ * cabeçalho de `denial-phrases.js`), e só um deles tinha tabela. Agora os dois têm, no mesmo
+ * módulo folha de zero imports, que é onde uma frase pode ser testada em node.
+ *
+ * O QUE SOBRA AQUI É A CONTA DO SILÊNCIO, que é decisão de tela e não texto: qual balde de
+ * debounce cada espécie usa.
+ *
+ * Last toast time PER BUCKET, so a lock toast doesn't debounce-swallow a differing read-only one.
+ * O balde de ESTADO é por `reason`, e não um só para todos: com um balde único, uma recusa por
+ * mapa travado engoliria por três segundos a de mapa inexistente, que é outra frase e outra saída.
+ * @type {Map<string, number>}
  */
-const LOCK_REASONS = new Set(['map_locked', 'target_map_locked']);
-
-/** Last toast time PER KIND, so a lock toast doesn't debounce-swallow a differing read-only one. */
-const _lastBlockedToastAt = { lock: 0, denied: 0, explicit: 0 };
+const _lastBlockedToastAt = new Map();
 
 /**
  * Registers error event listeners on the EventBus.
@@ -79,15 +88,18 @@ export function registerStoreErrorListeners(eventBus) {
     });
 
     eventBus.on(StoreErrorEvents.STORE_OPERATION_BLOCKED, (payload) => {
-        // Distinguish the two block kinds the store ops carry (previously both showed the lock
-        // message): a locked map vs insufficient role on a remote atlas (a Visualizador) — the latter
-        // must read as read-only access.
-        // A block that ships its OWN message wins: the two canned texts below describe the
-        // map-lock and the read-only role, and showing either of them for an unrelated
-        // refusal (a local-atlas cap, say) would be actively misleading.
+        // Distinguish the block kinds the store ops carry (previously all of them showed the lock
+        // message): an ESTADO da tela (mapa travado, mapa que não existe mais) vs insufficient role
+        // on a remote atlas (a Visualizador) — the latter must read as read-only access. Quem sabe
+        // as frases das duas espécies é `denial-phrases.js`; aqui se decide qual perguntar.
+        // A block that ships its OWN message wins: the canned texts describe the state and the
+        // read-only role, and showing either of them for an unrelated refusal (a local-atlas cap,
+        // say) would be actively misleading.
         const explicit = typeof payload?.message === 'string' && payload.message.length > 0;
-        const isLock = LOCK_REASONS.has(payload?.reason);
-        const kind = explicit ? 'explicit' : (isLock ? 'lock' : 'denied');
+        // A frase do ESTADO, ou null quando a recusa é de capacidade (ver `denial-phrases.js`).
+        const estado = explicit ? null : stateDenialNotice(payload?.reason);
+        const kind = explicit ? 'explicit' : (estado ? 'state' : 'denied');
+        const bucket = kind === 'state' ? `state:${payload.reason}` : kind;
 
         // "AINDA NÃO SEI" NÃO SE ANUNCIA, e este é o único lugar que precisa saber disso.
         //
@@ -120,8 +132,8 @@ export function registerStoreErrorListeners(eventBus) {
         if (kind === 'denied' && janelaDeHidratacao) return;
 
         const now = Date.now();
-        if (now - _lastBlockedToastAt[kind] < BLOCKED_DEBOUNCE_MS) return;
-        _lastBlockedToastAt[kind] = now;
+        if (now - (_lastBlockedToastAt.get(bucket) ?? 0) < BLOCKED_DEBOUNCE_MS) return;
+        _lastBlockedToastAt.set(bucket, now);
 
         // A ROLE REFUSAL NOW QUOTES THE CAPABILITY THE GATE CONSULTED. The single sentence that
         // stood here ("Acesso somente leitura, você não pode editar este projeto") was true for a
@@ -129,14 +141,7 @@ export function registerStoreErrorListeners(eventBus) {
         // told they could not edit a project they had just been editing. `denialNotice` keys on
         // `payload.required`, the `PermissionAction` flag `checkPermission` actually refused on,
         // and falls back to a sentence that asserts no specific limitation.
-        let text;
-        if (explicit) {
-            text = payload.message;
-        } else if (isLock) {
-            text = 'Mapa bloqueado. Desbloqueie para editar.';
-        } else {
-            text = denialNotice(payload?.required);
-        }
+        const text = explicit ? payload.message : (estado ?? denialNotice(payload?.required));
 
         showInChannel('store-blocked', text, 'warning', { duration: 2500 });
     });

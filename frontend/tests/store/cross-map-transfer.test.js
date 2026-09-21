@@ -56,6 +56,11 @@ vi.mock('../../src/js/store/repositories/index.js', () => ({
     getMapDataCompat: vi.fn(async (mapName) => {
         return mockMaps.value[mapName] || null;
     }),
+    // D2 (mapa FANTASMA): a leitura ESTRITA irma de `getMapDataCompat`, que devolve `null`
+    // no lugar de fabricar um documento vazio. `store/mapa-inexistente.js` a consulta antes
+    // de toda escrita de documento de mapa, entao o duplo precisa dela; ele responde `null`
+    // exatamente onde a tolerante acima fabrica.
+    getExistingMapData: vi.fn(async (mapName) => mockMaps.value[mapName] || null),
     updateMapDataCompat: vi.fn(async (mapName, data) => {
         mockMaps.value[mapName] = data;
     }),

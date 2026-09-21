@@ -86,8 +86,11 @@ describe('Catalog write-ahead persistence', () => {
     });
 
     it('a missing remote map is not synthesized from the compatibility fallback', async () => {
+        // Until 2026-09-21 this refusal THREW ('identidade remota'). It now goes through the gesture
+        // door of `store/mapa-inexistente.js`: it refuses with a voice (`map_missing`) and resolves.
+        // What this case guards did not change: nothing is synthesized and nothing is queued.
         const missingId = crypto.randomUUID();
-        await expect(addCatalogLayer({ id: 'hillshade', type: 'hillshade' }, missingId)).rejects.toThrow('identidade remota');
+        await expect(addCatalogLayer({ id: 'hillshade', type: 'hillshade' }, missingId)).resolves.not.toThrow();
         expect(await localRepository.getMap(missingId)).toBeNull();
         expect(await operationQueue.count()).toBe(0);
     });
