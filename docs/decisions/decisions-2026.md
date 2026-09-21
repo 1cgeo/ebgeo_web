@@ -3272,3 +3272,65 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
   socket, então um cliente em laço de reconexão ainda rende uma linha por reconexão. Guardas:
   `backend/tests/unit/aviso-de-tipo-desconhecido.test.js` e
   `backend/tests/ws/tipo-desconhecido-avisa-uma-vez.test.js`.
+
+### 2026-09-21: o mapa fantasma é fechado pelas duas pontas, a marca do resolvedor e a escrita que fabricava
+
+- **O defeito, conferido por leitura e depois MEDIDO em duas browsers.** Eram dois, independentes.
+  D1: a ativação de um retrato do servidor limpava o resolvedor de mapas e re-registrava os pares
+  sem repor a marca de inicializado, que só `initialize()` repunha. Medido logo depois de abrir um
+  atlas de servidor: marca FALSA com o índice cheio, nos dois clientes, e a contagem de cores gravada
+  só sob o NOME. Sozinho é degradação silenciosa, não perda. D2: a leitura tolerante devolve um
+  documento vazio para mapa inexistente, e a escrita seguinte cunhava um registro com a CHAVE igual
+  ao nome, o mapa FANTASMA; em atlas de servidor a op saía com contexto que não é UUID e o
+  anti-vazamento a descartava, sem erro. Gesto aceito e jogado fora.
+- **Os gatilhos medidos.** Retrato no meio da sessão com o mapa aberto renomeado enquanto a aba
+  estava sem rede: disco no nome novo, memória no velho, `lastActiveMap` nulo, nenhum cartão marcado
+  e o desenho não produzia feição. Mapa aberto EXCLUÍDO por um colega: com a aba Mapas aberta o
+  produto já acertava; o achado foi a aba que NUNCA abriu a aba Mapas, porque as abas da barra
+  lateral nascem sob demanda e o desvio morava só lá. Ela ficava no mapa excluído, muda.
+- **O que mudou, pelas duas pontas.**
+  - *A marca* (`replaceAll`, em `frontend/src/js/store/services/map-resolver.service.js`): limpa,
+    registra e marca numa operação só. A contagem de cores volta a ser gravada sob o id.
+  - *O retrato e o DELETE ao vivo reconciliam o mapa corrente*, por evento
+    (`CURRENT_MAP_STALE_REMOTELY`), com o assinante em `frontend/src/js/store/map.operations.js`
+    (`reconcileStaleCurrentMap`): mesmo id com outro nome re-chaveia pela MESMA rotina do rename ao
+    vivo, ponteiro de navegação incluso; mapa que sumiu leva a aba ao mapa inicial do atlas, com
+    aviso que nomeia os dois mapas. O anúncio só sai se o mapa estava de fato MONTADO, senão a
+    abertura de um atlas cujo mapa padrão tem xará anunciaria uma perda que não houve. O ramo de
+    exclusão da aba Mapas SAIU: com ele ficavam dois avisos e dois redirecionamentos correndo para
+    mapas possivelmente diferentes.
+  - *A escrita de conteúdo não fabrica mapa* (`frontend/src/js/store/mapa-inexistente.js`). O
+    inventário classificou todo escritor em três classes: GESTO recusa com o motivo `map_missing` e
+    a frase "Este mapa não existe mais neste atlas. Escolha outro mapa na aba Mapas."; DERIVADA
+    (contagem de cores, ponteiro, bitmap regenerado) pula em silêncio, porque medido no mesmo dia
+    abrir e trocar de mapa já grava sem edição nenhuma, e um aviso ali apareceria a cada troca;
+    CRIAÇÃO (criar mapa, import, clone, retrato, boot) continua podendo escrever o que não existia.
+    Vale só em escopo REMOTO: em atlas local o mapa chaveado por nome é o caminho normal, e o
+    documento fabricado é a rede de segurança do mapa de emergência. 3D e 360 entram pela mesma
+    porta, no funil único de cada arquivo. Os três ajustes de mapa tinham uma guarda que ESTOURAVA,
+    e recusa que lança não chega à pessoa: ela passou a emitir o mesmo motivo. **A pergunta de
+    existência mora DENTRO da transação, em todo sítio, e isso custou uma volta.** A primeira versão
+    a punha antes da transação (nos ajustes de mapa e nos dois funis), para poupar à recusa a trava
+    e um lote de intenções vazio; o guarda de troca de atlas de
+    `frontend/tests/integration/map-settings-write-ahead.test.js` reprovou na rodada final, porque
+    uma leitura de disco fora da transação fica fora do carimbo de escopo e a escrita podia cair no
+    OUTRO atlas. Os funis de 3D e 360 tinham a mesma forma e nenhum teste olhando para aquela
+    leitura; foram corrigidos junto, e o censo passou a exigir a pergunta dentro da transação.
+  - *Quem anuncia sucesso leu a resposta.* Salvar câmera e salvar orientação devolviam `undefined`
+    no sucesso e na recusa, e os dois visualizadores anunciavam sucesso sempre. Devolvem booleano.
+- **Alternativa recusada:** mudar a leitura tolerante em si. Ela tem dezenas de leitores legítimos,
+  e o defeito é de quem ESCREVE em cima do que ela fabrica.
+- **Onde ficou preso:** `frontend/tests/e2e-ui/browser-collab-mapa-fantasma.spec.js` (12 de 12 em
+  série, sem retry), `frontend/tests/store/resolvedor-troca-o-indice-inteiro.test.js`,
+  `frontend/tests/store/retrato-reconcilia-mapa-corrente.test.js`,
+  `frontend/tests/integration/retrato-repoe-a-marca-do-resolvedor.test.js`,
+  `frontend/tests/store/escrita-de-conteudo-em-mapa-inexistente.repro.test.js`, o censo
+  `frontend/tests/unit/escrita-de-conteudo-nao-fabrica-mapa.test.js` (escritor novo reprova até ser
+  classificado, e a regra é CHAMAR a porta, não citá-la),
+  `frontend/tests/unit/recusa-de-mapa-inexistente-fala.test.js` e
+  `frontend/tests/unit/visualizador-le-a-resposta-da-store.test.js`.
+- **Aberto, declarado.** `discardMapsForReplacingImport` limpa o resolvedor sem repor a marca, no
+  caminho de import LOCAL, que não foi medido. A contagem de cores continua existindo TAMBÉM sob o
+  nome, porque o ajuste de atlas que a sincroniza usa o nome como chave e é reidratado a cada
+  retrato. Os laterais de camada e de grupo ainda deixam entrada órfã num mapa inexistente (classe
+  derivada, sem registro de mapa nem op). Existem duas cópias vivas de `getEmptyMapData`.

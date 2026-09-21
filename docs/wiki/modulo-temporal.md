@@ -63,7 +63,7 @@ Esta seção afirmou o contrário até 2026-09-21, nas duas pontas: dizia que a 
 
 ## Limites conhecidos, abertos em 2026-09-21
 
-**N1, N2, N3 e N5 foram fechados no mesmo dia** (entrada própria no diário de decisões) e saíram desta lista; a numeração dos que ficam não foi refeita, para o código continuar valendo como referência.
+**N1, N2, N3, N5 e N12 foram fechados no mesmo dia** (entradas próprias no diário de decisões; o N12, o mapa fantasma, não era do módulo temporal e o que sobrou dele mora na entrada dele) e saíram desta lista; a numeração dos que ficam não foi refeita, para o código continuar valendo como referência.
 
 Sobraram da execução da auditoria do módulo (registro em [`../decisions/decisions-2026.md`](../decisions/decisions-2026.md), entrada de 2026-09-21). Nenhum é defeito esquecido: cada um pede decisão de desenho ou de contrato, e por isso ficou escrito em vez de consertado.
 
@@ -74,7 +74,6 @@ Sobraram da execução da auditoria do módulo (registro em [`../decisions/decis
 - **N8.** A edição da JANELA de validade no painel segue sem desfazer: ela dispara uma segunda escrita (o GDH derivado) e meio desfazer custa mais que nenhum. A condição para acender está escrita em `frontend/src/js/temporal/temporal-attributes-section.js`.
 - **N9.** O cliente aceita localmente uma unidade fora do vocabulário em `setMapTemporalConfig`; o servidor a saneia, e autor e servidor divergem até o próximo retrato. Nenhum caminho de tela produz esse valor.
 - **N10.** A posição do selo de instante na folha única do PDF não foi medida em pixel; o texto, o desenho no mosaico, a capa e a fiação estão presos por teste.
-- **N12.** `mapResolver.isInitialized` é FALSO num atlas de servidor recém-aberto (medido em 2026-09-21): isso desliga a via rápida de nome para id de `LocalRepository.getMap`, e qualquer estado em que `memoryStore.currentMap` nomeie um mapa cujo registro no disco atenda por outro nome faz a escrita cunhar um mapa FANTASMA, em silêncio, com a op morrendo na fila. Foi o que transformou o rename remoto (N1) em perda de dado. O gatilho conhecido foi removido; a fragilidade continua, e o conserto mora no resolvedor e no repositório local.
 - **N11.** O antimeridiano: a interpolação de trajetória caminha em longitude e latitude cruas, então um trecho que cruze os 180 graus dá a volta pelo lado errado. Fora do plano por custo, porque não é alcançável em operação no Brasil; a propriedade de colinearidade de `frontend/tests/unit/temporal-model.test.js` aprova esse trajeto, e o teste diz isso.
 
 ## Acoplamentos que atravessam arquivos
