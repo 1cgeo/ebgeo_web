@@ -6,6 +6,8 @@ import {
     renameMap,
     setCurrentMap,
     saveMapView,
+    getMapTemporalConfig,
+    setMapTemporalConfig,
     isMapTemporalEnabledSync,
     hasMapSavedPosition,
     clearMapView,
@@ -29,6 +31,10 @@ import {
 } from '../store';
 
 import { IDUtils } from '../utilities';
+// BY FILE, because it is deliberately off the store barrel: the saved temporal switch has one
+// writer by design, and the barrel is where a second one would be found by accident. Duplicating
+// a map is the other legitimate caller (see `copyMap`), and it names itself here.
+import { setMapTemporalSaved } from '@store/temporal.operations.js';
 import { checkPermission, GuardAction } from '../store/sync/permission-guard.js';
 import { DEFAULT_MAP_NAME } from '../store/store.constants.js';
 
@@ -170,6 +176,8 @@ class MapManager {
             if (cesium3dData) await setCesium3dDataForImport(trimmed, cesium3dData);
             if (streetview360Data) await setStreetview360DataForImport(trimmed, streetview360Data);
 
+            await this._copyTemporalConfig(mapName, trimmed);
+
             await setCurrentMap(trimmed);
             await this._switchBaseLayer();
 
@@ -177,6 +185,50 @@ class MapManager {
         } catch (error) {
             console.error('Erro ao duplicar mapa:', error);
             return { success: false, message: 'Erro ao duplicar mapa: ' + error.message };
+        }
+    }
+
+    /**
+     * Copies the temporal configuration of a map onto a freshly duplicated one.
+     *
+     * WHY THE DUPLICATE NEEDS IT. The camera and the base layer already travel inside the map
+     * DOCUMENT, which `IDUtils.regenerateMapIds` deep-clones, and every copied feature keeps its
+     * dates. The temporal config does not: it is a side store keyed by map NAME, so before this
+     * the copy was born with the defaults while its features carried a timeline, and a duplicate
+     * of a map saved with the timeline ON opened with everything visible at once.
+     *
+     * THE SAVED SWITCH TRAVELS TOO, and it is the part that needs saying out loud. `ativo` is one
+     * third of the SAVED VIEW of a map (`store/map-view.operations.js`), next to the camera and
+     * the base layer, and those two are already in the copy; leaving it out would hand the
+     * duplicate two thirds of a saved view. It has its own writer by design, because the switch
+     * on screen must never leak into the shared document: `setMapTemporalConfig` drops `ativo`
+     * from any patch, and `setMapTemporalSaved` is the only door. The value written here is read
+     * off the STORED document of the original, never off the screen.
+     *
+     * A KEY WHOSE VALUE THE COPY ALREADY HAS IS NOT WRITTEN, the same rule as `saveMapView`: in a
+     * server atlas each of these writes is a sync op, and an op that rewrites the stored value
+     * claims a dispute unit for nothing. The comparison is against the destination rather than
+     * against the defaults, so a stray config left under the new name is honoured, not assumed.
+     *
+     * IT RUNS BEFORE `setCurrentMap`, which is what loads the stored config into the sync cache
+     * and pins the on-screen switch of the map being entered: entering the copy then behaves
+     * exactly like entering any map that has a saved view.
+     *
+     * @param {string} sourceMapName - Map being duplicated.
+     * @param {string} targetMapName - The duplicate.
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _copyTemporalConfig(sourceMapName, targetMapName) {
+        const origem = await getMapTemporalConfig(sourceMapName);
+        const destino = await getMapTemporalConfig(targetMapName);
+
+        const { ativo, ...ajustes } = origem;
+        if (Object.keys(ajustes).some((chave) => ajustes[chave] !== destino[chave])) {
+            await setMapTemporalConfig(targetMapName, ajustes);
+        }
+        if (ativo !== destino.ativo) {
+            await setMapTemporalSaved(targetMapName, ativo);
         }
     }
 

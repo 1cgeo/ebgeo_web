@@ -45,6 +45,12 @@ import {
 const BRIDGE_ATLAS_ID = 'legacy-workspace';
 
 /**
+ * The side stores of a map that hang off its NAME instead of its storage key, which is what
+ * makes `deleteMap` guard them against a namesake and `renameMap` carry them by hand.
+ */
+const NAME_KEYED_SIDE_STORE_PREFIXES = ['temporal_', 'mapLocked_'];
+
+/**
  * Guarantees an active scope, activating the LEGACY (unsuffixed) local scope when nothing
  * else has activated one.
  *
@@ -434,8 +440,11 @@ export class LocalRepository {
         // and `temporal_<nome>` (setCurrentMap reads them by name). On the remote path the
         // caller passes a UUID, so the name has to come from the record itself — otherwise
         // those two survive and a NEW map with the same name is born locked and with the
-        // dead map's timeline. renameMap already transfers these side stores; only the
-        // delete was missing them.
+        // dead map's timeline. The rename transfers the same two by name
+        // (`_transferNameKeyedSideStores`), and until 2026-09-21 it did NOT, while this very
+        // sentence claimed it did: renaming a map erased its temporal config (window, unit,
+        // relative mode, D-day) and left `temporal_<nomeAntigo>` as a stray no delete reaches.
+        // The two halves are written next to each other so the claim stays checkable.
         const record = await this._store(StoreName.MAPS).getItem(resolvedKey);
         const mapName = record?.name || mapIdOrName;
 
@@ -453,11 +462,10 @@ export class LocalRepository {
             this._store(StoreName.SETTINGS).removeItem(`color_usage_${key}`)
         ];
 
-        /** Side stores keyed by the map NAME. */
-        const removeByName = (name) => [
-            this._store(StoreName.SETTINGS).removeItem(`temporal_${name}`),
-            this._store(StoreName.SETTINGS).removeItem(`mapLocked_${name}`)
-        ];
+        /** Side stores keyed by the map NAME, the same list the rename carries. */
+        const removeByName = (name) => NAME_KEYED_SIDE_STORE_PREFIXES.map(
+            (prefix) => this._store(StoreName.SETTINGS).removeItem(`${prefix}${name}`)
+        );
 
         // A name-keyed side store belongs to whatever map ANSWERS to that name, not to this
         // record. While a local stray and an atlas map share a name (exactly what
@@ -491,6 +499,80 @@ export class LocalRepository {
     }
 
     /**
+     * Carries the NAME-keyed side stores of a map from its old name to its new one.
+     *
+     * `temporal_<nome>` and `mapLocked_<nome>` are the two settings `setCurrentMap` reads by
+     * NAME; every other side store of a map hangs off its storage KEY, which a rename never
+     * changes. So the UUID branch below had nothing to transfer and transferred nothing, and the
+     * legacy branch transferred everything BUT these two, because there the key happens to be the
+     * name and the loop was written key by key. Either way a rename ERASED the temporal config of
+     * the map (window, unit, relative mode, D-day) and left the old record behind as a stray.
+     *
+     * IT IS A COPY, AND A MOVE ONLY WHEN NOBODY ELSE ANSWERS TO THE OLD NAME. This is the mirror
+     * of the namesake guard in `deleteMap`: a name-keyed store belongs to whatever map answers to
+     * that name, so while a namesake survives the old key is still their data, not ours to drop.
+     *
+     * THE LOCK TRAVELS TOO, although `renameMap` (`map.operations.js`) refuses to rename a LOCKED
+     * map, so the value moved here is in practice `false` or nothing. It moves for the reason the
+     * delete removes it: a value left under the old name is adopted by the next map born with that
+     * name, and this repository method has no say over who calls it.
+     *
+     * @param {string} oldName - Display name the map answered to.
+     * @param {string} newName - Display name it answers to now.
+     * @param {string[]} ownKeys - Storage keys of the record being renamed.
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _transferNameKeyedSideStores(oldName, newName, ownKeys) {
+        if (!oldName || !newName || oldName === newName) {
+            return;
+        }
+        const settings = this._store(StoreName.SETTINGS);
+        const prefixes = NAME_KEYED_SIDE_STORE_PREFIXES;
+        const values = await Promise.all(prefixes.map((prefix) => settings.getItem(`${prefix}${oldName}`)));
+
+        // EARLY OUT BEFORE THE NAMESAKE SCAN, which reads every map document: the common rename
+        // has nothing under either key, and there is no one to be careful about.
+        if (values.every((value) => value === null || value === undefined)) {
+            return;
+        }
+
+        const oldNameIsShared = await this._isMapNameUsedByOther(oldName, ownKeys);
+        await Promise.all(prefixes.flatMap((prefix, index) => {
+            const value = values[index];
+            if (value === null || value === undefined) {
+                return [];
+            }
+            const writes = [settings.setItem(`${prefix}${newName}`, value)];
+            if (!oldNameIsShared) {
+                writes.push(settings.removeItem(`${prefix}${oldName}`));
+            }
+            return writes;
+        }));
+    }
+
+    /**
+     * The same transfer, for the caller that renames a map WITHOUT going through `renameMap`.
+     *
+     * THERE IS EXACTLY ONE, and it is the inbound sync path: a peer's rename arrives as a `map`
+     * UPDATE carrying `{name}`, and `mergeRemoteMapUpdate`
+     * (`js/store/sync/remote-operation-handler.js`) writes the record with `saveMap`, which knows
+     * nothing about the name-keyed side stores. Exposed instead of copied because two
+     * implementations of "which stores hang off the NAME" drift, and the list
+     * (`NAME_KEYED_SIDE_STORE_PREFIXES`) is the whole point: the half that was missing on the
+     * local side until 2026-09-21 was missing on this side too, and for the same reason.
+     *
+     * @param {string} oldName - Display name the map answered to.
+     * @param {string} newName - Display name it answers to now.
+     * @param {string[]} ownKeys - Storage keys of the record being renamed (excluded from the
+     *   namesake scan, so the map does not count as its own namesake).
+     * @returns {Promise<void>}
+     */
+    async transferNameKeyedSideStores(oldName, newName, ownKeys) {
+        await this._transferNameKeyedSideStores(oldName, newName, ownKeys);
+    }
+
+    /**
      * Renames a map by updating its name property.
      * The map UUID (key) remains unchanged.
      *
@@ -510,6 +592,11 @@ export class LocalRepository {
 
         // Check if the map is using UUID-based storage (v2.0+)
         const isUuidBased = isValidUUID(resolvedKey);
+
+        // READ BEFORE THE MUTATION: the name-keyed side stores are addressed by the DISPLAY name,
+        // and the line below overwrites it. In the legacy branch the storage key is the display
+        // name, which is why `resolvedKey` is the right fallback for a record that has none.
+        const oldName = mapData.name || resolvedKey;
 
         if (isUuidBased) {
             // v2.0+: Simply update the name property, keep UUID as key
@@ -576,6 +663,13 @@ export class LocalRepository {
                 await this._store(StoreName.SETTINGS).removeItem(`gridStyle_${resolvedKey}`);
             }
         }
+
+        // BOTH BRANCHES, and that is the point: the two name-keyed side stores are invisible to
+        // the key-by-key transfer above, so the UUID branch never had a line for them and the
+        // legacy branch only appeared to. It runs AFTER the record was written under its new
+        // name, so the namesake scan inside sees this map already off the old name.
+        await this._transferNameKeyedSideStores(oldName, newName,
+            isUuidBased ? [resolvedKey] : [resolvedKey, newName]);
     }
 
     // ===== IMAGE OPERATIONS =====

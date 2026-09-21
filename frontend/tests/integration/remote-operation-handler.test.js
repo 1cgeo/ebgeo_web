@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 /**
  * Remote Operation Handler Tests
@@ -32,6 +32,10 @@ const sv360Store = new Map();
 // In-memory layer / group side-stores (keyed by map id)
 const layerStore = new Map();
 const groupStore = new Map();
+// Cada chamada de `transferNameKeyedSideStores` que o tratador faz, na ordem. E' o modo de
+// afirmar que ele DELEGA a transferencia ao repositorio em vez de reimplementar a lista de
+// prefixos chaveados por nome, que e' o que faz as duas metades do rename divergirem.
+const transferCalls = [];
 
 vi.mock('localforage', () => {
     const mockStore = new Map();
@@ -76,6 +80,24 @@ vi.mock('../../src/js/store/repositories/index.js', () => ({
         getLayers: vi.fn(async (mapId) => layerStore.get(mapId) || []),
         saveLayers: vi.fn(async (mapId, layers) => { layerStore.set(mapId, layers); }),
         saveGroups: vi.fn(async (mapId, groups) => { groupStore.set(mapId, groups); }),
+        getSetting: vi.fn(async (key) => (settingStore.has(key) ? settingStore.get(key) : null)),
+        deleteSetting: vi.fn(async (key) => { settingStore.delete(key); }),
+        getAllMaps: vi.fn(async () => new Map(mapDataStore)),
+        deleteMap: vi.fn(async (mapId) => { mapDataStore.delete(mapId); }),
+        // Espelha o contrato do metodo real (`LocalRepository.transferNameKeyedSideStores`, que
+        // delega ao privado usado por `renameMap`): leva os DOIS prefixos chaveados por nome e so'
+        // apaga a chave velha quando nenhum OUTRO registro atende por ela.
+        transferNameKeyedSideStores: vi.fn(async (oldName, newName, ownKeys = []) => {
+            transferCalls.push({ oldName, newName, ownKeys });
+            if (!oldName || !newName || oldName === newName) return;
+            const xara = [...mapDataStore.entries()]
+                .some(([key, map]) => !ownKeys.includes(key) && map?.name === oldName);
+            for (const prefixo of ['temporal_', 'mapLocked_']) {
+                if (!settingStore.has(`${prefixo}${oldName}`)) continue;
+                settingStore.set(`${prefixo}${newName}`, settingStore.get(`${prefixo}${oldName}`));
+                if (!xara) settingStore.delete(`${prefixo}${oldName}`);
+            }
+        }),
     })),
 }));
 
@@ -106,6 +128,7 @@ import { setTracing, clearTrace, getTrace } from '../../src/js/store/sync/diag/t
 import { TraceStage } from '../../src/js/store/sync/diag/trace-stages.js';
 import { EventTypes } from '../../src/js/events/event_types.js';
 import { memoryStore } from '../../src/js/store/memory-store.js';
+import { mapResolver } from '../../src/js/store/services/map-resolver.service.js';
 import { readFileSync } from 'node:fs';
 
 // ============================================================================
@@ -865,6 +888,12 @@ describe('Remote map-setting operations', () => {
     it('mapTemporal: grava a config e avisa a CONFIG, nunca o interruptor da tela', async () => {
         // O `ativo` que chega e o valor SALVO com a vista do mapa. Emitir `MAP_TEMPORAL_CHANGED`
         // daqui era o que fazia o gesto de um colega ligar a linha do tempo de todos.
+        //
+        // O REGISTRO DO MAPA E' PRE-CONDICAO DESTE CASO, e ate 2026-09-21 ele nao era: sem mapa
+        // nenhum no repositorio a config era gravada sob `temporal_<uuid>` e o caso passava assim
+        // mesmo, porque so' olhava o evento. A chave e' asserida abaixo, junto com ele.
+        mapDataStore.set('map-1', { ...createTestMapData(), name: 'Mapa da Config' });
+
         await applyRemoteOperation({
             entityType: EntityType.MAP_TEMPORAL,
             operationType: OperationType.UPDATE,
@@ -873,9 +902,11 @@ describe('Remote map-setting operations', () => {
             data: { ativo: true, unidade: 'DIA', inicio: 1000, fim: 5000 }
         });
 
+        expect(settingStore.get('temporal_Mapa da Config')).toEqual({ ativo: true, unidade: 'DIA', inicio: 1000, fim: 5000 });
+        expect(settingStore.has('temporal_map-1')).toBe(false);
         expect(eventBus.emit).toHaveBeenCalledWith(
             EventTypes.TEMPORAL_CONFIG_CHANGED,
-            expect.objectContaining({ config: expect.objectContaining({ ativo: true, inicio: 1000 }) })
+            expect.objectContaining({ mapName: 'Mapa da Config', config: expect.objectContaining({ ativo: true, inicio: 1000 }) })
         );
         expect(eventBus.emit).not.toHaveBeenCalledWith(EventTypes.MAP_TEMPORAL_CHANGED, expect.anything());
     });
@@ -1479,5 +1510,352 @@ describe('Convergence guard — defer / ack-replay / self-heal (§11)', () => {
         // After a flush, reconcile sees 'cg-rec' is no longer queued → clears the leak and replays.
         await reconcilePendingLocalEdits(new Set());
         expect(colorOf('cg-rec')).toBe('#00ff00');
+    });
+});
+
+// ============================================================================
+// Auditoria do sistema temporal de 2026-09-21: S5, S12 e a metade REMOTA do S1
+// ============================================================================
+
+/**
+ * A config temporal de um mapa e' um app setting chaveado pelo NOME do mapa
+ * (`temporal_<nome>`), espelhado em memoria em `memoryStore.temporalConfigs`. Os tres achados
+ * abaixo sao do CAMINHO DE ENTRADA, e o que os une e' a chave: ela nao e' o identificador que a
+ * op carrega, entao todo ponto de entrada tem de traduzir, e os tres traduziam errado ou nao
+ * traduziam.
+ *
+ * O QUE NENHUM DELES PODE FAZER e' mexer em `memoryStore.temporalView`, que e' o interruptor da
+ * tela DESTA pessoa (decisao do dono de 2026-09-20): op remota persiste e nunca repinta a vista
+ * de ninguem. A unica excecao e' o rename, que nao muda o VALOR do interruptor, muda o endereco
+ * dele.
+ */
+const CONFIG_TEMPORAL = { ativo: true, modo: 'relativo', unidade: 'HORA', inicio: 1000, fim: 9000, origem: 1000 };
+
+describe('S5 — o retrato repoe o espelho da config temporal, como ja repunha o da trava', () => {
+    // O DEFEITO: a ativacao de uma geracao de retrato faz `memoryStore.lockedMaps.clear()` e
+    // `memoryStore.temporalConfigs.clear()` na mesma linha, e so' a trava voltava. A trava e'
+    // reposta e ANUNCIADA pelos efeitos `present()` de `reshapeSnapshotMap` (`mapLocked_` +
+    // `MAP_LOCK_CHANGED`); o temporal so' era gravado em disco, sem espelho e sem evento. Depois
+    // de um retrato no meio da sessao, `getMapTemporalConfigSync` respondia os PADROES para o
+    // mapa que a pessoa esta vendo (rotulos D+N, passo da regua, filtro de render), e a barra nao
+    // relia nada.
+    //
+    // O ZERAMENTO EM SI mora no ramo de geracao (`applyRemoteSnapshot` com escopo remoto), que
+    // exige namespace, ponteiro de geracao e pausa de escrita; o que se prende aqui e' a metade
+    // que faltava, a REPOSICAO, mais a FORMA dela (por `present`, que e' o que a poe depois do
+    // zeramento).
+    beforeEach(() => {
+        mapResolver.clear();
+        memoryStore.temporalConfigs.clear();
+        memoryStore.temporalView.clear();
+    });
+
+    it('um mapa COM config no retrato volta ao espelho e avisa a barra', async () => {
+        await applyRemoteSnapshot({
+            maps: [{ id: 'map-s5', name: 'Mapa Retratado', features: {}, temporal_config: CONFIG_TEMPORAL }],
+            briefings: [],
+        });
+
+        expect(settingStore.get('temporal_Mapa Retratado')).toEqual(CONFIG_TEMPORAL);
+        // O espelho e' o que `getMapTemporalConfigSync` le, e e' ele que o zeramento esvazia.
+        expect(memoryStore.temporalConfigs.get('Mapa Retratado')).toEqual(CONFIG_TEMPORAL);
+        expect(eventBus.emit).toHaveBeenCalledWith(
+            EventTypes.TEMPORAL_CONFIG_CHANGED,
+            { mapName: 'Mapa Retratado', config: CONFIG_TEMPORAL }
+        );
+    });
+
+    it('e NAO liga a linha do tempo de quem recebe: a vista da pessoa nao se toca', async () => {
+        // O `ativo: true` que chega e' o valor SALVO com a vista do mapa pelo autor. O
+        // interruptor desta tela e' `temporalView`, e ele continua dizendo o que dizia.
+        memoryStore.temporalView.set('Mapa Retratado', false);
+
+        await applyRemoteSnapshot({
+            maps: [{ id: 'map-s5', name: 'Mapa Retratado', features: {}, temporal_config: CONFIG_TEMPORAL }],
+            briefings: [],
+        });
+
+        expect(memoryStore.temporalView.get('Mapa Retratado')).toBe(false);
+        expect(eventBus.emit).not.toHaveBeenCalledWith(EventTypes.MAP_TEMPORAL_CHANGED, expect.anything());
+    });
+
+    it('um mapa SEM config no retrato nao herda a da geracao anterior', async () => {
+        // A borda que o zeramento escondia: sem reposicao o espelho ficava vazio e "certo" por
+        // acidente. Com reposicao, um mapa que perdeu a config precisa de APAGAMENTO explicito,
+        // senao o valor da geracao anterior sobrevive ao retrato que o desfez.
+        memoryStore.temporalConfigs.set('Mapa Retratado', CONFIG_TEMPORAL);
+
+        await applyRemoteSnapshot({
+            maps: [{ id: 'map-s5', name: 'Mapa Retratado', features: {}, temporal_config: null }],
+            briefings: [],
+        });
+
+        expect(memoryStore.temporalConfigs.has('Mapa Retratado')).toBe(false);
+        expect(settingStore.has('temporal_Mapa Retratado')).toBe(false);
+    });
+
+    it('um `map` UPDATE parcial, que nao carrega a coluna, nao apaga o espelho', async () => {
+        // Controle do caso acima: "ausente" e "vazio" sao respostas diferentes. Uma troca de
+        // trava viaja como `{locked}` e nada mais, e ela nao pode limpar o temporal de ninguem.
+        mapDataStore.set('map-s5', { ...createTestMapData(), id: 'map-s5', name: 'Mapa Retratado' });
+        memoryStore.temporalConfigs.set('Mapa Retratado', CONFIG_TEMPORAL);
+
+        await applyRemoteOperation({
+            entityType: EntityType.MAP, operationType: OperationType.UPDATE,
+            entityId: 'map-s5', mapId: null, data: { locked: true },
+        });
+
+        expect(memoryStore.temporalConfigs.get('Mapa Retratado')).toEqual(CONFIG_TEMPORAL);
+    });
+
+    it('o espelho e escrito por `present`, como o da trava (estrutural)', () => {
+        // POR QUE ISTO E' ESTRUTURAL: durante a preparacao de uma geracao, `present` ADIA o
+        // efeito, e e' o adiamento que o poe DEPOIS do `temporalConfigs.clear()` da ativacao.
+        // Escrito direto, o espelho seria preenchido ANTES do zeramento e apagado por ele, com o
+        // caso funcional acima (que roda fora da preparacao) continuando verde.
+        const src = readFileSync(
+            new URL('../../src/js/store/sync/remote-operation-handler.js', import.meta.url),
+            'utf8'
+        );
+        const reshape = src.slice(
+            src.indexOf('async function reshapeSnapshotMap'),
+            src.indexOf('export function applyRemoteSnapshot')
+        );
+        expect(reshape.length).toBeGreaterThan(0);
+        expect(reshape).toContain('memoryStore.temporalConfigs');
+        // Os dois espelhos, escritos da mesma forma: e' a licao do achado, e nao um detalhe.
+        expect(reshape).toMatch(/present\([\s\S]{0,240}memoryStore\.temporalConfigs\./);
+        expect(reshape).toMatch(/present\([\s\S]{0,240}memoryStore\.lockedMaps\./);
+    });
+});
+
+describe('S12 — op temporal que chega antes do mapa nao vira lixo sob o identificador', () => {
+    // O DEFEITO: `const mapName = mapResolver.resolveToName(mapId) || mapId`. O `|| mapId` nao e'
+    // um padrao razoavel, e' uma chave `temporal_<uuid>` que `setCurrentMap` nunca le, que
+    // `deleteMap` nunca remove (ele apaga pelo NOME) e que o rename nunca carrega: lixo que
+    // nenhuma exclusao alcanca. A op chega antes do mapa quando o par cria o mapa e ajusta a
+    // linha do tempo no mesmo gesto.
+    //
+    // E A METADE QUE QUASE PASSA BATIDA: `resolveToName` de um UUID desconhecido devolve O
+    // PROPRIO UUID, nunca nulo, entao aquele `||` nunca chegava a rodar.
+    beforeEach(() => {
+        mapResolver.clear();
+        memoryStore.temporalConfigs.clear();
+        memoryStore.temporalView.clear();
+        transferCalls.length = 0;
+    });
+
+    const opTemporal = (mapId, data) => ({
+        entityType: EntityType.MAP_TEMPORAL, operationType: OperationType.UPDATE,
+        entityId: mapId, mapId, data,
+    });
+
+    it('sem nome resolvido, NADA e gravado sob o identificador', async () => {
+        await applyRemoteOperation(opTemporal('map-s12', CONFIG_TEMPORAL));
+
+        expect([...settingStore.keys()].filter((k) => k.includes('map-s12'))).toEqual([]);
+        expect(eventBus.emit).not.toHaveBeenCalledWith(EventTypes.TEMPORAL_CONFIG_CHANGED, expect.anything());
+    });
+
+    it('e a config e reaplicada quando o mapa aterrissa', async () => {
+        await applyRemoteOperation(opTemporal('map-s12', CONFIG_TEMPORAL));
+        await applyRemoteOperation({
+            entityType: EntityType.MAP, operationType: OperationType.CREATE,
+            entityId: 'map-s12', mapId: null,
+            data: { id: 'map-s12', name: 'Mapa Tardio', features: {} },
+        });
+
+        expect(settingStore.get('temporal_Mapa Tardio')).toEqual(CONFIG_TEMPORAL);
+        expect(memoryStore.temporalConfigs.get('Mapa Tardio')).toEqual(CONFIG_TEMPORAL);
+        expect(eventBus.emit).toHaveBeenCalledWith(
+            EventTypes.TEMPORAL_CONFIG_CHANGED,
+            { mapName: 'Mapa Tardio', config: CONFIG_TEMPORAL }
+        );
+    });
+
+    it('o registro do repositorio responde quando o resolvedor ainda nao sabe', async () => {
+        // A SEGUNDA FONTE, e e' ela que faz o caminho de recuperacao funcionar: na reprojecao das
+        // intencoes pendentes o registro ja esta em disco enquanto o registro no resolvedor ainda
+        // e' um efeito `present()` adiado.
+        mapDataStore.set('map-s12b', { ...createTestMapData(), id: 'map-s12b', name: 'Mapa Gravado' });
+
+        await applyRemoteOperation(opTemporal('map-s12b', CONFIG_TEMPORAL));
+
+        expect(settingStore.get('temporal_Mapa Gravado')).toEqual(CONFIG_TEMPORAL);
+        expect(settingStore.has('temporal_map-s12b')).toBe(false);
+    });
+
+    it('so a ULTIMA op bufferizada sobrevive, porque a config e um documento inteiro', async () => {
+        // A borda que dispensa teto de tamanho: um ajuste de mapa nao e' incremento, e' o
+        // documento todo, entao a op nova SUPERA a anterior em vez de se somar a ela.
+        await applyRemoteOperation(opTemporal('map-s12c', CONFIG_TEMPORAL));
+        await applyRemoteOperation(opTemporal('map-s12c', { ...CONFIG_TEMPORAL, unidade: 'DIA', fim: 50000 }));
+        await applyRemoteOperation({
+            entityType: EntityType.MAP, operationType: OperationType.CREATE,
+            entityId: 'map-s12c', mapId: null,
+            data: { id: 'map-s12c', name: 'Mapa Duplo', features: {} },
+        });
+
+        expect(settingStore.get('temporal_Mapa Duplo')).toEqual({ ...CONFIG_TEMPORAL, unidade: 'DIA', fim: 50000 });
+    });
+
+    it('o retrato DESCARTA o ajuste bufferizado em vez de aplica-lo por cima', async () => {
+        // A op so' chega a este cliente depois de o servidor te-la aplicado, entao a coluna que o
+        // retrato traz e' pelo menos tao nova quanto ela. Reaplicar poria um documento VELHO por
+        // cima de um novo.
+        await applyRemoteOperation(opTemporal('map-s12d', CONFIG_TEMPORAL));
+
+        const doRetrato = { ...CONFIG_TEMPORAL, unidade: 'DIA', fim: 777777 };
+        await applyRemoteSnapshot({
+            maps: [{ id: 'map-s12d', name: 'Mapa do Retrato', features: {}, temporal_config: doRetrato }],
+            briefings: [],
+        });
+        expect(settingStore.get('temporal_Mapa do Retrato')).toEqual(doRetrato);
+
+        // E o buffer ficou VAZIO: um `map` UPDATE posterior nao pode ressuscitar o ajuste velho.
+        await applyRemoteOperation({
+            entityType: EntityType.MAP, operationType: OperationType.UPDATE,
+            entityId: 'map-s12d', mapId: null, data: { locked: false },
+        });
+        expect(settingStore.get('temporal_Mapa do Retrato')).toEqual(doRetrato);
+    });
+
+    it('um mapa EXCLUIDO descarta o ajuste que esperava por ele', async () => {
+        await applyRemoteOperation(opTemporal('map-s12e', CONFIG_TEMPORAL));
+        await applyRemoteOperation({
+            entityType: EntityType.MAP, operationType: OperationType.DELETE,
+            entityId: 'map-s12e', mapId: null, data: null,
+        });
+        await applyRemoteOperation({
+            entityType: EntityType.MAP, operationType: OperationType.CREATE,
+            entityId: 'map-s12e', mapId: null,
+            data: { id: 'map-s12e', name: 'Mapa Renascido', features: {} },
+        });
+
+        expect(settingStore.has('temporal_Mapa Renascido')).toBe(false);
+    });
+});
+
+describe('S1 (metade REMOTA) — o rename vindo do par carrega os laterais chaveados por nome', () => {
+    // O DEFEITO: um rename chega como `map` UPDATE com `{name: 'Novo'}`; `mergeRemoteMapUpdate`
+    // grava o registro por `saveMap`, que nao sabe de documento lateral nenhum. O par que RECEBE
+    // o rename perdia a config temporal daquele mapa (janela, unidade, modo relativo, Dia D) e a
+    // vista fixada dele, e `temporal_<nomeAntigo>` ficava orfao no disco. A metade LOCAL mora em
+    // `LocalRepository.renameMap`; esta e' a de entrada, e ela REUSA a mesma transferencia do
+    // repositorio, porque duas listas de "o que pendura no NOME" divergem.
+    let mapaCorrenteAntes;
+
+    beforeEach(() => {
+        mapResolver.clear();
+        memoryStore.temporalConfigs.clear();
+        memoryStore.temporalView.clear();
+        transferCalls.length = 0;
+        mapaCorrenteAntes = memoryStore.currentMap;
+        // O par esta em OUTRO mapa: e' o caso em que a memoria pode viajar sem contradizer os
+        // leitores sincronos (ver o caso do mapa aberto, adiante).
+        memoryStore.currentMap = 'Outro Mapa';
+        mapDataStore.set('map-s1', { ...createTestMapData(), id: 'map-s1', name: 'Mapa Velho' });
+    });
+
+    afterEach(() => {
+        memoryStore.currentMap = mapaCorrenteAntes;
+    });
+
+    it('leva a config temporal e a trava para a chave nova, e remove a velha', async () => {
+        settingStore.set('temporal_Mapa Velho', CONFIG_TEMPORAL);
+        settingStore.set('mapLocked_Mapa Velho', true);
+
+        await applyRemoteOperation({
+            entityType: EntityType.MAP, operationType: OperationType.UPDATE,
+            entityId: 'map-s1', mapId: null, data: { name: 'Mapa Novo' },
+        });
+
+        expect(settingStore.get('temporal_Mapa Novo')).toEqual(CONFIG_TEMPORAL);
+        expect(settingStore.has('temporal_Mapa Velho')).toBe(false);
+        expect(settingStore.get('mapLocked_Mapa Novo')).toBe(true);
+        // DELEGADO, nao reimplementado: o repositorio e' quem sabe quais prefixos pendurem no
+        // nome, e o proprio registro e' excluido da varredura de xara.
+        expect(transferCalls).toEqual([{ oldName: 'Mapa Velho', newName: 'Mapa Novo', ownKeys: ['map-s1'] }]);
+    });
+
+    it('a VISTA da pessoa viaja junto, e ela nao existe em disco nenhum', async () => {
+        // A borda que nada mais no produto conserta: `temporalView` e' o interruptor que ESTA
+        // pessoa ligou nesta sessao. Sem nada em disco, a transferencia do repositorio nao tem o
+        // que levar e mesmo assim ha o que perder.
+        memoryStore.temporalView.set('Mapa Velho', true);
+
+        await applyRemoteOperation({
+            entityType: EntityType.MAP, operationType: OperationType.UPDATE,
+            entityId: 'map-s1', mapId: null, data: { name: 'Mapa Novo' },
+        });
+
+        expect(memoryStore.temporalView.get('Mapa Novo')).toBe(true);
+        expect(memoryStore.temporalView.has('Mapa Velho')).toBe(false);
+        expect(settingStore.has('temporal_Mapa Novo')).toBe(false);
+    });
+
+    it('o espelho da config tambem e re-chaveado', async () => {
+        memoryStore.temporalConfigs.set('Mapa Velho', CONFIG_TEMPORAL);
+        settingStore.set('temporal_Mapa Velho', CONFIG_TEMPORAL);
+
+        await applyRemoteOperation({
+            entityType: EntityType.MAP, operationType: OperationType.UPDATE,
+            entityId: 'map-s1', mapId: null, data: { name: 'Mapa Novo' },
+        });
+
+        expect(memoryStore.temporalConfigs.get('Mapa Novo')).toEqual(CONFIG_TEMPORAL);
+        expect(memoryStore.temporalConfigs.has('Mapa Velho')).toBe(false);
+    });
+
+    it('com o mapa ABERTO no par, a memoria fica onde os leitores sincronos a procuram', async () => {
+        // FRONTEIRA DECLARADA, e nao esquecimento: nenhum caminho de ENTRADA re-chaveia
+        // `memoryStore.currentMap` (nem `groups`, `layers` ou `lockedMaps`), entao enquanto o par
+        // esta no mapa o alvo dos leitores sincronos continua sendo o nome VELHO. Mover a config
+        // para o nome NOVO nesse estado faria a barra dele responder os PADROES, que e' pior que
+        // o achado. O disco viaja de qualquer forma: e' ele que a proxima entrada le.
+        memoryStore.currentMap = 'Mapa Velho';
+        memoryStore.temporalConfigs.set('Mapa Velho', CONFIG_TEMPORAL);
+        settingStore.set('temporal_Mapa Velho', CONFIG_TEMPORAL);
+
+        await applyRemoteOperation({
+            entityType: EntityType.MAP, operationType: OperationType.UPDATE,
+            entityId: 'map-s1', mapId: null, data: { name: 'Mapa Novo' },
+        });
+
+        expect(settingStore.get('temporal_Mapa Novo')).toEqual(CONFIG_TEMPORAL);
+        expect(memoryStore.temporalConfigs.get('Mapa Velho')).toEqual(CONFIG_TEMPORAL);
+        expect(memoryStore.temporalConfigs.has('Mapa Novo')).toBe(false);
+    });
+
+    it('com um XARA vivo a chave velha e copiada, nunca removida', async () => {
+        // Documento lateral chaveado por nome pertence a quem ATENDE por aquele nome: enquanto
+        // sobrevive um xara, a chave velha e' o dado dele. Mesma guarda do lado local.
+        settingStore.set('temporal_Mapa Velho', CONFIG_TEMPORAL);
+        mapDataStore.set('map-xara', { ...createTestMapData(), id: 'map-xara', name: 'Mapa Velho' });
+
+        await applyRemoteOperation({
+            entityType: EntityType.MAP, operationType: OperationType.UPDATE,
+            entityId: 'map-s1', mapId: null, data: { name: 'Mapa Novo' },
+        });
+
+        expect(settingStore.get('temporal_Mapa Novo')).toEqual(CONFIG_TEMPORAL);
+        expect(settingStore.get('temporal_Mapa Velho')).toEqual(CONFIG_TEMPORAL);
+    });
+
+    it('um UPDATE que NAO mexe no nome nao transfere nada', async () => {
+        // Controle: a trava viaja como `{locked}` e nada mais, e `mergeRemoteMapUpdate` repoe o
+        // nome guardado no payload para poder chavear os laterais. Isso nao pode ser lido como
+        // rename, ou todo gesto do par pagaria a varredura de xara.
+        settingStore.set('temporal_Mapa Velho', CONFIG_TEMPORAL);
+        memoryStore.temporalConfigs.set('Mapa Velho', CONFIG_TEMPORAL);
+
+        await applyRemoteOperation({
+            entityType: EntityType.MAP, operationType: OperationType.UPDATE,
+            entityId: 'map-s1', mapId: null, data: { locked: true },
+        });
+
+        expect(transferCalls).toEqual([]);
+        expect(settingStore.get('temporal_Mapa Velho')).toEqual(CONFIG_TEMPORAL);
+        expect(memoryStore.temporalConfigs.get('Mapa Velho')).toEqual(CONFIG_TEMPORAL);
     });
 });

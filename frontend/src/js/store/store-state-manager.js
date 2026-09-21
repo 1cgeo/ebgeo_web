@@ -858,6 +858,20 @@ class MapManager {
             store.lockedMaps.delete(oldName);
             store.lockedMaps.add(newName);
         }
+
+        // THE TEMPORAL HALVES ARE KEYED BY NAME TOO, and both have to move or the rename reads as
+        // a timeline that vanished. `temporalConfigs` is the SAVED document (window, unit, lens,
+        // saved switch), the disk half that `LocalRepository.renameMap` is carrying at the same
+        // time; `temporalView` is the ON-SCREEN switch of this session, which is not on disk at
+        // all, so nothing else can ever bring it back: left behind, the map the person is looking
+        // at loses the switch they themselves flipped, and `setCurrentMap` re-pins it from the
+        // saved value on the next entry, which is a different value.
+        for (const cache of [store.temporalConfigs, store.temporalView]) {
+            if (cache.has(oldName)) {
+                cache.set(newName, cache.get(oldName));
+                cache.delete(oldName);
+            }
+        }
     }
 
     // ===== BATCH OPERATIONS =====

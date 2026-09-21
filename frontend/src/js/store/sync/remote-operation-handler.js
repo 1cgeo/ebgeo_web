@@ -211,6 +211,65 @@ async function drainPendingFeatureOps(mapId) {
 }
 
 /**
+ * Map-setting ops whose map NAME could not be resolved yet, keyed by map id and then by entity
+ * type. A setting whose local key is derived from the map NAME (today only the temporal config,
+ * `temporal_<nome>`) has nowhere to go while the map itself has not landed: writing it under the
+ * UUID produces a record no reader ever asks for and no deletion ever reaches, which is the
+ * defect this buffer replaces (achado S12 da auditoria temporal de 2026-09-21).
+ *
+ * ONLY THE LAST OP PER ENTITY TYPE IS KEPT, AND THAT IS WHY IT NEEDS NO CAP. A map setting is a
+ * WHOLE document, not an increment: the newest op supersedes the previous one entirely, so the
+ * buffer is bounded by the number of setting types, never by how long the map takes to arrive.
+ * That is the difference from {@link pendingFeatureOps}, where every op is its own fact and the
+ * cap is the only thing keeping a never-arriving map from growing the buffer without end.
+ * @type {MountMap}
+ */
+const pendingMapSettingOps = new MountMap();
+
+/** Buffers a name-keyed map-setting op whose map name is not resolvable yet. */
+function bufferPendingMapSettingOp(mapId, entityType, data) {
+    if (!mapId) return false;
+    let byType = pendingMapSettingOps.get(mapId);
+    if (!byType) {
+        byType = new Map();
+        pendingMapSettingOps.set(mapId, byType);
+    }
+    byType.set(entityType, data);
+    return true;
+}
+
+/**
+ * Re-applies the map-setting ops buffered while `mapId` had no resolvable name.
+ *
+ * Its callers are the map CREATE/UPDATE paths, which run it AFTER the map record is saved and
+ * its name registered, so the resolution that failed the first time now succeeds. Like
+ * `drainPendingFeatureOps` it holds no document lock: `applyRemoteMapSettingOp` takes the side
+ * document's own key per op.
+ */
+async function drainPendingMapSettingOps(mapId) {
+    const byType = pendingMapSettingOps.get(mapId);
+    if (!byType || byType.size === 0) return;
+    // Taken out FIRST: a replay that still cannot resolve the name buffers again, and it must
+    // write into a fresh entry instead of mutating the collection being iterated.
+    pendingMapSettingOps.delete(mapId);
+    for (const [entityType, data] of byType) {
+        await applyRemoteMapSettingOp(entityType, mapId, data);
+    }
+}
+
+/**
+ * Drops the buffered map-setting ops of a map, without applying them.
+ *
+ * TWO CALLERS, AND THE REASON IS THE SAME FACT READ TWICE. A map DELETE means the settings have
+ * no subject any more. A SNAPSHOT means the server has just restated every map column, the
+ * temporal config included, at a version no older than any op it already broadcast: replaying a
+ * buffered op on top of that would put an older document over a newer one.
+ */
+function discardPendingMapSettingOps(mapId) {
+    pendingMapSettingOps.delete(mapId);
+}
+
+/**
  * Last server arrival-order (serverVersion) applied per entity, keyed by entity id. Concurrent
  * edits to the SAME entity converge to the op with the highest serverVersion (LWW by arrival
  * order — the documented model): an inbound op OLDER than what was already applied is ignored.
@@ -1155,7 +1214,59 @@ function mergeRemoteMapUpdate(repo, mapId, data) {
         if (carried.has('version')) stampConfirmedVersion(merged, payload.version);
         else clearConfirmedVersion(merged);
         await repo.saveMap?.(mapId, merged);
+        // A RENOMEACAO VINDA DO PAR MUDA A CHAVE DOS DOCUMENTOS LATERAIS CHAVEADOS POR NOME, e
+        // este caminho nao passa por `LocalRepository.renameMap`: ele grava o registro por fora,
+        // com `saveMap`. Sem a carga abaixo, o par que RECEBE um rename perde a config temporal
+        // daquele mapa (janela, unidade, modo relativo, Dia D) e a vista fixada dele, e o registro
+        // velho fica orfao no disco. E' a metade REMOTA do achado S1 de 2026-09-21; a metade local
+        // mora em `LocalRepository.renameMap`. O nome ANTIGO so' existe no registro lido acima: o
+        // payload ja traz o novo, entao depois do `saveMap` ninguem mais sabe de onde sair.
+        await carryNameKeyedStoresAcrossRemoteRename(repo, mapId, existing?.name, merged.name);
         return merged;
+    });
+}
+
+/**
+ * Carries the name-keyed side stores of a map that a PEER has just renamed.
+ *
+ * O DISCO E' DO REPOSITORIO, E DE PROPOSITO. `transferNameKeyedSideStores` e' a MESMA rotina que
+ * `LocalRepository.renameMap` usa do lado local: ela conhece a lista de prefixos chaveados por
+ * nome (hoje `temporal_` e `mapLocked_`), copia e so' apaga a chave velha quando nenhum outro
+ * registro atende por aquele nome. Duas implementacoes de "o que pendura no NOME" divergem, e a
+ * divergencia e' exatamente o defeito que o S1 descreve.
+ *
+ * O ESPELHO EM MEMORIA E' DAQUI, E SO' A METADE TEMPORAL. `temporalView` (o interruptor que ESTA
+ * pessoa ligou) nao existe em disco em lugar nenhum, entao nada mais no produto pode traze-lo de
+ * volta: e' o unico estado do rename remoto que se perde para sempre.
+ *
+ * E ELE SO' ANDA QUANDO O PAR NAO ESTA COM O MAPA ABERTO, que e' a parte que nao se adivinha.
+ * Nenhum caminho de ENTRADA re-chaveia `memoryStore.currentMap` (nem `groups`, `layers` ou
+ * `lockedMaps`): quem faz isso e' `renameMapInMemory`, chamado so' pelo AUTOR do rename. Enquanto
+ * o par esta no mapa, `currentMap` continua sendo o nome VELHO, e os leitores sincronos resolvem
+ * o alvo por ele (`resolveMapName`, `temporal.operations.js`). Mover a config para o nome NOVO
+ * nesse estado faria `getMapTemporalConfigSync` responder os PADROES na barra de quem esta
+ * olhando, que e' pior que o achado. Com o mapa fechado nao ha leitor sincrono apontado para o
+ * nome velho, e mover preserva o interruptor da pessoa para a proxima visita. O re-chaveamento
+ * completo da memoria do par e' achado novo, nao esta aqui.
+ *
+ * NENHUM EVENTO SAI DAQUI, de proposito: o interruptor nao mudou de valor, mudou de endereco.
+ *
+ * @param {Object} repo - Active repository.
+ * @param {string} mapId - Map UUID being renamed.
+ * @param {string} [oldName] - Name the map answered to before this op.
+ * @param {string} [newName] - Name it answers to now.
+ * @returns {Promise<void>}
+ */
+async function carryNameKeyedStoresAcrossRemoteRename(repo, mapId, oldName, newName) {
+    if (!oldName || !newName || oldName === newName) return;
+    await repo.transferNameKeyedSideStores?.(oldName, newName, [mapId]);
+    present(() => {
+        if (memoryStore.currentMap === oldName) return;
+        for (const cache of [memoryStore.temporalConfigs, memoryStore.temporalView]) {
+            if (!cache?.has(oldName)) continue;
+            cache.set(newName, cache.get(oldName));
+            cache.delete(oldName);
+        }
     });
 }
 
@@ -1202,6 +1313,13 @@ async function applyRemoteMapOp(opType, mapId, data, serverVersion) {
             emit(EventTypes.MAP_DELETED, { mapId });
             break;
     }
+    // O MAPA ATERRISSOU, ENTAO OS AJUSTES QUE ESPERAVAM POR ELE PODEM SER GRAVADOS. Vale para o
+    // UPDATE tambem, e nao so' para o CREATE: um `map` UPDATE cujo registro ainda nao existia
+    // localmente e' gravado por `mergeRemoteMapUpdate` a partir do proprio payload, e e' a partir
+    // dele que o nome passa a resolver. FORA de qualquer trava: cada op reaplicada toma a chave do
+    // documento lateral dela, pela mesma razao que o dreno de feicao fica fora da trava do mapa.
+    if (opType === OperationType.DELETE) discardPendingMapSettingOps(mapId);
+    else await drainPendingMapSettingOps(mapId);
     // The maps list, "Mapas" tab, current-map card and the recent-map badge all refresh on
     // LAYERS_CHANGED (not on MAP_*), so a peer's map create/rename/delete must emit it too —
     // otherwise the badge/list never sync until a fresh snapshot (mirrors applyRemoteSnapshot).
@@ -1599,10 +1717,49 @@ async function applyRemoteMarker360Op(opType, entityId, mapId, data) {
 }
 
 /**
+ * The map NAME, which is the KEY of the side stores addressed by name (`temporal_<nome>`,
+ * `mapLocked_<nome>`), asked of the two sources that can answer it, in order of cost.
+ *
+ * THE SECOND SOURCE IS THE ONE THAT MATTERS, and it is the one the temporal branch lacked: the
+ * resolver only learns a map on `saveMap`/`registerMap`, and during a snapshot's pending-intent
+ * replay the record is already on disk while the registration is still a deferred `present()`
+ * effect. `mergeRemoteMapUpdate` has asked both since 2026-09-13, for the lock, which is why the
+ * lock never produced a stray key and the temporal config did.
+ *
+ * IT RETURNS NULL, NEVER THE ID. A name-keyed store written under a UUID is unreadable by every
+ * consumer and unreachable by every deletion; the caller has to decide what to do with "no name
+ * yet", and the id is not an answer to that question.
+ *
+ * E O RESOLVEDOR NAO AVISA QUANDO NAO SABE, que e' a metade do S12 que quase passa batida:
+ * `resolveToName` de um UUID desconhecido devolve O PROPRIO UUID (`_idToName.get(id) || id`), e
+ * nao nulo. Por isso o `|| mapId` do chamador antigo nunca chegava a rodar e por isso a igualdade
+ * com `mapId` e' o teste de "nao sei": um nome que responda pelo proprio identificador so'
+ * acontece em mapa LEGADO chaveado por nome, e nesse caso o registro existe e responde a mesma
+ * string pela segunda fonte, que e' a resposta certa.
+ *
+ * @param {Object} repo - Active repository.
+ * @param {string} mapId - Map UUID.
+ * @returns {Promise<string|null>} The map's display name, or null while it has none locally.
+ */
+async function resolveMapNameForSideStore(repo, mapId) {
+    if (!mapId) return null;
+    const resolved = mapResolver.resolveToName(mapId);
+    if (resolved && resolved !== mapId) return resolved;
+    return (await repo?.getMap?.(mapId))?.name || null;
+}
+
+/**
  * Applies a remote map-level setting operation (position, base layer, notes,
  * grid style). These live on the map record itself, so a coarse MAP_MODIFIED
  * tells the app to re-read the map. A type-specific event is emitted when one
  * exists for the setting.
+ *
+ * SO UM DOS RAMOS E' CHAVEADO POR NOME, e saber qual poupa procurar o buraco do S12 nos outros:
+ * notas e grade sao gravadas por `saveMapNotes`/`saveGridStyle`, que derivam a chave do ID do
+ * mapa (`map_notes_<id>`, `gridStyle_<id>`), e posicao e mapa base moram no proprio registro do
+ * mapa. O unico documento lateral chaveado pelo NOME que passa por aqui e' o temporal. O outro do
+ * produto, a trava, nao entra nesta funcao: ele viaja como um `map` UPDATE e ja resolve o nome
+ * pelas duas fontes em `mergeRemoteMapUpdate`, e sem nome ele nao grava nada.
  *
  * @param {string} entityType - Entity type (from EntityType)
  * @param {string} mapId - Map UUID
@@ -1684,7 +1841,21 @@ async function applyRemoteMapSettingOp(entityType, mapId, data) {
             // class as the layer bug). The config is keyed locally by map NAME
             // (`temporal_<name>`, matching temporal.operations.js), while the op carries the
             // map UUID, so resolve UUID→name first.
-            const mapName = mapResolver.resolveToName(mapId) || mapId;
+            //
+            // E O ID NAO SERVE DE SUBSTITUTO QUANDO O NOME NAO RESOLVE (achado S12). Esta linha
+            // era `resolveToName(mapId) || mapId`, e o `|| mapId` nao e' um padrao: e' uma chave
+            // `temporal_<uuid>` que `setCurrentMap` nunca le, que `deleteMap` nunca remove (ele
+            // apaga pelo NOME) e que o rename nunca carrega. A op chega antes do mapa quando o par
+            // cria o mapa e ajusta a linha do tempo no mesmo gesto, e entao a config do usuario ia
+            // para o lixo em vez de para o mapa. Sem nome resolvido ela e' BUFFERIZADA, como a
+            // feicao que chega antes do mapa dela, e reaplicada quando o mapa aterrissa.
+            const mapName = await resolveMapNameForSideStore(repo, mapId);
+            if (data && !mapName) {
+                bufferPendingMapSettingOp(mapId, entityType, data);
+                // Nada foi gravado, entao nada e' anunciado: o `MAP_MODIFIED` do fim desta funcao
+                // diria que o registro do mapa mudou, e nao ha registro de mapa nenhum aqui.
+                return;
+            }
             if (data) {
                 // Mesma chave que o lado local (`setMapTemporalConfig`), que faz MERGE de
                 // patch sobre o estado anterior. Sem a exclusao, esta escrita inteira cai
@@ -1876,8 +2047,29 @@ async function reshapeSnapshotMap(repo, map) {
     // store-state-manager loads them on map activation).
     const mapName = map.name;
     if (mapName) {
-        if (temporalConfig != null && Object.keys(temporalConfig).length > 0) {
-            await repo.saveSetting?.(`temporal_${mapName}`, temporalConfig);
+        // A CONFIG TEMPORAL SEGUE A TRAVA, E ATE 2026-09-21 SO' A TRAVA VOLTAVA (achado S5). A
+        // ativacao de uma geracao de retrato zera `memoryStore.temporalConfigs` na MESMA linha em
+        // que zera `memoryStore.lockedMaps` (ver `applyRemoteSnapshot`), e quem repoe os dois
+        // espelhos sao os efeitos `present()` daqui, que rodam depois daquele zeramento. A trava
+        // tinha o dela e o temporal nao tinha nenhum: depois de um retrato no meio da sessao,
+        // `getMapTemporalConfigSync` passava a responder os PADROES para o mapa que a pessoa esta
+        // vendo (rotulo D+N do painel, passo da regua, filtro de render), sem nada avisar a barra.
+        //
+        // O EVENTO E' `TEMPORAL_CONFIG_CHANGED` E NUNCA `MAP_TEMPORAL_CHANGED`, e o espelho da
+        // VISTA (`memoryStore.temporalView`) nao se toca aqui: o que volta do servidor e' o
+        // documento SALVO do mapa, e o interruptor da tela e' estado de vista de cada pessoa
+        // (decisao de 2026-09-20). O controlador rele' a config e mantem o interruptor dele.
+        if (temporalConfig !== undefined) {
+            const temConfig = temporalConfig != null && Object.keys(temporalConfig).length > 0;
+            if (temConfig) await repo.saveSetting?.(`temporal_${mapName}`, temporalConfig);
+            // Mapa SEM config no retrato nao pode herdar a da geracao anterior: o espelho e'
+            // APAGADO em vez de deixado como estava, senao a config de um atlas que acabou de
+            // sair continuaria respondendo pelo mapa de mesmo nome do atlas que entrou.
+            present(() => {
+                if (temConfig) memoryStore.temporalConfigs.set(mapName, temporalConfig);
+                else memoryStore.temporalConfigs.delete(mapName);
+            });
+            emit(EventTypes.TEMPORAL_CONFIG_CHANGED, { mapName, config: temConfig ? temporalConfig : null });
         }
         if (locked != null) {
             await repo.saveSetting?.(`mapLocked_${mapName}`, locked);
@@ -1997,6 +2189,11 @@ export function applyRemoteSnapshot(snapshot, options = {}) {
             await context.markMaterialized?.();
             const maps = await context.repo.getAllMaps();
             context.assertActive();
+            // OS ESPELHOS CHAVEADOS POR NOME SAO ZERADOS AQUI E REPOSTOS PELOS EFEITOS ABAIXO,
+            // que sao os `present()` de `reshapeSnapshotMap`. Zerar sem repor e' o defeito, nao a
+            // ordem: quem acrescentar um espelho novo a esta lista acrescenta tambem a reposicao
+            // dele la', senao o mapa que a pessoa esta vendo perde aquele estado em silencio no
+            // primeiro retrato do meio da sessao (foi o que aconteceu com o temporal, achado S5).
             mapResolver.clear();
             memoryStore.groups = {};
             memoryStore.lockedMaps.clear();
@@ -2207,6 +2404,11 @@ async function applyRemoteSnapshotInner(snapshot) {
             // Replay any live feature ops that arrived (and buffered) before this map existed.
             // OUTSIDE the lock above: each replayed op takes the same key itself.
             if (!applyContext?.staging) await drainPendingFeatureOps(map.id);
+            // O AJUSTE BUFFERIZADO E' DESCARTADO AQUI, E NAO REAPLICADO, e a assimetria com a
+            // feicao acima e' o ponto: a feicao e' um fato que so' aquela op carrega, enquanto o
+            // ajuste e' uma COLUNA que a linha do retrato acabou de restabelecer. A op so' chegou
+            // a este cliente depois de o servidor te-la aplicado, entao o retrato ja a contem.
+            discardPendingMapSettingOps(map.id);
             // Groups live in a SEPARATE local store (not part of map data), so saveMap does
             // not carry them. Restore the snapshot's map.groups (array → object keyed by id)
             // into both the group store (by id) and the in-memory cache (by name) so a peer
