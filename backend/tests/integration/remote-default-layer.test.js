@@ -1,7 +1,6 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readFile, readdir } from 'node:fs/promises';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAtlas, createMap, createLayer, loginUser } from '../helpers/fixtures.js';
@@ -144,29 +143,11 @@ describe('Server-owned default layers', () => {
     assert.deepEqual((await layers(map.id)).map(l => l.id), [layer.id]);
   });
 
-  it('upgrade keeps legacy features/configuration, creates missing layers once and invalidates old cursors', async () => {
-    const old = await createAtlas(db, user.id);
-    const empty = await createMap(db, old.id);
-    const configured = await createMap(db, old.id);
-    const existing = await createLayer(db, configured.id, { name: 'Conservar', locked: true, opacity: 0.3 });
-    const feature = (await db.query(`INSERT INTO features (map_id, feature_type, geometry, properties)
-      VALUES ($1,'point','{"type":"Point","coordinates":[3,4]}','{"source":"point","name":"Preservar","layerId":"default"}') RETURNING *`, [empty.id])).rows[0];
-    const dir = new URL('../../src/database/migrations/', import.meta.url);
-    const filename = (await readdir(dir)).find(name => name.endsWith('_camadas_remotas.sql'));
-    const sql = await readFile(new URL(filename, dir), 'utf8');
-    await db.query(sql);
-    const [defaultLayer] = await layers(empty.id);
-    const saved = (await db.query('SELECT * FROM features WHERE id=$1', [feature.id])).rows[0];
-    assert.equal(saved.layer_id, defaultLayer.id);
-    assert.equal(saved.properties.name, 'Preservar');
-    assert.deepEqual(saved.geometry, feature.geometry);
-    assert.equal(saved.deleted_at, null);
-    assert.equal(saved.version, feature.version + 1);
-    assert.deepEqual(await layers(configured.id), [existing]);
-    const frontier = (await db.query('SELECT current_version, min_version FROM atlas WHERE id=$1', [old.id])).rows[0];
-    assert.ok(Number(frontier.min_version) > 0);
-    assert.equal(frontier.current_version, frontier.min_version);
-    await db.query(sql);
-    assert.deepEqual((await layers(empty.id)).map(l => l.id), [defaultLayer.id]);
-  });
+  // O CASO DO UPGRADE SAIU COM O ARQUIVO QUE ELE EXECUTAVA (2026-09-20). Ele lia a regularizacao de
+  // camada padrao da pasta de migracoes e a rodava sobre dado legado plantado: mapa sem camada e
+  // feicao sem `layer_id`. Na segunda consolidacao das bases aquele arquivo, que era so de DADOS,
+  // saiu sem substituto, porque nada foi implantado e uma instalacao nova nao tem linha legada. Um
+  // caso que continuasse aqui testaria um script que o produto nao entrega mais. O que ELE media
+  // esta descrito em docs/wiki/camada-padrao-remota.md, e volta como migracao numerada, com este
+  // caso de volta, no dia em que existir um banco implantado anterior a camada padrao persistida.
 });

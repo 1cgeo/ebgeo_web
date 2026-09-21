@@ -90,7 +90,7 @@ describe('Images + Resources — gap coverage', () => {
   // Helper: upload a PNG via the single-upload route, return image id.
   //
   // OS BYTES SAO DISTINTOS A CADA CHAMADA, e isso deixou de ser detalhe com
-  // 013_imagens_idempotentes.sql: sem chave de tentativa a rota unica deduplica por HASH DE
+  // a deduplicacao de upload (`images`, em 003_atlas.sql): sem chave de tentativa a rota unica deduplica por HASH DE
   // CONTEUDO, entao reenviar o MESMO arquivo devolve 200 com a linha anterior, e cinco casos deste
   // arquivo passaram a receber um recurso que acreditavam ter acabado de criar (um deles ja
   // apagado, o que virava 404 no passo seguinte). O enchimento vai DEPOIS do IEND, entao segue

@@ -1,6 +1,6 @@
 // Path: src/modules/images/images.queries.js
 
-// `content_hash` and `attempt_key` were added by 013_imagens_idempotentes.sql. Both are OPTIONAL
+// `content_hash` and `attempt_key` are the upload-dedup columns of `images` (003_atlas.sql). Both are OPTIONAL
 // on write (the bulk route and the atlas clone store NULL for the attempt key): the partial index
 // `uq_images_atlas_attempt_key` is what forbids two rows with the SAME key in one atlas while
 // still allowing many NULLs.
@@ -47,7 +47,7 @@ export const FIND_IMAGE_BY_ATTEMPT_KEY = `
 // picture mints a NEW id for the SAME bytes, so a unique index there would refuse the paste, and
 // what the index buys is a cheap answer to "who else holds these bytes" for a future diagnostic.
 
-// Adopts a hash for a row written before 013_imagens_idempotentes.sql (or by the atlas clone,
+// Adopts a hash for a row written without a hash (or by the atlas clone,
 // which copies bytes and not the hash). Only ever fills a NULL: overwriting a stored hash would
 // let a later read of the wrong file rewrite the identity of a row.
 export const ADOPT_CONTENT_HASH = `

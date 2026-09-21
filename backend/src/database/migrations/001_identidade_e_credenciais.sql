@@ -155,6 +155,11 @@ CREATE TABLE users (
     -- de administração, não por relógio.
     producer_org_id     UUID REFERENCES organizations(id),
 
+    -- NOME DE GUERRA: como a pessoa e chamada (`Maj Diniz`), escolhido por ela e separado do
+    -- nome completo, que continua em `nome`. Pode nem ser substring dele. Nulo e estado
+    -- legitimo (conta civil, conta que ainda nao escolheu), e a tela cai entao no nome.
+    nome_guerra         VARCHAR(100),
+
     -- BICONDICIONAL: crachá sem escopo e escopo sem crachá são os DOIS estados
     -- impossíveis, e um CHECK unidirecional só pegaria um deles.
     --   (producer, OM)   OK      (producer, NULL) NÃO: produz o quê, de quem?
@@ -256,9 +261,22 @@ CREATE TABLE email_verification_tokens (
     consumed_at TIMESTAMPTZ,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
+    -- A CAIXA QUE RECEBEU O LINK de confirmacao. A confirmacao vale para o destinatario
+    -- original: token sem este vinculo e recusado, e o reenvio emite um vinculado.
+    email_at_issue VARCHAR(255),
+
+    -- O CORTE DE SESSOES no instante em que o codigo de recuperacao foi emitido. Trocar a
+    -- credencial ou revogar as sessoes depois disso invalida o codigo.
+    reset_sessions_valid_from TIMESTAMPTZ,
+
     CONSTRAINT email_token_new_email_check
       CHECK ((purpose = 'change_email') = (new_email IS NOT NULL))
 );
+
+COMMENT ON COLUMN email_verification_tokens.email_at_issue IS
+  'Mailbox to which a signup/resend verification token was sent. NULL legacy verify tokens require resend.';
+COMMENT ON COLUMN email_verification_tokens.reset_sessions_valid_from IS
+  'Exact session cutoff at recovery issuance; changing credentials/revoking sessions invalidates the code.';
 CREATE INDEX idx_email_verification_user ON email_verification_tokens(user_id);
 -- O lado pequeno: "que tokens deste propósito ainda estão de pé para esta conta?",
 -- que é a pergunta de quem invalida os anteriores antes de cunhar o próximo.

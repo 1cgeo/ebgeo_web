@@ -53,7 +53,7 @@ function toPublicImage(row) {
  * ONE function for the two doors, because the two doors must agree: the single route hashes a file
  * multer already wrote, the bulk route hashes the buffer it decoded from base64, and a retry that
  * arrives through the other door has to produce the SAME string or the dedupe silently stops
- * deduping. The CHECK in 013_imagens_idempotentes.sql pins the shape (64 lowercase hex chars).
+ * deduping. The CHECK `images_content_hash_format` (003_atlas.sql) pins the shape (64 lowercase hex chars).
  * @param {Buffer} buffer - The exact bytes that will be (or already were) stored.
  * @returns {string} 64 lowercase hex characters.
  */

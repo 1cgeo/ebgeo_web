@@ -2,7 +2,7 @@
 //
 // F6, metade do servidor: uma resposta perdida DEPOIS da gravacao nao deixa rastro no cliente,
 // entao a retentativa e indistinguivel de um envio novo. Antes de
-// 013_imagens_idempotentes.sql as duas rotas respondiam mal a ela, e mal de formas opostas:
+// a deduplicacao de upload (`images`, em 003_atlas.sql) as duas rotas respondiam mal a ela, e mal de formas opostas:
 //
 //   - rota unica: criava uma SEGUNDA linha e um SEGUNDO arquivo em disco, e devolvia um id novo,
 //     de modo que a feicao ficava apontando para um blob e o outro virava orfao permanente;

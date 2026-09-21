@@ -56,7 +56,7 @@ const PNG_BUFFER = Buffer.from(PNG_B64, 'base64');
 /**
  * PNG valido com BYTES DISTINTOS a cada chamada.
  *
- * OBRIGATORIO DESDE 013_imagens_idempotentes.sql, e aqui o motivo e mais grave que um status
+ * OBRIGATORIO DESDE a deduplicacao de upload (`images`, em 003_atlas.sql), e aqui o motivo e mais grave que um status
  * trocado: sem chave de tentativa a rota UNICA deduplica por HASH DE CONTEUDO dentro do atlas,
  * entao dois envios do mesmo fixture no mesmo atlas devolvem 200 com a MESMA linha. `imgA1` e
  * `imgA2` virariam um id so, e o caso do "roubo do id A2" passaria a atacar a vitima do caso
@@ -226,7 +226,7 @@ describe('cross-tenant / cross-actor negatives', () => {
       // colliding item is REFUSED; the refusal reason is now the same fixed text the
       // errorHandler gives for 23505 over REST, with the raw driver message going to
       // the log instead (pinned in tests/integration/images-bulk-error-leak.repro.test.js).
-      // A FRASE MUDOU EM 013_imagens_idempotentes.sql, e ela ficou MAIS especifica: a recusa passou
+      // A FRASE MUDOU COM a deduplicacao de upload (`images`, em 003_atlas.sql), e ela ficou MAIS especifica: a recusa passou
       // a ser decidida antes do INSERT, perguntando de quem e o id que colidiu, entao ela nomeia o
       // caso cross-tenant em vez de repetir o texto genérico de chave duplicada. A propriedade que
       // este caso mede continua a mesma (o item colidente e RECUSADO, e o texto do driver nao
@@ -270,7 +270,7 @@ describe('cross-tenant / cross-actor negatives', () => {
       const before = await imageRow(imgA1);
 
       // OUTROS bytes sob o id existente: e a metade que continua sendo recusa, e desde
-      // 013_imagens_idempotentes.sql ela e decidida por COMPARACAO DE CONTEUDO, nao pela PK.
+      // a deduplicacao de upload (`images`, em 003_atlas.sql) ela e decidida por COMPARACAO DE CONTEUDO, nao pela PK.
       const res = await as(tokA)
         .post(`/api/v1/atlas/${atlasA.id}/images/bulk`)
         .send({

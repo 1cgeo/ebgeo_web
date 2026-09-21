@@ -21,7 +21,7 @@
  *    `POST /images/bulk` preserves `localId` as the row id, so a retry lands the bytes under the id
  *    the feature already carries; the single-image route mints its own id, which is why the old
  *    failure path (upload, fall back to a local id, never retry) could not be repaired by simply
- *    retrying: the second attempt would have produced a THIRD id. Since 013_imagens_idempotentes.sql
+ *    retrying: the second attempt would have produced a THIRD id. Since the upload-dedup columns of `images` (003_atlas.sql)
  *    the server recognises the retry by (id, content hash) and answers with the row it already has.
  *
  * 3. THE OPERATION WAITS FOR THE BLOB. An image feature whose operation reaches a peer before its

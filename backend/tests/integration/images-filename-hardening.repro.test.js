@@ -162,7 +162,7 @@ describe('Images — filename hardening (findings 43, 69)', () => {
   // ───────────────────────────────────────────────────────────────────────────
   // Finding 69 — POST /atlas/:id/images validates the uploaded file's name
   // ───────────────────────────────────────────────────────────────────────────
-  // BYTES DISTINTOS A CADA ENVIO, e isso deixou de ser detalhe com 013_imagens_idempotentes.sql:
+  // BYTES DISTINTOS A CADA ENVIO, e isso deixou de ser detalhe com a deduplicacao de upload (`images`, em 003_atlas.sql):
   // sem chave de tentativa a rota unica deduplica por HASH DE CONTEUDO, entao reenviar o mesmo
   // fixture devolve 200 com a linha ANTERIOR, e tres casos deste bloco passariam a ler o
   // `filename` gravado pelo envio de outro caso. O que eles medem e o NOME, nunca os bytes, e o

@@ -672,9 +672,9 @@ aberto não deixa nada reservado.
 o endereço ao qual foi enviado, enquanto a conta estiver ativa. O código de recuperação exige
 o mesmo endereço ainda confirmado e o mesmo corte de sessões da emissão; alteração de senha
 ou revogação geral de sessões o invalida. Emissão e resgate de recuperação são serializados por
-conta, e substituir o código é transacional. As duas migrações que trazem esses vínculos
-(`backend/src/database/migrations/017_confirmacao_email_destinatario.sql` e
-`backend/src/database/migrations/018_recuperacao_senha_sessoes.sql`) preservam contas e credenciais;
+conta, e substituir o código é transacional. As duas colunas que trazem esses vínculos
+(`email_at_issue` e `reset_sessions_valid_from`, em
+`backend/src/database/migrations/001_identidade_e_credenciais.sql`) preservam contas e credenciais;
 links de confirmação e códigos de recuperação anteriores, que nasceram sem esses vínculos, não têm como
 ser reconstruídos e exigem novo envio. Essas proteções não alteram a reserva indefinida do cadastro
 pendente. **[vigente]** Preso por `backend/tests/integration/self-registration-audit.test.js` e

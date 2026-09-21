@@ -4,10 +4,10 @@ Consolidação autorizada em 12/09/2026, antes da primeira implantação deste b
 
 | Arquivo | Responsabilidade |
 | --- | --- |
-| [001_identidade_e_credenciais.sql](001_identidade_e_credenciais.sql) | Organizações, postos, contas, tokens, chaves de API e grupos de usuários. |
+| [001_identidade_e_credenciais.sql](001_identidade_e_credenciais.sql) | Organizações, postos, contas (com nome de guerra), tokens (com o vínculo da confirmação ao destinatário e o da recuperação ao corte de sessões), chaves de API e grupos de usuários. |
 | [002_auditoria.sql](002_auditoria.sql) | Trilha administrativa, vocabulário de ações e índices de consulta. |
-| [003_atlas.sql](003_atlas.sql) | Atlas, compartilhamentos e conteúdo colaborativo. |
-| [004_sync.sql](004_sync.sql) | Operações, versões e índices de sincronização e produção. |
+| [003_atlas.sql](003_atlas.sql) | Atlas, compartilhamentos e conteúdo colaborativo: imagens com identidade de tentativa e de conteúdo, slides com a vista e os controles de apresentação, e as importações atômicas. |
+| [004_sync.sql](004_sync.sql) | Operações (com a identidade do lote lógico), versões e índices de sincronização e produção. |
 | [005_catalogo.sql](005_catalogo.sql) | Bases, camadas, modelos publicados e configuração. |
 | [006_ng.sql](006_ng.sql) | Gazetteer, busca e agrupamentos geográficos. |
 | [007_sv360.sql](007_sv360.sql) | Projetos 360, metadados, faixas, fotos, alvos e pirâmides. |
@@ -15,16 +15,7 @@ Consolidação autorizada em 12/09/2026, antes da primeira implantação deste b
 | [009_a3d.sql](009_a3d.sql) | Acervo 3D convertido e registro de importações. |
 | [010_observabilidade.sql](010_observabilidade.sql) | Defeitos, ciclo de vida e evidências individuais limitadas. |
 | [011_uso_e_presenca.sql](011_uso_e_presenca.sql) | Uso agregado, sessões, presença e deduplicação da coleta. |
-| [012_camadas_remotas.sql](012_camadas_remotas.sql) | Regularização de dados anteriores à camada padrão persistida: conserva feições e configurações e exige snapshot para cursores antigos. |
-| [013_imagens_idempotentes.sql](013_imagens_idempotentes.sql) | Identidade de tentativa e de conteúdo em `images`, para que a retentativa de um upload cuja resposta se perdeu não crie segunda linha nem seja recusada como colisão. |
-| [014_lote_logico.sql](014_lote_logico.sql) | A identidade do gesto que produziu várias operações, para que o servidor aplique ou recuse o lote inteiro e o recibo diga a que gesto cada operação pertenceu. |
-| [015_importacoes_atomicas.sql](015_importacoes_atomicas.sql) | Persistência e idempotência das importações atômicas. |
-| [016_nome_de_guerra.sql](016_nome_de_guerra.sql) | Nome de guerra na identificação de usuários. |
-| [017_confirmacao_email_destinatario.sql](017_confirmacao_email_destinatario.sql) | Vincula a confirmação ao destinatário original. Links anteriores sem vínculo exigem reenvio. |
-| [018_recuperacao_senha_sessoes.sql](018_recuperacao_senha_sessoes.sql) | Vincula a recuperação ao corte de sessões da emissão. Códigos anteriores sem vínculo exigem novo pedido. |
 
-| [019_vista_do_slide.sql](019_vista_do_slide.sql) | A vista de um slide de briefing: o mapa base que ele mostra e o interruptor temporal, duas colunas nulas em `slides`. Nulo herda o que foi salvo com o mapa, e por isso os slides anteriores apresentam como antes. |
-| [020_controles_do_slide.sql](020_controles_do_slide.sql) | Os controles do mapa que um slide mostra ao ser apresentado: uma coluna JSONB nula em `slides`, de booleanos sobre lista fechada. Nulo e objeto vazio significam nenhum, que é como os slides anteriores apresentam. |
 **A contagem não se escreve em prosa aqui, e a tabela acima é a lista.** Esta seção disse "onze bases" e depois "doze", e as duas envelheceram no arquivo seguinte que nasceu, sem nada ficar vermelho: `frontend/tests/unit/docs-integridade.test.js` valida caminho, link e símbolo, nunca aritmética. Quem precisar do número conta a tabela ou roda `ls`.
 
 Colunas, índices e CHECK nascem completos. Não há cadeia de criação seguida de renomeação, remoção de índice ou substituição de CHECK. O nome inicial de identidade foi alterado deliberadamente para distinguir esta base dos históricos anteriores, inclusive os que tinham aplicado apenas parte da sequência antiga.
@@ -45,10 +36,18 @@ Esta linha do backend nunca foi implantada, então a baseline consolidada contin
 
 O migrador registra o checksum do conteúdo de cada arquivo aplicado desde 2026-09-13 e recusa, nomeando arquivo e hash, um arquivo já aplicado cujo conteúdo tenha mudado. Em desenvolvimento essa recusa se resolve recriando o banco a partir das bases atuais. A partir do SHA implantado a mesma recusa é o congelamento: toda mudança de schema passa a entrar por um arquivo numerado novo, e nenhuma das bases volta a ser tocada.
 
-## Verificação da consolidação
+## A segunda consolidação (2026-09-20)
+
+Entre 12/09 e 20/09 a sequência cresceu de onze bases para vinte arquivos: oito incrementos de DDL (colunas de `images`, `operations`, `users`, `email_verification_tokens` e `slides`, mais as duas tabelas de importação) e uma regularização só de dados. O dono pediu a dobra de volta, pela mesma razão da primeira: nada foi implantado, e uma instalação nova não precisa da história de como cada coluna chegou.
+
+Cada incremento entrou na base do domínio dele, e as colunas novas ficaram no FIM de cada `CREATE TABLE`, na ordem em que os `ALTER` as tinham criado, para que até a posição física coincida. A regularização de dados saiu sem substituto: ela consertava mapas sem camada e feições sem `layer_id` de bancos anteriores à camada padrão persistida, e um banco novo não tem linha para consertar ([`docs/wiki/camada-padrao-remota.md`](../../../../docs/wiki/camada-padrao-remota.md) guarda o que ela fazia).
+
+A prova foi a mesma da primeira vez, com o mesmo método: dois bancos descartáveis, um pela sequência de vinte arquivos e outro pelas onze bases, e comparação dos catálogos do PostgreSQL, desta vez SEM ignorar a ordem das colunas. Coincidiram 564 colunas (com `ordinal_position`), 196 constraints, 176 índices, 19 funções próprias (por hash do corpo), seis triggers, três sequências, 28 comentários de coluna e a contagem das seis tabelas semeadas. O comparador passou por controle negativo antes de o verde valer: com uma coluna retirada da base nova ele acusou a coluna pelo nome.
+
+**Banco de desenvolvimento aplicado pela sequência de vinte arquivos.** O schema dele é idêntico ao destas bases, e o que difere é só o tracking: `_migrations` guarda nove nomes que não existem mais e o checksum antigo de três bases. O migrador recusa esse histórico, como recusa qualquer outro, e a recusa não estraga nada: o servidor não migra no boot, então o banco continua servindo. Ele só precisa ser recriado (`npm run db:setup` e `npm run db:migrate` num banco novo) quando a próxima migração tiver de ser aplicada nele.
+
+## Verificação da primeira consolidação
 
 Dois bancos descartáveis foram criados: um pela sequência anterior de 21 arquivos e outro pelas onze primeiras bases desta tabela. A comparação de catálogos do PostgreSQL confirmou equivalência de 531 colunas, 186 constraints, 169 índices, 19 funções próprias, quatro triggers e duas sequências, excluindo o tracking do migrador. A comparação ignora a ordem física das colunas e comentários, preservando tipos, defaults, nulabilidade e definições SQL. Os dados iniciais de organizações, postos e catálogo também coincidiram, desconsiderando IDs gerados e timestamps de criação.
-
-A décima segunda base, 012_camadas_remotas.sql, ficou fora dessa equivalência porque é posterior a ela e porque não traz DDL nenhum: é só regularização de dados anteriores à camada padrão persistida. Numa instalação nova ela não tem linha para regularizar, e a ausência de comparação de catálogos não deixa buraco algum.
 
 Os testes de higiene proíbem reparos dentro destas bases. Os testes de tracking verificam reaplicação sem duplicação, recusa do histórico antigo sem alterar dados (incluindo liberação do lock após a recusa), recusa de arquivo aplicado cujo conteúdo mudou e adoção do checksum em linha rastreada antes desta coluna existir.

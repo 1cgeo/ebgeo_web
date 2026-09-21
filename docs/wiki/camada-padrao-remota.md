@@ -28,7 +28,7 @@ Uma referência EXPLÍCITA a uma camada excluída é recusada com motivo, nunca 
 
 ## O que a regularização de dados não faz
 
-`backend/src/database/migrations/012_camadas_remotas.sql` cria camada apenas nos mapas VIVOS que não têm nenhuma, preserva a configuração das camadas existentes, vincula as feições sem camada à primeira camada real do próprio mapa, atualiza a revisão dessas feições e exige snapshot para os cursores anteriores. Reaplicá-la não duplica camada.
+A regularização de 2026-09 (um arquivo de migração só de DADOS, sem DDL, que saiu da sequência na consolidação de 2026-09-20 porque uma instalação nova não tem linha para regularizar) cria camada apenas nos mapas VIVOS que não têm nenhuma, preserva a configuração das camadas existentes, vincula as feições sem camada à primeira camada real do próprio mapa, atualiza a revisão dessas feições e exige snapshot para os cursores anteriores. Reaplicá-la não duplica camada.
 
 Três limites, e o primeiro é o que mais engana:
 

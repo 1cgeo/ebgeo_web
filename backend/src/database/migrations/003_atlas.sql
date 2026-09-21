@@ -393,10 +393,38 @@ CREATE TABLE images (
     size_bytes      INTEGER,
     storage_path    VARCHAR(500) NOT NULL,
     uploaded_by     UUID REFERENCES users(id),
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- DEDUPLICACAO DE UPLOAD: identidade de CONTEUDO e identidade de TENTATIVA.
+    --
+    -- O problema que as duas fecham e o mesmo visto de dois lados. Uma resposta perdida depois
+    -- de a gravacao ter acontecido nao deixa rastro no cliente, entao a retentativa e
+    -- indistinguivel de um envio novo: na rota unica ela criava uma SEGUNDA linha e um SEGUNDO
+    -- arquivo em disco, e na rota bulk (que preserva o id local como chave primaria) ela
+    -- colidia na PK e voltava como `failed` um upload que ja estava gravado.
+    --
+    -- `content_hash` e o sha256 hex dos bytes. O indice dele NAO e unico, e isso e desenho:
+    -- colar uma figura cunha um id NOVO para os MESMOS bytes de proposito, e um unique aqui
+    -- recusaria a colagem. Hex minusculo de 64 caracteres, para que um hash truncado ou em
+    -- caixa alta nao passe a valer como identidade de conteudo.
+    content_hash    VARCHAR(64),
+
+    -- `attempt_key` e cunhada pelo cliente antes do primeiro byte sair. Unica por atlas e so
+    -- quando presente: a rota bulk e o clone de atlas gravam NULL, e varios NULL nao colidem
+    -- num indice parcial.
+    attempt_key     UUID,
+
+    CONSTRAINT images_content_hash_format
+      CHECK (content_hash IS NULL OR content_hash ~ '^[0-9a-f]{64}$')
 );
 
 CREATE INDEX idx_images_atlas ON images(atlas_id);
+CREATE INDEX idx_images_atlas_content_hash
+    ON images(atlas_id, content_hash)
+    WHERE content_hash IS NOT NULL;
+CREATE UNIQUE INDEX uq_images_atlas_attempt_key
+    ON images(atlas_id, attempt_key)
+    WHERE attempt_key IS NOT NULL;
 
 -- ============================================================================
 -- BRIEFINGS
@@ -444,7 +472,19 @@ CREATE TABLE slides (
     version         INTEGER NOT NULL DEFAULT 1,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    deleted_at      TIMESTAMPTZ
+    deleted_at      TIMESTAMPTZ,
+
+    -- A VISTA DO SLIDE. O mapa base e o interruptor temporal sao vista de cada pessoa, e nao
+    -- configuracao sincronizada do mapa, entao o slide precisa dizer o que ELE mostra. Nulo
+    -- nos dois significa herdar o que foi salvo com o mapa.
+    base_layer       VARCHAR(100),
+    temporal_enabled BOOLEAN,
+
+    -- OS CONTROLES DO MAPA QUE O SLIDE MOSTRA AO SER APRESENTADO. A apresentacao e um palco
+    -- limpo, e cada controle so volta quando o autor marcou a caixa daquele slide. JSONB de
+    -- booleanos sobre lista FECHADA (src/modules/sync/slide-controls.js); nulo e objeto vazio
+    -- significam nenhum.
+    controls         JSONB
 );
 
 CREATE INDEX idx_slides_briefing ON slides(briefing_id);
@@ -471,3 +511,31 @@ CREATE TRIGGER trg_mark_slides_broken
 AFTER UPDATE OF deleted_at ON maps
 FOR EACH ROW
 EXECUTE FUNCTION mark_slides_broken_on_map_delete();
+
+-- ============================================================================
+-- IMPORTACOES ATOMICAS
+-- ============================================================================
+-- Preparacoes de importacao PRIVADAS e com prazo. A visibilidade do atlas so comeca no commit
+-- final: ate la o payload e os bytes das imagens moram aqui, no nome de quem importou, e a
+-- `source_key` (sha256 do arquivo de origem) e o que torna a retentativa idempotente.
+CREATE TABLE atlas_import_attempts (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  source_key VARCHAR(64) NOT NULL CHECK (source_key ~ '^[0-9a-f]{64}$'),
+  payload JSONB,
+  image_ids UUID[] NOT NULL DEFAULT '{}',
+  result JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '1 day'
+);
+CREATE INDEX atlas_import_attempt_owner ON atlas_import_attempts(user_id, expires_at);
+
+CREATE TABLE atlas_import_images (
+  attempt_id UUID NOT NULL REFERENCES atlas_import_attempts(id) ON DELETE CASCADE,
+  id UUID NOT NULL,
+  filename TEXT NOT NULL,
+  mime_type TEXT NOT NULL CHECK (mime_type IN ('image/png', 'image/jpeg', 'image/webp')),
+  content_hash VARCHAR(64) NOT NULL,
+  bytes BYTEA NOT NULL,
+  PRIMARY KEY(attempt_id, id)
+);

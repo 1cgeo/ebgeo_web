@@ -2674,7 +2674,7 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
 
 - **Decisão:** as etiquetas de posição das QUATRO superfícies passam a mostrar posto abreviado mais nome de
   guerra (por exemplo, "Maj Diniz"), com o nome de guerra numa coluna opcional própria
-  (`backend/src/database/migrations/016_nome_de_guerra.sql`), separada do nome completo. A autenticação e as
+  (`users.nome_guerra`, hoje em `backend/src/database/migrations/001_identidade_e_credenciais.sql`), separada do nome completo. A autenticação e as
   duas listas de presença (a viva e a inicial) passam a carregar o campo.
 - **Por quê separar a coluna, em vez de derivar do nome completo:** não existe regra que extraia nome de
   guerra de nome completo, e toda heurística erraria de forma constrangedora numa etiqueta que o colega lê.
@@ -2812,8 +2812,8 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
   contra duas emissões concorrentes, que é o caso em que a segunda sobrescreve a primeira no meio e as duas
   se anunciam válidas. Falha de emissão preserva uma resposta externa uniforme, para não transformar o
   endpoint num oráculo de existência de conta.
-- **Custo declarado da migração:** `backend/src/database/migrations/017_confirmacao_email_destinatario.sql`
-  e `backend/src/database/migrations/018_recuperacao_senha_sessoes.sql` preservam contas e credenciais, mas
+- **Custo declarado da migração:** as duas colunas de vínculo de `email_verification_tokens`
+  (hoje em `backend/src/database/migrations/001_identidade_e_credenciais.sql`) preservam contas e credenciais, mas
   links de confirmação e códigos de recuperação ANTERIORES não têm como ter o vínculo original
   estabelecido, e exigem novo envio.
 - **O que NÃO muda:** a reserva indefinida do cadastro pendente e a política de organização auto-declarada
@@ -2830,7 +2830,7 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
   de atlas, o envio de um cartão local e "Salvar atlas local no servidor") deixaram de subir o atlas e só
   depois os blobs. Elas registram uma tentativa, mandam os bytes para uma área privada por conta e
   confirmam num commit só, que publica atlas, entidades, descritores de imagem, recibo e trilha juntos
-  (`backend/src/database/migrations/015_importacoes_atomicas.sql`, `commitImport` em
+  (as tabelas de importação, hoje em `backend/src/database/migrations/003_atlas.sql`, `commitImport` em
   `backend/src/modules/atlas/import-attempt.service.js`). A identidade da tentativa é do cliente e o que
   ele persiste é só a chave de recuperação (`atomicServerImport`,
   `frontend/src/js/import_export/atomic-server-import.js`), de modo que resposta perdida se resolve LENDO o
@@ -3024,7 +3024,7 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
 - **Alternativa recusada para o slide:** derivar o interruptor do cursor temporal do slide (cursor não
   nulo = ligado). A captura só grava cursor com o controle ligado, mas um cursor sem janela definida vira
   nulo, então nulo não distingue desligado de ligado sem janela. Entraram duas colunas nulas em `slides`
-  (`019_vista_do_slide.sql`), e a base é referência de catálogo: registro de referências nos dois pacotes
+  (hoje em `backend/src/database/migrations/003_atlas.sql`), e a base é referência de catálogo: registro de referências nos dois pacotes
   (`briefing.slide.baseLayer`), gate de escrita do sync e as duas podas.
 - **Par conectado:** quando alguém salva a vista, ninguém é movido. O documento converge e o valor vale
   na próxima entrada, como a câmera salva sempre valeu.
@@ -3049,7 +3049,7 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
   decisão do slide: um slide que convida a comparar bases quer o seletor, o seguinte não quer nada.
 - **O editor não é afetado**, de propósito: o autor precisa do seletor e dos visualizadores para montar
   o slide. Só o apresentador liga a classe de apresentação.
-- **Forma:** uma coluna JSONB nula em `slides` (`020_controles_do_slide.sql`) sobre lista FECHADA,
+- **Forma:** uma coluna JSONB nula em `slides` (hoje em `backend/src/database/migrations/003_atlas.sql`) sobre lista FECHADA,
   espelhada nos dois pacotes (`frontend/src/js/briefing/slide-controls.js` e
   `backend/src/modules/sync/slide-controls.js`). Uma coluna booleana por controle foi recusada: cada controle
   novo seria uma migração, e a lista fechada mais o normalizador dão a mesma garantia (chave de fora é
@@ -3104,3 +3104,26 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
   o aviso quando a cadeia de boot navega para `atlas.html`, como já acontecia com `?atlas=`; e a
   superfície inerte é MUDA, como a trava, de modo que o leitor que tenta arrastar move o mapa e não
   recebe frase nenhuma.
+
+### 2026-09-20: as migrações voltam a ser onze bases por domínio (segunda consolidação)
+
+- **Decisão (dono):** como nada foi implantado, os nove arquivos que nasceram depois da consolidação
+  de 12/09 são dobrados nas bases por domínio. A pasta volta a ter uma base por domínio, e a lista
+  é a tabela de `backend/src/database/migrations/README.md`.
+- **Como:** cada incremento de DDL entrou na base do domínio dele (identidade, atlas e sync), com
+  as colunas novas no FIM de cada `CREATE TABLE`, na ordem em que os `ALTER` as tinham criado, para
+  que até a posição física coincida. A regularização de camada padrão, que era só de DADOS, saiu
+  sem substituto: uma instalação nova não tem linha para regularizar.
+- **Prova:** dois bancos descartáveis, um pela sequência anterior e outro pelas bases, com os
+  catálogos do PostgreSQL comparados sem ignorar a ordem das colunas. Coincidiram 564 colunas, 196
+  constraints, 176 índices, 19 funções (por hash do corpo), seis triggers, três sequências e 28
+  comentários de coluna. O comparador passou por controle negativo: com uma coluna retirada da base
+  nova, acusou a coluna pelo nome.
+- **Alternativa recusada:** reagrupar também as onze bases em menos arquivos (um por schema, por
+  exemplo). A divisão por domínio é o que torna cada arquivo legível de ponta a ponta, a ordem já
+  respeita as dependências, e fundir `008_acesso_a_recurso.sql` com o catálogo juntaria no mesmo
+  arquivo as funções de autorização e as tabelas que elas leem, que é onde a revisão mais precisa de
+  fronteira.
+- **Custo declarado:** um banco de desenvolvimento aplicado pela sequência anterior tem schema
+  idêntico e tracking divergente. O migrador o recusa na próxima vez que houver migração a aplicar,
+  e a saída é recriá-lo. O servidor não migra no boot, então até lá ele continua servindo.

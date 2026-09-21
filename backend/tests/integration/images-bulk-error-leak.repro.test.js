@@ -136,7 +136,7 @@ describe('POST /images/bulk — erro sanitizado e sem linha órfã (108 + 80)', 
   }
 
   it('mesmo id com OUTRO conteúdo é recusado com texto fixo, e sem chegar a ser exceção', async () => {
-    // ESTE CASO MUDOU DE MECANISMO EM 013_imagens_idempotentes.sql, e a mudança é o assunto.
+    // ESTE CASO MUDOU DE MECANISMO COM a deduplicacao de upload (`images`, em 003_atlas.sql), e a mudança é o assunto.
     //
     // Antes, QUALQUER reenvio do mesmo `localId` batia na PK e virava `failed` pelo catch, então
     // uma retentativa cujo primeiro 201 se perdeu recebia "falhou" sobre um blob que o servidor já

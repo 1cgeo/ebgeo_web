@@ -74,7 +74,7 @@ const operationSchema = Joi.object({
   // `batchId` é STRING e não `.uuid()` de propósito: um carimbo malformado precisa continuar
   // AGRUPANDO, porque a atomicidade é decisão em memória e tratar o gesto como um lote é sempre
   // mais seguro que espalhá-lo em ops independentes; a PERSISTÊNCIA é que o filtra por formato
-  // (`asUuidOrNull`, na coluna `batch_id` de `014_lote_logico.sql`). Recusar aqui seria um 422
+  // (`asUuidOrNull`, na coluna `batch_id` de `operations`, em 004_sync.sql). Recusar aqui seria um 422
   // que congela a fila de saída do cliente, que é o desfecho que este arquivo evita em toda
   // regra.
   //

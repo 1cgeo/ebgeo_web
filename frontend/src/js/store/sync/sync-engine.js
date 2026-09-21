@@ -487,7 +487,7 @@ class SyncEngine {
      * THE FULL SNAPSHOT STILL HAPPENS, and the three reasons are not interchangeable: there is no
      * complete generation on disk (first open, after a logout wipe, corrupt record); the server
      * ANSWERS with one (`isSnapshot`, which it decides by `min_version` and by a catalog identity
-     * that only a snapshot can repair, as `012_camadas_remotas.sql` did); or the tail carries a
+     * that only a snapshot can repair, as the default-layer regularization of 2026-09 did); or the tail carries a
      * structural marker, whose effect no per-entity op describes.
      *
      * THE MARKER PATH PULLS FROM ZERO ITSELF instead of delegating to `resync()`, and that is not

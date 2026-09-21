@@ -167,8 +167,8 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   recusado inteiro, em pt-BR, antes de escrever qualquer coisa. Guardas:
   `tests/integration/lote-logico-atomico.repro.test.js` e
   `tests/integration/sync-batch-atomicity.test.js` (este último prende a fronteira: sem `batchId`, a
-  recusa continua alcançando só a op ofensora). A coluna de lote em `operations` nasceu em
-  `src/database/migrations/014_lote_logico.sql`.
+  recusa continua alcançando só a op ofensora). A coluna de lote em `operations` mora em
+  `src/database/migrations/004_sync.sql`.
 - **Conflito tem DOIS regimes, e quem escolhe entre eles é a OP, não o alvo** (desde 2026-09-13;
   antes a verificação valia só para feição, por gate literal `op.target === 'feature'`). Op que
   DECLARA uma base observada (`baseVersion`, ou o recibo de `baseOperationId`) é verificada por

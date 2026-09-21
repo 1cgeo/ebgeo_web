@@ -21,7 +21,7 @@ describe('Images API', () => {
   /**
    * PNG valido com BYTES DISTINTOS a cada chamada.
    *
-   * OBRIGATORIO DESDE 013_imagens_idempotentes.sql: sem chave de tentativa a rota unica deduplica
+   * OBRIGATORIO DESDE a deduplicacao de upload (`images`, em 003_atlas.sql): sem chave de tentativa a rota unica deduplica
    * por HASH DE CONTEUDO dentro do atlas, entao reenviar o fixture devolvia 200 com a linha de OUTRO
    * caso deste arquivo. O efeito que isso produzia era pior que um status trocado: os casos de
    * exclusao passavam a apagar a linha criada por um caso anterior, com outro remetente, e o caso
@@ -127,7 +127,7 @@ describe('Images API', () => {
       const writerToken = await loginUser(app, writer.username, writer.password);
 
       // BYTES PROPRIOS, e nao o fixture compartilhado: sem chave de tentativa a rota unica
-      // deduplica por hash de conteudo (013_imagens_idempotentes.sql), e o caso do dono acima ja
+      // deduplica por hash de conteudo (`images`, em 003_atlas.sql), e o caso do dono acima ja
       // enviou esse arquivo neste atlas, entao o fixture voltaria 200 com a linha dele. O que este
       // caso mede e o PAPEL do remetente, nao o conteudo, e o enchimento depois do IEND mantem o
       // PNG valido para a dupla validacao de tipo.

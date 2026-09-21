@@ -95,7 +95,7 @@ describe('Images — mapeamento de erro do upload single (item 165)', () => {
   /**
    * PNG valido com BYTES DISTINTOS a cada chamada.
    *
-   * Passou a ser necessario com 013_imagens_idempotentes.sql: sem chave de tentativa a rota unica
+   * Passou a ser necessario com a deduplicacao de upload (`images`, em 003_atlas.sql): sem chave de tentativa a rota unica
    * deduplica por HASH DE CONTEUDO, entao o segundo envio dos MESMOS bytes neste atlas volta 200
    * com a linha anterior, e quatro casos deste arquivo (que medem o NOME, nunca os bytes)
    * passariam a ler o `storage_path` gravado por outro caso. O enchimento vai depois do IEND,

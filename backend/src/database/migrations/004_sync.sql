@@ -41,13 +41,33 @@ CREATE TABLE operations (
 
     -- Audit
     user_id             UUID REFERENCES users(id),
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- O LOTE LOGICO: a identidade do GESTO que produziu varias operacoes. O cliente carimba
+    -- um `batchId` unico em toda op nascida do mesmo gesto (criar grupo com N membros,
+    -- combinar grupos, transferir camada, colar), e o servidor aplica ou recusa o lote
+    -- inteiro num savepoint so. A coluna e o que faz o lote sobreviver ao push: o recibo e o
+    -- replay incremental carregam a que gesto cada op pertenceu.
+    --
+    -- NULA DE PROPOSITO: op individual (a esmagadora maioria) nao tem lote, e o marcador de
+    -- excecao REST (merge, duplicacao, clone, importacao) nasce no servidor sem gesto de
+    -- cliente por tras. `UUID` e nao `TEXT` porque o servidor so persiste o que casa com o
+    -- formato (`asUuidOrNull`, em `sync.service.js`): um carimbo malformado continua
+    -- AGRUPANDO a aplicacao, que e decisao em memoria, e apenas nao e gravado, em vez de
+    -- derrubar o lote inteiro com um 22P02 no INSERT.
+    batch_id            UUID
 );
 
 -- Primary index for incremental sync: "give me all ops after version X for this atlas"
 CREATE INDEX idx_operations_atlas_version ON operations(atlas_id, server_version);
 CREATE INDEX idx_operations_entity ON operations(entity_type, entity_id);
 CREATE INDEX idx_operations_atlas_created ON operations(atlas_id, created_at);
+-- Parcial: quem pergunta pelo lote sempre da um `batch_id`, e a esmagadora maioria das linhas
+-- o tem nulo, entao o indice cheio pagaria pela tabela toda para servir a minoria. Por atlas
+-- porque nenhuma leitura de sync cruza atlas.
+CREATE INDEX idx_operations_atlas_batch
+    ON operations(atlas_id, batch_id)
+    WHERE batch_id IS NOT NULL;
 
 -- Uniqueness per atlas para idempotência do push.
 CREATE UNIQUE INDEX operations_atlas_op_id_uniq ON operations (atlas_id, op_id);

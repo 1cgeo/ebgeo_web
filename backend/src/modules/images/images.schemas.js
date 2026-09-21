@@ -20,7 +20,7 @@ export const uploadFileSchema = Joi.object({
 // The ATTEMPT KEY of the single upload route, read from the `X-Idempotency-Key` header.
 //
 // A UUID and nothing else: it is stored in `images.attempt_key` (a UUID column added by
-// 013_imagens_idempotentes.sql), so anything else would reach the database as a type error, which
+// the `images` table of 003_atlas.sql), so anything else would reach the database as a type error, which
 // is a 500 over a client mistake. Validated BEFORE multer runs, the only moment at which refusing
 // costs nothing: after it the blob is already on disk and a refusal has to clean up after itself.
 //

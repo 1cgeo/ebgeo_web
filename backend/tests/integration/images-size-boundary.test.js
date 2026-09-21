@@ -134,7 +134,7 @@ describe('Images — fronteira exata de MAX_IMAGE_SIZE_MB (item 166)', () => {
     // Duas requisicoes que diferem em exatamente 1 byte de TAMANHO e em nada mais.
     //
     // O enchimento 0x01 muda o CONTEUDO sem mudar o tamanho, e e obrigatorio desde
-    // 013_imagens_idempotentes.sql: sem chave de tentativa a rota unica deduplica por hash, e o
+    // a deduplicacao de upload (`images`, em 003_atlas.sql): sem chave de tentativa a rota unica deduplica por hash, e o
     // primeiro caso deste arquivo ja enviou `pngComTamanho(MAX_BYTES)` com enchimento zero neste
     // mesmo atlas, entao repetir aqueles bytes voltaria 200 com a linha dele em vez de medir a
     // fronteira. O que este caso mede continua sendo o tamanho, um byte de cada lado dela.
@@ -200,7 +200,7 @@ describe('Images — fronteira exata de MAX_IMAGE_SIZE_MB (item 166)', () => {
       // O arquivo em disco e o PNG 1x1; so o campo `size` esta no limite. Se o
       // guarda fosse `>=`, isto lancaria "File too large" e nunca chegaria a
       // gravar. Chegando ao INSERT, o size no banco e o declarado.
-      // O service devolve { image, reused } desde 013_imagens_idempotentes.sql: sem essa
+      // O service devolve { image, reused } desde a deduplicacao de upload (`images`, em 003_atlas.sql): sem essa
       // distincao o controlador nao teria como responder 200 na retentativa e 201 na criacao.
       const { image: img, reused } = await imagesService.uploadImage(
         atlas.id, fakeFile(MAX_BYTES), owner.id
