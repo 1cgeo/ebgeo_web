@@ -22,7 +22,8 @@ import {
     getDefaultLayer,
     getEmptyCesium3dData,
     getEmptyStreetview360Data,
-    ensureMapDataShape
+    ensureMapDataShape,
+    getEmptyMapData as getEmptyMapContent
 } from '../repository.utils.js';
 import {
     ATLAS_RECORD_KEY,
@@ -126,46 +127,27 @@ function shapeStoredMap(mapData) {
 }
 
 /**
- * Returns empty map data structure.
- * Exported for use by migration and other modules.
- * @returns {Object} Empty map data
+ * Returns the empty map DOCUMENT: the empty map content plus the three fields only a stored
+ * record carries (`id`, `name`, `sync`).
+ *
+ * ONE SOURCE SINCE 2026-09-21. The content (base layer, feature buckets, saved position, notes)
+ * used to be written out TWICE, here and in `getEmptyMapData` of `repository.utils.js`, each copy
+ * with its own consumers: the tolerant read and the import use this one, and "clear the saved
+ * view" reads the BIRTH base layer from the other. Only the feature BUCKETS were held together, and
+ * indirectly (the type-registry coverage census demanded the full type list of each copy); the rest
+ * was equal by accident: changing the default base layer in one copy alone would make
+ * clearing a saved view give back a base that a newborn map does not get, with no error anywhere.
+ * Key order is preserved (`id`, `name`, `sync`, then the content). Guard:
+ * `tests/unit/documento-de-mapa-vazio-uma-fonte.test.js`.
+ *
+ * @returns {Object} Empty map document
  */
 export function getEmptyMapData() {
     return {
         id: null,
         name: 'Novo Mapa',
         sync: createSyncMetadata(null),
-        baseLayer: 'carta-topografica',
-        analysisLayers: {},
-        features: {
-            polygons: [],
-            lines: [],
-            points: [],
-            texts: [],
-            images: [],
-            los: [],
-            visibility: [],
-            processed_los: [],
-            processed_visibility: [],
-            brushes: [],
-            rectangles: [],
-            circles: [],
-            ellipses: [],
-            arrows: [],
-            boundarys: [],
-            occupied_fronts: [],
-            coordination_lines: [],
-            military_symbols: [],
-            setores: [],
-            coordenadas: [],
-            coordination_measures: [],
-            magnetic_declinations: []
-        },
-        zoom: null,
-        center_lat: null,
-        center_long: null,
-        bearing: null,
-        pitch: null
+        ...getEmptyMapContent()
     };
 }
 

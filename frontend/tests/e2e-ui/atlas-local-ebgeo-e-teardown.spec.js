@@ -127,9 +127,12 @@ describeOrSkip('atlas local: abrir .ebgeo pela tela', () => {
         // está ligado, o que `initServices` faz no boot). Até aquela data ficava ao lado deles o
         // `Principal` em branco que `initializeRepository` escreve no slot recém-esvaziado,
         // keyado pelo NOME: doze chaves para onze nomes, e o em branco SOMBREAVA o `Principal`
-        // da fixture em toda leitura por nome. Hoje o import não-aditivo descarta os mapas do
-        // escopo antes da primeira escrita (`discardMapsForReplacingImport`), então a chave
-        // `Principal` não sobrevive e nenhum nome carrega dois registros.
+        // da fixture em toda leitura por nome. Hoje o import não-aditivo é ATÔMICO
+        // (`replaceAtlasFromImport`): ele prepara um escopo NOVO só com os mapas do arquivo e o
+        // monta no lugar, então o `Principal` em branco nunca chega a existir ao lado deles e
+        // nenhum nome carrega dois registros. (Entre 2026-08-28 e a substituição atômica quem
+        // garantia isso era um descarte dos mapas do escopo antes da primeira escrita, função
+        // apagada em 2026-09-21 por ter ficado sem chamador.)
         expect(estado.idsDeMapa.length).toBe(11);
         expect(estado.idsDeMapa, 'nenhuma chave name-keyed sobrou para sombrear um mapa do arquivo')
             .not.toContain('Principal');

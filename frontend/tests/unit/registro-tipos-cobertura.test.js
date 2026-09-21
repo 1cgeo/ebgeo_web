@@ -101,10 +101,12 @@ const CENSO = [
         arquivo: 'store/repository.utils.js', completa: 'armazenamento', universo: 'todos',
         motivo: 'getEmptyMapData: the empty shape of a map, one bucket per type. A missing bucket makes the feature unreachable after a reload. Carries a 21st bucket, `coordenadas`, which is not a feature type.',
     },
-    {
-        arquivo: 'store/repositories/local.repository.js', completa: 'armazenamento', universo: 'todos',
-        motivo: 'A second getEmptyMapData, the one the local repository actually returns. The pair has to agree, and nothing but this makes it.',
-    },
+    // `store/repositories/local.repository.js` LEFT THIS CENSUS on 2026-09-21. It carried "a second
+    // getEmptyMapData, the one the local repository actually returns", and this entry was the only
+    // thing making the pair agree, and only about the feature BUCKETS: the base layer and the rest of
+    // the document were equal by accident. The repository copy now DERIVES from
+    // `store/repository.utils.js` (entry below), so it no longer writes a type list at all: one
+    // peripheral list less. Guard of the derivation: `documento-de-mapa-vazio-uma-fonte.test.js`.
     {
         arquivo: 'layers/layer.constants.js', completa: 'armazenamento', universo: 'todos',
         motivo: 'FEATURE_SOURCES and FEATURE_LAYER_IDS: the live MapLibre sources. A type missing here is drawn from a source nobody updates, which is how Reagendar left the magnetic declination a frame behind until a reload.',
@@ -396,7 +398,9 @@ describe('cobertura do registro: os tres estados', () => {
         const completas = CENSO.filter(e => e.completa);
         // Floor before the property: if this list ever empties, the positive control below
         // would keep passing while measuring nothing.
-        expect(completas.length, 'nenhuma lista COMPLETA: o controle positivo mediria vazio').toBeGreaterThanOrEqual(9);
+        // 9 -> 8 on 2026-09-21: the local repository stopped writing a type list (it derives the empty
+        // map document from `repository.utils.js`). The floor follows the named ABSOLUTE list below.
+        expect(completas.length, 'nenhuma lista COMPLETA: o controle positivo mediria vazio').toBeGreaterThanOrEqual(8);
 
         const faltas = [];
         for (const e of completas) {
@@ -415,7 +419,7 @@ describe('cobertura do registro: os tres estados', () => {
         expect(CENSO.filter(e => e.deriva && e.completa).map(e => e.arquivo)).toEqual([]);
     });
 
-    it('ABSOLUTE: as nove listas que prometem completude, nomeadas', () => {
+    it('ABSOLUTE: as oito listas que prometem completude, nomeadas', () => {
         // Absolute alongside the derived: if someone quietly demotes an entry to SUBSET, the
         // property above goes on passing and only this case notices.
         //
@@ -429,7 +433,6 @@ describe('cobertura do registro: os tres estados', () => {
             'import_export/local-atlas-to-server.js',
             'layers/layer.constants.js',
             'sidebar/components/feature-identification.js',
-            'store/repositories/local.repository.js',
             'store/repository.utils.js',
             'tool_manager/helpers/feature-header.helpers.js',
             'tool_manager/tool-registry.js',

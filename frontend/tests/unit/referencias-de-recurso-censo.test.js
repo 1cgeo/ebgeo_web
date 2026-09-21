@@ -274,7 +274,9 @@ const CENSO = [
     { arquivo: 'src/js/briefing/screen-view.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/briefing/editor/briefing-editor.control.js', campo: 'baseLayer', n: 10, classe: PERSISTE },
     { arquivo: 'src/js/briefing/presentation/transition.service.js', campo: 'baseLayer', classe: RUNTIME },
-    { arquivo: 'src/js/store/repositories/local.repository.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
+    // `local.repository.js` saiu desta lista em 2026-09-21: a linha que ele tinha era o mapa base do
+    // documento VAZIO, que passou a derivar do de `repository.utils.js` (a entrada abaixo continua
+    // valendo pelas duas). Uma superfície de referência a menos escrita à mão.
     { arquivo: 'src/js/store/repositories/index.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/store/repository.js', campo: 'catalogLayers', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/store/repository.utils.js', campo: 'baseLayer', n: 1, classe: PERSISTE },

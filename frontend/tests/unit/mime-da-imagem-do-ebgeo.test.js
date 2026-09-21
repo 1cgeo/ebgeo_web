@@ -51,7 +51,6 @@ vi.mock('@store', () => ({
     addMap: vi.fn(),
     setCurrentMap: vi.fn(),
     clearAllDataStore: vi.fn(),
-    discardMapsForReplacingImport: vi.fn(),
     isRemoteStoreSync: vi.fn(() => false),
     setSchemaVersion: vi.fn(),
     setGridStyle: vi.fn(),

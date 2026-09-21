@@ -113,7 +113,7 @@ vi.mock('@utils/tab-lock.js', async (importOriginal) => ({
 
 // HOISTED, como todo dublê citado dentro de uma fábrica de `vi.mock`: as fábricas sobem para o
 // topo do arquivo e uma `const` comum ainda não existe quando elas rodam.
-const { wipeDoEscopoAtivo, addMapNoEscopoAtivo, descarteDeMapasDoEscopoAtivo } = vi.hoisted(() => ({
+const { wipeDoEscopoAtivo, addMapNoEscopoAtivo } = vi.hoisted(() => ({
     /**
      * Esvazia os bancos do escopo ATIVO: é a metade do wipe que decide onde ele cai.
      *
@@ -136,19 +136,6 @@ const { wipeDoEscopoAtivo, addMapNoEscopoAtivo, descarteDeMapasDoEscopoAtivo } =
         const ns = await import('@store/atlas-namespace.js');
         await ns.getStore(ns.StoreName.MAPS).setItem(name, data);
     }),
-    /**
-     * O descarte que precede a primeira escrita do import não-aditivo. A real varre o repositório
-     * e chama `deleteMap` por chave; o dublê esvazia o object store de mapas do escopo ATIVO, que
-     * é a metade que este arquivo mede (EM QUAL BANCO a limpeza cai). Um no-op passaria verde e
-     * calaria justamente a pergunta.
-     */
-    descarteDeMapasDoEscopoAtivo: vi.fn(async () => {
-        const ns = await import('@store/atlas-namespace.js');
-        const mapas = ns.getStore(ns.StoreName.MAPS);
-        const chaves = await mapas.keys();
-        for (const chave of chaves) await mapas.removeItem(chave);
-        return chaves.length;
-    }),
 }));
 
 vi.mock('@store/map.operations.js', async (original) => ({
@@ -167,8 +154,11 @@ vi.mock('@store/store.js', async (importOriginal) => {
 
 // O barril inteiro: `export-import.service.js` importa ~40 símbolos dele, e um import nomeado
 // ausente é erro de módulo, não de teste. Os QUATRO que carregam significado são
-// `isRemoteStoreSync` (o de VERDADE, senão o ramo sob teste nunca dispara), `clearAllDataStore`,
-// `discardMapsForReplacingImport` e `addMap`; o resto é inerte de propósito.
+// `isRemoteStoreSync` (o de VERDADE, senão o ramo sob teste nunca dispara), `clearAllDataStore` e
+// `addMap`; o resto é inerte de propósito. Eram QUATRO até 2026-09-21: o quarto era o descarte dos
+// mapas do escopo antes do import não-aditivo, função que ficou sem chamador quando a
+// substituição virou atômica (`replaceAtlasFromImport`) e foi apagada. As duas asserções de que
+// ela "não foi chamada" saíram junto: passavam por construção e não provavam nada.
 vi.mock('@store', async () => {
     const origem = await import('@store/store-origin.js');
     const utils = await import('@store/repository.utils.js');
@@ -176,7 +166,6 @@ vi.mock('@store', async () => {
     return {
         isRemoteStoreSync: origem.isRemoteStoreSync,
         clearAllDataStore: wipeDoEscopoAtivo,
-        discardMapsForReplacingImport: descarteDeMapasDoEscopoAtivo,
         addMap: addMapNoEscopoAtivo,
         MIN_SCHEMA_VERSION: utils.MIN_SCHEMA_VERSION,
         compareVersions: utils.compareVersions,
@@ -318,7 +307,6 @@ describe('version audit: refusal preserves the currently mounted local atlas', (
         const bytes = await zip.generateAsync({ type: 'uint8array' });
         await importar({ name: 'invalid.ebgeo', arrayBuffer: async () => bytes.buffer });
         expect(wipeDoEscopoAtivo).not.toHaveBeenCalled();
-        expect(descarteDeMapasDoEscopoAtivo).not.toHaveBeenCalled();
         expect(ns.getActiveScope()).toEqual(scope);
         expect(slotsNoDisco()).toHaveLength(slots);
         for (const { store } of ns.listAtlasStores()) expect(await store.getItem(SENTINELA)).toBe(1);
@@ -570,7 +558,6 @@ describe('CONTROLE NEGATIVO: sem atlas de servidor o import não gasta um slot',
         expect(ns.getActiveScope()).toEqual(localApi.scopeOfLocalAtlas(replaced));
         expect(temOMapa(`ebgeo_maps__${replaced.dbSuffix}`)).toBe(true);
         expect(wipeDoEscopoAtivo).not.toHaveBeenCalled();
-        expect(descarteDeMapasDoEscopoAtivo).not.toHaveBeenCalled();
         expect(calls).toEqual([]);
         // A frase sobre "atlas local novo" não aparece quando não houve troca.
         expect((toasts.info ?? []).join(' ')).not.toContain('atlas local novo');
