@@ -26,35 +26,49 @@
 // (C) CRIAÇÃO: é exatamente quem PODE escrever um mapa que ainda não existe (`addMap`, o import, o
 //     clone, o boot do atlas local, a migração). Guardar aqui seria fechar a porta da frente.
 //
-// ================= SÃO DOIS PARES, E O SEGUNDO É O MAIS DIFÍCIL DE ACHAR ====
+// ================= OS PARES SÃO DE TRÊS FAMÍLIAS, E SÓ A PRIMEIRA TEM SINTOMA
 //
-// O par do DOCUMENTO é o de cima. O par LATERAL é o de 3D e 360: marcador, medição, viewshed,
-// posição de câmera salva, orientação e marcador 360 não tocam o documento do mapa, eles leem e
-// gravam `cesium3d_<chave>` e `streetview360_<chave>`, que `_resolveMapKey` chaveia pelo MESMO
-// nome não resolvido. O prejuízo é da mesma classe (gesto aceito e jogado fora em silêncio, op
-// com contexto que não é UUID descartada pelo anti-vazamento), e o que muda é só a evidência:
-// ali sobra um cartão fantasma na aba Mapas, aqui não sobra NADA na tela. Não ter sintoma torna o
-// caso mais difícil de achar, não menor, e por isso o censo cobre os dois.
+// O par do DOCUMENTO é o de cima. Os outros dois são LATERAIS, isto é, documentos que moram em
+// stores próprios que `_resolveMapKey` chaveia pelo MESMO nome não resolvido, e que não tocam o
+// documento do mapa uma única vez:
+//
+//   - 3D e 360 (`cesium3d_<chave>`, `streetview360_<chave>`): marcador, medição, viewshed, posição
+//     de câmera salva, orientação e marcador 360;
+//   - CAMADA e GRUPO (`layers_<chave>` e o documento de grupos): criar, renomear, mostrar, travar,
+//     opacizar, reordenar e excluir camada; agrupar, combinar, desagrupar e alternar grupo.
+//
+// O prejuízo das três é da mesma classe (gesto aceito e jogado fora em silêncio, op com contexto
+// que não é UUID descartada pelo anti-vazamento), e o que muda é só a evidência: no documento
+// sobra um cartão fantasma na aba Mapas, nos laterais não sobra NADA na tela. Não ter sintoma
+// torna o caso mais difícil de achar, não menor, e por isso o censo cobre os três.
 //
 // ================= O QUE ESTE ARQUIVO PROÍBE =================================
 //
 // Duas coisas mecânicas:
 //
-//   1. um arquivo de `src/js/store/` que leia pela porta TOLERANTE e escreva (documento de mapa OU
-//      store lateral de 3D/360) e NÃO esteja classificado aqui, com motivo escrito (arquivo novo
-//      nasce vermelho);
+//   1. um arquivo de `src/js/` que leia pela porta TOLERANTE e escreva (documento de mapa OU um
+//      dos quatro laterais) e NÃO esteja classificado aqui, com motivo escrito (arquivo novo nasce
+//      vermelho);
 //   2. um classificado (G) cujo texto não cite nenhuma das guardas declaradas, isto é, que diga
 //      "recuso quando o mapa não existe" sem ter por onde saber que ele não existe.
 //
 // ================= A ARMADILHA DO NOME SOLTO, E POR QUE A ÂNCORA É O IMPORT ==
 //
-// A varredura resolve os nomes A PARTIR DO `import` de `repositories/index.js`, incluindo os
-// apelidos (`getMapDataCompat as getMapData`, em `map.operations.js` e `store-state-manager.js`) e
-// os apelidos LOCAIS (`const getMapData = getMapDataCompat;`). Nunca pelo nome solto. O motivo tem
+// A varredura resolve os nomes A PARTIR DO `import`, incluindo os apelidos
+// (`getMapDataCompat as getMapData`, em `map.operations.js` e `store-state-manager.js`) e os
+// apelidos LOCAIS (`const getMapData = getMapDataCompat;`). Nunca pelo nome solto. O motivo tem
 // nome nesta árvore: `src/js/store/migration/late-legacy-plan.js` declara uma FUNÇÃO LOCAL chamada
 // `mapResolver`, homônima do serviço `services/map-resolver.service.js` que meio store importa. Um
 // censo ancorado em texto solto conta homônimo como uso e deixa de contar apelido como uso, e erra
 // nos DOIS sentidos.
+//
+// SÃO DUAS PORTAS DE IMPORT, E A SEGUNDA É O BARRIL (`src/js/store/index.js`). Os dois arquivos de
+// camada e de grupo ficam FORA de `src/js/store/` e não importam `repositories/index.js` uma vez
+// sequer: eles pedem ao barril, que re-exporta os mesmos quatro símbolos sob OUTROS nomes
+// (`setLayersCompat as setLayersRepo`, `getGroupsCompat as getMapGroupsFromDB` e os irmãos). A
+// tabela de apelidos é lida do PRÓPRIO barril, nunca escrita à mão aqui: uma cópia manual ficaria
+// verde no dia em que o barril renomeasse um deles, e verde por não casar com nada é a forma mais
+// pura de cobertura vazia. O caso `o BARRIL é seguido` afirma a tabela de saída.
 //
 // ================= O ALCANCE, E O QUE ELE NÃO PROVA ==========================
 //
@@ -64,23 +78,28 @@
 // o disco não tem e exige que a escrita recuse, que NENHUMA chave nasça no store de mapas e que
 // nenhuma intenção seja registrada. Os dois juntos são a cobertura; nenhum dos dois sozinho é.
 //
-// FICAM DE FORA, declarados, dois vizinhos que a intuição traria para cá:
+// FICA DE FORA, declarado, um vizinho que a intuição traria para cá:
+// `store/sync/remote-operation-handler.js` escreve documento de mapa (`repo.saveMap`) e NÃO lê
+// pela porta tolerante: ele é o caminho de ENTRADA (a op de um par, o retrato do servidor), e
+// criar um mapa que este cliente não tinha é literalmente o trabalho dele. Classe (C) por
+// natureza, fora do par que este censo vigia.
 //
-//   - `store/sync/remote-operation-handler.js` escreve documento de mapa (`repo.saveMap`) e NÃO lê
-//     pela porta tolerante: ele é o caminho de ENTRADA (a op de um par, o retrato do servidor), e
-//     criar um mapa que este cliente não tinha é literalmente o trabalho dele. Classe (C) por
-//     natureza, fora do par que este censo vigia;
-//   - as escritas de CAMADA e de GRUPO (`layers_`, `groups_`) e os app settings de cor e de
-//     ponteiro passam pelo MESMO `_resolveMapKey` e também deixam entrada órfã, e continuam fora.
-//     A razão é a CLASSE delas, não o sintoma: a escrita de camada por gesto já é guardada pelo
-//     lado da feição (`transferLayerToMap` relê o destino e desfaz quando `addFeatures` recusa), a
-//     persistência adiada de camada é (D) por construção, e a contagem de cores e o ponteiro de
-//     mapa corrente são as duas escritas (D) que a medição de 2026-09-21 nomeia. Nenhuma delas é
-//     um gesto sem guarda; se alguma virar, ela entra aqui.
+// A ESCRITA DE CAMADA E A DE GRUPO ESTAVAM DECLARADAS AQUI COMO FORA, E A DECLARAÇÃO ESTAVA
+// ERRADA. Ela dizia que a escrita de camada por gesto já era guardada pelo lado da feição e que
+// "a persistência adiada de camada é (D) por construção". A segunda metade repetia um comentário
+// sobre o `DebouncedPersist` do documento de camadas que SAIU DA ÁRVORE em 2026-09-13: não há mais
+// represa nenhuma, `_writeLayers` grava dentro da transação e toda entrada dele responde a um
+// clique. A primeira metade também não fechava: `transferLayerToMap` só relê o destino quando há
+// feição para mover, então uma camada VAZIA transferida para um mapa inexistente voltava
+// `success: true` com o registro órfão de pé. Conferido por leitura em 2026-09-21: os dois funis
+// (`_writeLayers` e `_writeGroups`) são GESTO, e entraram. Uma dispensa herdada de um mecanismo
+// morto é pior que nenhuma dispensa, porque ela já passou por uma revisão.
 //
-// O inventário vem do VERSIONAMENTO (`git ls-files --cached --others --exclude-standard`), e as
-// duas bandeiras não são detalhe: sem `--others` o arquivo escrito há cinco minutos, que é
-// justamente o que ninguém classificou, fica fora da varredura.
+// O inventário vem do VERSIONAMENTO (`git ls-files --cached --others --exclude-standard`) e cobre
+// `src/js` INTEIRO desde 2026-09-21, não só `src/js/store`: os dois funis acima moram em
+// `src/js/layers/` e `src/js/tool_manager/`, e um censo cujo pathspec não os alcança fica verde
+// sem ter olhado para eles. As duas bandeiras não são detalhe: sem `--others` o arquivo escrito há
+// cinco minutos, que é justamente o que ninguém classificou, fica fora da varredura.
 
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
@@ -194,6 +213,51 @@ const CENSO = [
             + 'quem apenas olha em volta, então são gesto e não derivada. Fica fora do funil só '
             + '`setStreetview360DataForImport`, que é (C).',
     },
+    {
+        arquivo: 'src/js/layers/layer.manager.js',
+        classe: GESTO,
+        guardas: [GUARDAS.PORTA_DE_EXISTENCIA],
+        motivo: 'O lateral de CAMADA, e o arquivo que este censo classificou ERRADO até '
+            + '2026-09-21 (ver o cabeçalho): a dispensa dizia "persistência adiada de camada é (D) '
+            + 'por construção" sobre um `DebouncedPersist` que saiu da árvore em 2026-09-13. Criar, '
+            + 'renomear, mostrar, travar, opacizar, reordenar e excluir camada passam todos pelo '
+            + 'funil `_writeLayers`, em transação e com `tx.recordOperation`, e todos nascem de um '
+            + 'clique da aba de feições: são GESTO. A pergunta mora no funil, DENTRO da transação e '
+            + 'ANTES de `_ensureMapLayersExist`, que fabricaria `memoryStore.layers[<nome>]` antes '
+            + 'de a recusa chegar; por isso as quatro entradas de escrita resolvem o nome por '
+            + '`_targetMapName` e não por `_resolveMap`. Ficam fora do funil `duplicateMapLayers` '
+            + 'e `clearMapLayers`: a primeira é (C) (escreve o destino de uma cópia de mapa que '
+            + 'acabou de nascer) e a segunda é a limpeza que acompanha a exclusão do mapa. A CAMADA '
+            + 'ATIVA continua represada e continua fora: ela é estado de visão por cliente, não tem '
+            + 'op e escreve outra chave (`activeLayer_<mapa>`).',
+    },
+    {
+        arquivo: 'src/js/tool_manager/group_manager.js',
+        classe: GESTO,
+        guardas: [GUARDAS.PORTA_DE_EXISTENCIA],
+        motivo: 'O lateral de GRUPO, irmão do de camada e dispensado pelo mesmo motivo errado. '
+            + 'Agrupar, combinar, desagrupar e alternar visibilidade/trava passam pelo funil '
+            + '`_writeGroups`, e os quatro vêm do menu de contexto ou da aba de feições. A pergunta '
+            + 'mora no funil, dentro da transação e antes de `_ensureMapGroupsExist`. '
+            + '`removeFeatureFromAllGroups` NÃO a faz e não poderia: ela é SÍNCRONA e roda dentro '
+            + 'da transação do pai, e os três chamadores dela (em `feature.operations.js`) já '
+            + 'abriram com `mapDocumentForGesture`, que recusou antes. `duplicateMapGroups`, '
+            + '`combineMapGroups` e `importMapGroups` são (C), e `clearMapGroups` acompanha a '
+            + 'exclusão do mapa.',
+    },
+    {
+        arquivo: 'src/js/store/layer-transfer.operations.js',
+        classe: GESTO,
+        guardas: [GUARDAS.PORTA_DE_EXISTENCIA],
+        motivo: 'A transferência de camada entre mapas é COMPOSTA e fica FORA do funil '
+            + '`_writeLayers`: ela escreve o registro da camada de destino por `setLayersCompat` '
+            + 'numa transação própria, então faz a pergunta por conta. O inventário anterior a deu '
+            + 'por guardada transitivamente (o rollback quando `addFeatures` recusa), o que é '
+            + 'trabalho feito e desfeito E não cobria o caso da camada VAZIA, onde `total === 0` '
+            + 'pula a releitura e a operação voltava `success: true` deixando `layers_<nome>` '
+            + 'órfão. A recusa vem entre as expectadas, antes de qualquer escrita, e NÃO passa pelo '
+            + '`refuse` local para não emitir duas vezes o mesmo bloqueio.',
+    },
 ];
 
 // ============================================================================
@@ -219,10 +283,14 @@ const lerCodigo = (arquivo) => semComentarios(readFileSync(path.join(RAIZ, arqui
 
 /**
  * O INVENTÁRIO: rastreado MAIS não rastreado não ignorado.
+ *
+ * O PADRÃO É `src/js` INTEIRO, e não `src/js/store`: os funis de camada e de grupo moram em
+ * `src/js/layers/` e `src/js/tool_manager/`, e enquanto o pathspec parou no store eles ficaram
+ * fora da varredura sem que nada acusasse.
  * @param {string} [pathspec] - Relativo a `frontend/`.
  * @returns {string[]}
  */
-function arquivosDoInventario(pathspec = 'src/js/store') {
+function arquivosDoInventario(pathspec = 'src/js') {
     return execFileSync(
         'git',
         ['ls-files', '--cached', '--others', '--exclude-standard', pathspec],
@@ -234,23 +302,58 @@ function arquivosDoInventario(pathspec = 'src/js/store') {
 const IMPORTA_REPOSITORIO = /import\s*\{([^}]*)\}\s*from\s*['"][^'"]*repositories\/index\.js['"]/g;
 
 /**
+ * Todo `import { ... }` do BARRIL do store (`'../store'`, `'@store'`, `'.../store/index.js'`).
+ *
+ * O `store` tem de ser o FIM do especificador (ou vir seguido só de `/index.js`), senão a mesma
+ * expressão casaria `'../store/sync/index.js'` e `'./store-errors.js'`, que são outros módulos.
+ */
+const IMPORTA_BARRIL = /import\s*\{([^}]*)\}\s*from\s*['"](?:[^'"]*[/@])?store(?:\/index\.js)?['"]/g;
+
+/** O `export { ... } from '<algo>/repositories/index.js'` DO BARRIL. */
+const REEXPORTA_REPOSITORIO = /export\s*\{([^}]*)\}\s*from\s*['"][^'"]*repositories\/index\.js['"]/g;
+
+/**
+ * A tabela de apelidos do BARRIL: nome como `repositories/index.js` exporta -> nome que o barril
+ * publica. Lida do próprio `src/js/store/index.js`, nunca escrita à mão (ver o cabeçalho).
+ * @returns {Map<string, string>}
+ */
+function apelidosDoBarril() {
+    const tabela = new Map();
+    for (const m of lerCodigo('src/js/store/index.js').matchAll(REEXPORTA_REPOSITORIO)) {
+        for (const parte of m[1].split(',')) {
+            const [origem, apelido] = parte.split(/\s+as\s+/).map((s) => s.trim());
+            if (origem) tabela.set(origem, apelido || origem);
+        }
+    }
+    return tabela;
+}
+
+const BARRIL = apelidosDoBarril();
+
+/**
  * Os nomes LOCAIS sob os quais este arquivo alcança um export de `repositories/index.js`.
  *
- * Cobre as três formas vivas na árvore: o nome direto (`getMapDataCompat`), o apelido de import
- * (`getMapDataCompat as getMapData`) e o apelido LOCAL logo abaixo do import
- * (`const getMapData = getMapDataCompat;`, que é o que `map.operations.js` faz).
+ * Cobre as formas vivas na árvore: o nome direto (`getMapDataCompat`), o apelido de import
+ * (`getMapDataCompat as getMapData`), o apelido LOCAL logo abaixo do import
+ * (`const getMapData = getMapDataCompat;`, que é o que `map.operations.js` faz) e o alcance pelo
+ * BARRIL do store, onde o símbolo chega já rebatizado (`setLayersCompat as setLayersRepo`).
  * @param {string} codigo - Já sem comentários.
  * @param {string} exportado - O nome como `repositories/index.js` o exporta.
  * @returns {string[]} Nomes locais, possivelmente vazio.
  */
 function nomesLocaisDe(codigo, exportado) {
     const locais = new Set();
-    for (const m of codigo.matchAll(IMPORTA_REPOSITORIO)) {
-        for (const parte of m[1].split(',')) {
-            const [origem, apelido] = parte.split(/\s+as\s+/).map((s) => s.trim());
-            if (origem === exportado) locais.add(apelido || origem);
+    const colher = (regex, entrada) => {
+        for (const m of codigo.matchAll(regex)) {
+            for (const parte of m[1].split(',')) {
+                const [origem, apelido] = parte.split(/\s+as\s+/).map((s) => s.trim());
+                if (origem === entrada) locais.add(apelido || origem);
+            }
         }
-    }
+    };
+    colher(IMPORTA_REPOSITORIO, exportado);
+    const peloBarril = BARRIL.get(exportado);
+    if (peloBarril) colher(IMPORTA_BARRIL, peloBarril);
     // Apelido local: `const X = <um dos nomes já conhecidos>;`
     for (const local of [...locais]) {
         const apelidoLocal = new RegExp(`\\b(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*${local}\\s*;`, 'g');
@@ -265,15 +368,21 @@ function chamaAlgum(codigo, nomes) {
 }
 
 /**
- * OS DOIS PARES, e cada um é `[leitores tolerantes, escritores]` como `repositories/index.js` os
- * exporta. A varredura resolve os nomes locais de cada um pelo import, e um arquivo entra no censo
- * quando algum par casa INTEIRO: ler sem escrever é leitura pura, e escrever sem ler é outra
- * família (a porta de import, o caminho de entrada do sync).
+ * OS PARES, e cada um é `[leitores tolerantes, escritores]` como `repositories/index.js` os
+ * exporta. A varredura resolve os nomes locais de cada um pelo import (direto ou pelo barril), e
+ * um arquivo entra no censo quando algum par casa INTEIRO: ler sem escrever é leitura pura, e
+ * escrever sem ler é outra família (a porta de import, o caminho de entrada do sync).
+ *
+ * `getLayersCompat` E `getGroupsCompat` SÃO TOLERANTES pelo mesmo mecanismo dos outros: eles caem
+ * em `LocalRepository.getLayers`/`getGroups`, que resolvem a chave por `_resolveMapKey` (o mesmo
+ * fallback para o NOME) e devolvem a lista padrão ou o objeto vazio para um mapa que não existe.
  */
 const PARES = Object.freeze([
     { nome: 'documento do mapa', leitores: ['getMapDataCompat'], escritores: ['updateMapDataCompat', 'createMapCompat'] },
     { nome: 'lateral 3D', leitores: ['getCesium3dCompat'], escritores: ['setCesium3dCompat'] },
-    { nome: 'lateral 360', leitores: ['getStreetview360Compat'], escritores: ['setStreetview360Compat'] }
+    { nome: 'lateral 360', leitores: ['getStreetview360Compat'], escritores: ['setStreetview360Compat'] },
+    { nome: 'lateral de camadas', leitores: ['getLayersCompat'], escritores: ['setLayersCompat'] },
+    { nome: 'lateral de grupos', leitores: ['getGroupsCompat'], escritores: ['setGroupsCompat'] }
 ]);
 
 /**
@@ -341,21 +450,49 @@ describe('Censo: escrita de conteúdo não fabrica mapa', () => {
                 + 'Isto é falha de ambiente, não regressão de código: rode dentro do repositório.',
             );
         }
-        // O store inteiro, e não só os três: um pathspec errado devolveria lista curta e o censo
-        // ficaria verde sem ter varrido nada.
-        expect(arquivos.length).toBeGreaterThanOrEqual(50);
+        // `src/js` INTEIRO, e não só o store: um pathspec curto devolveria lista curta e o censo
+        // ficaria verde sem ter varrido os funis de camada e de grupo, que moram fora dali. O piso
+        // é uma ordem de grandeza abaixo dos 874 arquivos medidos em 2026-09-21, porque absoluto
+        // que ninguém remede envelhece sozinho; o que ele prova é que o pathspec alcança a árvore.
+        expect(arquivos.length).toBeGreaterThanOrEqual(400);
         expect(arquivos).toContain('src/js/store/feature.operations.js');
+        expect(arquivos).toContain('src/js/layers/layer.manager.js');
+        expect(arquivos).toContain('src/js/tool_manager/group_manager.js');
 
-        // OS CINCO ARQUIVOS MEDIDOS EM 2026-09-21, três no par do documento e dois no lateral. A
-        // lista é ABSOLUTA: um sexto arquivo entrando em qualquer dos pares reprova aqui antes de
+        // OS OITO ARQUIVOS MEDIDOS EM 2026-09-21, três no par do documento e cinco nos laterais. A
+        // lista é ABSOLUTA: um nono arquivo entrando em qualquer dos pares reprova aqui antes de
         // reprovar no caso de classificação, com a lista à vista.
         expect(doPar(arquivos).sort()).toEqual([
+            'src/js/layers/layer.manager.js',
             'src/js/store/catalog.operations.js',
             'src/js/store/cesium3d.operations.js',
             'src/js/store/feature.operations.js',
+            'src/js/store/layer-transfer.operations.js',
             'src/js/store/map.operations.js',
-            'src/js/store/streetview360.operations.js'
+            'src/js/store/streetview360.operations.js',
+            'src/js/tool_manager/group_manager.js'
         ]);
+    });
+
+    it('o BARRIL é seguido, e os dois funis de fora do store não citam o export uma vez sequer', () => {
+        // `layer.manager.js` e `group_manager.js` pedem ao barril `'../store'`, que re-exporta os
+        // quatro símbolos rebatizados. Sem seguir a tabela do barril, os dois arquivos com mais
+        // escritas de gesto de camada e de grupo seriam invisíveis para o censo, que é cobertura
+        // vazia com a forma exata da que o par LATERAL do 360 já tinha.
+        expect(BARRIL.get('setLayersCompat')).toBe('setLayersRepo');
+        expect(BARRIL.get('getLayersCompat')).toBe('getLayersRepo');
+        expect(BARRIL.get('setGroupsCompat')).toBe('setMapGroups');
+        expect(BARRIL.get('getGroupsCompat')).toBe('getMapGroupsFromDB');
+
+        const camadas = lerCodigo('src/js/layers/layer.manager.js');
+        expect(/\bsetLayersCompat\s*\(/.test(camadas), 'o apelido sumiu: reconfira a âncora').toBe(false);
+        expect(nomesLocaisDe(camadas, 'setLayersCompat')).toContain('setLayersRepo');
+        expect(leToleranteEEscreve('src/js/layers/layer.manager.js')).toBe(true);
+
+        const grupos = lerCodigo('src/js/tool_manager/group_manager.js');
+        expect(/\bsetGroupsCompat\s*\(/.test(grupos), 'o apelido sumiu: reconfira a âncora').toBe(false);
+        expect(nomesLocaisDe(grupos, 'setGroupsCompat')).toContain('setMapGroups');
+        expect(leToleranteEEscreve('src/js/tool_manager/group_manager.js')).toBe(true);
     });
 
     it('o par LATERAL é alcançado pelos apelidos do 360, que não citam o export uma vez sequer', () => {
@@ -447,6 +584,8 @@ describe('Censo: escrita de conteúdo não fabrica mapa', () => {
         const comApelido = `${dir}/escritor-por-apelido.js`;
         const soLeitura = `${dir}/leitor-puro.js`;
         const lateral = `${dir}/escritor-lateral.js`;
+        const camadas = `${dir}/escritor-de-camadas.js`;
+        const grupos = `${dir}/escritor-de-grupos-pelo-barril.js`;
 
         writeFileSync(path.join(RAIZ, semGuarda), [
             `// Path: ${semGuarda}`,
@@ -502,21 +641,50 @@ describe('Censo: escrita de conteúdo não fabrica mapa', () => {
             '',
         ].join('\n'));
 
+        writeFileSync(path.join(RAIZ, camadas), [
+            `// Path: ${camadas}`,
+            '// Temporário: o lateral de CAMADAS, pela porta direta do repositório.',
+            'import {',
+            '    getLayersCompat,',
+            '    setLayersCompat,',
+            "} from '../../src/js/store/repositories/index.js';",
+            'export async function acrescentarCamada(mapa, camada) {',
+            '    const lista = await getLayersCompat(mapa);',
+            '    await setLayersCompat(mapa, [...lista, camada]);',
+            '}',
+            '',
+        ].join('\n'));
+
+        writeFileSync(path.join(RAIZ, grupos), [
+            `// Path: ${grupos}`,
+            '// Temporário: o lateral de GRUPOS, pelo BARRIL, que é como os dois funis reais o',
+            '// alcançam: o arquivo nunca escreve `getGroupsCompat` nem `setGroupsCompat`.',
+            "import { getMapGroupsFromDB, setMapGroups } from '../../src/js/store';",
+            'export async function fixarGrupo(mapa, grupo) {',
+            '    const atuais = await getMapGroupsFromDB(mapa);',
+            '    await setMapGroups(mapa, { ...atuais, [grupo.id]: grupo });',
+            '}',
+            '',
+        ].join('\n'));
+
         try {
             const inventario = arquivosDoInventario(dir);
-            expect(inventario.sort()).toEqual([comApelido, lateral, semGuarda, soLeitura].sort());
+            expect(inventario.sort())
+                .toEqual([camadas, comApelido, grupos, lateral, semGuarda, soLeitura].sort());
 
-            // 1. os TRÊS escritores entram no censo, o apelidado e o LATERAL inclusive. O lateral é
-            //    o caso que o par único não pegava: ele não cita `getMapDataCompat` nem
-            //    `updateMapDataCompat` uma vez sequer.
-            expect(doPar(inventario).sort()).toEqual([comApelido, lateral, semGuarda].sort());
+            // 1. os CINCO escritores entram no censo, o apelidado e os três LATERAIS inclusive. O
+            //    lateral é o caso que o par único não pegava (não cita `getMapDataCompat` nem
+            //    `updateMapDataCompat` uma vez sequer), e o de grupos é o que o censo ancorado só
+            //    em `repositories/index.js` perderia inteiro: ele importa do BARRIL.
+            expect(doPar(inventario).sort())
+                .toEqual([camadas, comApelido, grupos, lateral, semGuarda].sort());
 
             // 2. e a leitura PURA fica de fora, que é a discriminação que importa: um censo que
             //    acusasse todo leitor tolerante acusaria meia store e seria desligado.
             expect(doPar(inventario)).not.toContain(soLeitura);
 
-            // 3. os três são acusados por falta de classificação;
-            expect(naoClassificados(inventario)).toHaveLength(3);
+            // 3. os cinco são acusados por falta de classificação;
+            expect(naoClassificados(inventario)).toHaveLength(5);
 
             // 4. e um deles, se fosse classificado como GESTO, seria acusado por falta de guarda.
             const comoGesto = [{
@@ -568,23 +736,51 @@ describe('Censo: escrita de conteúdo não fabrica mapa', () => {
         // irmã dos ajustes de mapa foi pega por `tests/integration/map-settings-write-ahead.test.js`
         // ("troca de escopo durante a leitura"); os dois funis tinham a mesma forma e nenhum teste
         // olhando para aquela leitura, porque o gancho deles está na leitura do LATERAL.
-        for (const [arquivo, funil, leitura] of [
+        // NOS FUNIS DE CAMADA E DE GRUPO A SEGUNDA ÂNCORA NÃO É A LEITURA, É O `_ensure...`, e a
+        // diferença é o defeito que ela prende: eles não leem disco nenhum no funil (o documento
+        // vem do cache em memória), mas `_ensureMapLayersExist`/`_ensureMapGroupsExist` FABRICAM o
+        // balde daquele mapa. Uma recusa que chegue depois deles já deixou a estrutura fantasma na
+        // memória, que é a metade do prejuízo que não some sozinha.
+        for (const [arquivo, funil, segundaAncora] of [
             ['src/js/store/cesium3d.operations.js', 'editCesium3d', 'getCesium3dDataWithCache(targetMap)'],
-            ['src/js/store/streetview360.operations.js', 'editStreetview360', 'getStreetview360Data(targetMap)']
+            ['src/js/store/streetview360.operations.js', 'editStreetview360', 'getStreetview360Data(targetMap)'],
+            ['src/js/layers/layer.manager.js', '_writeLayers', '_ensureMapLayersExist(targetMap)'],
+            ['src/js/tool_manager/group_manager.js', '_writeGroups', '_ensureMapGroupsExist(targetMap)']
         ]) {
             const codigo = lerCodigo(arquivo);
-            const inicio = codigo.indexOf(`async function ${funil}(`);
+            const inicio = codigo.search(new RegExp(`async\\s+(?:function\\s+)?${funil}\\s*\\(`));
             expect(inicio, `${funil} saiu de ${arquivo}: reconfira o inventário`).toBeGreaterThan(-1);
             const corpo = codigo.slice(inicio, inicio + 1200);
 
             const guarda = corpo.indexOf('mapExistsForGesture');
             const transacao = corpo.indexOf('runTransaction(');
-            const lateral = corpo.indexOf(leitura);
+            const lateral = corpo.indexOf(segundaAncora);
             expect(guarda, `${funil} não pergunta pela existência do mapa`).toBeGreaterThan(-1);
             expect(transacao, `${funil} não abre mais transação`).toBeGreaterThan(-1);
-            expect(lateral, `${funil} não lê mais o lateral por ${leitura}`).toBeGreaterThan(-1);
+            expect(lateral, `${funil} não alcança mais ${segundaAncora}`).toBeGreaterThan(-1);
             expect(guarda, `${funil} pergunta FORA da transação`).toBeGreaterThan(transacao);
-            expect(guarda, `${funil} lê o lateral antes de saber se o mapa existe`).toBeLessThan(lateral);
+            expect(guarda, `${funil} chega a ${segundaAncora} antes de saber se o mapa existe`).toBeLessThan(lateral);
         }
+    });
+
+    it('as ESCRITAS de camada resolvem o mapa SEM fabricar o cache', () => {
+        // A outra metade da ordem acima, e ela não se lê no funil: `_resolveMap` chama
+        // `_ensureMapLayersExist`, então uma entrada de ESCRITA que o use fabrica o balde do mapa
+        // fantasma ANTES de o funil poder perguntar qualquer coisa. As quatro entradas de escrita
+        // passaram a `_targetMapName`; a metade de LEITURA (`getLayers`, `getLayerById`) fica com
+        // `_resolveMap` de propósito, porque ela é chamada antes de existir mapa.
+        const codigo = lerCodigo('src/js/layers/layer.manager.js');
+        for (const entrada of ['_createLayerInternal', '_updateLayerProperty', 'deleteLayer', 'reorderLayers']) {
+            const inicio = codigo.search(new RegExp(`async\\s+${entrada}\\s*\\(`));
+            expect(inicio, `${entrada} saiu de layer.manager.js`).toBeGreaterThan(-1);
+            const corpo = codigo.slice(inicio, inicio + 400);
+            expect(corpo, `${entrada} fabrica o cache por _resolveMap antes da pergunta`)
+                .not.toMatch(/this\._resolveMap\(/);
+            expect(corpo, `${entrada} não resolve o mapa por _targetMapName`)
+                .toMatch(/this\._targetMapName\(/);
+        }
+        // E o piso do par: as duas continuam existindo, senão o caso acima mede a ausência delas.
+        expect(codigo).toMatch(/_resolveMap\(mapName\)\s*\{/);
+        expect(codigo).toMatch(/_targetMapName\(mapName\)\s*\{/);
     });
 });

@@ -10,6 +10,10 @@ import { EntityType, OperationType } from '../store/sync/operation-types.js';
 import { runTransaction } from '../store/store-transaction.js';
 import { withSideDocument } from '../store/document-lock.js';
 import { mapResolver } from '../store/services/map-resolver.service.js';
+// A pergunta de EXISTÊNCIA do mapa alvo (D2), pelo ARQUIVO e nunca pelo barril do store: este
+// arquivo não lê o documento do mapa, só precisa saber se ele existe antes de gravar o documento
+// lateral de grupos, que `_resolveMapKey` chaveia pelo nome não resolvido.
+import { mapExistsForGesture } from '../store/mapa-inexistente.js';
 
 /**
  * Group edits already recorded in ONE transaction but not yet on disk, per map.
@@ -773,17 +777,40 @@ class GroupManager {
      * write invisible. Read it back through `getMapGroups`/`getGroupById`, never through a
      * reference held across the await.
      *
+     * O MAPA ALVO TEM DE EXISTIR (D2, 2026-09-21), e a pergunta mora AQUI porque este é o funil:
+     * agrupar, combinar, desagrupar e alternar visibilidade/trava de grupo passam todos por ele, e
+     * nenhum deles é escrita DERIVADA (todos nascem de um item de menu ou de um botão da aba de
+     * feições). Em atlas de SERVIDOR um mapa que o store de MAPAS não tem deixa o documento de
+     * grupos órfão sob a chave do NOME, sem cartão nenhum na aba Mapas que o denuncie, e a op sai
+     * com contexto que não é UUID, morrendo no anti-vazamento antes do envio.
+     *
+     * ELA VEM DENTRO DA TRANSAÇÃO e ANTES de `_ensureMapGroupsExist`, e as duas metades importam.
+     * Dentro, porque uma leitura de disco fora da transação fica fora do carimbo de escopo e uma
+     * troca de atlas durante ela deixaria a escrita cair no OUTRO atlas. Antes do `_ensure`,
+     * porque ele fabrica `memoryStore.groups[<qualquer nome>]`, e uma recusa que chega depois
+     * disso já deixou a estrutura fantasma na memória.
+     *
+     * {@link GroupManager#removeFeatureFromAllGroups} NÃO precisa da pergunta, e não poderia
+     * fazê-la: ela é SÍNCRONA e roda dentro da transação do pai. Os três chamadores dela vivem em
+     * `store/feature.operations.js`, todos dentro de um `withMapDocument` cuja primeira linha é
+     * `mapDocumentForGesture`, que já recusou e voltou antes de chegar aqui.
+     *
+     * A RECUSA DEVOLVE `undefined`, que é o valor que os chamadores já tratam como "não fiz nada":
+     * a fachada devolve `null` nas recusas de papel e de trava e o menu de contexto guarda com
+     * `if (!novoGrupo) return;`. O motivo sai no `STORE_OPERATION_BLOCKED` (`map_missing`).
+     *
      * @private
      * @param {string} targetMap - Resolved map name
-     * @param {string} label - Operation label, for the deadlock report
+     * @param {string} label - Operation label, for the deadlock report AND for the refusal payload
      * @param {function(Object): (Object|null)} prepare - Receives the groups cache; returns
      *   `{ groups, operations, result, effect }` or null to abort with no write
-     * @returns {Promise<*>} `edit.result`
+     * @returns {Promise<*>} `edit.result`, or `undefined` when the map is gone
      */
     async _writeGroups(targetMap, label, prepare) {
         let output;
         // Leaf read-modify-write of the per-map groups document; see store/document-lock.js.
         await withSideDocument('groups', targetMap, label, () => runTransaction(async (tx) => {
+            if (!await mapExistsForGesture(targetMap, label)) return async () => {};
             this._ensureMapGroupsExist(targetMap);
             const groupsCache = this.memoryStore.groups[targetMap];
             const edit = prepare(groupsCache);

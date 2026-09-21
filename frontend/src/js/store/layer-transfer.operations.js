@@ -83,6 +83,9 @@ import {
 } from './feature.operations.js';
 import { deleteLayerOnly } from './layer.operations.js';
 import { isCurrentMapLockedSync, isMapLocked } from './map.operations.js';
+// A pergunta de EXISTÊNCIA do mapa de DESTINO (D2): esta operação escreve o registro de camada
+// dele fora do funil `_writeLayers`, então ela faz a pergunta por conta própria.
+import { MAP_MISSING_REASON, mapExistsForGesture } from './mapa-inexistente.js';
 import { uploadCopiedBlobsIfRemote } from './upload-copied-blobs.js';
 import mapManager from './store-state-manager.js';
 import { memoryStore } from './memory-store.js';
@@ -382,6 +385,23 @@ export async function transferLayerToMap(layerId, targetMapName, options = {}) {
 
     if (targetMapName === sourceMapName) return refuse('same_map', mode);
 
+    // O DESTINO TEM DE EXISTIR (D2, 2026-09-21), e a recusa vem ANTES de qualquer escrita.
+    //
+    // Esta operação é COMPOSTA e escreve o registro da camada de destino por `setLayersCompat`,
+    // fora do funil `_writeLayers`: num atlas de SERVIDOR um destino que o store de MAPAS não tem
+    // recebia `layers_<nome>` órfão e uma op `layer` com contexto que não é UUID, descartada pelo
+    // anti-vazamento. O inventário anterior deu isto por "guardado transitivamente", porque
+    // `addFeatures` recusa e a releitura dispara `rollbackTargetLayer`; isso é trabalho feito e
+    // desfeito, e além disso NÃO cobre a camada VAZIA, onde `total === 0` pula a releitura inteira
+    // e a transferência voltava `success: true` deixando o registro órfão para trás.
+    //
+    // A PERGUNTA EMITE, ENTÃO O RETORNO NÃO PASSA POR `refuse`: dois emissores para uma recusa é
+    // como um deles perde um campo, e a frase (`store/denial-phrases.js`) já é keyed por
+    // `map_missing`. `features_tab` só precisa de `success: false` mais o `reason`.
+    if (!await mapExistsForGesture(targetMapName, 'transferLayerToMap')) {
+        return { success: false, reason: MAP_MISSING_REASON, mode };
+    }
+
     // The DESTINATION lock refuses both modes: either one writes there. Read from disk,
     // never from `memoryStore.lockedMaps` (see file header, point 5).
     if (await isMapLocked(targetMapName)) return refuse('target_map_locked', mode);
@@ -561,11 +581,16 @@ async function transferirDentroDoLote({
         } catch (error) {
             deletion = { success: false, reason: error?.message || 'threw' };
         }
-        if (deletion && deletion.success === false) {
+        // `!deletion` ENTROU COM A PORTA DO MAPA INEXISTENTE (D2). `deleteLayer` passou a devolver
+        // `undefined` quando o mapa alvo não existe mais no atlas de servidor, e `undefined` é
+        // falso sem ser `success === false`: sem esta metade a mensagem final anunciaria a camada
+        // removida da origem enquanto ela continuava lá. É a mesma leitura que o comentário acima
+        // já defende para a recusa e para a exceção, agora com os três desfechos iguais.
+        if (!deletion || deletion.success === false) {
             sourceLayerRemoved = false;
             console.warn(
                 'transferLayerToMap: features moved but layer ' + layerId +
-                ' was not removed from ' + sourceMapName + ' (' + deletion.reason + ')'
+                ' was not removed from ' + sourceMapName + ' (' + (deletion?.reason ?? MAP_MISSING_REASON) + ')'
             );
         }
     }

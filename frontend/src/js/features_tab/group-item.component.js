@@ -307,7 +307,12 @@ export async function toggleGroupVisibility(
     try {
         const newVisibility = !currentVisibility;
 
-        await updateGroupProperty(groupId, 'visible', newVisibility);
+        // THE STORE'S ANSWER DECIDES (2026-09-21). A refusal does not throw: the facade returns a
+        // falsy value for role, locked map and a map the atlas no longer has, and the refusal
+        // already speaks through the global listener. Ignoring it painted the new state on the
+        // MapLibre source and on this row while the store kept the old one.
+        const updated = await updateGroupProperty(groupId, 'visible', newVisibility);
+        if (!updated) return;
 
         const currentMapName = getCurrentMapNameSync();
         const groups = getMapGroups(currentMapName);
@@ -348,7 +353,9 @@ export async function toggleGroupLock(
     try {
         const newLockState = !currentLockState;
 
-        await updateGroupProperty(groupId, 'locked', newLockState);
+        // Same contract as the visibility toggle above: a falsy answer is a refusal.
+        const updated = await updateGroupProperty(groupId, 'locked', newLockState);
+        if (!updated) return;
 
         const currentMapName = getCurrentMapNameSync();
         const groups = getMapGroups(currentMapName);

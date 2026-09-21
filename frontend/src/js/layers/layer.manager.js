@@ -20,6 +20,10 @@ import { runTransaction } from '../store/store-transaction.js';
 import { withSideDocument } from '../store/document-lock.js';
 import { mapResolver } from '../store/services/map-resolver.service.js';
 import { getActiveScope } from '../store/atlas-namespace.js';
+// A pergunta de EXISTÊNCIA do mapa alvo (D2), pelo ARQUIVO e nunca pelo barril do store: este
+// arquivo não lê o documento do mapa, só precisa saber se ele existe antes de gravar o documento
+// lateral de camadas (`layers_<chave>`), que `_resolveMapKey` chaveia pelo nome não resolvido.
+import { mapExistsForGesture } from '../store/mapa-inexistente.js';
 
 /**
  * Create a DebouncedPersist with standard error handling.
@@ -245,7 +249,8 @@ class LayerManager {
      * @returns {Promise<Object>} Information about the deletion
      */
     async deleteLayer(layerId, mapName = null) {
-        const targetMap = this._resolveMap(mapName);
+        // Sem fabricar o cache: ver `_targetMapName`.
+        const targetMap = this._targetMapName(mapName);
         return this._writeLayers(targetMap, 'deleteLayer', (layersMap) => {
             // Read INSIDE the critical section: a layer read before the lock may already have been
             // deleted by the writer ahead in the queue.
@@ -402,7 +407,8 @@ class LayerManager {
      * @returns {Promise<void>}
      */
     async reorderLayers(orderedLayerIds, mapName = null) {
-        const targetMap = this._resolveMap(mapName);
+        // Sem fabricar o cache: ver `_targetMapName`.
+        const targetMap = this._targetMapName(mapName);
         return this._writeLayers(targetMap, 'reorderLayers', (layersMap) => {
             const layers = {};
             const operations = [];
@@ -566,6 +572,27 @@ class LayerManager {
     }
 
     /**
+     * O MESMO NOME RESOLVIDO, SEM FABRICAR O CACHE, e é este que toda ESCRITA usa (D2).
+     *
+     * `_resolveMap` chama `_ensureMapLayersExist`, que cria `memoryStore.layers[<qualquer nome>]`
+     * sem perguntar nada. Numa escrita isso acontecia ANTES de {@link LayerManager#_writeLayers}
+     * poder perguntar se o mapa existe, então a recusa chegava com a estrutura já fabricada: um
+     * balde de camadas em nome de um mapa que o atlas não tem mais. Quem precisa do cache é o
+     * funil, DEPOIS da pergunta.
+     *
+     * A METADE DE LEITURA CONTINUA FABRICANDO, de propósito: `getLayers`/`getLayerById` indexam o
+     * cache sem conferir e são chamados antes de existir mapa (o boot pergunta a camada ativa
+     * cedo), então tirar o `_ensure` de lá é outra mudança, com outros chamadores.
+     *
+     * @param {string} mapName
+     * @returns {string} Resolved map name
+     * @private
+     */
+    _targetMapName(mapName) {
+        return mapName || this.memoryStore.currentMap;
+    }
+
+    /**
      * Journals a layer edit before the per-map layers document is written.
      *
      * The contract is the one `editCatalogLayers` established and `_writeGroups`
@@ -593,17 +620,39 @@ class LayerManager {
      * invisible. Read it back through `getLayerById`, never through a reference held across the
      * await.
      *
+     * O MAPA ALVO TEM DE EXISTIR (D2, 2026-09-21), e a pergunta mora AQUI porque este é o funil:
+     * criar, renomear, mostrar, travar, opacizar, reordenar e excluir camada passam todos por ele,
+     * e nenhum deles é escrita DERIVADA. O inventário do mapa fantasma classificou esta família
+     * como derivada em cima de um comentário sobre o `DebouncedPersist` que saiu em 2026-09-13:
+     * não há mais represa nenhuma, toda entrada daqui responde a um clique e grava dentro da
+     * transação. Em atlas de SERVIDOR um mapa que o store de MAPAS não tem deixa `layers_<nome>`
+     * órfão (nenhum cartão na aba Mapas denuncia) e a op sai com contexto que não é UUID, morrendo
+     * no anti-vazamento antes do envio: o gesto é aceito na tela e jogado fora em silêncio.
+     *
+     * ELA VEM DENTRO DA TRANSAÇÃO e ANTES de `_ensureMapLayersExist`, e as duas metades importam.
+     * Dentro, porque uma leitura de disco fora da transação fica fora do carimbo de escopo e uma
+     * troca de atlas durante ela deixaria a escrita cair no OUTRO atlas (é o que
+     * `tests/integration/map-settings-write-ahead.test.js` pegou na guarda irmã). Antes do
+     * `_ensure`, porque ele fabrica o balde de camadas do nome que lhe derem, e uma recusa que
+     * chega depois disso já deixou a estrutura fantasma na memória.
+     *
+     * A RECUSA DEVOLVE `undefined`, que é o valor que os chamadores já tratam: a fachada
+     * (`store/layer.operations.js`) devolve `null` nas recusas de papel e de trava, e as telas
+     * guardam com `if (!novaCamada) return;`. O motivo real não se perde, sai no
+     * `STORE_OPERATION_BLOCKED` com `reason: 'map_missing'`.
+     *
      * @private
      * @param {string} targetMap - Resolved map name
-     * @param {string} label - Operation label, for the deadlock report
+     * @param {string} label - Operation label, for the deadlock report AND for the refusal payload
      * @param {function(Map): (Object|null)} prepare - Receives the map's layers cache; returns
      *   `{ layers, removals, operations, result, effect }` or null to abort with no write
-     * @returns {Promise<*>} `edit.result`
+     * @returns {Promise<*>} `edit.result`, or `undefined` when the map is gone
      */
     async _writeLayers(targetMap, label, prepare) {
         let output;
         // Leaf read-modify-write of the per-map layers document; see store/document-lock.js.
         await withSideDocument('layers', targetMap, label, async () => runTransaction(async (tx) => {
+            if (!await mapExistsForGesture(targetMap, label)) return async () => {};
             this._ensureMapLayersExist(targetMap);
             const layersMap = this.memoryStore.layers[targetMap];
             const edit = prepare(layersMap);
@@ -643,7 +692,9 @@ class LayerManager {
      * @private
      */
     async _createLayerInternal(name, defaultPrefix, mapName, notify) {
-        const targetMap = this._resolveMap(mapName);
+        // `_targetMapName` e não `_resolveMap`: fabricar o cache aqui derrotaria a pergunta de
+        // existência que `_writeLayers` faz logo adiante. Ver o cabeçalho daquele funil.
+        const targetMap = this._targetMapName(mapName);
         return this._writeLayers(targetMap, 'createLayer', (layersMap) => {
             const layerName = name || IDUtils.generateUniqueLayerName(
                 Array.from(layersMap.values()), defaultPrefix
@@ -683,7 +734,8 @@ class LayerManager {
      * @private
      */
     async _updateLayerProperty(layerId, mapName, changes) {
-        const targetMap = this._resolveMap(mapName);
+        // Sem fabricar o cache: ver `_targetMapName`.
+        const targetMap = this._targetMapName(mapName);
         return this._writeLayers(targetMap, 'updateLayer', (layersMap) => {
             // Read INSIDE the critical section: a layer read before the lock may have been
             // deleted by the writer ahead in the queue, and editing it would resurrect it.

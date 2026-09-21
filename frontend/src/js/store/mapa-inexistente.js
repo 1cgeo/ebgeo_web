@@ -185,7 +185,9 @@ export async function mapExistsForGesture(mapNameOrId, operation) {
  * O DOCUMENTO DE UMA ESCRITA DERIVADA: some em silêncio quando o mapa não existe.
  *
  * Derivada é o que não responde a um gesto: o PNG regenerado de um símbolo, a contagem de cores, o
- * ponteiro do mapa corrente, a persistência adiada de camada. Ninguém apertou nada, então não há
+ * ponteiro do mapa corrente. (A escrita de CAMADA já esteve nesta lista por engano: ela é GESTO, com
+ * op de sync, e a persistência adiada que a fazia parecer derivada saiu em 2026-09-13; ela passa
+ * pela porta de existência no funil de `layers/layer.manager.js`.) Ninguém apertou nada, então não há
  * quem avisar, e avisar mesmo assim é o ruído descrito no cabeçalho deste arquivo.
  *
  * @param {string} mapNameOrId - Map name or id the derived write targets
