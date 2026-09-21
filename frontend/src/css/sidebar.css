@@ -211,16 +211,23 @@
     align-items: center;
     gap: 4px;
     position: relative;
+    transition: background var(--transition-fast);
 }
 
-/* A LISTA DE MAPAS NAO TEM PASTILHA EM ESTADO NENHUM, nem ativo nem hover, e a ausencia
-   e a decisao. As de antes eram pretas a 24% (ativo) e 12% (hover) POR CIMA da trilha,
-   isto e, elas ESCURECIAM o verde em vez de troca-lo, e o retangulo que sobrava separava
-   do fundo por 1,5:1: forte o bastante para virar uma caixa, fraco demais para ser o
-   sinal. TODO estado mora agora no CRACHA, que e a coisa que a pessoa esta procurando:
-   o ativo leva anel branco e escala, o hover levanta o veu e cresce, e os demais recuam
-   sob o veu. A pastilha sobrevive nos botoes de ABA desta mesma trilha, que nao tem
-   cracha para marcar; e por isso que a trilha carrega dois idiomas, de proposito. */
+/* A PASTILHA VOLTOU, BRANCA, como a da linha `main` (pedido do dono, 2026-09-21: o realce
+   de la estava melhor). A que tinha saido era PRETA, a 24% no ativo e 12% no hover, e
+   ESCURECIA o verde em vez de destaca-lo; a branca CLAREIA, e o mapa ativo se le de longe
+   como um bloco aceso, com o cracha, o anel e o rotulo juntos dentro dele.
+   O CUSTO E CONHECIDO E FOI ACEITO: o rotulo branco, que da 5,02:1 sobre a trilha, cai
+   para 4,17:1 sobre a pastilha do hover e 3,62:1 sobre a do ativo, abaixo do piso AA de
+   4,5:1 para texto de 9 px. E o mesmo numero da `main`, que convive com ele. */
+.recent-map-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.recent-map-btn[data-active="true"] {
+    background: rgba(255, 255, 255, 0.18);
+}
 
 /* Map badge with initial */
 .recent-map-badge {
@@ -297,10 +304,10 @@
 /* Thumbnail image styling.
  *
  * O RAMO DA MINIATURA E INALCANCAVEL HOJE (`sidebar.control.js` monta todo item com
- * `thumbnail: null`), e mesmo assim ele leva o anel do ativo: quem o cobria era a
- * pastilha, que saiu, e um ramo sem marcador nenhum e uma armadilha esperando quem
- * for liga-lo. O veu do inativo nao se aplica aqui, porque `::after` com `z-index: -1`
- * precisa de conteudo por cima, e imagem nao tem. */
+ * `thumbnail: null`), e mesmo assim ele leva o anel do ativo, o mesmo do cracha: a
+ * pastilha marca o BOTAO, e o anel marca a coisa que a pessoa procura dentro dele. O veu
+ * do inativo nao se aplica aqui, porque `::after` com `z-index: -1` precisa de conteudo
+ * por cima, e imagem nao tem. */
 .recent-map-btn img {
     width: 32px;
     height: 32px;
