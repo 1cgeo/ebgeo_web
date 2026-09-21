@@ -55,9 +55,41 @@
  * a propriedade caso um padrão de destino ganhe um deles depois. Herdar um interruptor que
  * a pessoa nunca ligou faria o símbolo convertido começar a reescrever a própria direção, a
  * velocidade e o GDH a partir de uma trajetória que ela não pediu para derivar.
+ *
+ * ================= O SEGUNDO DEFEITO (achado N2) ==============================
+ *
+ * O menu oferecia as DUAS conversões a qualquer ponto, sem pergunta nenhuma, e o clique
+ * chamava a conversão direto. As folhas da store recusam por PAPEL e por MAPA travado
+ * (`guardWrite`), mas NÃO consultam a trava da FEIÇÃO nem a da CAMADA, que são convenção de
+ * tela: converter um ponto BLOQUEADO funcionava inteiro, enquanto converter uma LINHA
+ * bloqueada, no mesmo menu e duas linhas acima, era recusado nomeando o estado. A assimetria
+ * é o defeito, e ela era dívida declarada no cabeçalho de `feature-header.helpers.js`.
+ *
+ * DOIS TIPOS DE BLOQUEIO, DOIS TRATAMENTOS (decisão do dono, 2026-08-24,
+ * `.claude/rules/architecture.md` §UI Architecture), exatamente como no irmão linear:
+ *
+ *   - POSTO some. Converter é um CREATE mais um DELETE, e quem não tem as duas capacidades
+ *     não vira Editor a partir deste menu.
+ *   - ESTADO desenha e recusa o CLIQUE, nomeando o estado. Mapa travado, feição bloqueada e
+ *     camada travada são reversíveis, e a pessoa pode ser justamente quem os reverte: o
+ *     clique é o único lugar por onde o motivo chega até ela.
+ *
+ * FALHA FECHADA: `can` é consultado para as DUAS capacidades, e um predicado que lance ou
+ * devolva qualquer coisa que não seja `true` esconde os comandos.
+ *
+ * AS FRASES E AS CAPACIDADES VÊM DO IRMÃO LINEAR, e não são reescritas aqui: os dois modelos
+ * são folhas da MESMA pasta (chunk `core`), então o import não cria aresta de chunk nenhuma,
+ * e duas cópias fariam o produto dizer uma frase sobre o mesmo cadeado no menu de uma linha e
+ * outra no de um ponto. As cópias que aquele arquivo declara existem porque cruzam chunk;
+ * esta não cruzaria nada.
  */
 
 import { deepClone } from '@utils/deep-utils.js';
+import {
+    LINEAR_CONVERSION_CAPABILITIES,
+    LOCKED_FEATURE_NOTICE,
+    LOCKED_MAP_NOTICE,
+} from './linear-conversion.model.js';
 
 /**
  * O que ATRAVESSA a conversão de ponto: identidade, texto do usuário, os anexos e o tempo.
@@ -159,4 +191,87 @@ export function buildConvertedPointProperties({ feature, defaults, id, nome } = 
     for (const key of POINT_AUTO_DERIVATION_KEYS) delete props[key];
 
     return props;
+}
+
+// ===== A DECISÃO DE AFORDÂNCIA (achado N2) ===================================
+
+/**
+ * O único tipo de origem que este menu converte, e os dois destinos, na ordem do menu.
+ *
+ * NÃO é uma escada nem um grafo de seis sentidos como o linear: símbolo militar e medida de
+ * coordenação não se convertem entre si nem voltam a ser ponto, e inventar esses sentidos
+ * aqui prometeria comandos que não existem do outro lado.
+ * @type {readonly string[]}
+ */
+export const POINT_CONVERSION_TARGETS = Object.freeze(['military_symbol', 'coordination_measure']);
+
+/** O rótulo do comando que produz cada destino. @type {Object<string, string>} */
+export const POINT_CONVERSION_LABELS = Object.freeze({
+    military_symbol: 'Converter para Símbolo Militar',
+    coordination_measure: 'Converter para Medida de Coordenação',
+});
+
+/**
+ * As chaves de `GuardAction` que uma conversão de ponto consome, as DUAS.
+ *
+ * Lidas do irmão linear em vez de reescritas: a razão é a mesma nos dois lados (converter é
+ * literalmente um CREATE mais um DELETE, e gatear só pela primeira ofereceria, a quem edita e
+ * não apaga, uma travessia que morreria na metade, deixando as DUAS feições vivas), e uma
+ * segunda lista aqui divergiria na primeira vez que alguém mexesse numa delas.
+ * @type {readonly string[]}
+ */
+export const POINT_CONVERSION_CAPABILITIES = LINEAR_CONVERSION_CAPABILITIES;
+
+/** @param {string} [source] - Tipo de origem. @returns {string[]} Destinos do menu. */
+export function pointConversionTargets(source) {
+    return source === 'point' ? [...POINT_CONVERSION_TARGETS] : [];
+}
+
+/**
+ * OS COMANDOS DE CONVERSÃO DE PONTO QUE ESTA PESSOA VÊ PARA ESTA FEIÇÃO, na ordem do menu.
+ *
+ * MESMA FORMA DE RETORNO do irmão `linearConversionActions`, de propósito: o desenho no menu é
+ * o mesmo laço, e um segundo formato obrigaria um segundo laço que divergiria do primeiro.
+ *
+ * @param {Object} context - Entradas da decisão
+ * @param {string} [context.source] - `properties.source` da feição selecionada
+ * @param {function(string): boolean} context.can - Predicado de capacidade, dada uma chave de
+ *   `GuardAction`. Injete `(k) => checkPermission(k).allowed`.
+ * @param {boolean} [context.mapLocked] - O mapa corrente está travado?
+ * @param {boolean} [context.featureLocked] - A feição está bloqueada (dela, da camada ou do
+ *   grupo)? Injete `isFeatureEffectivelyLocked(feature)`, que é quem soma os três.
+ * @returns {Array<{target: string, blocked: string|null}>} Array novo. `blocked` é null
+ *   quando o comando está vivo, ou a frase que o clique tem de mostrar.
+ */
+export function pointConversionActions({
+    source,
+    can,
+    mapLocked = false,
+    featureLocked = false,
+} = {}) {
+    const targets = pointConversionTargets(source);
+    if (targets.length === 0) return [];
+
+    // POSTO: as DUAS capacidades, e o comando some se qualquer uma faltar. Falha fechada
+    // também quando o predicado lança, não é função ou devolve um truthy que não é `true`.
+    for (const key of POINT_CONVERSION_CAPABILITIES) {
+        let ok = false;
+        try {
+            ok = can(key) === true;
+        } catch {
+            ok = false;
+        }
+        if (!ok) return [];
+    }
+
+    // ESTADO: desenhado, e o clique carrega o motivo. A ordem é a da gravidade percebida — o
+    // cadeado do mapa é o que a pessoa tem mais chance de não saber que está ligado.
+    let blocked = null;
+    if (mapLocked) {
+        blocked = LOCKED_MAP_NOTICE;
+    } else if (featureLocked) {
+        blocked = LOCKED_FEATURE_NOTICE;
+    }
+
+    return targets.map((target) => ({ target, blocked }));
 }

@@ -19,7 +19,7 @@
  * e executados por `linear-conversion.helpers.js`. As duas que ficavam neste arquivo saíam de
  * linha e mais nada, não consultavam permissão nenhuma e deixavam artefato órfão na tela; o
  * porquê de cada passo está no cabeçalho daqueles dois. As conversões de PONTO continuam aqui,
- * e continuam sem gate: elas ficaram fora daquela mudança, e é dívida declarada, não simetria.
+ * mas a DECISÃO delas não: ela mora no irmão de ponto, pelo mesmo motivo.
  *
  * O QUE ATRAVESSA UMA CONVERSÃO DE PONTO também deixou de morar aqui: o bloco de
  * propriedades da feição convertida é montado por `point-conversion.model.js` (puro,
@@ -27,6 +27,15 @@
  * copiavam uma lista fixa escrita à mão e descartavam em silêncio a janela de validade, a
  * trajetória, os atributos e as imagens do usuário (achado E1), enquanto o ponto de origem
  * era apagado no mesmo lote.
+ *
+ * E ELAS DEIXARAM DE SER AS DUAS SEM GATE (achado N2, 2026-09-21). O menu oferecia as duas
+ * conversões de ponto a qualquer um, sem pergunta nenhuma, e o clique convertia direto:
+ * `guardWrite` recusa por papel e por MAPA travado, mas a trava da FEIÇÃO e a da CAMADA são
+ * convenção de tela, de modo que converter um ponto BLOQUEADO funcionava inteiro enquanto
+ * converter uma linha bloqueada, duas linhas acima no MESMO menu, era recusado nomeando o
+ * estado. Quem decide agora é `pointConversionActions`, irmã de `linearConversionActions` e
+ * com a mesma forma de retorno, e as duas funções RECONSULTAM o predicado no clique, porque o
+ * par pode travar o mapa com o menu já aberto.
  */
 
 import { getLayers, isCurrentMapLockedSync, isFeatureEffectivelyLocked, addFeature, removeFeature, removeImage, updateFeature, storeImage, getGroupManager, getControl, startBatchUndo, commitBatchUndo } from '../../store';
@@ -40,13 +49,21 @@ import { scrollKeepsFeatureDropdown } from './dropdown-scroll.model.js';
 import { checkPermission } from '@store/sync/permission-guard.js';
 // Leaf module (only the uuid helper): importing it by file keeps the sync barrel out of the graph.
 import { withGestureBatch } from '@store/sync/gesture-batch.js';
+import { denialNotice } from '@store/denial-phrases.js';
 import {
     LINEAR_CONVERSION_LABELS,
+    LOCKED_FEATURE_NOTICE,
+    LOCKED_MAP_NOTICE,
     isMergedArrow,
     linearConversionActions,
 } from './linear-conversion.model.js';
 import { convertLinearFeature } from './linear-conversion.helpers.js';
-import { buildConvertedPointProperties } from './point-conversion.model.js';
+import {
+    POINT_CONVERSION_CAPABILITIES,
+    POINT_CONVERSION_LABELS,
+    buildConvertedPointProperties,
+    pointConversionActions,
+} from './point-conversion.model.js';
 
 // ── Arrow merge/split helpers ─────────────────────────────────────────────────
 // These inline checks avoid a static import from military_tools (which would
@@ -428,35 +445,61 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
         dropdown.appendChild(recalcButton);
     }
 
-    // Add conversion options for point features (single selection only)
-    if (selectedFeatures.length === 1 && currentFeature?.properties?.source === 'point') {
-        const separatorPoint = document.createElement('div');
-        separatorPoint.className = 'feature-menu-separator';
-        dropdown.appendChild(separatorPoint);
-
-        const convertToMilSymButton = document.createElement('button');
-        convertToMilSymButton.className = 'feature-menu-button';
-        convertToMilSymButton.textContent = 'Converter para Símbolo Militar';
-
-        convertToMilSymButton.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            await convertPointToMilitarySymbol(currentFeature, selectionManager, uiManager);
-            closeAllFeatureDropdowns(true);
+    // Conversão de PONTO em símbolo militar ou em medida de coordenação (seleção única).
+    // QUAIS comandos aparecem, e de quais deles o clique tem de recusar, é
+    // `pointConversionActions` (`point-conversion.model.js`): aqui só se desenha o que ela
+    // devolveu, no MESMO molde do bloco linear acima. Até 2026-09-21 este bloco desenhava os
+    // dois comandos para qualquer ponto e o clique convertia direto, inclusive sobre uma feição
+    // ou uma camada bloqueada, que a store não recusa.
+    //
+    // A TABELA DE EXECUTORES MORA AQUI DENTRO, ao lado do laço que a usa: as duas funções são
+    // declarações içadas mais abaixo no arquivo, e um mapa no topo separaria o rótulo (que vem
+    // do modelo) do executor sem ganhar nada.
+    if (selectedFeatures.length === 1) {
+        const pointConversions = pointConversionActions({
+            source: currentFeature?.properties?.source,
+            can: (key) => checkPermission(key).allowed,
+            mapLocked: isCurrentMapLockedSync(),
+            featureLocked: isFeatureEffectivelyLocked(currentFeature),
         });
-        dropdown.appendChild(convertToMilSymButton);
 
-        const convertToCoordMeasureButton = document.createElement('button');
-        convertToCoordMeasureButton.className = 'feature-menu-button';
-        convertToCoordMeasureButton.textContent = 'Converter para Medida de Coordenação';
+        const POINT_CONVERSION_RUNNERS = {
+            military_symbol: convertPointToMilitarySymbol,
+            coordination_measure: convertPointToCoordinationMeasure,
+        };
 
-        convertToCoordMeasureButton.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            await convertPointToCoordinationMeasure(currentFeature, selectionManager, uiManager);
-            closeAllFeatureDropdowns(true);
-        });
-        dropdown.appendChild(convertToCoordMeasureButton);
+        if (pointConversions.length > 0) {
+            const separatorPoint = document.createElement('div');
+            separatorPoint.className = 'feature-menu-separator';
+            dropdown.appendChild(separatorPoint);
+
+            for (const { target, blocked } of pointConversions) {
+                const convertPointButton = document.createElement('button');
+                convertPointButton.className = blocked
+                    ? 'feature-menu-button feature-menu-button--blocked'
+                    : 'feature-menu-button';
+                convertPointButton.textContent = POINT_CONVERSION_LABELS[target];
+
+                // `aria-disabled`, NUNCA a propriedade `disabled`: um botão desabilitado não
+                // dispara clique, e o clique É como o motivo chega à pessoa.
+                if (blocked) {
+                    convertPointButton.setAttribute('aria-disabled', 'true');
+                    convertPointButton.title = blocked;
+                }
+
+                convertPointButton.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeAllFeatureDropdowns(true);
+                    if (blocked) {
+                        showWarning(blocked);
+                        return;
+                    }
+                    await POINT_CONVERSION_RUNNERS[target](currentFeature, selectionManager, uiManager);
+                });
+                dropdown.appendChild(convertPointButton);
+            }
+        }
     }
 
     document.body.appendChild(dropdown);
@@ -1159,6 +1202,40 @@ async function reverseArrow(arrowFeature, selectionManager, uiManager) {
 // ===== POINT CONVERSION FUNCTIONS =====
 
 /**
+ * A RECUSA DESTA CONVERSÃO DE PONTO AGORA, ou `null` quando ela pode seguir.
+ *
+ * POR QUE RECONSULTAR, se o menu já decidiu: o menu decidiu no instante em que foi DESENHADO,
+ * e ele fica aberto. O par pode travar o mapa, bloquear a camada ou rebaixar o papel nesse
+ * intervalo, e a conversão é criar mais apagar: sem esta pergunta, o gesto atravessaria o
+ * estado novo. É a mesma reconsulta que `convertLinearFeature` faz no caminho linear.
+ *
+ * A FRASE DO POSTO vem de `denialNotice(perm.required)`, keyed pela CAPACIDADE que o gate
+ * consultou e nunca pelo papel: um Editor recusado no DELETE precisa ler que apagar exige
+ * outro nível, e não que ele "não pode editar este projeto", que é demonstravelmente falso.
+ * As DUAS frases de estado são as do irmão linear, para que o produto não diga uma coisa sobre
+ * o mesmo cadeado no menu de uma linha e outra no de um ponto.
+ *
+ * @param {Object} pointFeature - Feição de ponto de origem
+ * @returns {string|null} A frase da recusa, ou null
+ */
+function pointConversionDenial(pointFeature) {
+    // POSTO primeiro, e as DUAS capacidades: converter é um CREATE mais um DELETE, e gatear só
+    // pela primeira deixaria a travessia morrer na metade, com as duas feições vivas.
+    for (const key of POINT_CONVERSION_CAPABILITIES) {
+        // A CHAVE, nunca o valor: `checkPermission` resolve `GuardAction[action]` por dentro, e
+        // é a chave que ele devolve em `action` para diagnóstico.
+        const perm = checkPermission(key);
+        if (!perm.allowed) return denialNotice(perm.required);
+    }
+
+    // ESTADO, na mesma ordem em que o menu os nomeia.
+    if (isCurrentMapLockedSync()) return LOCKED_MAP_NOTICE;
+    if (isFeatureEffectivelyLocked(pointFeature)) return LOCKED_FEATURE_NOTICE;
+
+    return null;
+}
+
+/**
  * Converts a point feature to a military symbol feature.
  * Creates a default MIL-STD-2525D symbol at the same position.
  *
@@ -1169,6 +1246,15 @@ async function reverseArrow(arrowFeature, selectionManager, uiManager) {
 async function convertPointToMilitarySymbol(pointFeature, selectionManager, uiManager) {
     let conversionFeatureId = null;
     let symbolAdded = false;
+
+    // RECONSULTA ANTES DE QUALQUER EFEITO, e antes até de cunhar o id: o menu decidiu quando
+    // foi desenhado, e nada impede o par de travar o mapa com ele aberto.
+    const denial = pointConversionDenial(pointFeature);
+    if (denial) {
+        showWarning(denial);
+        return;
+    }
+
     try {
         const map = selectionManager.map;
         const milSymControl = selectionManager.controls.get('military_symbol');
@@ -1305,6 +1391,14 @@ async function convertPointToMilitarySymbol(pointFeature, selectionManager, uiMa
 async function convertPointToCoordinationMeasure(pointFeature, selectionManager, uiManager) {
     let conversionFeatureId = null;
     let symbolAdded = false;
+
+    // Mesma reconsulta da conversão para símbolo militar, logo acima, e pelo mesmo motivo.
+    const denial = pointConversionDenial(pointFeature);
+    if (denial) {
+        showWarning(denial);
+        return;
+    }
+
     try {
         const map = selectionManager.map;
         const coordControl = selectionManager.controls.get('coordination_measure');
