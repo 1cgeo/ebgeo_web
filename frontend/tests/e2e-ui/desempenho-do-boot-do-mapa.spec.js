@@ -113,7 +113,7 @@ const OCIOSIDADE_MS = 6000;
 
 const PROJETOS = '/atlas.html';
 
-// Duas faixas (bytesDeScript e requisicoesDeScript) carregam a PROPRIA data (2026-09-13 nas duas,
+// Duas faixas (bytesDeScript e requisicoesDeScript) carregam a PROPRIA data (2026-09-21 nas duas,
 // e nos dois casos), porque foram remedidas sozinhas quando a deriva acumulada as estourou; as
 // demais continuam da bateria de MEDIDO_EM. A data por faixa e a excecao declarada ao paragrafo
 // abaixo, nao uma segunda bateria.
@@ -169,8 +169,24 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
 
         // 1 e 2. DETERMINISTICOS: teto justo (~5% de folga) e piso que reprova "o app nao subiu".
         expectDeterministico(rodadas, 'bytesDeScript', {
-            piso: 50_450_000, teto: 55_770_000, medidoEm: '2026-09-13',
-            porque: 'REMEDIDO em 2026-09-13: 53 113 913 bytes em 4 de 5 rodadas e 53 109 900 na '
+            piso: 54_680_000, teto: 60_430_000, medidoEm: '2026-09-21',
+            porque: 'REMEDIDO em 2026-09-21: 57 555 344 bytes em 4 de 5 rodadas e 57 551 331 na '
+                + 'primeira, em DUAS baterias no mesmo dia, faixa de +-5%. A subida de 4,44 MB (8,4%) '
+                + 'sobre a faixa de 2026-09-13 foi ATRIBUIDA por caminho independente do navegador, o '
+                + 'grafo de imports ESTATICOS de `src/js/index.js` percorrido nas duas arvores (o commit '
+                + 'que fixou a faixa anterior e a de hoje): 545 arquivos e 7,38 MB de fonte contra 578 e '
+                + '8,15 MB, ou seja, mais 10,4% de fonte para mais 8,4% de bytes servidos, com a razao '
+                + 'entre os dois parada em 7,1 a 7,2 (o Vite serve cada modulo sem minificar e com o '
+                + 'mapa de fonte embutido). Sao 39 arquivos novos somando 0,26 MB, 6 que sairam, e 182 '
+                + 'que cresceram somando 0,55 MB, em 160 commits de oito dias. A hipotese que valia '
+                + 'descartar foi descartada por leitura do mesmo grafo: NENHUM pacote externo novo entrou '
+                + 'no boot (os dois especificadores novos sao os enderecos `?url` do GDAL, que sao texto, '
+                + 'e o motor dele continua sob `import()`), e os maiores arquivos novos sao folhas de 7 a '
+                + '18 kB do nucleo (migracao tardia, modelos puros do temporal, a porta do mapa '
+                + 'inexistente, as frases de figura ausente). E crescimento ORGANICO e proporcional, nao '
+                + 'vazamento de modulo sob demanda. O que NAO foi feito, e fica dito: nenhuma reducao, so '
+                + 'a remedicao com a causa. '
+                + 'Historico: REMEDIDO em 2026-09-13: 53 113 913 bytes em 4 de 5 rodadas e 53 109 900 na '
                 + 'primeira, faixa de +-5%. A subida de 3,34 MB (6,7%) sobre a faixa de 2026-09-04 e '
                 + 'a deriva ACUMULADA da onda do lote logico e das pendencias, e a hipotese que valia '
                 + 'descartar foi descartada por leitura: o PAINEL de pendencias nao entrou no boot, '
@@ -209,8 +225,12 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
                 + 'tela de "EBGeo indisponivel" passaria em qualquer teto sozinho.',
         });
         expectDeterministico(rodadas, 'requisicoesDeScript', {
-            piso: 537, teto: 594, medidoEm: '2026-09-13',
-            porque: 'REMEDIDO em 2026-09-13: 566 modulos servidos pelo Vite em 5 de 5 rodadas, faixa '
+            piso: 571, teto: 631, medidoEm: '2026-09-21',
+            porque: 'REMEDIDO em 2026-09-21: 601 modulos servidos pelo Vite em 5 de 5 rodadas, faixa de '
+                + '+-5%. Os 35 a mais sobre 2026-09-13 batem com o grafo de imports estaticos, que foi '
+                + 'de 545 para 578 arquivos (39 novos, 6 que sairam); a atribuicao inteira esta na faixa '
+                + 'de bytes, logo acima. '
+                + 'Historico: REMEDIDO em 2026-09-13: 566 modulos servidos pelo Vite em 5 de 5 rodadas, faixa '
                 + 'de +-5%. Os 30 a mais sobre 2026-09-07 sao a onda do lote logico e das pendencias: '
                 + 'dez deles tem nome e nasceram neste ramo em 2026-09-13, todos de `store/` ou '
                 + '`store/sync/` e todos de import ESTATICO por pertencerem ao nucleo '
@@ -411,8 +431,10 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
         // `peso-de-boot.js`). Entao a serie os REGISTRA no anexo e nao os assere: teto de byte
         // sobre cache quente e um numero que reprova por sorte.
         expectDeterministico(series[abrirRemoto], 'requisicoesDeScript', {
-            piso: 537, teto: 594, medidoEm: '2026-09-13',
-            porque: 'REMEDIDO em 2026-09-13: 566 em 5 de 5 janelas de transicao, o mesmo numero do boot '
+            piso: 571, teto: 631, medidoEm: '2026-09-21',
+            porque: 'REMEDIDO em 2026-09-21: 601 em 5 de 5 janelas de transicao, o mesmo numero do boot '
+                + 'frio; a razao dos 35 a mais esta na faixa de bytes do boot frio. '
+                + 'Historico: REMEDIDO em 2026-09-13: 566 em 5 de 5 janelas de transicao, o mesmo numero do boot '
                 + 'frio (a pagina do mapa carrega o mesmo grafo por qualquer das quatro portas), faixa '
                 + 'de +-5%; a razao dos 30 a mais esta na faixa do boot frio. '
                 + 'Historico: REMEDIDO em 2026-09-07: 536 em todas as janelas de transicao, o mesmo numero do '
