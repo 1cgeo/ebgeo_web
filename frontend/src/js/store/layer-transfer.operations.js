@@ -23,7 +23,14 @@
  * 3. DESTINATION FIRST, SOURCE LAST. The features are written to the target and the write
  *    is READ BACK, by a path independent of the one that wrote it, before anything is
  *    removed from the source. The worst case is then a recoverable duplicate, never a
- *    loss.
+ *    loss. SINCE 2026-09-21 THE DUPLICATE HAS A NAME IN THE RESULT (`sourceEmptied: false`,
+ *    with `sourceRefusal`), because until then it came back as plain success and the screen
+ *    announced "layer moved, the EMPTY layer stayed in the source map" over a layer that was
+ *    full. It happens when the source emptying is refused mid-gesture (a peer locks the map, or
+ *    the role is lowered, between the destination write and the source emptying). A source map
+ *    DELETED by a peer mid-gesture is a different outcome (`sourceMissing: true`) and leaves no
+ *    duplicate at all: the local document went with the map, and the server's upsert by id
+ *    moved (or revived) the rows in the destination, in either arrival order.
  *
  * 4. THIS OPERATION IS COMPOSITE AND MUST NOT TAKE THE DOCUMENT LOCK. `addFeatures` and
  *    `deleteLayerFeatures` each take `withMapDocument` on their own, and the queue in
@@ -85,7 +92,7 @@ import { deleteLayerOnly } from './layer.operations.js';
 import { isCurrentMapLockedSync, isMapLocked } from './map.operations.js';
 // A pergunta de EXISTÊNCIA do mapa de DESTINO (D2): esta operação escreve o registro de camada
 // dele fora do funil `_writeLayers`, então ela faz a pergunta por conta própria.
-import { MAP_MISSING_REASON, mapExistsForGesture } from './mapa-inexistente.js';
+import { MAP_MISSING_REASON, mapExistsForGesture, mapIsMissing } from './mapa-inexistente.js';
 import { uploadCopiedBlobsIfRemote } from './upload-copied-blobs.js';
 import mapManager from './store-state-manager.js';
 import { memoryStore } from './memory-store.js';
@@ -198,6 +205,23 @@ async function countFeaturesInLayer(mapName, layerId) {
         }
     }
     return count;
+}
+
+/**
+ * Says WHY the source could not be emptied, after the fact.
+ *
+ * `deleteLayerFeatures` refuses through the store event and returns a bare `false`, so the reason
+ * is asked again here, in the same order the store asks it (role first, then the lock). The lock
+ * is read from the DISK, because the source is the current map only by convention of the caller.
+ *
+ * @param {string} sourceMapName - Source map
+ * @returns {Promise<'permission'|'map_locked'|'unknown'>} The reason, for the phrase
+ * @private
+ */
+async function sourceRefusalReason(sourceMapName) {
+    if (!checkPermission(GuardAction.DELETE_FEATURE).allowed) return 'permission';
+    if (isCurrentMapLockedSync() || await isMapLocked(sourceMapName)) return 'map_locked';
+    return 'unknown';
 }
 
 /**
@@ -550,12 +574,49 @@ async function transferirDentroDoLote({
     // ----- Only now may the source be emptied -----
 
     let sourceLayerRemoved = true;
+    // THE SOURCE SIDE HAS THREE OUTCOMES, AND UNTIL 2026-09-21 THE RESULT COULD ONLY SAY ONE. The
+    // return of `deleteLayerFeatures` was discarded, so a refused emptying came back as
+    // `success: true` with the patch "the empty layer stayed in the source map", which was false
+    // twice over: the layer was FULL, and the same feature ids now lived in both maps on this
+    // client while the server (an upsert by id, which moves the row) had them only in the
+    // destination. That is the "recoverable duplicate" of point 3 of the header, and nothing told
+    // the person about it.
+    //
+    //  - source map GONE (a peer deleted it mid-gesture, remote scope): nothing to empty and no
+    //    duplicate anywhere, because the local document went with the map. The emptying is SKIPPED,
+    //    otherwise the gesture door would add a "this map no longer exists" toast to a transfer
+    //    that in fact rescued the layer.
+    //  - emptying REFUSED with the source alive (a peer locked the map, or this account's role was
+    //    lowered, between the destination write and this line): the layer RECORD is left alone,
+    //    because deleting the record of a layer that still holds features is the worst outcome
+    //    available here, and the result says so.
+    //  - emptied: the old path.
+    //
+    // The emptying is READ BACK, like the destination write above, and for the same reason: the
+    // return value cannot tell a refusal from "there was nothing to remove" (both are `false`).
+    let sourceMissing = false;
+    let sourceEmptied = true;
+    let sourceRefusal = null;
     if (mode === TransferMode.MOVE) {
+        sourceMissing = await mapIsMissing(sourceMapName);
+    }
+    if (mode === TransferMode.MOVE && !sourceMissing) {
         // `releaseImages: false` because the moved features KEEP their ids: the blob store
         // is keyed by feature id, so releasing here would leave the just-moved features
         // pointing at nothing.
         await deleteLayerFeatures(layerId, sourceMapName, { releaseImages: false });
 
+        if (total > 0 && await countFeaturesInLayer(sourceMapName, layerId) > 0) {
+            sourceEmptied = false;
+            sourceLayerRemoved = false;
+            sourceRefusal = await sourceRefusalReason(sourceMapName);
+            console.warn(
+                'transferLayerToMap: destination accepted everything but the source layer ' + layerId +
+                ' of ' + sourceMapName + ' could not be emptied (' + sourceRefusal + ')'
+            );
+        }
+    }
+    if (mode === TransferMode.MOVE && !sourceMissing && sourceEmptied) {
         // `deleteLayerOnly` carries guards of its own and can decline. The features are
         // already gone by then, so this is not a failed transfer, but an empty layer left
         // in the source is not what we promised either.
@@ -604,6 +665,9 @@ async function transferirDentroDoLote({
         skippedCount,
         targetLayerId: newLayer.id,
         targetLayerName: newLayer.name,
-        sourceLayerRemoved
+        sourceLayerRemoved,
+        sourceEmptied,
+        sourceMissing,
+        sourceRefusal
     };
 }

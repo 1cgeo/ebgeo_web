@@ -217,7 +217,7 @@ import { checkPermission } from '../../src/js/store/sync/permission-guard.js';
 import { emitStoreError } from '../../src/js/store/store-errors.js';
 import { logLayerOperation } from '../../src/js/store/sync/index.js';
 import { getImage, storeImage, removeImage } from '../../src/js/store/settings.operations.js';
-import { setLayersCompat } from '../../src/js/store/repositories/index.js';
+import { setLayersCompat, getExistingMapData } from '../../src/js/store/repositories/index.js';
 import { uploadImagesInChunks } from '@js/import_export/atlas-image-upload.js';
 import { activateScope, remoteScope } from '../../src/js/store/atlas-namespace.js';
 import { esquecerPendenciasEmMemoria } from '../../src/js/store/sync/blob-upload-queue.js';
@@ -1124,6 +1124,110 @@ describe('transferLayerToMap - registro da camada de origem não removido', () =
         const result = await transferLayerToMap('l1', 'MapB', { mode: TransferMode.MOVE });
 
         expect(result.sourceLayerRemoved).toBe(true);
+    });
+});
+
+describe('transferLayerToMap - a origem tem TRÊS desfechos, e o resultado nomeia cada um', () => {
+    // Defeito (até 2026-09-21): o retorno de `deleteLayerFeatures` era descartado. Um esvaziamento
+    // RECUSADO voltava `success: true` com `sourceLayerRemoved: false`, e a tela dizia "a camada
+    // vazia continuou no mapa de origem" sobre uma camada CHEIA, com os mesmos ids nos dois mapas
+    // deste cliente enquanto o servidor (upsert por id, que MOVE a linha) os tinha só no destino.
+    //
+    // A recusa "chega no meio do gesto" de forma DETERMINÍSTICA: o dublê só passa a recusar
+    // depois que o destino já tem a feição, que é exatamente a janela do defeito (entre a escrita
+    // do destino e o esvaziamento da origem). Nenhum temporizador.
+    const destinoJaRecebeu = () => featuresOf('MapB').length > 0;
+
+    beforeEach(() => {
+        setupMap('MapB', [{ id: 'default', name: 'Padrão', order: 0 }]);
+        hydrate('MapB');
+        addFeatureTo('MapA', makeFeature('p1'));
+    });
+
+    it('PISO: sem recusa nenhuma, a origem é esvaziada e o resultado diz isso', async () => {
+        const result = await transferLayerToMap('l1', 'MapB', { mode: TransferMode.MOVE });
+
+        expect(result.success).toBe(true);
+        expect(result.sourceEmptied).toBe(true);
+        expect(result.sourceMissing).toBe(false);
+        expect(result.sourceRefusal).toBeNull();
+        expect(featuresOf('MapA')).toHaveLength(0);
+    });
+
+    it('o par TRAVA o mapa de origem no meio do gesto: a origem fica cheia, e o resultado não finge', async () => {
+        isCurrentMapLockedSync.mockImplementation(destinoJaRecebeu);
+
+        const result = await transferLayerToMap('l1', 'MapB', { mode: TransferMode.MOVE });
+
+        // O destino aceitou tudo, então não é falha: é um sucesso PARCIAL com nome.
+        expect(result.success).toBe(true);
+        expect(result.sourceEmptied).toBe(false);
+        expect(result.sourceRefusal).toBe('map_locked');
+        expect(result.sourceMissing).toBe(false);
+        expect(result.sourceLayerRemoved).toBe(false);
+        expect(featuresOf('MapB')).toHaveLength(1);
+        expect(featuresOf('MapA')).toHaveLength(1);
+        // O REGISTRO da camada não é tocado: apagar o registro de uma camada que ainda tem
+        // feições é o pior desfecho disponível aqui.
+        expect(layerManager.deleteLayer).not.toHaveBeenCalled();
+    });
+
+    it('o papel é rebaixado no meio do gesto: mesmo desfecho, com o motivo do PAPEL', async () => {
+        checkPermission.mockImplementation((acao) => (
+            acao === 'canDelete' && destinoJaRecebeu() ? { allowed: false, reason: 'role', required: acao } : { allowed: true }
+        ));
+
+        const result = await transferLayerToMap('l1', 'MapB', { mode: TransferMode.MOVE });
+
+        expect(result.success).toBe(true);
+        expect(result.sourceEmptied).toBe(false);
+        expect(result.sourceRefusal).toBe('permission');
+        expect(featuresOf('MapA')).toHaveLength(1);
+        expect(layerManager.deleteLayer).not.toHaveBeenCalled();
+    });
+
+    it('o mapa de origem é EXCLUÍDO por um par no meio do gesto (atlas de servidor): nada a esvaziar, nenhuma recusa', async () => {
+        activateScope(remoteScope(crypto.randomUUID()));
+        getExistingMapData.mockImplementation(async (mapName) => (
+            mapName === 'MapA' && destinoJaRecebeu() ? null : (mockMaps.value[mapName] || null)
+        ));
+        emitStoreError.mockClear();
+
+        const result = await transferLayerToMap('l1', 'MapB', { mode: TransferMode.MOVE });
+
+        expect(result.success).toBe(true);
+        expect(result.sourceMissing).toBe(true);
+        expect(result.sourceEmptied).toBe(true);
+        expect(result.sourceRefusal).toBeNull();
+        expect(featuresOf('MapB')).toHaveLength(1);
+        // Nem o esvaziamento nem a exclusão do registro são tentados: os dois passariam pela porta
+        // de gesto e poriam na tela "este mapa não existe mais" sobre uma transferência que, na
+        // prática, RESGATOU a camada.
+        expect(layerManager.deleteLayer).not.toHaveBeenCalled();
+        const recusas = emitStoreError.mock.calls.filter(([, payload]) => payload?.reason === 'map_missing');
+        expect(recusas).toEqual([]);
+    });
+
+    it('BORDA: camada VAZIA não é lida como origem não esvaziada (o retorno falso de "nada a remover")', async () => {
+        mockMaps.value.MapA.features.points = [];
+
+        const result = await transferLayerToMap('l1', 'MapB', { mode: TransferMode.MOVE });
+
+        expect(result.success).toBe(true);
+        expect(result.movedCount).toBe(0);
+        expect(result.sourceEmptied).toBe(true);
+    });
+
+    it('COPIAR nunca fala da origem: os três campos ficam no valor neutro', async () => {
+        isCurrentMapLockedSync.mockImplementation(destinoJaRecebeu);
+
+        const result = await transferLayerToMap('l1', 'MapB', { mode: TransferMode.COPY });
+
+        expect(result.success).toBe(true);
+        expect(result.sourceEmptied).toBe(true);
+        expect(result.sourceMissing).toBe(false);
+        expect(result.sourceRefusal).toBeNull();
+        expect(featuresOf('MapA')).toHaveLength(1);
     });
 });
 

@@ -196,3 +196,22 @@ export async function mapExistsForGesture(mapNameOrId, operation) {
 export async function mapDocumentForDerivedWrite(mapNameOrId) {
     return resolveMapDocument(mapNameOrId);
 }
+
+/**
+ * A PERGUNTA SILENCIOSA: o mapa sumiu do atlas? Não recusa nada e não emite nada.
+ *
+ * Existe para quem precisa saber POR QUE um passo seu não aconteceu, depois do fato, e não para
+ * gatear escrita: `transferLayerToMap` (`store/layer-transfer.operations.js`) a usa para distinguir
+ * "o mapa de origem foi excluído por um par no meio do gesto" de "o esvaziamento da origem foi
+ * recusado", que pedem frases diferentes na tela. Quem for ESCREVER usa uma das portas acima, que
+ * falam; usar esta como gate reabriria a recusa muda que este arquivo existe para fechar.
+ *
+ * A fronteira é a das portas: só em escopo REMOTO um mapa ausente é um mapa que sumiu.
+ *
+ * @param {string} mapNameOrId - Map name or id
+ * @returns {Promise<boolean>} True when the active scope is remote and the map is not on disk
+ */
+export async function mapIsMissing(mapNameOrId) {
+    if (!mapMustExist()) return false;
+    return !(await getExistingMapData(mapNameOrId));
+}

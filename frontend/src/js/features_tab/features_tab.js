@@ -76,6 +76,7 @@ import { showConfirm, showLayerTransferModal } from '@modals';
 import { isViewer3DOpen } from '@utils/viewer3d-state.js';
 import { showError, showSuccess } from '@utils';
 import { showInChannel } from '@utils/toast_service.js';
+import { transferOutcomeNotice } from './layer-transfer-phrases.js';
 import { denialNotice } from '@store/denial-phrases.js';
 import { isStreetView360Open } from '@utils/streetview360-state.js';
 
@@ -512,17 +513,30 @@ export class FeaturesTab {
                 return;
             }
 
-            if (isMove) {
+            // THE SOURCE MAY NOT HAVE BEEN EMPTIED (2026-09-21). When a peer locks the source map, or
+            // lowers this account's role, between the destination write and the source emptying, the
+            // features are still in the source layer. Deselecting them and wiping them from the
+            // MapLibre sources here, as the emptied path does, would take off the screen features
+            // the store still has.
+            const sourceStillFull = isMove && result.sourceEmptied === false;
+            if (isMove && !sourceStillFull) {
                 // Only after the operation succeeded: a refusal must not cost the user a
                 // selection that nothing else touched.
                 this._deselectFeaturesOfLayer(layerId);
                 await this._syncMapSourcesAfterDelete(layerId);
-                this._suppressLayersChangedRefresh = false;
             }
+            this._suppressLayersChangedRefresh = false;
 
             await this.loadFeatures();
             this._emitLayersChanged();
-            showSuccess(this._buildTransferMessage(layer.name, targetMapName, result));
+            const notice = transferOutcomeNotice(layer.name, targetMapName, result);
+            if (notice.kind === 'warning') {
+                // SAME CHANNEL as the store's refusal toast, replacing it: the generic sentence
+                // ("map locked") is true and says nothing about what happened to the layer.
+                showInChannel('store-blocked', notice.text, 'warning', { duration: 10000 });
+            } else {
+                showSuccess(notice.text);
+            }
         } catch (error) {
             this._suppressLayersChangedRefresh = false;
             console.error('Error transferring layer:', error);
@@ -575,33 +589,6 @@ export class FeaturesTab {
         if (phrase) {
             showInChannel('store-blocked', phrase, 'warning', { duration: 4000 });
         }
-    }
-
-    /**
-     * Builds the success message for a layer transfer.
-     * @param {string} layerName - Layer name
-     * @param {string} targetMapName - Destination map name
-     * @param {Object} result - Result from `transferLayerToMap`
-     * @returns {string} The sentence to show
-     */
-    _buildTransferMessage(layerName, targetMapName, result) {
-        const verb = result.mode === TransferMode.MOVE ? 'movida' : 'copiada';
-        const count = result.movedCount || 0;
-        const plural = count === 1 ? 'feição' : 'feições';
-
-        let message = `Camada "${layerName}" ${verb} para "${targetMapName}" (${count} ${plural})`;
-
-        if (result.sourceLayerRemoved === false) {
-            message += '. A camada vazia continuou no mapa de origem';
-        }
-
-        if (result.skippedCount > 0) {
-            const skippedPlural = result.skippedCount === 1 ? 'feição' : 'feições';
-            const levada = result.skippedCount === 1 ? 'foi levada' : 'foram levadas';
-            message += `. ${result.skippedCount} ${skippedPlural} de análise (LOS/visibilidade) não ${levada}`;
-        }
-
-        return message;
     }
 
     /**

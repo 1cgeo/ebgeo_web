@@ -697,7 +697,13 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // `tool_manager/helpers/point-conversion.model.js` (o bloco de propriedades que a conversão de
         // ponto preserva, janela e trajetória inclusive) e `import_export/kmz/kml-time.js` (o
         // TimeSpan do KML, que só entra seguindo `import()`).
-        expect(completo.arquivos.size).toBeLessThanOrEqual(746);
+        //
+        // 2026-09-21, décimo quarto lote: 747, medido pela reprovação deste caso (747 contra 746 com UM
+        // arquivo novo): `features_tab/layer-transfer-phrases.js`, folha de zero imports com a frase do
+        // desfecho de uma transferência de camada, que saiu de dentro da aba de feições para dizer os
+        // três desfechos da origem e ser testável em node. No mesmo dia entrou `store/mapa-inexistente.js`
+        // e saiu `sidebar/tabs/remote-map-redirect.js`, um pelo outro, e por isso o 746 não se mexeu ali.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(747);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);
