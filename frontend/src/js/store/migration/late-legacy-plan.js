@@ -51,7 +51,12 @@ import { StoreName } from '../atlas-namespace.js';
  * WHAT MAKES A CASE NON-TRIVIAL (the screen stays)
  * ===========================================================================================
  * Two kinds of record never make a case non-trivial: the caches the app recomputes
- * (`DERIVED_KEYS`) and the navigation pointers (`PREFERENCE_KEYS`). A LIMIT that is known and
+ * (`DERIVED_KEYS`) and the navigation pointers (`PREFERENCE_KEYS`). A third is decided by the
+ * caller, because it needs VALUES and this module only sees fingerprints: a map record the
+ * destination rewrote without adding work (the `inert` input). Measured in production on
+ * 2026-09-21, in the reporter's own browser: the build deployed that morning re-stamped the
+ * `sync` of `maps/Principal` at 09:13:56 with no operation in the journal, and the fingerprint
+ * read that as an edit of Principal. A LIMIT that is known and
  * left open: the PNG that three tools regenerate under a feature id (declination, coordination
  * measure, military symbol) is an ordinary image record here, so both sides regenerating the
  * same one is a conflict. It needs the feature type to be told apart from an image feature's
@@ -116,7 +121,7 @@ const PREFERENCE_KEYS = Object.freeze([
  * is decided again: without this, the fix above would never reach a browser that had already
  * remembered the conflict, because the two acervos it compares are exactly the same ones.
  */
-export const LATE_RULE_VERSION = 2;
+export const LATE_RULE_VERSION = 3;
 
 /** Outcomes of `planLateLegacyChanges`. */
 export const LateOutcome = Object.freeze({
@@ -217,10 +222,13 @@ function isPreference(id) {
  * @param {Array} input.rawNow - Legacy acervo, RAW, now (the one that was staged).
  * @param {Array<{ key: string, id?: string, name?: string }>} input.maps - Map records of the
  *   staging and of the destination, for the address resolver.
+ * @param {Array<[string, string]>} [input.inert] - Destination records that changed on disk but
+ *   carry no work the legacy side lacks, as proved by the caller (`inertMapChanges` in
+ *   `legacy-transition.js`). They are not destination changes.
  * @returns {{ outcome: string, reason?: string, writes: Array<[string, string]>,
  *   deletes: Array<[string, string]> }} `writes` and `deletes` name destination records.
  */
-export function planLateLegacyChanges({ migratedBase, staged, destinationBase, destination, rawBase, rawNow, maps }) {
+export function planLateLegacyChanges({ migratedBase, staged, destinationBase, destination, rawBase, rawNow, maps, inert = [] }) {
     const stagedIndex = indexInventory(staged);
     const legacyChanges = changedRecords(indexInventory(migratedBase), stagedIndex);
     const plan = { outcome: LateOutcome.NOTHING, writes: [], deletes: [] };
@@ -228,8 +236,9 @@ export function planLateLegacyChanges({ migratedBase, staged, destinationBase, d
 
     const conflict = reason => ({ outcome: LateOutcome.CONFLICT, reason, writes: [], deletes: [] });
     const destinationIndex = indexInventory(destination);
+    const inertIds = new Set(inert.map(([store, key]) => recordId(store, key)));
     const destinationChanges = [...changedRecords(indexInventory(destinationBase), destinationIndex)]
-        .filter(id => !isDerived(id));
+        .filter(id => !isDerived(id) && !inertIds.has(id));
     const raw = { base: indexInventory(rawBase), now: indexInventory(rawNow) };
     const resolve = mapResolver(maps);
     const destinationUnits = new Set(destinationChanges.map(id => unitOf(id, resolve)));

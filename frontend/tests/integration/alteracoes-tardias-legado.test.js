@@ -123,13 +123,94 @@ it('o relato como a produção mostrou: a versão nova cria a contagem de cores 
     expect(await loja(ns.StoreName.SETTINGS).getItem('color_usage_Principal')).toEqual({ '#000000': 2 });
 });
 
-it('conflito lembrado por uma regra mais antiga é decidido de novo', async () => {
+// O QUE O NAVEGADOR DA PESSOA MOSTROU (2026-09-21, lido no IndexedDB dela): o build daquela manhã
+// regravou `maps/Principal` às 09:13:56 mexendo SÓ no `sync`, sem operação nenhuma na fila, e a
+// regra leu isso como edição do Principal nos dois lados.
+async function novaCarimbaMapa(loja, ns, chave) {
+    const atual = await loja(ns.StoreName.MAPS).getItem(chave);
+    await loja(ns.StoreName.MAPS).setItem(chave, { ...atual, sync: { ...atual.sync, version: 23, updatedAt: 99 } });
+}
+
+it('mapa regravado pela versão nova só no carimbo `sync` não é edição: a junção passa', async () => {
+    await seed24();
+    const { transition, ns, loja } = await transicao();
+    await novaCarimbaMapa(loja, ns, 'Principal');
+    await antigaDesenha(2);
+    expect((await transition.prepareLegacyTransition()).late).toMatchObject({ outcome: 'absorbed' });
+    expect((await loja(ns.StoreName.MAPS).getItem('Principal')).features.coordination_lines).toHaveLength(2);
+});
+
+// O ESTADO DO NAVEGADOR DA PESSOA, registro a registro, como lido no IndexedDB dela em 2026-09-21
+// (só a forma; as coordenadas são sintéticas): o Principal da nova carimbado no `sync`, e a antiga
+// com duas linhas no Principal, um mapa novo que ela NÃO pôs na ordem do atlas, o último mapa aberto
+// apontando para ele, a cor do crachá dele e o estilo da grade do Principal.
+it('o navegador da pessoa: mapa novo fora da ordem do atlas, ponteiro e crachá mudados, Principal carimbado', async () => {
+    await seed24();
+    await seedDatabase('ebgeo_atlas', { current_atlas: {
+        id: '76cfc275-0000-4000-8000-000000000000', name: 'Meu Atlas', schemaVersion: '2.4',
+        lastActiveMapId: 'Principal', mapOrder: ['Principal'], settings: { terrainExaggeration: 1.5 }
+    } });
+    await storeAt('ebgeo_maps').removeItem('Segundo');
+    await storeAt('ebgeo_app_settings').removeItem('color_usage_Segundo');
+    await seedDatabase('ebgeo_app_settings', { color_usage_Principal: {}, mapBadgeColors: { Principal: '#3b82f6' } });
+    const { transition, ns, loja } = await transicao();
+    await novaCarimbaMapa(loja, ns, 'Principal');
+
+    await antigaDesenha(2);
+    const novo = mapa('Novo Mapa', 'Novo Mapa');
+    delete novo.catalogLayers;
+    await seedDatabase('ebgeo_maps', { 'Novo Mapa': novo });
+    await seedDatabase('ebgeo_app_settings', {
+        'color_usage_Novo Mapa': {}, lastActiveMap: 'Novo Mapa',
+        mapBadgeColors: { Principal: '#3b82f6', 'Novo Mapa': '#22c55e' }
+    });
+
+    const boot = await transition.prepareLegacyTransition();
+    expect(boot.late).toMatchObject({ outcome: 'absorbed' });
+    expect((await loja(ns.StoreName.MAPS).getItem('Principal')).features.coordination_lines).toHaveLength(2);
+    expect(await loja(ns.StoreName.MAPS).getItem('Novo Mapa')).toBeTruthy();
+    expect(await loja(ns.StoreName.SETTINGS).getItem('mapBadgeColors')).toEqual({ Principal: '#3b82f6', 'Novo Mapa': '#22c55e' });
+});
+
+it('mapa em que a versão nova mudou um CAMPO continua sendo edição dela: conflito', async () => {
+    await seed24();
+    const { transition, ns, loja, destino } = await transicao();
+    const atual = await loja(ns.StoreName.MAPS).getItem('Principal');
+    await loja(ns.StoreName.MAPS).setItem('Principal', { ...atual, baseLayer: 'imagens' });
+    await antigaDesenha(2);
+    const destinoAntes = await transition.inventoryScope(destino);
+    await expect(transition.prepareLegacyTransition()).rejects.toMatchObject({ code: 'legacy_changes' });
+    expect(await transition.inventoryScope(destino)).toEqual(destinoAntes);
+});
+
+it('feição apagada na versão nova e mantida na antiga não ressuscita: a fila tem o delete, e dá conflito', async () => {
+    await seed24();
+    await seedDatabase('ebgeo_maps', { Principal: mapa('Principal', 'Principal', [linha(1)]) });
+    const { transition, ns, loja, destino } = await transicao();
+    const atual = await loja(ns.StoreName.MAPS).getItem('Principal');
+    await loja(ns.StoreName.MAPS).setItem('Principal', { ...atual, features: { ...atual.features, coordination_lines: [] } });
+    await ns.getStoreFor(ns.StoreName.OPERATION_QUEUE, destino).setItem('op_z00000000000000000001_apaga', {
+        operationType: 'delete', entityType: 'feature', entityId: linha(1).properties.id, mapId: 'Principal'
+    });
+    // A antiga desenha a segunda linha e continua com a primeira: o mapa da nova (vazio) está
+    // CONTIDO no da antiga, e só a fila distingue "a nova apagou" de "a antiga acrescentou".
+    await seedDatabase('ebgeo_maps', { Principal: mapa('Principal', 'Principal', [linha(1), linha(2)]) });
+    await expect(transition.prepareLegacyTransition()).rejects.toMatchObject({ code: 'legacy_changes' });
+    expect((await loja(ns.StoreName.MAPS).getItem('Principal')).features.coordination_lines).toHaveLength(0);
+});
+
+// As duas formas que um navegador de verdade guarda: a primeira versão da regra lembrava a recusa
+// SEM versão, e a anterior à atual com o número dela (o estado lido no navegador da pessoa em
+// 2026-09-21). O número é DERIVADO da constante, para o caso não envelhecer quando ela subir.
+it.each([['sem versão', () => undefined], ['da versão anterior', v => v - 1]])(
+    'conflito lembrado por uma regra mais antiga (%s) é decidido de novo', async (_nome, versaoAntiga) => {
     await seed24();
     const { transition, ns, loja, destino, origem, state } = await transicao();
+    const { LATE_RULE_VERSION } = await import('@store/migration/late-legacy-plan.js');
     await antigaDesenha(2);
-    // O diário como a primeira versão da regra o deixou: a recusa lembrada, sem versão.
     const journal = await state.readLegacyTransition();
     journal.lateConflict = {
+        rule: versaoAntiga(LATE_RULE_VERSION),
         reason: 'same_unit',
         legacy: await transition.inventoryScope(origem),
         destination: await transition.inventoryScope(destino)

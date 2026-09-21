@@ -117,6 +117,13 @@ describe('planLateLegacyChanges', () => {
         expect(plan.deletes).toEqual([]);
     });
 
+    it('registro que o chamador provou sem trabalho não é mudança do destino', () => {
+        const input = entrada({ legado: { 'maps/Principal': 'p1' }, destino: { 'maps/Principal': 'p9' } });
+        expect(planLateLegacyChanges(input)).toMatchObject({ outcome: 'conflict', reason: 'same_unit' });
+        expect(planLateLegacyChanges({ ...input, inert: [['maps', 'Principal']] }))
+            .toMatchObject({ outcome: 'absorb', writes: [['maps', 'Principal']] });
+    });
+
     it('só a contagem de cores mudou na antiga: nada a fazer', () => {
         expect(planLateLegacyChanges(entrada({ legado: { 'settings/color_usage_Principal': 'c1' } })).outcome).toBe('nothing');
     });

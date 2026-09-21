@@ -275,6 +275,94 @@ async function mapAddresses(scope) {
 }
 
 /**
+ * JSON with keys in a fixed order and every `sync` block left out, so two documents compare by
+ * CONTENT: `sync` is bookkeeping the store stamps on write, and it says nothing about work.
+ * @param {*} value
+ * @returns {string}
+ */
+function contentOf(value) {
+    const strip = (v) => {
+        if (Array.isArray(v)) return v.map(strip);
+        if (!v || typeof v !== 'object') return v;
+        return Object.fromEntries(Object.keys(v).filter((k) => k !== 'sync').sort().map((k) => [k, strip(v[k])]));
+    };
+    return JSON.stringify(strip(value) ?? null);
+}
+
+/**
+ * Does the destination's map hold anything the legacy map lacks? False means "no": every field
+ * and every feature of `mine` is in `theirs`, equal, so taking `theirs` loses no work of `mine`.
+ * @param {Object} mine - Destination map document.
+ * @param {Object} theirs - The same map, staged from the legacy side.
+ * @returns {boolean}
+ */
+function mapHoldsOwnWork(mine, theirs) {
+    if (!mine || !theirs) return true;
+    const { features: myFeatures = {}, ...myFields } = mine;
+    const { features: theirFeatures = {}, ...theirFields } = theirs;
+    if (contentOf(myFields) !== contentOf(theirFields)) return true;
+    const idOf = (f) => f?.properties?.id ?? f?.id;
+    for (const [bucket, list] of Object.entries(myFeatures || {})) {
+        if (!Array.isArray(list)) {
+            if (contentOf(list) !== contentOf(theirFeatures?.[bucket])) return true;
+            continue;
+        }
+        const theirsById = new Map((Array.isArray(theirFeatures?.[bucket]) ? theirFeatures[bucket] : [])
+            .map((f) => [idOf(f), f]));
+        for (const feature of list) {
+            const id = idOf(feature);
+            if (id == null || !theirsById.has(id) || contentOf(theirsById.get(id)) !== contentOf(feature)) return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * The map records the destination REWROTE without doing work in them, which the plan must not
+ * read as edits (`inert` in `planLateLegacyChanges`).
+ *
+ * WHY IT EXISTS, measured in production on 2026-09-21 in the reporter's own browser: the build
+ * deployed that morning re-stamped `maps/Principal` at 09:13:56 (only its `sync` moved) with no
+ * operation in the journal, and every absorption after that was refused as "both sides edited
+ * Principal". The journal inventories keep fingerprints, not content, so the base cannot be
+ * compared without `sync`; what CAN be proved is that nothing is lost: the destination's map is
+ * contained in the legacy's, field by field and feature by feature.
+ *
+ * CONTAINMENT CANNOT SEE A DELETION: a feature the new version removed and the old one still has
+ * would come back. The write-ahead journal of the destination records every deletion before it
+ * happens, so a `delete` operation on that map disqualifies it, and the screen stays.
+ *
+ * @param {Object} destination - Destination scope.
+ * @param {Object} stagingScope - Staging scope, the migrated legacy acervo.
+ * @param {Array} destinationBase - Destination base inventory.
+ * @param {Array} destinationNow - Destination inventory now.
+ * @returns {Promise<Array<[string, string]>>}
+ */
+async function inertMapChanges(destination, stagingScope, destinationBase, destinationNow) {
+    const base = new Map(destinationBase.map(([id, key, hash]) => [JSON.stringify([id, key]), hash]));
+    const candidates = destinationNow.filter(([id, key, hash]) => id === StoreName.MAPS
+        && base.has(JSON.stringify([id, key])) && base.get(JSON.stringify([id, key])) !== hash);
+    if (!candidates.length) return [];
+
+    const deletedIn = new Set();
+    await getStoreFor(StoreName.OPERATION_QUEUE, destination).iterate((op, key) => {
+        if (typeof key === 'string' && key.startsWith('op_') && op?.operationType === 'delete' && op.mapId != null) {
+            deletedIn.add(String(op.mapId));
+        }
+    });
+
+    const inert = [];
+    for (const [id, key] of candidates) {
+        const mine = await getStoreFor(StoreName.MAPS, destination).getItem(key);
+        const theirs = await getStoreFor(StoreName.MAPS, stagingScope).getItem(key);
+        const names = [key, mine?.id, mine?.name].filter((n) => n != null).map(String);
+        if (names.some((n) => deletedIn.has(n))) continue;
+        if (!mapHoldsOwnWork(mine, theirs)) inert.push([id, key]);
+    }
+    return inert;
+}
+
+/**
  * The inventory the destination must have after a plan, derived from the snapshot the plan was
  * made on. Compared as a set because `inventoryScope` orders by store and key, and a derived list
  * would have to reproduce that order to be comparable.
@@ -374,7 +462,8 @@ async function absorbLateLegacyChanges(state) {
         ?? { raw: state.sourceInventory, migrated: state.resultInventory, destination: state.resultInventory };
     const plan = planLateLegacyChanges({
         migratedBase: base.migrated, staged, destinationBase: base.destination, destination: destinationNow,
-        rawBase: base.raw, rawNow, maps: [...await mapAddresses(stagingScope), ...await mapAddresses(destination)]
+        rawBase: base.raw, rawNow, maps: [...await mapAddresses(stagingScope), ...await mapAddresses(destination)],
+        inert: await inertMapChanges(destination, stagingScope, base.destination, destinationNow)
     });
     if (plan.outcome === LateOutcome.CONFLICT) {
         retireStaging(state, staging);
