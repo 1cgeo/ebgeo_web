@@ -47,6 +47,8 @@ const APPCONFIG_ENV = Object.freeze({
   // fiação das duas vivem em `tests/unit/aviso-servidor-secundario.test.js`.
   AVISO_SERVIDOR_SECUNDARIO: 'avisoServidorSecundario',
   URL_SERVIDOR_PRINCIPAL: 'urlServidorPrincipal',
+  // A base do link público de compartilhamento (2026-09-20). URL absoluta, escaneada como a de cima.
+  URL_BASE_LINK_PUBLICO: 'urlBaseLinkPublico',
 });
 
 let importCounter = 0;

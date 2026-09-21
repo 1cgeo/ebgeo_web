@@ -4,6 +4,8 @@ import { sessionContext } from '@store/sync/session-context.js';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
+// BY FILE, never through the `@utils` barrel: the leaf has zero imports.
+import { militaryPersonLabel } from '@utils/person-label.js';
 import {
     setupCleanup,
     subscribe,
@@ -24,6 +26,25 @@ const MAX_STACK_AVATARS = 3;
  */
 function displayName(user) {
     return (user.userName || user.userId || user.clientId || '') + '';
+}
+
+/**
+ * What the roster WRITES for a peer: rank plus war name (`Maj Diniz`), the form the Army names a
+ * person by (owner, 2026-09-20). The store already kept `rank` and only the remote cursor read it.
+ *
+ * SEPARATE FROM `displayName` ON PURPOSE: that one still feeds the INITIALS, and
+ * `getInitials('Maj Diniz')` is `MD`, so every Major in the room would share a letter and the
+ * badge would stop telling people apart. The rank is a post, not a name. A public visitor has no
+ * rank (the server sends null), so the row keeps reading `Visitante`.
+ * @param {import('@js/presence/presence-store.js').PresenceUser} user
+ * @returns {string}
+ */
+function rosterLabel(user) {
+    // THE LADDER IS NOT REWRITTEN HERE: it lives in the leaf, which every other surface that names a
+    // person already reads (`frontend/tests/unit/rotulo-de-pessoa-uma-regra-so.test.js` refuses a
+    // second copy). Without a name there is nothing military to say, and the row keeps its id.
+    if (!user.userName) return displayName(user);
+    return militaryPersonLabel({ posto_graduacao: user.rank, nome_guerra: user.userName }).label;
 }
 
 /**
@@ -271,7 +292,7 @@ export class OnlineUsersControl {
 
             const dot = document.createElement('span');
             dot.className = 'online-users__chip';
-            dot.setAttribute('title', name);
+            dot.setAttribute('title', rosterLabel(user));
             dot.textContent = getInitials(name);
             if (dot.style) {
                 dot.style.backgroundColor = getPresenceColor(String(userId));
@@ -347,7 +368,7 @@ export class OnlineUsersControl {
             const nameEl = document.createElement('span');
             nameEl.className = 'online-users__name';
             nameEl.setAttribute('data-testid', 'online-user-name');
-            nameEl.textContent = name;
+            nameEl.textContent = rosterLabel(user);
             bodyEl.appendChild(nameEl);
 
             // Awareness suffixes: active map / briefing-edit / temporal / away /

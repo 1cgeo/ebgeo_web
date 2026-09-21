@@ -8,10 +8,13 @@
  * Offline: mode='offline', userId=null, getUserId() returns clientId
  * Online: mode='online', userId from JWT, role and permissions from token
  *
- * @dependencies operation-factory.js (getClientId)
+ * @dependencies operation-factory.js (getClientId), utilities/person-label.js (zero-import leaf)
  */
 
 import { getClientId } from './operation-factory.js';
+// BY FILE, never through the `@utils` barrel: this module is reached by the four pages that boot
+// without the store, and the barrel drags the store back in. The leaf has zero imports.
+import { militaryPersonLabel } from '../../utilities/person-label.js';
 
 /** @readonly @enum {string} */
 export const SessionMode = Object.freeze({
@@ -374,6 +377,19 @@ class SessionContext {
     }
 
     /**
+     * How the signed-in person is CALLED on screen, in the military form: rank plus war name
+     * (`Maj Diniz`). Null when the account record carries no name at all, and the caller then
+     * falls back to `username`.
+     *
+     * IT IS NOT AN IDENTITY. The login stays the key of everything that compares people (the
+     * presence colour, the comment author, the audit trail); this is only what gets DRAWN.
+     * @returns {string|null}
+     */
+    get displayName() {
+        return this._displayName || null;
+    }
+
+    /**
      * Current permissions object.
      * @returns {Object}
      */
@@ -448,6 +464,7 @@ class SessionContext {
         const role = userInfo.role || UserRole.VIEWER;
         const defaultPerms = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS[UserRole.VIEWER];
 
+        const previousUserId = this._userId;
         this._mode = SessionMode.ONLINE;
         this._userId = userInfo.userId;
         this._role = role;
@@ -473,6 +490,16 @@ class SessionContext {
             this._producerOrgActive = userInfo.producerOrgActive === true;
         }
         this._username = userInfo.username || null;
+        // PRESERVED WHEN OMITTED, like `globalRole` above and for the same reason: the per-atlas
+        // role is re-set on every connect (`sync-engine.js`) by a payload that knows the role and
+        // nothing about the person. Overwriting on absence would turn `Maj Diniz` back into the
+        // login the instant an atlas opens. A DIFFERENT user clears it: a label that outlives its
+        // person is worse than no label.
+        if (userInfo.displayName !== undefined) {
+            this._displayName = userInfo.displayName || null;
+        } else if (previousUserId !== userInfo.userId) {
+            this._displayName = null;
+        }
         this._permissions = userInfo.permissions
             ? { ...defaultPerms, ...userInfo.permissions }
             : { ...defaultPerms };
@@ -498,6 +525,7 @@ class SessionContext {
         this._producerOrgName = null;
         this._producerOrgActive = false;
         this._username = null;
+        this._displayName = null;
         this._isVisitor = true;
         this._permissions = { ...ROLE_PERMISSIONS[UserRole.VIEWER] };
         this._notifyListeners();
@@ -517,6 +545,7 @@ class SessionContext {
         this._producerOrgName = null;
         this._producerOrgActive = false;
         this._username = null;
+        this._displayName = null;
         this._isVisitor = false;
         this._permissions = { ...FULL_PERMISSIONS };
 
@@ -622,6 +651,7 @@ class SessionContext {
         this._producerOrgName = null;
         this._producerOrgActive = false;
         this._username = null;
+        this._displayName = null;
         this._isVisitor = false;
         this._permissions = { ...FULL_PERMISSIONS };
         this._listeners.clear();
@@ -659,6 +689,16 @@ class SessionContext {
  * @returns {{ userId: string, role: string, atlasRoleResolved: false, globalRole: string,
  *   producerOrgId: string|null, username: string }}
  */
+/**
+ * The on-screen name of an account record, or null when it has no name to show.
+ * @param {Object|null|undefined} user - The backend user record (`/auth/login`, `/auth/me`).
+ * @returns {string|null}
+ */
+export function displayNameFromUser(user) {
+    const person = militaryPersonLabel(user);
+    return person.name ? person.label : null;
+}
+
 export function sessionUserInfoFromMe(user, fallbackUsername) {
     return {
         userId: user.id,
@@ -676,7 +716,12 @@ export function sessionUserInfoFromMe(user, fallbackUsername) {
         // no UUID cru justamente quando a OM saía da lista de ativas.
         producerOrgName: user.producer_org_nome ?? null,
         producerOrgActive: user.producer_org_ativa === true,
-        username: user.username || user.nome || fallbackUsername
+        username: user.username || user.nome || fallbackUsername,
+        // RANK PLUS WAR NAME (`Maj Diniz`), which is how the Army names a person and what the
+        // account corner draws (owner, 2026-09-20). `name` is empty exactly when the record has
+        // neither `nome_guerra` nor `nome`; the leaf would then answer `@login`, and the login is
+        // already what the caller falls back to, so null says "nothing better than the login".
+        displayName: displayNameFromUser(user)
     };
 }
 

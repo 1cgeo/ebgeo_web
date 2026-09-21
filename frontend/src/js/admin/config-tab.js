@@ -158,6 +158,22 @@ class ConfigTab {
             + 'carregamento da página, sem reiniciar o servidor.';
         form.appendChild(avisoHint);
 
+        // A BASE DO LINK PÚBLICO (dono, 2026-09-20). Também é do bloco `app`, e ganha cabeçalho
+        // próprio pela mesma razão do aviso: quem procura "por que o link sai com esse endereço"
+        // procura por compartilhamento, não por "Aplicação". O SERVIDOR compõe o endereço
+        // (`publicUrl` em `GET /atlas/:id/sharing`), então a troca vale para todo atlas já
+        // publicado na próxima vez que alguém abrir a tela de compartilhar: o token não muda.
+        heading(form, 'Link público de compartilhamento');
+        const linkBase = text(form, 'Endereço base do link público', 'admin-config-url-link-publico',
+            eff.app?.urlBaseLinkPublico ?? '', { placeholder: URL_PRINCIPAL_EXEMPLO });
+        const linkHint = document.createElement('p');
+        linkHint.className = 'admin-form__hint';
+        linkHint.textContent = 'O link público de um atlas sai como este endereço seguido de '
+            + '?atlasPublico= e do código do atlas. Use o endereço pelo qual quem RECEBE o link '
+            + 'alcança o EBGeo, que pode não ser o deste servidor. A troca vale para os atlas já '
+            + 'publicados: o código não muda, só o endereço mostrado.';
+        form.appendChild(linkHint);
+
         heading(form, 'Funcionalidades');
         const fMap3d = check(form, 'Mapa 3D', 'admin-config-feat-map3d', !!eff.features?.map_3d);
         const fPan = check(form, 'Imagens panorâmicas (360°)', 'admin-config-feat-pan', !!eff.features?.imagens_panoramicas);
@@ -299,6 +315,20 @@ class ConfigTab {
                     return;
                 }
                 appDiff.urlServidorPrincipal = urlVal;
+            }
+            // A BASE DO LINK PÚBLICO segue a MESMA regra, pelas mesmas duas razões: o schema não
+            // aceita vazio, e a checagem é sobre o que vai ser enviado.
+            const linkVal = linkBase.value.trim();
+            if (linkVal && linkVal !== (eff.app?.urlBaseLinkPublico ?? '')) {
+                if (!urlDeServidorValida(linkVal)) {
+                    const recusa = 'O endereço base do link público precisa ser um endereço http:// ou '
+                        + 'https:// completo. Com qualquer outro valor o link sairia sem endereço.';
+                    error.textContent = recusa;
+                    error.hidden = false;
+                    showError(recusa);
+                    return;
+                }
+                appDiff.urlBaseLinkPublico = linkVal;
             }
             if (Object.keys(appDiff).length) payload.app = appDiff;
 

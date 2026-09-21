@@ -3060,3 +3060,47 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
   MUDA o que se via antes (busca, coordenadas, terreno e navegação apareciam ao apresentar), e é o
   padrão que o dono pediu.
 - **Status:** aceita.
+
+### 2026-09-20: a visita pública perde a faixa e o mouse, o leitor perde a alça, e o link público ganha endereço
+
+- **Decisão (dono, em seis pedidos do mesmo dia):** (a) o canto da conta e a lista de quem está
+  online escrevem posto mais nome de guerra, `Maj Diniz`, e não o login; (b) o dono de um atlas não
+  pode ser adicionado como membro dele; (c) o link público sai como ENDEREÇO, sobre uma base
+  configurável pelo administrador, com `https://ebgeo.dsg.eb.mil.br` de padrão; (d) o link público
+  aberto por quem está logado abre pela conta; (e) a visita pública perde a faixa persistente e o
+  cursor, e continua contada na lista de online; (f) quem não pode editar não ganha alça de vértice
+  nem arrasta feição, como no mapa travado.
+- **O que foi medido antes de mexer:** (b) a busca de pessoas não exclui quem pergunta e as duas
+  telas filtravam só contra a lista de membros, de modo que o dono se achava, se adicionava e saía
+  duas vezes na lista; o banco de desenvolvimento não tinha linha nenhuma assim, porque a unicidade
+  de `atlas_shares` nunca esteve em jogo: a duplicata era entre o bloco `owner` e a lista `shares`
+  do mesmo payload. (c) a tela mostrava e copiava o token cru de 32 caracteres. (d) com sessão, o
+  link era engolido na primeira linha de `openPublicAtlasFromUrl` e o navegador terminava em
+  `atlas.html`, sem pedido a `/atlas/public/` e sem aviso. (f) numa visita, o clique desenhava as
+  alças, o arrasto MOVIA o polígono na tela, o store recusava e a tela ficava divergente do dado,
+  que é o que o dono descreveu como "o mapa some as feições".
+- **Onde cada uma mora:** `displayName` em `frontend/src/js/store/sync/session-context.js`,
+  preservado quando o papel por atlas é re-posto sem dizer nada sobre a pessoa; `peoplePickOutcome`
+  e `alreadyHoldsAtlas` em `frontend/src/js/catalog/grant-tree.js`, mais o 409 de `addUserShare`;
+  `composePublicUrl` em `backend/src/modules/sharing/public-url.js`, sobre
+  `app.urlBaseLinkPublico` (env `URL_BASE_LINK_PUBLICO`, override pela aba Sistema), servido como
+  `publicUrl` AO LADO de `publicLink`, que continua sendo o token; `isEditSurfaceInert` em
+  `frontend/src/js/tool_manager/edit-surface.js`; o corte do cursor em `sendCursorFrame` e em
+  `handleCursor`.
+- **Alternativas recusadas:** compor o endereço do link no cliente a partir de `window.location`,
+  porque o atlas é publicado de dentro de uma rede e o link é lido de fora dela; abrir a visita
+  anônima por cima de uma conta viva, porque a sessão de visitante anula a identidade; perguntar o
+  papel por nome em `edit-surface.js`, porque a pergunta por capacidade (`GuardAction.UPDATE_FEATURE`)
+  acerta sozinha o degrau que nascer depois; e trocar a lista de visitantes por um contador à parte,
+  porque a contagem já estava certa e o pedido era só não perdê-la.
+- **O defeito que apareceu no caminho, e não era do lote:** editar um vértice de polígono, linha ou
+  seta DESSELECIONAVA a feição e deixava as alças na tela. O arrasto de alça virou de ponteiro com
+  `preventDefault` no `pointerdown`, o que cancela o `mousedown` de compatibilidade e não o `click`;
+  o MapLibre só suprime o clique de fim de arrasto comparando-o com o `mousedown` que viu, deixou
+  de ver, e o clique saía onde o vértice foi solto. A regra voltou no único ponto que consome o
+  clique do mapa (`isDragEndClick`, `frontend/src/js/tool_manager/click-after-drag.js`).
+- **Limites declarados:** o segundo POST de share para a MESMA pessoa continua sendo upsert, porque
+  várias suítes e o import montam share assim; o link morto aberto por quem está logado ainda perde
+  o aviso quando a cadeia de boot navega para `atlas.html`, como já acontecia com `?atlas=`; e a
+  superfície inerte é MUDA, como a trava, de modo que o leitor que tenta arrastar move o mapa e não
+  recebe frase nenhuma.

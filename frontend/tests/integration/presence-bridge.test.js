@@ -127,6 +127,7 @@ function fireBus(event, payload) {
 
 import { startPresence, stopPresence } from '@js/presence/presence-bridge.js';
 import { EventTypes } from '@events/event_types.js';
+import { sessionContext } from '@store/sync/session-context.js';
 
 // ============================================================================
 // Helpers
@@ -365,6 +366,26 @@ describe('presence-bridge', () => {
                 mapId: 'mapa-1',
                 surface: '2d',
             });
+        });
+
+        it('O MOUSE DO VISITANTE NÃO VIAJA, e o mapa ativo dele continua viajando (dono, 2026-09-20)', () => {
+            sessionContext.setVisitorSession();
+            try {
+                map.fire('mousemove', { lngLat: { lng: 10, lat: 20 } });
+                expect(wsClientMock.sendCursor).not.toHaveBeenCalled();
+                // O quadro SEM posição é o único carregador do mapa ativo: é por ele que a lista
+                // de quem está online sabe em que mapa o visitante está.
+                fireBus(EventTypes.MAP_LOCK_CHANGED, { mapName: 'mapa-1', locked: false });
+                expect(wsClientMock.sendCursor).toHaveBeenCalledWith({ position: null, mapId: 'mapa-1', surface: '2d' });
+            } finally {
+                sessionContext.clearSession();
+            }
+            // PISO: fora da visita o mesmo gesto envia, então a recusa acima é do visitante. A janela
+            // de estrangulamento precisa passar antes, porque o movimento do visitante a abriu.
+            vi.advanceTimersByTime(200);
+            wsClientMock.sendCursor.mockClear();
+            map.fire('mousemove', { lngLat: { lng: 11, lat: 21 } });
+            expect(wsClientMock.sendCursor).toHaveBeenCalledWith({ position: { lng: 11, lat: 21 }, mapId: 'mapa-1', surface: '2d' });
         });
 
         it('throttles bursts to one leading + one trailing send per window', () => {

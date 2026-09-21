@@ -42,6 +42,7 @@
 
 import { wsClient } from '@store/sync/ws-client.js';
 import { checkPermission } from '@store/sync/permission-guard.js';
+import { sessionContext } from '@store/sync/session-context.js';
 import { presenceStore } from '@js/presence/presence-store.js';
 import {
     getCurrentMapNameSync,
@@ -146,6 +147,14 @@ function routeBriefingEdit(msg) {
  */
 function sendCursorFrame(frame) {
     if (!wsClient.isConnected()) {
+        return;
+    }
+    // O MOUSE DO VISITANTE NÃO VIAJA (dono, 2026-09-20): quem abre um link público não é
+    // colaborador, e um cursor anônimo passeando sobre o mapa de quem trabalha é ruído. O quadro SEM
+    // posição continua saindo, porque ele é o único carregador do MAPA ATIVO (caso C), e é por ele
+    // que a lista de quem está online sabe em que mapa o visitante está. O servidor impõe o mesmo
+    // corte (`handleCursor`), então um cliente modificado também não propaga.
+    if (frame.position && sessionContext.isVisitor()) {
         return;
     }
     wsClient.sendCursor({ mapId: getCurrentMapNameSync(), ...frame });

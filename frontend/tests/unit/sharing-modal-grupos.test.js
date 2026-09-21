@@ -14,6 +14,7 @@
 // Playwright, que fica FORA do `npm test`.
 
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
     partitionSharingConfig,
     sharingGroupOwnerLabel,
@@ -63,8 +64,22 @@ describe('partitionSharingConfig', () => {
         expect(out.shares).toEqual([]);
         expect(out.groups).toEqual([]);
         expect(partitionSharingConfig(undefined)).toEqual({
-            isPublic: false, publicLink: null, owner: null, shares: [], groups: [],
+            isPublic: false, publicLink: null, publicUrl: null, owner: null, shares: [], groups: [],
         });
+    });
+
+    it('`publicUrl` é o ENDEREÇO que o servidor compõe, e só texto não vazio o ocupa', () => {
+        expect(partitionSharingConfig({ publicLink: 'abc', publicUrl: 'https://ebgeo.dsg.eb.mil.br/?atlasPublico=abc' }).publicUrl)
+            .toBe('https://ebgeo.dsg.eb.mil.br/?atlasPublico=abc');
+        // Servidor antigo (sem a chave) e base inválida (nulo): a tela cai no token, como antes.
+        for (const bruto of [undefined, null, '', 42, {}]) {
+            expect(partitionSharingConfig({ publicLink: 'abc', publicUrl: bruto }).publicUrl).toBeNull();
+        }
+    });
+
+    it('FIAÇÃO: o campo e o botão de copiar usam o endereço, e o token é só a queda', () => {
+        const fonte = readFileSync(new URL('../../src/js/modals/sharing.modal.core.js', import.meta.url), 'utf8');
+        expect(fonte).toContain('this._publicLink = publicUrl ?? publicLink;');
     });
 
     it('`isPublic` é BOOLEANO mesmo quando o servidor manda outra coisa', () => {

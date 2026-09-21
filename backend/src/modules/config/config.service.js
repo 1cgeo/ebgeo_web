@@ -257,6 +257,9 @@ async function buildAppConfig() {
       // pair is a literal in the client's versioned config.js, which this branch does not have.
       avisoServidorSecundario: C.avisoServidorSecundario,
       urlServidorPrincipal: C.urlServidorPrincipal,
+      // The base the server composes the PUBLIC SHARE LINK on (`composePublicUrl`). Same kind of
+      // fact as the pair above: env default, admin override merged on top below.
+      urlBaseLinkPublico: C.urlBaseLinkPublico,
     },
     // self_registration tells the client whether to show the "Criar conta" affordance. It
     // starts at the ALLOW_SELF_REGISTRATION env default and the admin override (deep-merged

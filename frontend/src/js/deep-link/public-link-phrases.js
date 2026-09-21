@@ -124,3 +124,29 @@ export function publicLinkFailureNotice(kind) {
 export function shouldForgetPublicLink(kind) {
     return serverRefusedLink(kind);
 }
+
+/**
+ * O aviso de quem abriu um link público ESTANDO LOGADO.
+ *
+ * ATÉ 2026-09-20 ESSE CASO NÃO TINHA FRASE PORQUE NÃO TINHA COMPORTAMENTO: o boot devolvia falso
+ * na primeira linha quando havia sessão, o link era engolido, e a pessoa caía na tela de atlas
+ * sem uma palavra. O dono mediu isso no próprio navegador ("não carregou") e só achou a causa ao
+ * sair da conta. O link agora abre PELA CONTA, que é estritamente melhor que a visita: o servidor
+ * dá a toda conta viva a leitura de um atlas público, e a quem é dono ou tem share, o nível que
+ * já tinha.
+ *
+ * A FRASE EXISTE PORQUE A TELA MUDA DE NATUREZA SEM AVISAR: quem colou um link de visita e
+ * recebeu um atlas editável (porque é dele) precisa saber que não está numa visita.
+ *
+ * @param {{name?: string, isOwner?: boolean}} [atlas]
+ * @returns {{message: string, tone: string}}
+ */
+export function publicLinkOpenedWithAccountNotice({ name = '', isOwner = false } = {}) {
+    const titulo = String(name ?? '').trim();
+    const qual = titulo ? `O atlas "${titulo}"` : 'O atlas deste link';
+    const message = isOwner
+        ? `${qual} é seu: ele abriu pela sua conta, com edição, e não como visita pública.`
+        : `${qual} abriu pela sua conta, e não como visita pública. O seu nível nele é o que o dono `
+            + 'concedeu; sem concessão, é somente leitura.';
+    return { message, tone: 'info' };
+}

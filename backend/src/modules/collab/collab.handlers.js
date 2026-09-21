@@ -140,13 +140,22 @@ export function handlePing(ws) {
 }
 
 /**
- * Handles cursor position updates. Ungated by design (a read-only viewer / public visitor
- * shares its cursor), which is exactly why the payload must be normalized before it is
- * retained on the socket.
+ * Handles cursor position updates. Ungated by ROLE by design (a read-only viewer shares its
+ * cursor), which is exactly why the payload must be normalized before it is retained on the
+ * socket.
+ *
+ * THE PUBLIC VISITOR IS THE EXCEPTION (owner, 2026-09-20): its POSITION is neither retained nor
+ * relayed. Whoever opens a public link is not a collaborator, and an anonymous pointer wandering
+ * over the map of the people working is noise. The position is dropped HERE and not only in the
+ * client, so a modified client propagates nothing either. The FRAME still goes out, with the
+ * position nulled, because it is the only carrier of the ACTIVE MAP: the roster keeps knowing
+ * which map each visitor is on, and the count of visitors never depended on the cursor (they are
+ * in `getRoomUsers` from the join to the close).
  */
 export function handleCursor(ws, data) {
-  const value = normalizePresence(ws, cursorPresenceSchema, data);
-  if (!value) return;
+  const normalizado = normalizePresence(ws, cursorPresenceSchema, data);
+  if (!normalizado) return;
+  const value = ws.isPublic ? { ...normalizado, position: null } : normalizado;
 
   ws.cursorPosition = value.position;
   ws.currentMapId = value.mapId;

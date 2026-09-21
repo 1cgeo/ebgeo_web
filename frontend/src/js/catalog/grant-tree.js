@@ -937,6 +937,80 @@ export function peopleSearchTruncatedNotice() {
 }
 
 /**
+ * QUEM, numa resposta de busca de pessoas, AINDA PODE SER ESCOLHIDO para um atlas.
+ *
+ * NASCEU DE UM DEFEITO RELATADO PELO DONO (2026-09-20): a tela de compartilhamento deixava
+ * adicionar a mesma pessoa mais de uma vez. As duas telas do eixo de ATLAS filtravam a busca só
+ * contra a lista de MEMBROS, e o DONO não está nela: ele é um bloco à parte do payload
+ * (`owner`), e na criação ele ainda nem existe no servidor, é quem está com a sessão aberta. A
+ * busca não exclui o próprio chamador, então bastava o dono digitar o próprio nome para se
+ * achar, se adicionar, e aparecer DUAS vezes na mesma lista: uma como dono, outra como Leitor.
+ *
+ * `ownerId` E `memberIds` SÃO DOIS ARGUMENTOS, e não uma lista só, porque a FRASE da lista
+ * vazia depende de qual dos dois tirou a pessoa: "todos já são membros" dito a quem procurou o
+ * próprio dono manda a pessoa procurar, na lista de membros, alguém que não está nela.
+ *
+ * RESULTADO SEM `id` NÃO É ESCOLHÍVEL. Ele virava um botão com `data-user-id` vazio, que o
+ * clique recusa calado.
+ *
+ * Pura: sem DOM, sem I/O.
+ *
+ * @param {Array<{id?: *}>|null|undefined} results - A lista de `GET /users/search`.
+ * @param {{ownerId?: *, memberIds?: Iterable<*>, takenNotice?: string}} [holders] - Quem já tem
+ *   o atlas. `takenNotice` é a frase de cada tela para "todos já estão na lista".
+ * @returns {{pickable: Array, notice: string|null}} `notice` é nulo exatamente quando há alguém
+ *   para escolher.
+ */
+export function peoplePickOutcome(results, { ownerId = null, memberIds = [], takenNotice = 'Todos já são membros' } = {}) {
+    const list = Array.isArray(results) ? results : [];
+    if (!list.length) return { pickable: [], notice: 'Nenhum usuário encontrado' };
+
+    const temId = (valor) => valor !== null && valor !== undefined && String(valor) !== '';
+    const dono = temId(ownerId) ? String(ownerId) : null;
+    const membros = new Set();
+    for (const id of memberIds ?? []) {
+        if (temId(id)) membros.add(String(id));
+    }
+
+    let foraPorSerMembro = 0;
+    const pickable = list.filter((pessoa) => {
+        if (!temId(pessoa?.id)) return false;
+        const id = String(pessoa.id);
+        if (id === dono) return false;
+        if (membros.has(id)) {
+            foraPorSerMembro++;
+            return false;
+        }
+        return true;
+    });
+
+    if (pickable.length) return { pickable, notice: null };
+    // SÓ O DONO SAIU: a frase nomeia o motivo, em vez de mandar procurar na lista de membros.
+    const soODono = dono !== null && foraPorSerMembro === 0
+        && list.some((pessoa) => temId(pessoa?.id) && String(pessoa.id) === dono);
+    return { pickable: [], notice: soODono ? 'O dono do atlas já tem acesso total' : takenNotice };
+}
+
+/**
+ * Se `userId` JÁ TEM o atlas, pelo mesmo critério de {@link peoplePickOutcome}. É o guarda do
+ * CLIQUE, que existe ao lado do filtro da lista porque a lista pode estar velha: a resposta de
+ * uma busca chega depois de a pessoa ter sido adicionada por outra aba.
+ *
+ * @param {*} userId
+ * @param {{ownerId?: *, memberIds?: Iterable<*>}} [holders]
+ * @returns {boolean} Verdadeiro também para id vazio, que é o lado que recusa.
+ */
+export function alreadyHoldsAtlas(userId, { ownerId = null, memberIds = [] } = {}) {
+    if (userId === null || userId === undefined || String(userId) === '') return true;
+    const id = String(userId);
+    if (ownerId !== null && ownerId !== undefined && String(ownerId) === id) return true;
+    for (const membro of memberIds ?? []) {
+        if (membro !== null && membro !== undefined && String(membro) === id) return true;
+    }
+    return false;
+}
+
+/**
  * Os desfechos da leitura da lista que a tela desenha DIFERENTE.
  *
  * Enum, e não booleano, pela mesma razão de {@link REVOKE_AVAILABILITY}: o que muda entre os

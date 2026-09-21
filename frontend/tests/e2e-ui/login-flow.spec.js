@@ -80,7 +80,10 @@ describeOrSkip('Login → open project flow (real browser + real backend)', () =
         // The login button is gone once logged in; the avatar button replaces it.
         await expect(page.locator('[data-testid="account-login-btn"]')).toBeHidden({ timeout: 5000 });
         await page.locator('[data-testid="account-control"] .account-control__identity').click();
-        await expect(page.locator('[data-testid="account-user"]')).toHaveText(seed.username);
+        // O CANTO DA CONTA ESCREVE COMO A PESSOA É CHAMADA, não o login (dono, 2026-09-20): posto mais
+        // nome de guerra, caindo para o nome quando a conta não tem nenhum dos dois, que é o caso desta
+        // semente. Até então este caso esperava `seed.username`.
+        await expect(page.locator('[data-testid="account-user"]')).toHaveText('UI Login');
         await expect(page.locator('[data-testid="account-logout-btn"]')).toBeVisible({ timeout: 5000 });
     });
 

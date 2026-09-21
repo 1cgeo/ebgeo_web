@@ -175,6 +175,23 @@ describe('OnlineUsersControl — roster render', () => {
         expect(names[0].textContent).toBe('Alice');
     });
 
+    it('a linha escreve POSTO mais nome de guerra, e a inicial continua sendo a do NOME (dono, 2026-09-20)', () => {
+        presenceStoreMock.getOthers.mockReturnValue([
+            peer({ clientId: 'c1', userId: 'u1', userName: 'Diniz', rank: 'Maj' }),
+            peer({ clientId: 'c2', userId: 'u2', userName: 'Marcel', rank: '1º Ten' }),
+            // O visitante de link público não tem posto: o servidor manda nulo.
+            peer({ clientId: 'c3', userId: 'public-x', userName: 'Visitante', rank: null }),
+            // Posto sem nome não vira rótulo: a linha cai no id, como sempre caiu.
+            peer({ clientId: 'c4', userId: 'u4', userName: null, rank: 'Cap' }),
+        ]);
+        firePresenceChanged();
+
+        const names = container.queryAllByTestId('online-user-name').map((n) => n.textContent);
+        expect(names).toEqual(['Maj Diniz', '1º Ten Marcel', 'Visitante', 'u4']);
+        // QUATRO linhas: o visitante CONTA, com ou sem cursor.
+        expect(container.getAttribute('data-count')).toBe('4');
+    });
+
     it('caps the avatar stack at 3 and shows a "+N" overflow chip for many users', () => {
         const many = Array.from({ length: 5 }, (_, i) =>
             peer({ userId: `u${i}`, clientId: `c${i}`, userName: `User ${i}` }));

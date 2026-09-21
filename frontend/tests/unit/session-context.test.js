@@ -470,7 +470,10 @@ describe('sessionUserInfoFromMe', () => {
             producerOrgId: 'om-a',
             producerOrgActive: true,
             producerOrgName: 'OM Alfa',
-            username: 'ana'
+            username: 'ana',
+            // Registro sem `nome` e sem `nome_guerra`: não há forma militar, e o nulo manda a
+            // tela cair no login. Os casos COM nome estão em `nome-militar-na-conta.test.js`.
+            displayName: null
         });
     });
 

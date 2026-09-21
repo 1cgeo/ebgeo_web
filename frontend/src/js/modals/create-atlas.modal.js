@@ -42,6 +42,7 @@ import { grantablePermissionOptions, isGrantablePermission } from '@js/projects/
 import {
     searchFailureNotice,
     PEOPLE_SEARCH_MIN_CHARS, peopleSearchHint, peopleSearchTruncatedNotice,
+    peoplePickOutcome, alreadyHoldsAtlas,
 } from '@js/catalog/grant-tree.js';
 import { adminAudience } from '@js/admin/admin-audience.js';
 import { sessionContext } from '@store/sync/session-context.js';
@@ -403,6 +404,19 @@ export class CreateAtlasModal extends ModalBase {
     }
 
     /**
+     * @private Quem já tem o atlas que está para nascer: QUEM CRIA (o dono) e os membros já
+     * escolhidos. UM lugar só, para o filtro da lista e o guarda do clique não divergirem.
+     * @returns {{ownerId: string|null, memberIds: string[], takenNotice: string}}
+     */
+    _holders() {
+        return {
+            ownerId: sessionContext.userId ?? null,
+            memberIds: this._members.map((m) => m.userId),
+            takenNotice: 'Todos já adicionados',
+        };
+    }
+
+    /**
      * @private
      *
      * A UNIDADE NA LINHA DO MEIO e o `@login` embaixo, como no resultado de busca das duas
@@ -413,10 +427,10 @@ export class CreateAtlasModal extends ModalBase {
      *   posto_graduacao?:string, organizacao_militar_sigla?:string}>} results
      */
     _renderResults(results) {
-        const memberIds = new Set(this._members.map((m) => String(m.userId)));
-        const pickable = results.filter((u) => !memberIds.has(String(u?.id)));
-        if (!results.length) return '<div class="sharing-results__empty">Nenhum usuário encontrado</div>';
-        if (!pickable.length) return '<div class="sharing-results__empty">Todos já adicionados</div>';
+        // QUEM CRIA É O DONO, e o dono não entra na lista de membros: a busca não exclui quem
+        // pergunta, e quem digitava o próprio nome nascia dono E Leitor do mesmo atlas.
+        const { pickable, notice } = peoplePickOutcome(results, this._holders());
+        if (notice) return `<div class="sharing-results__empty">${escapeHtml(notice)}</div>`;
 
         return pickable.map((u) => {
             const id = String(u?.id ?? '');
@@ -552,7 +566,7 @@ export class CreateAtlasModal extends ModalBase {
      */
     _addMember(pessoa) {
         const userId = String(pessoa?.id ?? '');
-        if (!userId || this._members.some((m) => String(m.userId) === String(userId))) return;
+        if (alreadyHoldsAtlas(userId, this._holders())) return;
         this._members.push({
             userId,
             username: pessoa?.username ?? '',

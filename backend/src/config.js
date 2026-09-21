@@ -585,6 +585,12 @@ const config = Object.freeze({
     // rest of this block: the whole point of the button is to leave THIS origin, so a relative
     // value would send the user back to the secondary server, which is the exact opposite.
     urlServidorPrincipal: optional('URL_SERVIDOR_PRINCIPAL', 'https://ebgeo.dsg.eb.mil.br'),
+    // THE BASE OF THE PUBLIC SHARE LINK, served as `app.urlBaseLinkPublico` (owner, 2026-09-20).
+    // The sharing screen used to show the bare token; the server now composes a full URL on top
+    // of this base (`src/modules/sharing/public-url.js`). ABSOLUTE for the same reason as the key
+    // above: the link is read OUTSIDE the network it was published from, so the publisher's own
+    // origin is exactly the address the recipient may not reach. The admin panel overrides it.
+    urlBaseLinkPublico: optional('URL_BASE_LINK_PUBLICO', 'https://ebgeo.dsg.eb.mil.br'),
     tileServerUrl: optional('TILE_SERVER_URL', ''),
     terrainUrl: optional('TERRAIN_URL', 'https://demotiles.maplibre.org/terrain-tiles/tiles.json'),
     hillshadeUrl: optional('HILLSHADE_URL', 'https://demotiles.maplibre.org/terrain-tiles/tiles.json'),

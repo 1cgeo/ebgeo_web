@@ -390,6 +390,9 @@ describe('login', () => {
             producerOrgName: null,
             producerOrgActive: false,
             username: 'alice',
+            // O registro destes casos não traz `nome` nem `nome_guerra`, então não há forma
+            // militar a desenhar: nulo, e a tela cai no login. A chave viaja SEMPRE.
+            displayName: null,
         });
         expect(user).toEqual({ id: 'user-1', org_role: 'editor' });
     });
@@ -414,6 +417,9 @@ describe('login', () => {
             producerOrgName: null,
             producerOrgActive: false,
             username: 'bob',
+            // O registro destes casos não traz `nome` nem `nome_guerra`, então não há forma
+            // militar a desenhar: nulo, e a tela cai no login. A chave viaja SEMPRE.
+            displayName: null,
         });
     });
 
@@ -440,6 +446,9 @@ describe('login', () => {
             producerOrgName: null,
             producerOrgActive: false,
             username: 'root',
+            // O registro destes casos não traz `nome` nem `nome_guerra`, então não há forma
+            // militar a desenhar: nulo, e a tela cai no login. A chave viaja SEMPRE.
+            displayName: null,
         });
     });
 });

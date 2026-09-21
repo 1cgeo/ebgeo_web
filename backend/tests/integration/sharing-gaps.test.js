@@ -385,9 +385,13 @@ describe('Sharing API — gap coverage', () => {
     });
   });
 
-  // ---- share-10: owner self-share is silently allowed; effective access stays 'owner' ----
+  // ---- share-10: the owner cannot be shared with; a LEGACY redundant row never governs ----
+  // Until 2026-09-20 this pinned the opposite ("owner can self-share (201)"). The row was harmless
+  // for ACCESS and wrong on SCREEN: the sharing config returns the owner in one block and the
+  // shares in another, so the same person showed up twice. The POST is refused now (409); a row
+  // planted directly stands in for the ones an older server may have written.
   describe('share-10: owner sharing with self', () => {
-    it('owner can self-share (201), a redundant row exists, but effective access stays owner', async () => {
+    it('the self-share POST is refused (409), and a legacy redundant row does not demote the owner', async () => {
       const selfOwner = await createUser(db, { username: uniq() });
       const selfToken = await loginUser(app, selfOwner.username, selfOwner.password);
       const atlas = await createAtlas(db, selfOwner.id, { name: `s10 ${uniq()}` });
@@ -396,15 +400,19 @@ describe('Sharing API — gap coverage', () => {
         .post(`/api/v1/atlas/${atlas.id}/sharing/users`)
         .set('Authorization', `Bearer ${selfToken}`)
         .send({ userId: selfOwner.id, permission: 'read' })
-        .expect(201);
+        .expect(409);
 
-      // redundant share row exists
-      const { rows } = await db.query(
+      const semLinha = await db.query(
         'SELECT permission FROM atlas_shares WHERE atlas_id = $1 AND user_id = $2',
         [atlas.id, selfOwner.id]
       );
-      assert.equal(rows.length, 1);
-      assert.equal(rows[0].permission, 'read');
+      assert.equal(semLinha.rows.length, 0, 'the refused POST wrote nothing');
+
+      // the legacy redundant row, planted past the API
+      await db.query(
+        'INSERT INTO atlas_shares (atlas_id, user_id, permission, added_by) VALUES ($1, $2, $3, $4)',
+        [atlas.id, selfOwner.id, 'read', selfOwner.id]
+      );
 
       // owner check precedes share → owner still has full management access
       await supertest(app)

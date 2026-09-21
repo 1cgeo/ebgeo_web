@@ -84,20 +84,37 @@ describe('invariantes do dono na API de sharing', () => {
       assert.equal(rows.length, 0, 'o dono continua sem linha de share');
     });
 
-    it('criar um share redundante para o dono NÃO o rebaixa: a autoridade vem de owner_id', async () => {
+    it('o POST de share para o DONO é recusado com 409, e nenhuma linha nasce', async () => {
       const atlas = await cenario();
 
-      // Comportamento atual: a linha é criada (o POST não conhece o dono).
-      await como(gestorTok, 'post', `/api/v1/atlas/${atlas.id}/sharing/users`)
+      // Até 2026-09-20 este caso PINAVA o 201: "o POST não conhece o dono". A linha era inócua
+      // para o acesso e errada na tela, onde a mesma pessoa saía duas vezes (dono e Leitor).
+      const resposta = await como(gestorTok, 'post', `/api/v1/atlas/${atlas.id}/sharing/users`)
         .send({ userId: owner.id, permission: 'read' })
-        .expect(201);
+        .expect(409);
+      assert.equal(resposta.body.error?.code, 'CONFLICT');
+      assert.match(resposta.body.error?.message ?? '', /dono do atlas/);
       const { rows } = await db.query(
         'SELECT permission FROM atlas_shares WHERE atlas_id = $1 AND user_id = $2',
         [atlas.id, owner.id]
       );
-      assert.equal(rows[0].permission, 'read', 'a linha redundante existe de fato');
+      assert.equal(rows.length, 0, 'nenhuma linha de share nasce para o dono');
 
-      // E ainda assim o dono continua dono: se o share 'read' governasse, isto seria 403.
+      // PISO: a recusa é do DONO, não da rota. A mesma chamada para um terceiro passa.
+      await como(gestorTok, 'post', `/api/v1/atlas/${atlas.id}/sharing/users`)
+        .send({ userId: terceiro.id, permission: 'read' })
+        .expect(201);
+    });
+
+    it('uma linha redundante LEGADA não rebaixa o dono: a autoridade vem de owner_id', async () => {
+      const atlas = await cenario();
+
+      // A linha já não nasce pela API; bancos anteriores à recusa podem tê-la, então ela é
+      // plantada direto. Se o share 'read' governasse, o DELETE abaixo seria 403.
+      await db.query(
+        'INSERT INTO atlas_shares (atlas_id, user_id, permission, added_by) VALUES ($1, $2, $3, $4)',
+        [atlas.id, owner.id, 'read', owner.id]
+      );
       await como(ownerTok, 'delete', `/api/v1/atlas/${atlas.id}`).expect(204);
     });
 

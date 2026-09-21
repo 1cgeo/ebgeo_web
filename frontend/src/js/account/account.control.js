@@ -466,6 +466,11 @@ export class AccountControl {
         const loggedIn = sessionContext.isAuthenticated();
         const name = sessionContext.username || this._username || '';
         this._username = loggedIn ? name : null;
+        // WHAT IS DRAWN is the military form (`Maj Diniz`); what KEYS the avatar stays the login.
+        // The initials and the hue are shared with this person's cursor and roster entry, which
+        // are computed from the login on every peer, so switching them here would make the same
+        // person two different badges on one screen.
+        const shown = sessionContext.displayName || name;
 
         this._container.setAttribute('data-logged-in', loggedIn ? 'true' : 'false');
 
@@ -476,7 +481,7 @@ export class AccountControl {
             this._avatarBtn.hidden = !loggedIn;
         }
         if (this._userLabel) {
-            this._userLabel.textContent = loggedIn ? name : '';
+            this._userLabel.textContent = loggedIn ? shown : '';
         }
         if (this._avatar) {
             if (loggedIn) {
@@ -491,7 +496,7 @@ export class AccountControl {
             }
         }
         if (this._avatarBtn) {
-            this._avatarBtn.setAttribute('title', loggedIn ? name : '');
+            this._avatarBtn.setAttribute('title', loggedIn ? shown : '');
         }
         this._updateRoleBadge();
         this._updateShareVisibility();

@@ -87,6 +87,7 @@ import { showConfirm } from './confirm.modal.js';
 import {
     accessLossClause, groupOptionLabel, searchFailureNotice,
     PEOPLE_SEARCH_MIN_CHARS, peopleSearchHint, peopleSearchTruncatedNotice,
+    peoplePickOutcome, alreadyHoldsAtlas,
 } from '@js/catalog/grant-tree.js';
 // A DICA DO SELETOR MANDA A PESSOA PARA UMA PORTA, então ela precisa dizer o nome que ESTA
 // pessoa vê escrito naquela porta — "Grupos" para uma sessão comum, "Catálogo" para o
@@ -198,12 +199,16 @@ export function sharingErrorMessage(error, fallback) {
  * servidor, e reordenar aqui criaria uma segunda ordem que a próxima tela teria de repetir.
  *
  * @param {Object|null} cfg - O corpo de `apiClient.getSharing`.
- * @returns {{isPublic: boolean, publicLink: string|null, owner: Object|null, shares: Array, groups: Array}}
+ * @returns {{isPublic: boolean, publicLink: string|null, publicUrl: string|null, owner: Object|null,
+ *   shares: Array, groups: Array}}
  */
 export function partitionSharingConfig(cfg) {
     return {
         isPublic: Boolean(cfg?.isPublic),
         publicLink: cfg?.publicLink ?? null,
+        // O ENDEREÇO que o servidor compõe sobre a base configurada (`app.urlBaseLinkPublico`).
+        // Nulo contra servidor antigo, ou com a base inválida: a tela cai então no token.
+        publicUrl: typeof cfg?.publicUrl === 'string' && cfg.publicUrl ? cfg.publicUrl : null,
         owner: cfg?.owner ?? null,
         shares: Array.isArray(cfg?.shares) ? cfg.shares : [],
         groups: Array.isArray(cfg?.groups) ? cfg.groups : [],
@@ -817,9 +822,11 @@ export class SharingModal extends ModalBase {
         try {
             const cfg = await apiClient.getSharing(this._atlasId);
             if (!this.getBody()) return; // modal closed while the request was in flight
-            const { isPublic, publicLink, owner, shares, groups } = partitionSharingConfig(cfg);
+            const { isPublic, publicLink, publicUrl, owner, shares, groups } = partitionSharingConfig(cfg);
             this._isPublic = isPublic;
-            this._publicLink = publicLink;
+            // O QUE A TELA MOSTRA E COPIA É O ENDEREÇO, não o token: o token cru não é endereço de
+            // nada, e quem o recebia por mensagem não tinha onde colar (dono, 2026-09-20).
+            this._publicLink = publicUrl ?? publicLink;
             this._owner = owner;
             this._shares = shares;
             this._groups = groups;
@@ -1468,14 +1475,12 @@ export class SharingModal extends ModalBase {
      *   organizacao_militar_sigla?:string}>} results
      */
     _renderResults(results) {
-        const memberIds = new Set(this._shares.map((s) => String(s.userId)));
-        const pickable = results.filter((u) => !memberIds.has(String(u?.id)));
-
-        if (!results.length) {
-            return '<div class="sharing-results__empty">Nenhum usuário encontrado</div>';
-        }
-        if (!pickable.length) {
-            return '<div class="sharing-results__empty">Todos já são membros</div>';
+        // O DONO TAMBÉM SAI DA LISTA, e não só os membros: ele é um bloco à parte do payload, a
+        // busca não exclui quem pergunta, e o dono que digitava o próprio nome se adicionava
+        // como Leitor do atlas que é dele. Ver `peoplePickOutcome`.
+        const { pickable, notice } = peoplePickOutcome(results, this._holders());
+        if (notice) {
+            return `<div class="sharing-results__empty" data-testid="sharing-results-empty">${escapeHtml(notice)}</div>`;
         }
 
         return pickable.map((u) => {
@@ -1894,14 +1899,26 @@ export class SharingModal extends ModalBase {
     }
 
     /**
+     * @private Quem já tem este atlas, na forma que `peoplePickOutcome` e `alreadyHoldsAtlas`
+     * leem. UM lugar só, para o filtro da lista e o guarda do clique não divergirem.
+     * @returns {{ownerId: string|null, memberIds: string[]}}
+     */
+    _holders() {
+        return {
+            ownerId: this._owner?.userId ?? null,
+            memberIds: this._shares.map((s) => s.userId),
+        };
+    }
+
+    /**
      * @private Grants a searched user the default permission (Leitura — DEFAULT_GRANT_PERMISSION),
      * clears the search, re-reads config.
      * @param {string} userId
      */
     async _handleAdd(userId) {
         if (this._busy || !userId) return;
-        // Guard against double-adding someone already a member.
-        if (this._shares.some((s) => String(s.userId) === String(userId))) return;
+        // Guard against double-adding someone who already holds the atlas: a member OR the owner.
+        if (alreadyHoldsAtlas(userId, this._holders())) return;
         this._busy = true;
         try {
             await apiClient.addShare(this._atlasId, userId, DEFAULT_GRANT_PERMISSION);

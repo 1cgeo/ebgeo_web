@@ -486,7 +486,11 @@ describe('WebSocket Collaboration — gaps', () => {
       r.close();
     });
 
-    it("a public visitor's cursor reaches the owner peer", async () => {
+    it("a public visitor's POINTER is neither relayed nor retained, and the visitor still counts", async () => {
+      // Until 2026-09-20 this case pinned the opposite ("a public visitor's cursor reaches the owner
+      // peer"). The owner reversed it: an anonymous pointer over the map of the people working is
+      // noise. What survives is the frame WITHOUT a position (it carries the active map) and the
+      // visitor's place in the roster, which is how the room knows how many visitors it has.
       const pubToken = await getPublicToken(app, p2Link);
       const o = await createWsClient(server, p2.id, ownerToken);
       await o.waitForType('connected');
@@ -496,10 +500,25 @@ describe('WebSocket Collaboration — gaps', () => {
       o.clearMessages();
       pub.send({ type: 'cursor', position: { lat: 1, lng: 1 }, mapId: null });
       const cursor = await o.waitForCursor();
-      assert.equal(cursor.userId, connectedPub.userId);
+      assert.equal(cursor.userId, connectedPub.userId, 'the frame still arrives: it carries the active map');
+      assert.equal(cursor.position, null, 'and the position was dropped by the SERVER');
+
+      // A late joiner reads the roster off the sockets: the visitor is there, with no pointer.
+      const tardio = await createWsClient(server, p2.id, ownerToken);
+      const entrada = await tardio.waitForType('connected');
+      const visitantes = (entrada.usersOnline ?? []).filter((u) => u.id === connectedPub.userId);
+      assert.equal(visitantes.length, 1, 'the visitor is still COUNTED in the roster');
+      assert.equal(visitantes[0].cursorPosition, null, 'the position was never retained on the socket');
+
+      // FLOOR: the drop is about the VISITOR, not the route. An account's pointer still travels.
+      pub.clearMessages();
+      o.send({ type: 'cursor', position: { lat: 2, lng: 2 }, mapId: null });
+      const doDono = await pub.waitForCursor();
+      assert.deepEqual(doDono.position, { lat: 2, lng: 2 });
 
       o.close();
       pub.close();
+      tardio.close();
     });
   });
 });

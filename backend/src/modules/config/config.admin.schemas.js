@@ -36,6 +36,11 @@ export const configOverridesSchema = Joi.object({
     // morre em 422 na borda, que é a mesma recusa que o parse do env faz.
     avisoServidorSecundario: Joi.boolean(),
     urlServidorPrincipal: Joi.string().uri().max(500),
+    // A base do link público de compartilhamento (2026-09-20). SÓ http e https: `composePublicUrl`
+    // recusa qualquer outro esquema e cairia no token cru, então aceitar `ftp://` aqui gravaria um
+    // valor que o painel mostra e o link ignora. Sem `.allow('')`, como a vizinha: campo vazio no
+    // painel significa não mexer, e é o cliente que omite a chave.
+    urlBaseLinkPublico: Joi.string().uri({ scheme: ['http', 'https'] }).max(500),
   }).unknown(true),
   features: Joi.object({
     map_3d: Joi.boolean(),

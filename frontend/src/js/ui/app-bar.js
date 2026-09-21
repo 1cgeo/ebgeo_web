@@ -159,8 +159,13 @@ export function createAppBar({
 
         const label = document.createElement('span');
         label.className = 'app-bar__username';
-        label.textContent = name;
-        label.title = name;
+        // DRAWN in the military form (`Maj Diniz`) when the caller has one; the initials and the hue
+        // above stay keyed on the login, which is what every other surface computes them from.
+        // Read off `sessionContext`, like the role badge below: `admin.html` mounts this bar through
+        // `admin/admin-panel.js`, which has no way to pass a new field.
+        const shown = sessionContext.displayName || name;
+        label.textContent = shown;
+        label.title = shown;
         text.appendChild(label);
 
         const badge = buildRoleBadge();

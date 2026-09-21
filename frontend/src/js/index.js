@@ -49,7 +49,9 @@ import {
     switchAtlas,
 } from './account/open-atlas.service.js';
 import { parseAtlasLink, setPendingAtlasLink, clearAtlasUrl } from './deep-link/atlas-link.js';
-import { publicLinkFailureNotice, shouldForgetPublicLink } from './deep-link/public-link-phrases.js';
+import {
+    publicLinkFailureNotice, shouldForgetPublicLink, publicLinkOpenedWithAccountNotice,
+} from './deep-link/public-link-phrases.js';
 // From the FILE, never from the `@utils` barrel: `atlas.html` and `admin.html` consume the same
 // definition and boot without the store.
 import { classifyRequestFailure, isCredentialFailure } from '@utils/request-failure.js';
@@ -65,7 +67,6 @@ import { exitOutcomeNotice } from './session/unsynced-work-phrases.js';
 import { calibrationExitNotice } from './calibration/exit-decision.js';
 import { emailVerificationNotice } from './session/email-verification-phrases.js';
 import { sessionRestoreNotice } from './session/session-restore-phrases.js';
-import { showVisitorBanner, destroyVisitorBanner } from './session/visitor-banner.js';
 // Pelo ARQUIVO (a pasta `session/` não tem barrel), e de um módulo que não participa do boot: ver
 // a chamada no topo de `initApp`.
 import {
@@ -680,8 +681,8 @@ function forgetPublicAtlasUrl() {
 }
 
 /**
- * If the URL carries a public viewer link (`?atlasPublico=<link>`) and nobody is logged in, opens
- * that atlas as an anonymous read-only visitor. Returns true if it took over the boot (so the
+ * If the URL carries a public viewer link (`?atlasPublico=<link>`), opens that atlas: as an anonymous
+ * read-only visitor when nobody is logged in, and THROUGH THE ACCOUNT when somebody is. Returns true if it took over the boot (so the
  * normal last-atlas reconnect is skipped). A failure falls back to the normal path AND SAYS SO.
  *
  * THE TRY IS SPLIT IN TWO, and the split is the whole fix. One `catch` around everything could
@@ -694,7 +695,7 @@ function forgetPublicAtlasUrl() {
  * @returns {Promise<boolean>}
  */
 async function openPublicAtlasFromUrl(link = new URLSearchParams(window.location.search).get('atlasPublico')) {
-    if (!link || sessionContext.isAuthenticated()) return false;
+    if (!link) return false;
 
     let atlas;
     try {
@@ -717,6 +718,27 @@ async function openPublicAtlasFromUrl(link = new URLSearchParams(window.location
         // Only a link the SERVER refused leaves the address bar; see `shouldForgetPublicLink`.
         if (shouldForgetPublicLink(kind)) forgetPublicAtlasUrl();
         return false;
+    }
+
+    // QUEM ESTÁ LOGADO ABRE PELA CONTA (dono, 2026-09-20). Esta função devolvia falso na primeira
+    // linha quando havia sessão: o link era engolido, a cadeia seguia até o seletor e a pessoa caía
+    // em `atlas.html` sem uma palavra. Abrir como VISITA com uma conta viva não é opção, porque a
+    // sessão de visitante anula a identidade e o token efêmero disputaria com o da conta. O
+    // servidor já dá a toda conta viva a leitura de um atlas público (`requireAtlasPermission` e o
+    // gateway de colaboração), e a quem é dono ou tem share, o nível que já tinha, então o link
+    // resolve para o ID e entra pelo MESMO pipeline de `?atlas=`. O parâmetro sai da barra antes,
+    // e `?atlas=` entra pelo espelho de URL na conexão: um F5 reabre pela conta, sem repetir isto.
+    if (sessionContext.isAuthenticated()) {
+        forgetPublicAtlasUrl();
+        const assumiu = await openAtlasFromUrl({ atlasId: atlas.id, mapId: null });
+        if (_abriuAtlasDeServidor) {
+            const aviso = publicLinkOpenedWithAccountNotice({
+                name: atlas.name,
+                isOwner: Boolean(atlas.owner_id) && atlas.owner_id === sessionContext.userId,
+            });
+            showToast(aviso.message, aviso.tone);
+        }
+        return assumiu;
     }
 
     try {
@@ -760,13 +782,12 @@ async function openPublicAtlasFromUrl(link = new URLSearchParams(window.location
         // de ferramenta, que se lê como "ainda está carregando" ou como defeito (achado A2). A
         // faixa diz as mesmas coisas e continua dizendo, mais o NOME do atlas e uma saída.
         //
-        // O `false` mantém o anúncio antigo como PISO. Ele não deveria acontecer (a visita já
-        // marcou a sessão como visitante em `connectPublic`, três linhas acima), mas se um dia
-        // acontecer, o desfecho tem de ser o anúncio velho e não anúncio nenhum: perder a faixa é
-        // uma regressão, perder a fala é o defeito original de volta.
-        if (!showVisitorBanner(atlas.name)) {
-            showToast('Visualização pública, somente leitura', 'info');
-        }
+        // A FAIXA PERSISTENTE DE VISITA SAIU (dono, 2026-09-20): ela cobria o topo do mapa durante a
+        // visita inteira para dizer o que cabe num aviso de chegada. O que fica é este anúncio, uma
+        // vez, e a recusa de cada gesto de edição, que nomeia o motivo quando a pessoa tenta.
+        showToast(atlas.name
+            ? `Visita pública ao atlas "${atlas.name}": somente leitura.`
+            : 'Visita pública: somente leitura.', 'info');
         // A VISITA PÚBLICA É A TERCEIRA NATUREZA DE ABERTURA, e ela não passa por
         // `openRemoteAtlas`: este caminho monta o namespace por conta própria, e por isso a
         // contagem mora aqui e não lá. Ela é o único acesso ao produto sem conta nenhuma, que é
@@ -898,14 +919,6 @@ window.addEventListener('beforeunload', () => {
         console.warn('Cesium cleanup error:', error);
     }
 
-    // A faixa de visita pública: um assinante do barramento e um listener de clique, soltos aqui
-    // pelo mesmo motivo dos dois vizinhos. Ela vive tanto quanto a página de propósito (a única
-    // saída da visita é navegar), então este é o único ponto em que ela pode ser desfeita.
-    try {
-        destroyVisitorBanner();
-    } catch (error) {
-        console.warn('Visitor banner cleanup error:', error);
-    }
 
     // First-person scene. The barrel wrapper is async (it dynamically imports the
     // viewer), so a failure surfaces as a rejected promise, not as a throw: the

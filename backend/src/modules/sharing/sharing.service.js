@@ -14,6 +14,28 @@ import * as atlasService from '../atlas/atlas.service.js';
 import { assertCanAdministerGroup } from '../access-groups/access-groups.service.js';
 import { PERMISSION_LEVELS } from '../../middleware/permissions.js';
 import * as Q from './sharing.queries.js';
+import { getAppConfig } from '../config/config.service.js';
+import { composePublicUrl } from './public-url.js';
+
+/**
+ * A URL pública de um token, sobre a base do documento de configuração EFETIVO (env mais o
+ * override do administrador). `getAppConfig` é memoizado, então isto não custa uma ida ao banco
+ * por abertura do modal.
+ *
+ * FALHA PARA `null`, nunca para erro: a configuração fora do ar não pode derrubar a tela de
+ * compartilhamento, que cai no token cru, o comportamento anterior.
+ * @param {string|null} token
+ * @returns {Promise<string|null>}
+ */
+async function publicUrlFor(token) {
+  if (!token) return null;
+  try {
+    const appConfig = await getAppConfig();
+    return composePublicUrl(appConfig?.app?.urlBaseLinkPublico, token);
+  } catch {
+    return null;
+  }
+}
 
 export async function getSharingConfig(atlasId) {
   const { rows } = await query(Q.GET_SHARING_CONFIG, [atlasId]);
@@ -23,6 +45,8 @@ export async function getSharingConfig(atlasId) {
   return {
     isPublic: rows[0].is_public,
     publicLink: rows[0].public_link,
+    // O ENDEREÇO, ao lado do token e nunca no lugar dele. Ver `public-url.js`.
+    publicUrl: await publicUrlFor(rows[0].public_link),
     // O BLOCO DO DONO ESPELHA UMA LINHA DE `shares`, campo a campo, e a simetria é o que
     // permite ao cliente ter UM só compositor de rótulo para as duas. Enquanto o dono trazia
     // três campos e o participante sete, a tela precisava de dois caminhos para escrever a
@@ -82,7 +106,9 @@ export async function enablePublicSharing(atlasId, actorId = null, req = null) {
   await createAudit(req, atlasAudit('SHARING_CHANGE', atlasId, actorId, {
     isPublic: true, publicLinkImpressao: link ? impressaoDeValor(link) : null,
   }));
-  return result;
+  // O LINK JÁ NASCE COM A BASE (dono, 2026-09-20): a resposta de publicar carrega o endereço
+  // pronto, e a tela não depende de uma segunda leitura para mostrá-lo.
+  return { ...result, publicUrl: await publicUrlFor(link) };
 }
 
 export async function disablePublicSharing(atlasId, actorId = null, req = null) {
@@ -91,11 +117,33 @@ export async function disablePublicSharing(atlasId, actorId = null, req = null) 
   return result;
 }
 
+/**
+ * Dá a UMA PESSOA um nível num atlas.
+ *
+ * O DONO NÃO RECEBE SHARE, e a recusa é 409 (dono, 2026-09-20). A autoridade dele vem de
+ * `atlas.owner_id` e nunca da tabela de shares, então a linha era inócua para o ACESSO (o teste
+ * de invariantes prova que um share `read` não o rebaixa) e mesmo assim errada na TELA:
+ * `GET_SHARING_CONFIG` devolve o dono num bloco e os shares em outro, e a mesma pessoa saía
+ * DUAS vezes na lista, uma como dono e outra como Leitor. A busca de pessoas não exclui quem
+ * pergunta, então bastava o dono digitar o próprio nome. O cliente deixou de oferecer a pessoa
+ * (`peoplePickOutcome`), e esta recusa é a metade que vale para quem fala direto com a API.
+ *
+ * ZERO LINHA EM `FIND_ATLAS_OWNER` NÃO É TRATADA AQUI: o atlas inexistente ou apagado já foi
+ * respondido 404 por `requireAtlasPermission`, antes de a rota chegar ao serviço.
+ *
+ * O SEGUNDO POST PARA A MESMA PESSOA CONTINUA SENDO UPSERT (`INSERT_USER_SHARE`), de propósito:
+ * a UNIQUE impede a linha duplicada, e várias suítes e o import montam share por POST repetido.
+ */
 export async function addUserShare(atlasId, userId, permission, addedBy, req = null) {
   // Verify user exists
   const userResult = await query(Q.FIND_USER_BY_ID, [userId]);
   if (userResult.rows.length === 0) {
     throw new NotFoundError('User');
+  }
+
+  const ownerResult = await query(Q.FIND_ATLAS_OWNER, [atlasId]);
+  if (ownerResult.rows[0]?.owner_id === userId) {
+    throw new ConflictError('Esta pessoa é o dono do atlas e já tem acesso total');
   }
 
   return tx(async (t) => {
