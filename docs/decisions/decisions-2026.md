@@ -3389,3 +3389,43 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
   ficam duplicadas no destino, que é o "duplicado recuperável" que o desenho daquela composta já
   declara aceitar. O valor antigo da contagem de cores continua na coluna de ajustes dos atlas
   existentes, inerte.
+
+### 2026-09-21: mover camada diz o que aconteceu com a origem, e o "duplicado recuperável" ganha nome e saída medida
+
+- **O que estava errado, conferido por leitura.** Mover uma camada entre mapas grava no destino as
+  feições com os MESMOS ids e só depois esvazia a origem. O retorno do esvaziamento era
+  DESCARTADO. Quando ele era recusado no meio do gesto (um par trava o mapa de origem, ou o papel é
+  rebaixado, entre a escrita do destino e o esvaziamento), a operação voltava com sucesso e a tela
+  anunciava "Camada movida. A camada vazia continuou no mapa de origem", falso duas vezes: a camada
+  continuava CHEIA, e as mesmas feições ficavam nos dois mapas daquele computador enquanto o
+  servidor, que aplica a feição de id conhecido como um upsert que troca o mapa da linha, as tinha só
+  no destino. É o "duplicado recuperável" que o cabeçalho de
+  `frontend/src/js/store/layer-transfer.operations.js` declara aceitar, e ninguém era avisado dele.
+- **Uma correção ao que eu tinha dito:** o caso que nomeei primeiro, o mapa de origem EXCLUÍDO por um
+  par, não deixa duplicado nenhum. O documento local vai embora com o mapa, e no servidor o upsert
+  move ou ressuscita a linha no destino, nas duas ordens de chegada. O defeito ali era só a frase.
+- **O que mudou.** O resultado da transferência ganhou `sourceEmptied`, `sourceMissing` e
+  `sourceRefusal`, e o esvaziamento é RELIDO por caminho independente, como o destino já era, porque
+  o retorno não distingue recusa de "nada a remover". Com a origem cheia o registro da camada não é
+  tocado; com a origem excluída nada é tentado, senão a porta de gesto poria "este mapa não existe
+  mais" sobre uma transferência que resgatou a camada. A frase saiu da aba para
+  `frontend/src/js/features_tab/layer-transfer-phrases.js` (`transferOutcomeNotice`): origem cheia é
+  AVISO, no mesmo canal da recusa, nomeando o estado; origem excluída é sucesso, sem o remendo. Com
+  a origem cheia a aba não desseleciona nem apaga as feições das fontes do mapa.
+- **Alternativa recusada:** desfazer o destino, ou emitir exclusão na origem. Com o id compartilhado
+  e LWW por ordem de chegada, a exclusão apagaria a linha que a criação acabou de mover.
+- **A saída que a frase promete foi MEDIDA, e a medição a estreitou.** A primeira versão dizia
+  "recarregue o atlas para voltar ao estado do servidor", sem medição. Em duas browsers reais, três
+  de três: recarregar TIRA da origem as feições que o mover levou, e não por retrato (a geração
+  ativa é a mesma antes e depois). O cursor durável só avança quando um retrato é ativado, então a
+  cauda que o recarregamento pede ainda contém as criações do próprio mover, e cada uma tira a
+  feição do mapa ANTERIOR antes de gravá-la no destino. Um registro que só existe naquele disco
+  SOBREVIVE ao recarregamento e só some num retrato inteiro (sair da conta e entrar de novo). A
+  frase ficou específica: "para que elas saiam do mapa de origem". Guardas:
+  `frontend/tests/store/layer-transfer.test.js`,
+  `frontend/tests/unit/transferencia-de-camada-frase.test.js` e
+  `frontend/tests/e2e-ui/browser-collab-transferencia-origem-cheia.spec.js`.
+- **Aberto, achado pela medição:** como o cursor durável fica parado na versão da abertura, todo
+  recarregamento da sessão repuxa a cauda INTEIRA desde que o atlas foi aberto, e numa sessão longa
+  ela só cresce. É o mesmo mecanismo que fez a reconciliação acima funcionar, então mexer nele pede
+  decisão: avançar o cursor a cada cauda aplicada economiza rede e tira esta reconciliação de graça.
