@@ -230,7 +230,10 @@ describe('F14 — a borda aperta sem recusar op legítima, e o relevo continua c
       op({
         entityType: 'mapTemporal', operationType: 'update', entityId: mapa.id, mapId: mapa.id,
         data: {
-          ativo: true, unidade: 'horas', modo: 'absoluto',
+          // A UNIDADE E 'HORA', do vocabulario de `temporal-config.js`: desde 2026-09-21 o
+          // servidor degrada unidade fora da lista para o padrao, entao um 'horas' inventado aqui
+          // mediria o saneamento e nao a passagem do campo legitimo, que e o assunto deste arquivo.
+          ativo: true, unidade: 'HORA', modo: 'absoluto',
           inicio: 1700000000000, fim: 1700003600000, origem: null,
         },
       }),
@@ -328,7 +331,7 @@ describe('F14 — a borda aperta sem recusar op legítima, e o relevo continua c
     assert.match(mapas[0].name, /^Mapa renomeado/, 'o rename pegou');
     assert.deepEqual(mapas[0].grid_style, { format: 'utm', visible: true });
     assert.deepEqual(mapas[0].temporal_config, {
-      ativo: true, unidade: 'horas', modo: 'absoluto',
+      ativo: true, unidade: 'HORA', modo: 'absoluto',
       inicio: 1700000000000, fim: 1700003600000, origem: null,
     });
     assert.equal(mapas[0].notes_title, 'Notas do mapa');

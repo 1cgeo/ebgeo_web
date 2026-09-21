@@ -43,7 +43,10 @@ describe.skipIf(E2E_SKIP)('e2e: briefing/slide sync', () => {
     it('persists a briefing + slide (with temporalCursor and order) into the snapshot', async () => {
         const briefingId = generateUUID();
         const slideId = generateUUID();
-        const temporalCursor = { time: '2026-06-20T12:00:00Z', multiplier: 4 };
+        // 2026-09-21: the slide cursor is a finite epoch-ms NUMBER, which is what the editor captures and
+        // what `normalizeEpochMs` accepts at the write border. This case used to push an OBJECT, a shape
+        // no client produces, and froze the absence of a domain rule; anything else is now stored as NULL.
+        const temporalCursor = Date.UTC(2026, 5, 20, 12);
 
         // briefing create: slide_order references the slide so `order` is a real index.
         const briefingOp = createOperation('briefing', 'create', briefingId, null, {
@@ -75,7 +78,7 @@ describe.skipIf(E2E_SKIP)('e2e: briefing/slide sync', () => {
         expect(slide.title).toBe('Slide One');
         expect(slide.briefing_id).toBe(briefingId);
         // camelCase temporalCursor surfaced from temporal_cursor jsonb.
-        expect(slide.temporalCursor).toEqual(temporalCursor);
+        expect(slide.temporalCursor).toBe(temporalCursor);
         // order is the index within slide_order (0), not -1.
         expect(slide.order).toBe(0);
     });
@@ -93,11 +96,11 @@ describe.skipIf(E2E_SKIP)('e2e: briefing/slide sync', () => {
                 briefing_id: briefingId,
                 title: 'Before',
                 mode: '2d',
-                temporal_cursor: { time: 't0' },
+                temporal_cursor: Date.UTC(2026, 0, 1),
             }),
         ]);
 
-        const newCursor = { time: 't1', multiplier: 8 };
+        const newCursor = Date.UTC(2026, 1, 1);
         await api.pushOperations(atlasId, [
             createOperation('slide', 'update', slideId, null, {
                 title: 'After',
@@ -109,7 +112,7 @@ describe.skipIf(E2E_SKIP)('e2e: briefing/slide sync', () => {
         const briefing = snapshot.briefings.find((b) => b.id === briefingId);
         const slide = briefing.slides.find((s) => s.id === slideId);
         expect(slide.title).toBe('After');
-        expect(slide.temporalCursor).toEqual(newCursor);
+        expect(slide.temporalCursor).toBe(newCursor);
     });
 
     it('rejects a slide whose briefing belongs to no atlas (no-op insert)', async () => {

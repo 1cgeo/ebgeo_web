@@ -374,13 +374,18 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
       const m = await createMap(db, atlas.id, { name: 'Temporal Map' });
       await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), entityType: 'mapTemporal', operationType: 'update', entityId: m.id, mapId: m.id,
-        data: { ativo: true, unidade: 'HORA', inicio: 100, fim: 200, modo: 'range', origem: 'feat' },
+        // `modo` e `origem` SAO do vocabulário real (`temporal-config.js`, espelho do cliente):
+        // desde 2026-09-21 o servidor degrada o que não é, então os valores inventados que
+        // moravam aqui ('range' e 'feat') mediriam o saneamento em vez da montagem, que é o
+        // assunto deste caso. O saneamento tem arquivo próprio
+        // (`configuracao-temporal-saneada.repro.test.js`).
+        data: { ativo: true, unidade: 'HORA', inicio: 100, fim: 200, modo: 'relativo', origem: 50 },
         timestamp: Date.now(), clientId: 'c',
       }]);
 
       const { rows } = await db.query('SELECT temporal_config FROM maps WHERE id = $1', [m.id]);
       assert.deepEqual(rows[0].temporal_config, {
-        ativo: true, unidade: 'HORA', inicio: 100, fim: 200, modo: 'range', origem: 'feat',
+        ativo: true, unidade: 'HORA', inicio: 100, fim: 200, modo: 'relativo', origem: 50,
       }, 'temporal_config assembled into its own column');
     });
 

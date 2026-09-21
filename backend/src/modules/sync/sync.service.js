@@ -2,6 +2,7 @@
 import { query, tx } from '../../database/index.js';
 import { isDeepStrictEqual } from 'node:util';
 import { normalizeSlideControls } from './slide-controls.js';
+import { normalizeTemporalConfig, TEMPORAL_CONFIG_KEYS } from './temporal-config.js';
 import { findReceipt, saveReceipt, operationDigest } from './sync-receipts.js';
 import { assertSyncProtocol } from './sync-protocol.js';
 import { prepareFeatureMutation, finishFeatureMutation } from './feature-conflicts.js';
@@ -452,6 +453,11 @@ function normalizeSlidePayload(rawData, envelopeMapId) {
   if (temporalEnabled !== undefined && temporalEnabled !== null && typeof temporalEnabled !== 'boolean') {
     patch.temporal_enabled = null;
   }
+  // O TERCEIRO CAMPO DA VISTA, `temporal_cursor`, NÃO tem guarda aqui, e a ausência é decisão:
+  // a regra dele (`normalizeEpochMs`, `temporal-config.js`) é aplicada na BORDA, em
+  // `FIELD_RULES.slide` de `free-field.schemas.js`, nas duas grafias. Ali ela alcança `changes` e
+  // `previousData`, que esta função não toca e que são, respectivamente, o que um update ESCREVE
+  // e o que o par RECEBE; repetí-la aqui seria uma segunda regra que nunca veria um valor sujo.
   // `controls` is rewritten from the closed list whenever it is present, create and update alike.
   if (rawData.controls !== undefined) patch.controls = normalizeSlideControls(rawData.controls);
 
@@ -3189,10 +3195,22 @@ function normalizeMapChanges(changes, subType = null) {
   // mapTemporal: assemble temporal_config from the known keys present.
   if (subType === 'temporal' && normalized.temporal_config === undefined) {
     const t = {};
-    for (const k of ['ativo', 'unidade', 'inicio', 'fim', 'modo', 'origem']) {
+    for (const k of TEMPORAL_CONFIG_KEYS) {
       if (changes[k] !== undefined) t[k] = changes[k];
     }
     if (Object.keys(t).length > 0) normalized.temporal_config = t;
+  }
+
+  // THE DOMAIN CHECK, AFTER THE ASSEMBLY AND FOR BOTH SHAPES. The vocabulary of this column lives
+  // in `temporal-config.js`, mirrored from the client; until 2026-09-21 nothing on this side read
+  // it, and `unidade: 'banana'`, `modo: {}` and a window ending before it starts were stored and
+  // relayed to every peer. It has to run HERE and not at the Joi border, because there the six
+  // fields are still LOOSE (`GRID_AND_TEMPORAL`, `free-field.schemas.js`, only ever matched the
+  // nested name the client does not send) — and it has to run for a plain `map` update too, which
+  // carries `temporal_config` nested through `MAP_UPDATE_FIELDS`. An unusable field degrades to its
+  // own default and the op is never refused: see the discard-never-reject header of that module.
+  if (normalized.temporal_config !== undefined) {
+    normalized.temporal_config = normalizeTemporalConfig(normalized.temporal_config);
   }
 
   return normalized;

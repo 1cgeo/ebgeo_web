@@ -406,6 +406,13 @@ export function buildServerImportPayload(exportData, meta = {}) {
             // null is a full state of both: "inherit what was saved with the map".
             base_layer: slideResourceRef(s.baseLayer),
             temporal_enabled: typeof s.temporalEnabled === 'boolean' ? s.temporalEnabled : null,
+            // O INSTANTE CONGELADO, que precisa viajar junto com o interruptor acima: mandar um
+            // sem o outro entrega ao servidor um slide com a linha do tempo LIGADA e sem instante,
+            // que abre num momento que o autor nunca escolheu. O `.ebgeo` sempre preservou os
+            // dois, então a mesma pessoa ganhava ou perdia o cursor conforme a porta que usasse.
+            // Epoch ms e nada mais: é a forma que o editor grava (`briefing-editor.control.js`) e
+            // a única que `transition.service.js` aplica.
+            temporal_cursor: Number.isFinite(s.temporalCursor) ? s.temporalCursor : null,
             controls: normalizeSlideControls(s.controls),
             position: s.position || {},
             orientation: s.orientation || {},

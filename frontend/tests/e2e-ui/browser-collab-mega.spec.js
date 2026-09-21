@@ -439,13 +439,13 @@ describeOrSkip('Mega harness — full collaboration session end to end', () => {
             // // no-UI: per-map temporal config (ativo/unidade/bounds) is set via the temporal
             // settings modal; this harness asserts the synced config shape, so it drives the
             // store op directly rather than the modal's several controls.
-            await applyStoreOp(A, 'setMapTemporalConfig', [seed.mapName, { ativo: true, unidade: 'horas', inicio: 1700000000000, fim: 1700003600000 }]);
+            await applyStoreOp(A, 'setMapTemporalConfig', [seed.mapName, { ativo: true, unidade: 'SEMANA', inicio: 1700000000000, fim: 1700003600000 }]);
             await expect
                 .poll(async () => B.evaluate(async (mn) => {
                     const cfg = await (await import('/src/js/store/index.js')).getMapTemporalConfig(mn);
                     return cfg && cfg.ativo === true ? cfg.unidade : null;
                 }, seed.mapName), { timeout: 20000 })
-                .toBe('horas');
+                .toBe('SEMANA');
             await demoPause(B);
 
             // 9. DELETE — A removes the original line through the real UI (select it in the

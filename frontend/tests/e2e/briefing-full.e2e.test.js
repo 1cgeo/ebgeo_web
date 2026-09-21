@@ -75,7 +75,10 @@ describe.skipIf(E2E_SKIP)('§22 briefing full lifecycle (real backend, sync tran
                 title: `Slide ${i + 1}`,
                 mode: '2d',
                 map_id: mapId,
-                temporal_cursor: { t: 100 + i, label: `T+${i}` },
+                // 2026-09-21: the slide cursor is a finite epoch-ms NUMBER, which is what the editor captures and
+                // what `normalizeEpochMs` accepts at the write border. This case used to push an OBJECT, a shape
+                // no client produces, and froze the absence of a domain rule; anything else is now stored as NULL.
+                temporal_cursor: Date.UTC(2026, 0, 1 + i),
             }),
         );
         await api.pushOperations(atlasId, ops);
@@ -89,7 +92,7 @@ describe.skipIf(E2E_SKIP)('§22 briefing full lifecycle (real backend, sync tran
             expect(slide, `slide ${id} present`).toBeDefined();
             expect(slide.title).toBe(`Slide ${i + 1}`);
             // Camel-cased temporal cursor surfaced for the frontend contract.
-            expect(slide.temporalCursor).toEqual({ t: 100 + i, label: `T+${i}` });
+            expect(slide.temporalCursor).toBe(Date.UTC(2026, 0, 1 + i));
         }
     });
 

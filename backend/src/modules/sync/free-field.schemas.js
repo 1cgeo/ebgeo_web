@@ -63,6 +63,7 @@ import {
   scrubResourceDefinitions, carriesResourceDefinition,
 } from '../catalog/resource-definition.scrub.js';
 import { CATALOG_LAYER_DEFINITION_KEYS } from '../catalog/catalog-layer.ref.js';
+import { normalizeTemporalConfig, normalizeEpochMs, TEMPORAL_CONFIG_KEYS } from './temporal-config.js';
 
 /** Joi never coerces here: a border that rewrites `'5'` into `5` is a border that edits data. */
 const NO_COERCION = { convert: false };
@@ -239,6 +240,14 @@ const SCALAR_PAYLOAD_ENTITIES = new Set([
  * Per-entity rules for the object-valued fields inside an otherwise ordinary payload. The column
  * names are the ones `sync.service.js` reads (`MAP_UPDATE_FIELDS`, `UPDATE_FIELDS`); the camelCase
  * twins are accepted for the same reason `normalizeMapChanges` accepts them.
+ *
+ * THIS IS THE SCALAR REGIME AND NOT THE DOMAIN GATE OF THE TEMPORAL COLUMN, and reading it as the
+ * latter cost the module its only check. A `mapTemporal` op carries the six temporal fields LOOSE
+ * at the top of the payload (`ativo`, `unidade`, `inicio`, `fim`, `modo`, `origem`); the two names
+ * matched here are assembled from them AFTERWARDS, by `normalizeMapChanges`, so no real client has
+ * ever sent either of them and this rule has never seen a temporal value. What judges the VALUES is
+ * `normalizeTemporalConfig` (`temporal-config.js`), called right after that assembly and exposed to
+ * the import door as `temporalConfigSchema` below.
  */
 const GRID_AND_TEMPORAL = {
   grid_style: keepMatching,
@@ -257,8 +266,55 @@ const FIELD_RULES = {
   layer: { style: keepMatching },
   group: { style: keepMatching },
   briefing: { settings: keepMatching },
-  slide: { position: keepMatching, orientation: keepMatching, controls: keepMatching },
+  // O CURSOR DO SLIDE entra nas DUAS grafias, e a camelCase é a que o cliente real manda: uma regra
+  // escrita só no nome da COLUNA não veria um payload de verdade na vida, que foi exatamente o que
+  // `GRID_AND_TEMPORAL` fez com a config temporal do mapa. Aqui a regra é por CARREGADOR, e é o que
+  // alcança `changes` e `previousData`: `normalizeSlidePayload` só normaliza `data`, e os três são
+  // relatados ao par. A regra em si mora no folha, uma só para as três portas da coluna.
+  slide: {
+    position: keepMatching,
+    orientation: keepMatching,
+    controls: keepMatching,
+    temporal_cursor: normalizeEpochMs,
+    temporalCursor: normalizeEpochMs,
+  },
 };
+
+/**
+ * THE SIX LOOSE TEMPORAL FIELDS of a `mapTemporal` payload, judged by the module's own vocabulary.
+ *
+ * THIS IS ABOUT THE RELAY, NOT THE COLUMN. `normalizeMapChanges` already cleans what gets WRITTEN,
+ * but the live broadcast and the operations log echo the CLIENT's payload, not the row: a peer that
+ * is connected receives `unidade: 'banana'` and writes it straight into its own side store
+ * (`applyRemoteMapSettingOp`), where nothing validates it, and only a reload from the snapshot ever
+ * repairs it. The two halves of "the server accepted anything" are the column and the relay, so
+ * cleaning one and not the other leaves half the finding standing.
+ *
+ * ONLY THE SIX KNOWN KEYS ARE REWRITTEN, never removed and never joined by others: a `mapTemporal`
+ * op legitimately carries `analysis_layers` for the legacy grid path (which is why this entity is
+ * not in `SCALAR_PAYLOAD_ENTITIES` at all), and the rest of the payload keeps the rules above.
+ *
+ * @param {*} payload
+ * @returns {*} The payload, by identity when no temporal field needed changing.
+ */
+function looseTemporalPayload(payload) {
+  if (!isPlainObject(payload)) return payload;
+  const soltos = {};
+  for (const key of TEMPORAL_CONFIG_KEYS) {
+    if (Object.hasOwn(payload, key)) soltos[key] = payload[key];
+  }
+  if (Object.keys(soltos).length === 0) return payload;
+
+  const limpo = normalizeTemporalConfig(soltos);
+  let changed = false;
+  const out = { ...payload };
+  for (const key of Object.keys(soltos)) {
+    if (Object.is(out[key], limpo[key])) continue;
+    out[key] = limpo[key];
+    changed = true;
+  }
+  return changed ? out : payload;
+}
 
 /**
  * The payload a client may store for this entity type.
@@ -292,7 +348,8 @@ export function scrubEntityPayload(entityType, payload) {
     if (kept !== value) changed = true;
     out[key] = kept;
   }
-  return changed ? out : payload;
+  const scrubbed = changed ? out : payload;
+  return entityType === 'mapTemporal' ? looseTemporalPayload(scrubbed) : scrubbed;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -312,6 +369,16 @@ export const scrubbedObjectSchema = Joi.object().custom((value) => scrubResource
 
 /** One stored catalog-layer entry. Keys stay open; see `scrubCatalogLayerEntry`. */
 export const catalogLayerEntrySchema = Joi.object().custom((value) => scrubCatalogLayerEntry(value));
+
+/**
+ * `maps.temporal_config` at the IMPORT door, by the same vocabulary the sync door uses.
+ *
+ * `Joi.any()` and not `Joi.object()` on purpose: this door has to DISCARD like the other one. A
+ * `temporal_config` of the wrong shape used to be a 422 on the whole `.ebgeo`, which costs the user
+ * an entire atlas over a field whose empty state (`{}`) is complete and harmless. Tightening only
+ * the sync door would have left this one open in the same commit that claimed the class closed.
+ */
+export const temporalConfigSchema = Joi.any().custom((value) => normalizeTemporalConfig(value));
 
 /** The three payload carriers of an operation envelope. */
 const PAYLOAD_KEYS = ['data', 'changes', 'previousData'];

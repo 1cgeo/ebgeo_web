@@ -19,6 +19,7 @@ import { ensureMapLayers, readMapLayers } from '../maps/default-layer.js';
 // vazio e ele conclui que esta em dia.
 import { STRUCTURAL_MARKER, recordStructuralMarker } from '../sync/structural-marker.js';
 import { normalizeSlideControls } from '../sync/slide-controls.js';
+import { normalizeEpochMs } from '../sync/temporal-config.js';
 // A PODA DE COPIA (clone e import). O predicado NAO e reimplementado aqui: quem decide e
 // `classifyResourceRefs`, que chama `fn_can_see_resource` uma vez para o atlas inteiro.
 import { ResourcePruner, refsFromCollectedRows, refsFromImportPayload } from './atlas-resource-prune.js';
@@ -50,6 +51,27 @@ import { importImageIds } from './import-image-refs.js';
 
 /** jsonb column shorthand — values are pre-stringified by the row builders. */
 const jsonb = (name) => ({ name, cast: 'jsonb' });
+
+/**
+ * `slides.temporal_cursor` as this server stores it: a JSON NUMBER (epoch ms) or SQL NULL.
+ *
+ * IT TRAVELS WITH `temporal_enabled` OR NOT AT ALL, and until 2026-09-21 only the switch was in the
+ * ColumnSet: every cloned and every imported slide arrived with the timeline ON and pointing at no
+ * instant, so the slide opened somewhere the author never chose. The `.ebgeo` file kept it, so the
+ * same briefing gained or lost the frozen instant depending on which door it came through.
+ *
+ * THE RULE IS NOT WRITTEN HERE, and that is the point: `normalizeEpochMs`
+ * (`../sync/temporal-config.js`) is the single definition every door of this column uses, the sync
+ * write path included. This wrapper only adds what the `::jsonb` cast of the ColumnSet needs, which
+ * is the pre-stringify; a second copy of the arithmetic is the copy that drifts.
+ *
+ * @param {*} value - `slide.temporal_cursor`, from the source row or from the import payload.
+ * @returns {string|null} Pre-stringified for the `::jsonb` cast, or null.
+ */
+const slideTemporalCursor = (value) => {
+  const instante = normalizeEpochMs(value);
+  return instante === null ? null : JSON.stringify(instante);
+};
 
 const CS = {
   images: new pgp.helpers.ColumnSet(
@@ -94,7 +116,8 @@ const CS = {
   ),
   slides: new pgp.helpers.ColumnSet(
     ['id', 'briefing_id', 'title', 'content', 'mode', 'map_id', 'model_id', 'photo_id',
-      'base_layer', 'temporal_enabled', jsonb('controls'), jsonb('position'), jsonb('orientation')],
+      'base_layer', 'temporal_enabled', jsonb('temporal_cursor'), jsonb('controls'),
+      jsonb('position'), jsonb('orientation')],
     { table: 'slides' }
   ),
 };
@@ -1027,6 +1050,7 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
       map_id: slide.map_id ? (mapIdMapping[slide.map_id] || null) : null,
       ...pruner.slide(slide),
       temporal_enabled: typeof slide.temporal_enabled === 'boolean' ? slide.temporal_enabled : null,
+      temporal_cursor: slideTemporalCursor(slide.temporal_cursor),
       controls: JSON.stringify(normalizeSlideControls(slide.controls) ?? {}),
       position: JSON.stringify(slide.position || {}),
       orientation: JSON.stringify(slide.orientation || {}),
@@ -1698,6 +1722,7 @@ export async function importAtlas(userId, data, { transaction = tx } = {}) {
       map_id: importedMapIds.has(slide.map_id) ? novoMapa(slide.map_id) : null,
       ...pruner.slide(slide),
       temporal_enabled: typeof slide.temporal_enabled === 'boolean' ? slide.temporal_enabled : null,
+      temporal_cursor: slideTemporalCursor(slide.temporal_cursor),
       controls: JSON.stringify(normalizeSlideControls(slide.controls) ?? {}),
       position: JSON.stringify(slide.position || {}),
       orientation: JSON.stringify(slide.orientation || {}),

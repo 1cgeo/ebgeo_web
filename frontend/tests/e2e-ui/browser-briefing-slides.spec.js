@@ -87,7 +87,11 @@ describeOrSkip('Briefing + slides lifecycle (real Chromium + real backend sync)'
                 content: `content-${title}`,
                 mode: '2d',
                 map_id: mapId,
-                temporal_cursor: { instante: cursorIso },
+                // The REAL contract: a finite epoch-ms NUMBER (what the editor captures and what
+                // `normalizeEpochMs` on the server accepts). Until 2026-09-21 this spec pushed an
+                // object `{ instante: <iso> }`, a shape no client produces, and the server stored
+                // it verbatim; the write border now normalises anything else to NULL.
+                temporal_cursor: Date.parse(cursorIso),
             });
             await api.pushOperations(atlas.id, [
                 createOperation('slide', 'create', s1, mapId, slideData(s1, 'S1', '2026-01-01T00:00:00Z')),
@@ -159,8 +163,8 @@ describeOrSkip('Briefing + slides lifecycle (real Chromium + real backend sync)'
         expect(result.createCount).toBe(3);
         expect(result.slidesCreate.map((s) => s.title)).toEqual(['S1', 'S2', 'S3']);
         expect(result.slidesCreate.map((s) => s.order)).toEqual([0, 1, 2]);
-        expect(result.slidesCreate[0].temporalCursor).toEqual({ instante: '2026-01-01T00:00:00Z' });
-        expect(result.slidesCreate[2].temporalCursor).toEqual({ instante: '2026-03-01T00:00:00Z' });
+        expect(result.slidesCreate[0].temporalCursor).toBe(Date.UTC(2026, 0, 1));
+        expect(result.slidesCreate[2].temporalCursor).toBe(Date.UTC(2026, 2, 1));
 
         // Reorder is reflected by the positional `order` index, not insertion order.
         expect(result.orderedAfterReorder).toEqual([result.ids.s3, result.ids.s1, result.ids.s2]);

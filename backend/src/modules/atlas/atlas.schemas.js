@@ -2,8 +2,9 @@
 import Joi from 'joi';
 import { RESOURCE_TYPES } from '../resource-access/resource-access.types.js';
 import {
-  scalarObjectSchema, scrubbedObjectSchema, catalogLayerEntrySchema,
+  scalarObjectSchema, scrubbedObjectSchema, catalogLayerEntrySchema, temporalConfigSchema,
 } from '../sync/free-field.schemas.js';
+import { normalizeEpochMs } from '../sync/temporal-config.js';
 
 export const createAtlasSchema = Joi.object({
   name: Joi.string().required().max(255),
@@ -233,7 +234,10 @@ const mapSchema = Joi.object({
   // Per-map temporal config + grid style (maps columns). Accepted on import so a local atlas
   // saved to the server preserves the temporal module + grid (P9: sync ⊇ .ebgeo coverage).
   grid_style: scalarObjectSchema.default({}),
-  temporal_config: scalarObjectSchema.default({}),
+  // A configuração temporal passa pelo MESMO vocabulário do caminho de sync
+  // (`normalizeTemporalConfig`, `../sync/temporal-config.js`): unidade e modo fora da lista, tipo
+  // errado e janela invertida degradam campo a campo, e o import nunca é recusado por causa deles.
+  temporal_config: temporalConfigSchema.default({}),
   features: Joi.array().items(featureSchema).default([]),
   layers: Joi.array().items(layerSchema).default([]),
   groups: Joi.array().items(groupSchema).default([]),
@@ -265,6 +269,15 @@ const slideSchema = Joi.object({
   // como os dois acima, com a largura da coluna.
   base_layer: Joi.string().max(100).allow(null),
   temporal_enabled: Joi.boolean().allow(null),
+  // O INSTANTE CONGELADO do slide, em epoch ms, e a metade que faltava do interruptor acima: sem
+  // ele o slide chega com o temporal LIGADO e sem instante, o que é pior que chegar desligado.
+  // Coluna `JSONB` nula por padrão (`003_atlas.sql`), e a forma que o sync grava nela é um NÚMERO
+  // em epoch ms; `transition.service.js` só o aplica quando é finito, então valor de outra forma
+  // não é perda e sim ruído. DESCARTA, não recusa: um cursor ilegível não pode custar o atlas
+  // inteiro. A REGRA É A COMPARTILHADA (`normalizeEpochMs`), e não uma cópia da aritmética: as três
+  // portas desta coluna (sync, clone e import) respondem pela MESMA definição, senão a que fica
+  // para trás é a que aceita o que as outras recusam.
+  temporal_cursor: Joi.any().custom((v) => normalizeEpochMs(v)).default(null),
   // Os controles que o slide mostra ao ser apresentado: objeto de booleanos, e o serviço o
   // reescreve pela lista fechada (`SLIDE_CONTROL_KEYS`), então chave desconhecida não é gravada.
   controls: Joi.object().pattern(Joi.string().max(40), Joi.boolean()).allow(null),

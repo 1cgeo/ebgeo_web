@@ -119,13 +119,13 @@ collabTest.describe('Vista da pessoa: base e interruptor temporal não propagam'
         await A.evaluate(async (mapa) => {
             const store = await import('/src/js/store/index.js');
             store.setMapTemporalView(mapa, true);
-            await store.setMapTemporalConfig(mapa, { unidade: 'horas', inicio: 1700000000000, fim: 1700003600000 });
+            await store.setMapTemporalConfig(mapa, { unidade: 'SEMANA', inicio: 1700000000000, fim: 1700003600000 });
         }, MAPA);
 
         await expect.poll(() => B.evaluate(async (mapa) => {
             const store = await import('/src/js/store/index.js');
             const cfg = await store.getMapTemporalConfig(mapa);
-            return cfg.unidade === 'horas' ? cfg.inicio : null;
+            return cfg.unidade === 'SEMANA' ? cfg.inicio : null;
         }, MAPA), { timeout: 20000 }).toBe(1700000000000);
 
         expect(await temporalNaTela(B), 'a janela chegou; o interruptor de B não').toBe(false);

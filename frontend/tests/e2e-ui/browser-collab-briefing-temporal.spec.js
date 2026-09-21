@@ -252,14 +252,14 @@ collabTest.describe('Briefing + temporal collaboration cross-client (full chain)
         await A.evaluate(async () => {
             const store = await import('/src/js/store/index.js');
             await store.setMapTemporalConfig('Mapa Tático', {
-                unidade: 'horas', inicio: 1700000000000, fim: 1700003600000,
+                unidade: 'SEMANA', inicio: 1700000000000, fim: 1700003600000,
             });
         });
 
         await expect
             .poll(async () => {
                 const cfg = await readTemporal(B, 'Mapa Tático');
-                return cfg && cfg.unidade === 'horas' ? cfg.inicio : null;
+                return cfg && cfg.unidade === 'SEMANA' ? cfg.inicio : null;
             }, { timeout: 20000 })
             .toBe(1700000000000);
 

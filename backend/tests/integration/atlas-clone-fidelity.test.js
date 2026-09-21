@@ -26,7 +26,12 @@ import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAtlas, createMap, loginUser } from '../helpers/fixtures.js';
 
 const GRID = { espacamento: 1000, cor: '#f00', visivel: true };
-const TEMPORAL = { ativo: true, modo: 'relativo', unidade: 'h', inicio: 1000, fim: 2000 };
+// A unidade é 'HORA', do vocabulário de `src/modules/sync/temporal-config.js`. O 'h' que morava
+// aqui não é valor que cliente nenhum produza, e desde 2026-09-21 a porta do IMPORT sanea o
+// documento pelo mesmo vocabulário do sync, então ele mediria o saneamento e não a fidelidade da
+// cópia, que é o assunto deste arquivo. O clone continua copiando a coluna VERBATIM, e é por isso
+// que a fixture é escrita por SQL direto nos dois primeiros casos.
+const TEMPORAL = { ativo: true, modo: 'relativo', unidade: 'HORA', inicio: 1000, fim: 2000 };
 
 describe('clone / duplicate / import must not silently alter what they copy', () => {
   let app, db, owner, token;

@@ -40,7 +40,11 @@ describeOrSkip('Temporal dimension (real Chromium + real backend)', () => {
         const user = await createVerifiedUser({ prefix: 'temporal', nome: 'Temporal User' });
         await page.goto('/');
 
-        const temporal = { ativo: true, unidade: 'horas', inicio: '2026-06-20T08:00:00Z', fim: '2026-06-20T20:00:00Z' };
+        // The REAL contract (2026-09-21, finding S6/S7): units are the closed uppercase vocabulary and
+        // the limits are epoch ms. This case used to push `'horas'` and ISO TEXT, shapes no client
+        // produces, and froze the absence of a domain rule; the server now normalises both away.
+        // `SEMANA` and not `HORA`, because `HORA` is the default and would not discriminate.
+        const temporal = { ativo: true, unidade: 'SEMANA', inicio: Date.UTC(2026, 5, 20, 8), fim: Date.UTC(2026, 5, 20, 20) };
 
         const result = await page.evaluate(
             async ({ baseUrl, temporal: t, u }) => {
@@ -76,7 +80,7 @@ describeOrSkip('Temporal dimension (real Chromium + real backend)', () => {
         expect(result.isSnapshot).toBe(true);
         expect(result.temporalConfig).toBeTruthy();
         expect(result.temporalConfig.ativo).toBe(true);
-        expect(result.temporalConfig.unidade).toBe('horas');
+        expect(result.temporalConfig.unidade).toBe('SEMANA');
         expect(result.temporalConfig.inicio).toBe(temporal.inicio);
         expect(result.temporalConfig.fim).toBe(temporal.fim);
     });
@@ -180,7 +184,7 @@ describeOrSkip('Temporal dimension (real Chromium + real backend)', () => {
                 await api.pushOperations(atlas.id, [
                     createOperation('mapTemporal', 'update', mapId, mapId, {
                         ativo: true,
-                        unidade: 'dias',
+                        unidade: 'DIA',
                         name: 'HIJACKED-Name',
                     }),
                 ]);
@@ -201,7 +205,7 @@ describeOrSkip('Temporal dimension (real Chromium + real backend)', () => {
         // The temporal payload landed...
         expect(result.temporalConfig).toBeTruthy();
         expect(result.temporalConfig.ativo).toBe(true);
-        expect(result.temporalConfig.unidade).toBe('dias');
+        expect(result.temporalConfig.unidade).toBe('DIA');
         // ...but the sibling `name` was rejected by the sub-type whitelist.
         expect(result.name).toBe(result.originalName);
         expect(result.temporalConfig.name).toBeUndefined();
