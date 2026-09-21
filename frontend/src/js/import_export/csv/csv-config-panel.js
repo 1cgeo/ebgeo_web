@@ -14,6 +14,9 @@ import {
     autoDetectColumnMapping,
 } from './csv-coordinate-converter.js';
 import { csvToGeoJSON } from './csv-to-geojson.js';
+// By FILE, and from the temporal module rather than from the CSV one: the
+// sentences are shared with the generic importer, which must not depend on CSV.
+import { describeTemporalIssues } from '@js/temporal/temporal-import.js';
 import {
     createModernSelect,
     createSectionDivider,
@@ -181,11 +184,19 @@ export function createCSVConfigPanel(options) {
                 temporalMapping: { ...currentTemporalMapping },
             };
 
-            const { geoJSON, skippedCount } = csvToGeoJSON(config);
+            const result = csvToGeoJSON(config);
+            const { geoJSON, skippedCount } = result;
 
             if (skippedCount > 0) {
                 const word = skippedCount === 1 ? 'linha ignorada' : 'linhas ignoradas';
                 showWarning(`${skippedCount} ${word} por coordenadas inválidas`);
+            }
+
+            // A degraded temporal cell is as invisible as a dropped coordinate and
+            // used to be quieter: it left no window, and its reserved column left
+            // no attribute either. It gets the same voice the coordinates have.
+            for (const message of describeTemporalIssues(result.temporalIssues)) {
+                showWarning(message);
             }
 
             await onImport(geoJSON, fileName);

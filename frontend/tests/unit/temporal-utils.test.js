@@ -13,6 +13,7 @@ import {
     formatInstant,
     computeTemporalExtent,
     resolveTimelineBounds,
+    DEFAULT_TIMELINE_SPAN_UNITS,
     unitLetter,
     epochToOffset,
     offsetToEpoch,
@@ -315,11 +316,69 @@ describe('resolveTimelineBounds', () => {
         expect(r.inicio).toBe(100);
         expect(r.fim).toBe(200);
     });
-    it('returns null when undeterminable', () => {
+    it('returns null ONLY when nothing at all is known', () => {
         expect(resolveTimelineBounds({ inicio: null, fim: null, unidade: 'HORA' }, [])).toBeNull();
+        expect(resolveTimelineBounds(null, null)).toBeNull();
+        expect(resolveTimelineBounds({ inicio: NaN, fim: undefined, unidade: 'HORA' }, [])).toBeNull();
     });
     it('guarantees fim > inicio', () => {
         const r = resolveTimelineBounds({ inicio: 500, fim: 500, unidade: 'HORA' }, []);
+        expect(r.fim).toBeGreaterThan(r.inicio);
+    });
+});
+
+/**
+ * REPRO do achado C3 da auditoria do sistema temporal (2026-09-21).
+ *
+ * Com APENAS um dos dois limites preenchido e sem feição temporal no mapa, a
+ * resolução devolvia nulo, e o controlador lia esse nulo como "não se sabe
+ * nada" e inventava uma janela de 24 passos a partir de `Date.now()` —
+ * recalculada a cada `LAYERS_CHANGED`, ou seja, a cada acender e apagar de
+ * camada, de modo que os rótulos da régua andavam sozinhos enquanto o valor que
+ * a pessoa tinha digitado ficava na config sendo ignorado.
+ *
+ * Um limite configurado é uma resposta REAL: o que falta se completa a partir
+ * dele. Só dois nulos sem feição temporal continuam devolvendo nulo.
+ */
+describe('C3: um limite configurado sozinho NÃO é descartado', () => {
+    const HORA = 3_600_000;
+    const DIA = 86_400_000;
+
+    it('só o início: o fim é completado, e o início é EXATAMENTE o configurado', () => {
+        const r = resolveTimelineBounds({ inicio: 1000, fim: null, unidade: 'HORA' }, []);
+        expect(r).not.toBeNull();
+        expect(r.inicio).toBe(1000);
+        expect(r.fim).toBe(1000 + DEFAULT_TIMELINE_SPAN_UNITS * HORA);
+    });
+
+    it('só o fim: o início é completado para trás, e o fim é o configurado', () => {
+        const r = resolveTimelineBounds({ inicio: null, fim: 1_000_000, unidade: 'DIA' }, []);
+        expect(r).not.toBeNull();
+        expect(r.fim).toBe(1_000_000);
+        expect(r.inicio).toBe(1_000_000 - DEFAULT_TIMELINE_SPAN_UNITS * DIA);
+    });
+
+    it('o vão completado usa a UNIDADE da config', () => {
+        const minuto = resolveTimelineBounds({ inicio: 0, fim: null, unidade: 'MINUTO' }, []);
+        const semana = resolveTimelineBounds({ inicio: 0, fim: null, unidade: 'SEMANA' }, []);
+        expect(minuto.fim).toBe(DEFAULT_TIMELINE_SPAN_UNITS * 60_000);
+        expect(semana.fim).toBe(DEFAULT_TIMELINE_SPAN_UNITS * 604_800_000);
+    });
+
+    it('a resposta não depende do relógio: duas chamadas dão o mesmo', () => {
+        const cfg = { inicio: 1000, fim: null, unidade: 'HORA' };
+        expect(resolveTimelineBounds(cfg, [])).toEqual(resolveTimelineBounds(cfg, []));
+    });
+
+    it('a feição temporal continua tendo precedência sobre o vão padrão', () => {
+        const features = [{ properties: { temporalInicio: 1000, temporalFim: 7000 } }];
+        const r = resolveTimelineBounds({ inicio: 1000, fim: null, unidade: 'HORA' }, features);
+        expect(r).toEqual({ inicio: 1000, fim: 7000 });
+    });
+
+    it('extensão degenerada ainda garante fim > inicio', () => {
+        const features = [{ properties: { temporalInicio: 500, temporalFim: 500 } }];
+        const r = resolveTimelineBounds({ inicio: 500, fim: null, unidade: 'HORA' }, features);
         expect(r.fim).toBeGreaterThan(r.inicio);
     });
 });

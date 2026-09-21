@@ -8,6 +8,20 @@
  * owner's request, together with the twin geometry cap in import.control.js.
  * Rows that fail coordinate conversion are still skipped (counted in
  * skippedCount), and an all-invalid file still throws.
+ *
+ * A TEMPORAL CELL THAT CANNOT BE READ USED TO DISAPPEAR TWICE. It did not become
+ * a window, and because its column is RESERVED (consumed into the window) it did
+ * not survive as a user attribute either, so the text the person had typed was
+ * gone from the import with nothing on screen to say so. Now the raw text is kept
+ * as an ordinary attribute under its own column name, and the two degradations a
+ * temporal column can suffer are COUNTED into `temporalIssues`, so the panel can
+ * name them.
+ *
+ * `temporalIssues` carries the SAME shape and the same field names the generic
+ * importer's report uses (`naoLidas`, `invertidas`), and the sentences come from
+ * `describeTemporalIssues` in `temporal/temporal-import.js`. Both were briefly
+ * local to this file; they moved the moment the generic importer needed them, so
+ * the same degradation cannot be named one way here and another way one tab over.
  * @dependencies csv-parser, csv-coordinate-converter
  */
 
@@ -29,7 +43,8 @@ import { toEpoch } from '@js/temporal/temporal.utils.js';
  * @param {Object} [config.fixedValues] - Fixed values (e.g., { zone: '23S' })
  * @param {Object} [config.temporalMapping] - Optional { inicio?: columnName, fim?: columnName }
  *   mapping CSV columns to the temporal validity window (parsed via toEpoch).
- * @returns {{ geoJSON: Object, errors: Array<{row: number, message: string}>, skippedCount: number }}
+ * @returns {{ geoJSON: Object, errors: Array<{row: number, message: string}>,
+ *   skippedCount: number, temporalIssues: {naoLidas: number, invertidas: number} }}
  */
 export function csvToGeoJSON(config) {
     const {
@@ -61,6 +76,29 @@ export function csvToGeoJSON(config) {
     const features = [];
     const errors = [];
     let skippedCount = 0;
+    // Same field names the generic importer's report uses, so the shared phrase
+    // function reads this object without a translation step in between.
+    const temporalIssues = { naoLidas: 0, invertidas: 0 };
+
+    /**
+     * Applies one mapped temporal column to a row. On a successful read the epoch
+     * lands on `field`; on a failed read the RAW TEXT is kept as an attribute
+     * under its own column name, so the cell is degraded rather than erased.
+     * @returns {boolean} True when the cell was present but unreadable.
+     */
+    const applyTemporalColumn = (properties, row, column, field) => {
+        const raw = row[column];
+        const ms = toEpoch(raw);
+        if (ms !== null) {
+            properties[field] = ms;
+            return false;
+        }
+        const text = raw === undefined || raw === null ? '' : String(raw).trim();
+        if (text === '') return false;
+        // A column doing double duty as a coordinate keeps its coordinate role.
+        if (!coordinateColumns.has(column)) properties[column] = raw;
+        return true;
+    };
 
     for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
@@ -86,13 +124,24 @@ export function csvToGeoJSON(config) {
         }
 
         // Apply temporal validity (epoch ms) from the mapped columns, if any.
-        if (temporalInicioCol) {
-            const ms = toEpoch(row[temporalInicioCol]);
-            if (ms !== null) properties.temporalInicio = ms;
+        if (temporalInicioCol && applyTemporalColumn(properties, row, temporalInicioCol, 'temporalInicio')) {
+            temporalIssues.naoLidas++;
         }
-        if (temporalFimCol) {
-            const ms = toEpoch(row[temporalFimCol]);
-            if (ms !== null) properties.temporalFim = ms;
+        if (temporalFimCol && applyTemporalColumn(properties, row, temporalFimCol, 'temporalFim')) {
+            temporalIssues.naoLidas++;
+        }
+
+        // An end BEFORE the start makes the visibility predicate unsatisfiable:
+        // the feature would be gone from the 3D, the 360 and the PDF legend for
+        // good. Same rule as the GeoJSON/KML reader — keep the start, drop the
+        // end, and let the raw text survive as an attribute so nothing is erased.
+        if (Number.isFinite(properties.temporalInicio) && Number.isFinite(properties.temporalFim)
+            && properties.temporalFim < properties.temporalInicio) {
+            delete properties.temporalFim;
+            if (temporalFimCol && !coordinateColumns.has(temporalFimCol)) {
+                properties[temporalFimCol] = row[temporalFimCol];
+            }
+            temporalIssues.invertidas++;
         }
 
         features.push({
@@ -114,5 +163,5 @@ export function csvToGeoJSON(config) {
         features,
     };
 
-    return { geoJSON, errors, skippedCount };
+    return { geoJSON, errors, skippedCount, temporalIssues };
 }

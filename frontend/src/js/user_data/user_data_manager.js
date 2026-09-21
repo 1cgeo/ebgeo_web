@@ -22,6 +22,11 @@ import {
 } from '@utils/image_utils.js';
 import { showWarning } from '@utils/toast_service.js';
 import { sanitizeHtml } from '@sidebar/panels/notes-panel.js';
+// By FILE, not through `@js/temporal` — the barrel there would drag the whole
+// module in. The file itself reaches only temporal.constants (no imports),
+// temporal.utils and temporal-model (which reaches geometry-utils, no imports),
+// so nothing new and nothing circular: `temporal/` never imports `user_data/`.
+import { TEMPORAL_SOURCE_KEYS } from '@js/temporal/temporal-import.js';
 
 /**
  * System properties that should NOT be extracted as user attributes during import.
@@ -90,11 +95,12 @@ const SYSTEM_PROPERTIES = new Set([
     // User data fields (to avoid recursion)
     'attributes', 'images',
 
-    // Temporal module — validity window, trajectory, and the import-source
-    // attribute names that map to them (kept out of user attributes).
-    'temporalInicio', 'temporalFim', 'temporalinicio', 'temporalfim',
-    'temporal_inicio', 'temporal_fim', 'trajetoria',
-    'begin', 'end', 'when', 'timespan', 'timestamp',
+    // Temporal module — the canonical fields and the containers the readers
+    // flatten. The import-SOURCE attribute names are added below, DERIVED from
+    // the importer, because a hand-copied excerpt knew 8 of the 26 names it was
+    // supposed to mirror: the other 18 columns became the validity window AND
+    // stayed on the feature as a duplicate user attribute.
+    'temporalInicio', 'temporalFim', 'trajetoria', 'timespan',
 
     // GeoJSON standard
     'type', 'geometry', 'properties', 'features', 'bbox',
@@ -102,6 +108,11 @@ const SYSTEM_PROPERTIES = new Set([
     // Mapbox/MapLibre internal
     'layer', 'state', 'extent', '_vectorTileFeature', '_pbf', '_geometry',
     '_keys', '_values', '_z', '_x', '_y',
+
+    // Every attribute name the temporal importer consumes into the validity
+    // window, DERIVED from `temporal/temporal-import.js` so the two lists cannot
+    // drift again. A name added there is reserved here in the same commit.
+    ...TEMPORAL_SOURCE_KEYS,
 ]);
 
 /**
@@ -530,15 +541,24 @@ const userDataManager = {
             // listed in SYSTEM_PROPERTIES (to avoid recursion on the object form),
             // so while the skip ran first this whole branch was unreachable and an
             // imported scalar named `attributes` was dropped without a trace.
-            if (key === 'attributes' && value !== null && value !== undefined
+            // Case-INSENSITIVE, like the system skip below it: were it not, an
+            // imported scalar named `Attributes` would now fall through to that
+            // skip and be dropped without a trace, which is the very loss this
+            // branch exists to prevent.
+            if (key.toLowerCase() === 'attributes' && value !== null && value !== undefined
                 && typeof value !== 'object') {
                 // Sanitize to prevent XSS from imported data
                 extracted['attributes_imported'] = sanitizeHtml(String(value));
                 continue;
             }
 
-            // Skip system properties
-            if (SYSTEM_PROPERTIES.has(key)) {
+            // Skip system properties, case-INSENSITIVELY. This lookup used to be
+            // case-sensitive while `validateAttributeKey` next door was not, so
+            // the two disagreed about the same name: a column spelled `Begin`,
+            // `INICIO` or `fillcolor` was consumed by its owner (the temporal
+            // reader, the style) AND kept as a duplicate user attribute that the
+            // person could then never create by hand.
+            if (SYSTEM_PROPERTIES_LOWER.has(key.toLowerCase())) {
                 continue;
             }
 

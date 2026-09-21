@@ -4,13 +4,13 @@ import * as toGeoJSON from '@tmcw/togeojson';
 import shp from 'shpjs';
 import { addFeatures, createLayerForImport, getLayers, getCurrentMapNameSync, getEventBus } from '@store';
 import { IDUtils } from '@utils/id_utils.js';
-import { showSuccess, showError } from '@utils/toast_service.js';
+import { showSuccess, showError, showWarning } from '@utils/toast_service.js';
 import { createTerrainSampler } from '@js/terrain';
 import { EventTypes } from '@events';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { userDataManager } from '@js/user_data';
 import { ensureTurf } from '@utils/turf-loader.js';
-import { extractTemporalProperties, buildTrajectoryFromGpxFeature, extractGpxTimes, sanitizeImportedTrajectory } from '@js/temporal/temporal-import.js';
+import { extractTemporalProperties, buildTrajectoryFromGpxFeature, extractGpxTimes, sanitizeImportedTrajectory, describeTemporalIssues } from '@js/temporal/temporal-import.js';
 
 /** Maps source type to Portuguese display name for imported features. */
 const TYPE_DISPLAY_NAMES = {
@@ -660,9 +660,12 @@ class AddImportControl {
      * @param {string} targetType - Target type (points, lines, polygons)
      * @param {Object} typeCounters - Counters by type
      * @param {string} layerId - Target layer ID
+     * @param {{invertidas?: number, naoLidas?: number}} [temporalReport] - Batch tally
+     *   the temporal reader increments in place (see `importGeoJSON`). Optional, so
+     *   a caller that only wants one prepared feature does not have to invent one.
      * @returns {Object} Prepared feature with complete properties
      */
-    async prepareFeatureForImportAsync(feature, targetType, typeCounters, layerId) {
+    async prepareFeatureForImportAsync(feature, targetType, typeCounters, layerId, temporalReport = null) {
         const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const featureName = this.generateImportName(targetType, typeCounters);
 
@@ -677,7 +680,7 @@ class AddImportControl {
         // nested begin/end here so extractTemporalProperties (which scans top-level
         // keys) catches them without weakening the shared helper.
         const temporalSource = this._flattenTemporalSource(feature.properties);
-        const temporal = extractTemporalProperties(temporalSource);
+        const temporal = extractTemporalProperties(temporalSource, temporalReport);
 
         const baseProperties = {
             ...this.getDefaultProperties(targetType),
@@ -825,6 +828,14 @@ class AddImportControl {
         const progressStep = prepareProgressStep(totalFeaturesToImport);
         let totalCount = 0;
 
+        // ONE tally per import, not per feature: the temporal reader degrades a
+        // row silently (an end before its start loses the end; a recognised
+        // column whose value no reader can parse is skipped), and a per-feature
+        // toast in a file of 4000 geometries is the same as no toast at all.
+        // It is incremented in place, down in prepareFeatureForImportAsync, and
+        // read once below.
+        const temporalReport = { naoLidas: 0, invertidas: 0 };
+
         try {
             let preparedCount = 0;
 
@@ -833,7 +844,8 @@ class AddImportControl {
                     feature,
                     targetType,
                     typeCounters,
-                    importLayerId
+                    importLayerId,
+                    temporalReport
                 );
                 featuresByType[targetType].push(preparedFeature);
                 preparedCount++;
@@ -865,6 +877,16 @@ class AddImportControl {
 
         if (totalCount > 0) {
             this.zoomToAllImportedFeatures(featuresByType);
+        }
+
+        // The batch is over, so the tally is final: say what was degraded, with
+        // the SAME sentences the CSV panel uses (one home, in the temporal
+        // module). It is emitted here and not in the caller because this method
+        // is the batch, and it has three entry points — the file picker plus two
+        // in the import sidebar tab — so a warning wired into one of them would
+        // be silent for the other two.
+        for (const message of describeTemporalIssues(temporalReport)) {
+            showWarning(message);
         }
 
         return totalCount;

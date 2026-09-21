@@ -8,13 +8,25 @@
  *
  * What this suite HOLDS:
  * - the boundary of the 50-character limit, applied AFTER trimming;
- * - the reserved-name check, now case-INSENSITIVE on both sides: it used to
+ * - the reserved-name check, case-INSENSITIVE on both sides: it used to
  *   lowercase the key and look it up in a set storing several names in camelCase,
  *   so `outlineColor` was refused while `fillColor` and `layerId` sailed through.
  *   The index is derived from the set, so the two cannot drift again;
- * - the import path, which still compares case-SENSITIVELY, so the two functions
- *   disagree about `fillcolor` in the SAFE direction only (the manual path refuses
- *   what the import keeps, never the reverse);
+ * - the import path, case-INSENSITIVE TOO since 2026-09-21 (achado I8 da auditoria
+ *   do sistema temporal). Five cases in this file used to be marked OBSERVADO and
+ *   pinned the opposite: the import walk compared with `SYSTEM_PROPERTIES.has(key)`
+ *   while the manual path compared against the derived lowercase index, so the
+ *   same word was reserved on one path and a plain attribute on the other. That
+ *   divergence was declared "safe" because it only ever let the import KEEP what
+ *   the manual path refused — but the keeping is the damage when the other owner
+ *   of the name is the temporal reader: a column spelled `Begin` or `INICIO`
+ *   became the validity window AND stayed on the feature as a duplicate user
+ *   attribute the person could edit with no effect on the timeline. The two paths
+ *   now agree, and the `attributes` collision branch was lowercased with them so a
+ *   scalar named `Attributes` is renamed rather than swallowed by the new skip;
+ * - what STILL diverges, and it is no longer about case: the import walk accepts
+ *   a key whose CHARACTERS `validateAttributeKey` refuses (`a.b`), so an imported
+ *   attribute can be one no user could have typed;
  * - the import value rules: `0` and `false` survive (as strings), `null` and
  *   `undefined` are dropped, nested objects are dropped, and a scalar property
  *   literally named `attributes` is renamed rather than lost;
@@ -285,13 +297,23 @@ describe('extractAttributesFromImport — dropped keys', () => {
         expect(out.attributes).toEqual({});
     });
 
-    it('OBSERVADO: the import comparison is case-SENSITIVE, so `fillcolor` is KEPT', () => {
-        // The exact inverse of validateAttributeKey, which lowercases first.
-        // The same word is reserved on one path and a plain attribute on the
-        // other, and the two are one file apart.
-        expect(extract({ fillcolor: '#fff' }).attributes).toEqual({ fillcolor: '[san]#fff' });
-        expect(extract({ FillColor: '#fff' }).attributes).toEqual({ FillColor: '[san]#fff' });
-        expect(extract({ ID: 'x' }).attributes).toEqual({ ID: '[san]x' });
+    it('CONSERTADO (I8, 2026-09-21): drops a system name in ANY casing', () => {
+        // This case used to be marked OBSERVADO and pin the inverse: the import
+        // walk compared `SYSTEM_PROPERTIES.has(key)` while validateAttributeKey
+        // compared against the derived lowercase index, so the same word was
+        // reserved on one path and a plain attribute on the other, one file apart.
+        expect(extract({ fillcolor: '#fff' }).attributes).toEqual({});
+        expect(extract({ FillColor: '#fff' }).attributes).toEqual({});
+        expect(extract({ FILLCOLOR: '#fff' }).attributes).toEqual({});
+        expect(extract({ ID: 'x' }).attributes).toEqual({});
+        expect(extract({ LayerId: 'x' }).attributes).toEqual({});
+    });
+
+    it('CONTROLE: the case-insensitive skip did not start eating neighbours', () => {
+        // The same row that loses `FillColor` keeps everything else, so the new
+        // lookup is a skip and not a walk that stopped early.
+        expect(extract({ FillColor: '#fff', vizinho: 'ok' }).attributes)
+            .toEqual({ vizinho: '[san]ok' });
     });
 
     it('drops keys starting with an underscore', () => {
@@ -398,9 +420,21 @@ describe('extractAttributesFromImport — a property literally named "attributes
         expect(extract({ attributes: { a: 1 } }).attributes).toEqual({});
     });
 
-    it('the differently-cased `Attributes` is kept, since the skip is case-sensitive', () => {
+    it('CONSERTADO (I8, 2026-09-21): the differently-cased `Attributes` is RENAMED, not kept', () => {
+        // It used to survive under its own name because the system skip below
+        // this branch was case-sensitive. Making that skip case-insensitive
+        // would have made `Attributes` fall INTO it and vanish without a trace —
+        // the very loss this branch exists to prevent — so the branch was
+        // lowercased in the same commit.
         expect(extract({ Attributes: 'texto' }).attributes)
-            .toEqual({ Attributes: '[san]texto' });
+            .toEqual({ attributes_imported: '[san]texto' });
+        expect(extract({ ATTRIBUTES: 0 }).attributes)
+            .toEqual({ attributes_imported: '[san]0' });
+    });
+
+    it('CONTROLE: a differently-cased NULLISH `attributes` is still dropped, not renamed', () => {
+        expect(extract({ Attributes: null }).attributes).toEqual({});
+        expect(extract({ Attributes: { a: 1 } }).attributes).toEqual({});
     });
 });
 
@@ -416,22 +450,48 @@ describe('the two policies disagree about the same word', () => {
         expect(validate('fillColor').valid).toBe(false);
     });
 
-    it('OBSERVADO: the import walk is still case-SENSITIVE, so `fillcolor` diverges the OTHER way', () => {
-        // What remains of the disagreement, and it is now the safe direction:
-        // the manual path refuses what the import keeps, never the reverse.
-        expect(extract({ fillcolor: '#fff' }).attributes).toEqual({ fillcolor: '[san]#fff' });
+    it('CONSERTADO (I8, 2026-09-21): `fillcolor` no longer diverges the OTHER way', () => {
+        // This used to be the leftover disagreement, excused as "the safe
+        // direction" because the import only ever KEPT what the manual path
+        // refused. Keeping is the damage when the other owner of the name is a
+        // reader that already consumed the column.
+        expect(extract({ fillcolor: '#fff' }).attributes).toEqual({});
         expect(validate('fillcolor').valid).toBe(false);
     });
 
-    it('`ID` is free on import and reserved on manual creation', () => {
-        expect(extract({ ID: 'x' }).attributes).toEqual({ ID: '[san]x' });
+    it('CONSERTADO (I8, 2026-09-21): `ID` is reserved on BOTH paths', () => {
+        expect(extract({ ID: 'x' }).attributes).toEqual({});
         expect(validate('ID').valid).toBe(false);
     });
 
-    it('OBSERVADO: an imported key can therefore be one no user could have typed', () => {
+    it('the two paths now agree on every system name, in every casing', () => {
+        // The property the pairwise cases above only sample. One name is
+        // EXCLUDED and the exclusion is the declared exception, not a hole:
+        // `attributes` is renamed to `attributes_imported` instead of dropped
+        // (its own describe block above pins that, in three casings), because
+        // dropping it is the data loss that branch exists to prevent.
+        const nomes = [...userDataManager.getSystemProperties()]
+            .filter((n) => n.toLowerCase() !== 'attributes');
+        expect(nomes.length).toBeGreaterThan(100);
+
+        for (const nome of nomes) {
+            for (const grafia of [nome, nome.toLowerCase(), nome.toUpperCase()]) {
+                expect(extract({ [grafia]: 'v' }).attributes, `import manteve "${grafia}"`)
+                    .toEqual({});
+                expect(validate(grafia).valid, `manual aceitou "${grafia}"`).toBe(false);
+            }
+        }
+    });
+
+    it('OBSERVADO: the divergence that REMAINS is about characters, not case', () => {
+        // `a.b` is not a reserved name; it is refused by the character regex of
+        // validateAttributeKey, which the import walk does not apply. So an
+        // imported attribute can still be one no user could have typed — and
+        // `ID`, which used to ride along in this same row, no longer does.
         const imported = extract({ 'a.b': 1, ID: 2 }).attributes;
-        expect(Object.keys(imported).sort()).toEqual(['ID', 'a.b']);
+        expect(Object.keys(imported)).toEqual(['a.b']);
         expect(validate('a.b').valid).toBe(false);
-        expect(validate('ID').valid).toBe(false);
+        expect(validate('a.b').reason).toBe('Chave contém caracteres inválidos');
+        expect(validate('ID').reason).toBe('Chave reservada pelo sistema');
     });
 });
