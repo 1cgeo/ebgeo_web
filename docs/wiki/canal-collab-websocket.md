@@ -70,7 +70,7 @@ Os applies inbound são **serializados numa cadeia de promessas** (`frontend/src
 ## Gates de visibilidade que o nome do frame não denuncia
 
 - **Comentário nunca chega a conexão `read`** (`skipReadOnly`, `backend/src/modules/collab/collab.rooms.js`). Lote misto é *dividido*, para que o `read` ainda receba as ops não-comentário (`broadcastOperations`, `backend/src/modules/collab/collab.rooms.js`). Ver [[comentario-espacial]].
-- **`selection` é gated a editores e acima**: `read` e `comment` têm o frame **descartado em silêncio, sem `error`** (`backend/src/modules/collab/collab.handlers.js`). `cursor` e `temporal` são livres. Comentarista e visualizador só recebem seleção alheia.
+- **`selection` é gated a editores e acima**: `read` e `comment` têm o frame **descartado em silêncio, sem `error`** (`backend/src/modules/collab/collab.handlers.js`). `cursor` é livre. Comentarista e visualizador só recebem seleção alheia.
 - Erros do WS são planos, diferente do envelope REST `{error:{code,message}}` de [[erros-api]], e desde 2026-08-28 eles carregam **`opIds` e `retryable`** (`frameDeErro`, `backend/src/modules/collab/collab.handlers.js`). Antes eram `{type, code, message}` sem referência ao lote, e com mais de um lote em voo o cliente não tinha como saber QUAIS ops falharam: a bancada mediu 750 ops em limbo numa rodada forçada de contenção. Os `opIds` são do próprio remetente e voltam só para ele. O `retryable` sai do `statusCode`, nunca do `code`, e o 503 do `lock_timeout` é a única falha deste caminho que vale re-tentar. **Inversão que vale registrar: o socket agora informa MAIS que o REST**, porque o 503 do REST continua sem veredito por op.
 
 ## Vivacidade: a marca não prova mais que o JavaScript da página roda
@@ -98,7 +98,7 @@ A compatibilidade **não** é retroativa, e a escolha foi deliberada: cliente an
 
 ## Backpressure: op durável nunca é descartada
 
-Medido por socket em `bufferedAmount` (`backend/src/modules/collab/collab.rooms.js`): acima de 1 MiB frames coalescáveis (`cursor`/`cursors`/`temporal`/`selection`) são descartados, porque o próximo frame os supera e o drop se auto-cura. Acima de 8 MiB o socket é `terminate()` **de propósito**, para que reconecte e recupere via `sync_request`. Op durável nunca é descartada em silêncio: isso divergiria o peer permanentemente, enquanto matar o socket é recuperável. O cliente replica a mesma política na saída (`_sendRaw`, `frontend/src/js/store/sync/ws-client.js`).
+Medido por socket em `bufferedAmount` (`backend/src/modules/collab/collab.rooms.js`): acima de 1 MiB frames coalescáveis (`cursor`/`cursors`/`selection`) são descartados, porque o próximo frame os supera e o drop se auto-cura. Acima de 8 MiB o socket é `terminate()` **de propósito**, para que reconecte e recupere via `sync_request`. Op durável nunca é descartada em silêncio: isso divergiria o peer permanentemente, enquanto matar o socket é recuperável. O cliente replica a mesma política na saída (`_sendRaw`, `frontend/src/js/store/sync/ws-client.js`).
 
 ## Sinais fora do log de operações
 
@@ -118,6 +118,6 @@ Se for implementar: `geometryPrecision` é sugestão de **transporte**, nunca tr
 - **Estado efêmero é single-instance.** Salas, presença e timers de `away` vivem na memória de um processo (`backend/src/modules/collab/collab.rooms.js`). Escalar horizontalmente exige sticky session ou pub/sub, não implementado. Ver [[deploy-backend]].
 - **Sem buffer de mensagens** para cliente desconectado: a recuperação é sempre por `sync_request`.
 - Lock de **mapa** é imposto pelo servidor; lock de camada, grupo e feição é advisory e depende do cliente. Ver [[sintese-limites-collab]].
-- Ao escrever um cliente novo: trate `idempotent: true` como sucesso no dequeue ([[ack-idempotencia]], [[idempotencia-e-convergence-guard]]); envelope e tipos em [[envelope-operacao]] e [[tipos-entidade-sync]]; o token é o mesmo JWT do REST ([[jwt-emissor-unico]]), exceto o `publicToken` efêmero de [[link-publico]], que desabilita o logging de operações para não orfanizar a fila (`frontend/src/js/store/sync/sync-engine.js`). Presença temporal em [[modulo-temporal]]. Divisão REST/WS em [[sintese-rest-vs-websocket]].
+- Ao escrever um cliente novo: trate `idempotent: true` como sucesso no dequeue ([[ack-idempotencia]], [[idempotencia-e-convergence-guard]]); envelope e tipos em [[envelope-operacao]] e [[tipos-entidade-sync]]; o token é o mesmo JWT do REST ([[jwt-emissor-unico]]), exceto o `publicToken` efêmero de [[link-publico]], que desabilita o logging de operações para não orfanizar a fila (`frontend/src/js/store/sync/sync-engine.js`). Divisão REST/WS em [[sintese-rest-vs-websocket]].
 
 Quais frames de presença o app **realmente** envia e assina se lê em `frontend/src/js/presence/presence-bridge.js`, que costuma ser menos do que o servidor aceita.

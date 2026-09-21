@@ -1,13 +1,19 @@
 // Path: tests/ws/collab-presence-payload-bound.repro.test.js
 //
-// Achado #9 — the presence payload (cursor / temporal / selection) was stored RAW on the
-// `ws` object (collab.handlers.js: `ws.temporalState = data.state`, `ws.cursorPosition =
-// data.position`, `ws.selectedFeatures = data.featureIds`) with no schema and no size
+// Achado #9 — the presence payload (cursor / selection) was stored RAW on the
+// `ws` object (collab.handlers.js: `ws.cursorPosition = data.position`,
+// `ws.selectedFeatures = data.featureIds`) with no schema and no size
 // ceiling, and `getRoomUsers` re-serializes it into the `connected` frame of EVERY new
 // join. A single socket could therefore retain up to the frame ceiling (10 MB,
 // COLLAB_MAX_PAYLOAD_BYTES) per slot and make every subsequent join cost that much
-// JSON.stringify. `cursor` and `temporal` have NO permission gate, so a read-only public
+// JSON.stringify. `cursor` has NO permission gate, so a read-only public
 // visitor reaches the vector.
+//
+// HAVIA UM TERCEIRO QUADRO NESTE ACHADO, o da linha do tempo, e ele era o pior vetor (blob
+// opaco, ungated, retido e re-serializado). Ele saiu INTEIRO em 2026-09-21, por decisão do dono:
+// o instante de uma pessoa não se propaga. Não há mais o que limitar ali, então os casos dele
+// saíram daqui e viraram a afirmação de ausência em
+// `tests/ws/presenca-temporal-removida.test.js`, que inclui o caso do visitante público.
 //
 // These tests pin (a) that no client can inflate the join snapshot, and (b) the
 // radius of effect: every payload the REAL frontend emits
@@ -25,15 +31,13 @@ import {
   createMap,
   createShare,
   loginUser,
-  makeAtlasPublic,
-  getPublicToken,
 } from '../helpers/fixtures.js';
 import { createWsClient } from '../helpers/ws-client.js';
 
 /**
  * Ceiling for the whole `connected` frame in the abuse tests. Measured from the real
- * client (frontend/src/js/presence/presence-bridge.js): a cursor frame is ~128 B, a
- * temporal frame ~141 B, and a selection frame ~115 B per selected feature. A snapshot
+ * client (frontend/src/js/presence/presence-bridge.js): a cursor frame is ~128 B and a
+ * selection frame ~115 B per selected feature. A snapshot
  * holding a handful of peers is therefore a few KB; 64 KB is two orders of magnitude of
  * headroom, and ~150x below the multi-MB blobs the abuse frames carry.
  */
@@ -123,22 +127,6 @@ describe('WebSocket collab — presence payload is validated and bounded (achado
   }
 
   // ---------------------------------------------------------------- abuse vectors
-
-  it('a public read-only visitor cannot inflate the join snapshot via `temporal`', async () => {
-    const { atlas } = await freshAtlas();
-    const publicLink = await makeAtlasPublic(db, atlas.id);
-    const publicToken = await getPublicToken(app, publicLink);
-
-    const visitor = await connect(atlas.id, publicToken, `visitor-${randomUUID().slice(0, 8)}`);
-    visitor.send({ type: 'temporal', state: HUGE, mapId: HUGE });
-    await settle(visitor);
-
-    const { bytes } = await snapshotOf(atlas.id, ownerToken);
-    assert.ok(
-      bytes < SNAPSHOT_CEILING_BYTES,
-      `join snapshot grew to ${bytes} bytes — a visitor's temporal blob is retained and re-serialized`
-    );
-  });
 
   it('a read-only viewer cannot inflate the join snapshot via `cursor`', async () => {
     const { atlas } = await freshAtlas();
@@ -264,7 +252,7 @@ describe('WebSocket collab — presence payload is validated and bounded (achado
     assert.deepEqual(cleared.featureIds, []);
   });
 
-  it('keeps real cursor and temporal frames intact (relay + snapshot)', async () => {
+  it('keeps real cursor frames intact (relay + snapshot)', async () => {
     const { atlas, map } = await freshAtlas();
 
     const v = await connect(atlas.id, viewerToken, `v5-${randomUUID().slice(0, 8)}`);
@@ -283,14 +271,6 @@ describe('WebSocket collab — presence payload is validated and bounded (achado
     assert.equal(noPos.position, null);
     assert.equal(noPos.mapId, map.name);
 
-    // Temporal presence: { cursor, label, playing } (broadcastTemporal).
-    peer.clearMessages();
-    const tState = { cursor: 1763647200000, label: 'D+3', playing: true };
-    v.send({ type: 'temporal', state: tState, mapId: map.name });
-    const tmp = await peer.waitForType('temporal');
-    assert.deepEqual(tmp.state, tState);
-    assert.equal(tmp.mapId, map.name);
-
     // Re-send a positioned cursor (the positionless map-switch frame above legitimately
     // clears the retained position) and check what a late joiner actually receives.
     v.send({ type: 'cursor', position: { lng: -43.20991234567891, lat: -22.90112345678912 }, mapId: map.name });
@@ -300,7 +280,6 @@ describe('WebSocket collab — presence payload is validated and bounded (achado
     const entry = connected.usersOnline.find((u) => u.id === viewer.id);
     assert.ok(entry, 'viewer missing from the join snapshot');
     assert.deepEqual(entry.cursorPosition, { lng: -43.20991234567891, lat: -22.90112345678912 });
-    assert.deepEqual(entry.temporalState, tState);
     assert.equal(entry.mapId, map.name);
   });
 
@@ -418,7 +397,7 @@ describe('WebSocket collab — presence payload is validated and bounded (achado
       // shape, não a regra que este teste existe para provar: `ws.selectionContext`
       // nunca era inicializado, então `JSON.stringify` removia a chave e o frame
       // `connected` mudava de FORMA conforme o par já ter emitido uma seleção ou não
-      // (os vizinhos `selectedFeatures` e `temporalState` já tinham default). Desde
+      // (o vizinho `selectedFeatures` já tinha default). Desde
       // 2026-07-25 o campo é inicializado a `null` em onConnection; a regra afirmada
       // aqui — read/comment não retêm seleção — é a mesma, agora com shape estável.
       // Shape completo do roster em tests/ws/collab-users-online-shape.test.js.

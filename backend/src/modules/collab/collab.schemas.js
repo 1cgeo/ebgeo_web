@@ -1,21 +1,25 @@
 // Path: src/modules/collab/collab.schemas.js
-// Joi schemas for the EPHEMERAL presence frames (cursor / temporal / selection).
+// Joi schemas for the EPHEMERAL presence frames (cursor / selection).
 //
 // Presence is in-memory awareness: it never reaches the sync/CRDT path or the database.
-// It is NOT free, though — `handleCursor`/`handleTemporal`/`handleSelection` RETAIN the
+// It is NOT free, though — `handleCursor`/`handleSelection` RETAIN the
 // payload on the `ws` object, `getRoomUsers` (collab.rooms.js) reads it back, and
 // `onConnection` (collab.gateway.js) re-serializes the whole roster into the `connected`
 // frame of EVERY new join. Retaining the raw client value therefore made one idle socket
 // able to hold up to the frame ceiling (10 MB) per slot and to tax every later join with
-// that much JSON.stringify — reachable by a read-only public visitor, since cursor and
-// temporal are deliberately ungated. These schemas normalize the frame BEFORE it is
+// that much JSON.stringify — reachable by a read-only public visitor, since the cursor
+// is deliberately ungated. These schemas normalize the frame BEFORE it is
 // retained, so what a socket holds (and what a joiner pays for) is bounded.
+//
+// HOUVE UM TERCEIRO SCHEMA AQUI, o do quadro da linha do tempo, e ele saiu em 2026-09-21 com o
+// quadro inteiro, por decisão do dono: o instante de uma pessoa não se propaga. Não o reponha
+// para "validar o que um cliente antigo manda" — quadro sem tratador nem retenção não precisa de
+// régua, e ter a régua de volta é o primeiro passo para alguém religar o resto.
 //
 // The bounds are sized from the payloads the real client actually emits
 // (frontend/src/js/presence/presence-bridge.js + frontend/src/js/store/sync/ws-client.js),
 // measured by serializing those exact shapes:
 //   - cursor   `{ position: {lng,lat}|null, mapId }`               →  ~128 bytes
-//   - temporal `{ state: {cursor,label,playing}, mapId }`          →  ~141 bytes
 //   - selection `{ surface, featureIds[], featureMeta[], mapId }`  →  ~115 bytes per feature
 // Scalars are TRUNCATED rather than rejected (a legitimate frame is never refused for a
 // long name); only the unbounded axes — the selection arrays — are hard-capped.
@@ -46,29 +50,6 @@ export const MAX_FEATURE_TYPE = 64;
  * project shipped with the app holds 25 features in total.
  */
 export const MAX_SELECTION_FEATURES = 5000;
-
-/**
- * Byte ceiling on the retained temporal `state` blob. The frontend documents it as an
- * opaque blob and currently sends `{ cursor, label, playing }` (~60 bytes serialized), so
- * unknown keys are PRESERVED (a newer client must not have its awareness silently
- * stripped) but the whole blob is bounded.
- */
-export const MAX_TEMPORAL_STATE_BYTES = 2048;
-
-/**
- * Joi rule: the value must serialize to at most `maxBytes` of JSON.
- * @param {number} maxBytes
- * @returns {(value: *, helpers: Object) => *}
- */
-function jsonSizeUnder(maxBytes) {
-  return (value, helpers) => {
-    const serialized = JSON.stringify(value);
-    if (serialized !== undefined && Buffer.byteLength(serialized) > maxBytes) {
-      return helpers.error('any.invalid');
-    }
-    return value;
-  };
-}
 
 /** Free-text scalar of a presence frame: bounded by truncation, never by rejection. */
 const presenceText = Joi.string().max(MAX_PRESENCE_TEXT).truncate().allow(null, '');
@@ -135,21 +116,6 @@ export const cursorPresenceSchema = Joi.object({
   mapId: presenceText,
   tilesetId: presenceText,
   photoName: presenceText,
-});
-
-/** `temporal` frame (caso E): opaque-but-bounded viewing state + active map. */
-export const temporalPresenceSchema = Joi.object({
-  state: Joi.object({
-    cursor: Joi.number().allow(null),
-    label: Joi.string().max(MAX_PRESENCE_TEXT).truncate().allow(null, ''),
-    playing: Joi.boolean(),
-  })
-    .unknown(true)
-    .custom(jsonSizeUnder(MAX_TEMPORAL_STATE_BYTES), 'temporal state size cap')
-    .allow(null)
-    .default(null)
-    .messages({ 'any.invalid': `"state" exceeds ${MAX_TEMPORAL_STATE_BYTES} bytes` }),
-  mapId: presenceText,
 });
 
 /** One `featureMeta` entry: the per-feature type a 2D peer uses to pick the highlight box. */

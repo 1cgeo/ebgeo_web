@@ -25,9 +25,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const GRACA_MS = 3000; // longa de propósito: o caso 'away' precisa da janela aberta
 
 // Campos congelados de CADA entrada do roster (o frontend indexa por eles).
+//
+// `temporalState` SAIU DESTA LISTA em 2026-09-21, com o quadro de presença que o alimentava
+// (decisão do dono: o instante da linha do tempo de uma pessoa não se propaga). Esta lista é
+// comparada por IGUALDADE ABSOLUTA logo abaixo, então repor a chave no servidor reprova aqui.
 const CAMPOS = [
   'clientId', 'cursorPosition', 'id', 'mapId', 'nome', 'nome_guerra', 'posto_graduacao',
-  'selectedFeatures', 'selectionContext', 'status', 'temporalState',
+  'selectedFeatures', 'selectionContext', 'status',
 ];
 
 describe('shape de usersOnline no frame `connected`', () => {

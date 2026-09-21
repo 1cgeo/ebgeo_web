@@ -9,11 +9,11 @@ import config from '../../config.js';
 const rooms = new Map(); // atlasId -> Set<WebSocket>
 
 // Backpressure thresholds (bytes of un-drained outbound buffer per socket). One slow client must
-// not back up the whole room. Coalescable presence frames (cursor/temporal/selection) are dropped
+// not back up the whole room. Coalescable presence frames (cursor/selection) are dropped
 // to a backed-up client — the next frame supersedes them, so the drop self-heals. A socket past the
 // hard ceiling is terminated so it reconnects and replays via sync_request; dropping a durable op
 // would silently diverge that peer instead.
-const COALESCABLE_TYPES = new Set(['cursor', 'cursors', 'temporal', 'selection']);
+const COALESCABLE_TYPES = new Set(['cursor', 'cursors', 'selection']);
 const BACKPRESSURE_DROP_BYTES = 1 << 20; // 1 MiB — drop coalescable presence frames
 const BACKPRESSURE_KILL_BYTES = 8 << 20; // 8 MiB — terminate a hopelessly backed-up socket
 
@@ -237,8 +237,10 @@ export function getRoomUsers(atlasId) {
         // Full selection context (surface 2d/3d/360 + scope) so a late-joiner can
         // render a peer's 3D/360 selection, not just the 2D featureIds.
         selectionContext: client.selectionContext,
-        // Caso E: temporal-presence state mirrors the cursor (in-memory, per-ws).
-        temporalState: client.temporalState,
+        // O INSTANTE DA LINHA DO TEMPO NÃO ENTRA NESTE RETRATO (dono, 2026-09-21): havia aqui
+        // uma chave que devolvia a quem entrasse depois o instante em que cada par estava, e o
+        // quadro que a alimentava saiu inteiro. A presença diz em que MAPA a pessoa está, não
+        // em que momento da linha do tempo ela olha.
         // Fase 8 (Tarefa 2): a client kept in the room during the away grace
         // window (abnormal close) is reported as `away`; live ones as `online`.
         status: client.away ? 'away' : 'online',

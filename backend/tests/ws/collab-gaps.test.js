@@ -329,10 +329,15 @@ describe('WebSocket Collaboration — gaps', () => {
   // (it never had a reader). The property is asserted, without depending on any table,
   // by tests/ws/collab-presenca-sem-banco.test.js.
 
-  // ── caso E + B-be2 ───────────────────────────────────────────────────────
+  // ── B-be2 ────────────────────────────────────────────────────────────────
   // Isolated atlas + users so no presence from earlier tests (e.g. an `away`
   // owner kept in the room during the grace window) bleeds into the snapshot.
-  describe('temporal presence (caso E) + selectedFeatures in snapshot (B-be2)', () => {
+  //
+  // O "CASO E" MORAVA AQUI e saiu em 2026-09-21, por decisão do dono: o instante da linha do
+  // tempo de uma pessoa não se propaga. Dois casos foram removidos (a retransmissão do quadro e
+  // a presença dele no retrato de quem entra depois). A AUSÊNCIA dos dois é afirmada por nome em
+  // `tests/ws/presenca-temporal-removida.test.js`, com piso de cursor.
+  describe('selectedFeatures in snapshot (B-be2)', () => {
     let tAtlas, tMap, tOwnerTok, tReaderTok, tOwner, tReader;
 
     before(async () => {
@@ -348,54 +353,25 @@ describe('WebSocket Collaboration — gaps', () => {
       );
     });
 
-    it('a temporal update is broadcast to peers and NOT echoed back to the sender', async () => {
-      const o = await createWsClient(server, tAtlas.id, tOwnerTok);
-      await o.waitForType('connected');
-      const r = await createWsClient(server, tAtlas.id, tReaderTok);
-      const connectedR = await r.waitForType('connected');
-
-      o.clearMessages();
-      r.clearMessages();
-
-      const state = { mode: 'play', t: 1718900000000, speed: 2 };
-      r.send({ type: 'temporal', state, mapId: tMap.id });
-
-      const temporal = await o.waitForType('temporal');
-      assert.equal(temporal.userId, connectedR.userId);
-      assert.deepEqual(temporal.state, state);
-      assert.equal(temporal.mapId, tMap.id);
-
-      // Not echoed back to the sender.
-      await sleep(200);
-      assert.equal(r.getMessagesOfType('temporal').length, 0, 'sender must not receive its own temporal');
-
-      o.close();
-      r.close();
-    });
-
-    it('temporalState AND selectedFeatures appear in a late-joiner snapshot (usersOnline)', async () => {
+    it('selectedFeatures appear in a late-joiner snapshot (usersOnline)', async () => {
       // A is the owner (editor): selection is editor-gated, so the publisher must be
       // a write-capable role for it to land in-memory and reach the snapshot. The
       // late-joiner B is the reader (a Visualizador still RECEIVES peers' selections).
       const a = await createWsClient(server, tAtlas.id, tOwnerTok);
       const connectedA = await a.waitForType('connected');
 
-      // A publishes temporal state and a selection (in-memory on its ws).
-      const state = { mode: 'pause', t: 1718900001234 };
+      // A publishes a selection (in-memory on its ws).
       const fid = randomUUID();
-      a.send({ type: 'temporal', state, mapId: tMap.id });
       a.send({ type: 'selection', featureIds: [fid], mapId: tMap.id });
       await sleep(150);
 
-      // Late-joiner B gets A in its join snapshot WITH both fields populated.
+      // Late-joiner B gets A in its join snapshot WITH the field populated.
       const b = await createWsClient(server, tAtlas.id, tReaderTok);
       const connectedB = await b.waitForType('connected');
 
       const peerA = connectedB.usersOnline.find((u) => u.id === connectedA.userId);
       assert.ok(peerA, 'B should see A in usersOnline');
-      assert.ok('temporalState' in peerA, 'snapshot entry exposes temporalState');
       assert.ok('selectedFeatures' in peerA, 'snapshot entry exposes selectedFeatures');
-      assert.deepEqual(peerA.temporalState, state);
       assert.deepEqual(peerA.selectedFeatures, [fid]);
 
       a.close();

@@ -2,7 +2,11 @@
 //
 // Regressão de `a358a6e`, que pôs `clientId` nos frames de ENTRADA/SAÍDA de presença
 // (`collab.rooms.js`, `collab.service.js`, `collab.gateway.js`) e não nos de
-// AWARENESS (`cursor`, `selection`, `temporal`, em `collab.handlers.js`).
+// AWARENESS (`cursor`, `selection`, em `collab.handlers.js`).
+//
+// HOUVE UM TERCEIRO quadro de awareness, o da linha do tempo, e ele saiu inteiro em 2026-09-21
+// por decisão do dono. O caso que afirmava o `clientId` dele saiu junto; a AUSÊNCIA do quadro é
+// afirmada em `tests/ws/presenca-temporal-removida.test.js`.
 //
 // Por que isso quebra o produto e não só o formato: o roster do frontend é KEYED por
 // `clientId` (`resolveKey` prefere `clientId` e só cai para `userId` quando ele falta).
@@ -69,8 +73,8 @@ describe('WS awareness — clientId no frame (regressão a358a6e)', () => {
       emissor.send(payload);
       // O cursor tem DOIS regimes no fio (relay imediato ou lote por sala, conforme
       // `WS_CURSOR_BATCH_MS`), e o que este arquivo prende nao e o formato: e que a chave do
-      // roster e a do awareness sao a MESMA. `waitForCursor` diz isso nos dois. Os outros
-      // frames de presenca (selection, temporal) nao sao agrupados e seguem por tipo.
+      // roster e a do awareness sao a MESMA. `waitForCursor` diz isso nos dois. O outro
+      // frame de presenca (selection) nao e agrupado e segue por tipo.
       return tipo === 'cursor'
         ? await receptor.waitForCursor()
         : await receptor.waitForType(tipo);
@@ -97,15 +101,6 @@ describe('WS awareness — clientId no frame (regressão a358a6e)', () => {
     const frame = await trocar(
       { type: 'selection', surface: '2d', featureIds: [randomUUID()], mapId: map.id },
       'selection'
-    );
-    assert.equal(frame.userId, owner.id);
-    assert.equal(frame.clientId, ownerClientId);
-  });
-
-  it('temporal carrega o clientId do emissor', async () => {
-    const frame = await trocar(
-      { type: 'temporal', state: { cursor: 1000 }, mapId: map.id },
-      'temporal'
     );
     assert.equal(frame.userId, owner.id);
     assert.equal(frame.clientId, ownerClientId);

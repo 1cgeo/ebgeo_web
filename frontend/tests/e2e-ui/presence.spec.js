@@ -43,7 +43,6 @@ function connectClient(page, cfg) {
 
         const cursors = [];
         const presence = [];
-        const temporal = [];
         const briefingEdit = [];
         const ws = new WsClient({
             apiClient: api,
@@ -54,14 +53,13 @@ function connectClient(page, cfg) {
         });
         ws.on('cursor', (msg) => cursors.push(msg));
         ws.on('presence', (msg) => presence.push(msg));
-        ws.on('temporal', (msg) => temporal.push(msg));
         ws.on('briefingEdit', (msg) => briefingEdit.push(msg));
 
         const connected = await ws.connect(atlasId);
 
         // Stash on window so subsequent page.evaluate calls can reach this client.
         window.__presence = {
-            api, ws, cursors, presence, temporal, briefingEdit,
+            api, ws, cursors, presence, briefingEdit,
             sessionUserId: connected.userId,
         };
 
@@ -101,7 +99,6 @@ function mountRoster(page) {
         // mirroring presence-bridge's inbound routing.
         const p = window.__presence;
         for (const c of p.cursors) presenceStore.setCursor(c);
-        for (const t of p.temporal) presenceStore.setTemporal(t);
         for (const b of p.briefingEdit) {
             // `clientId` travels through, like the bridge does. Dropping it here would key
             // the entry by userId and mint a second roster row for the same peer, which is
@@ -227,7 +224,7 @@ describeOrSkip('Presence/awareness (two real browser clients + real backend)', (
         await ctxB.close();
     });
 
-    test('awareness frames (current-map, temporal, briefing-edit, away) reach B and render in the roster DOM', async ({ browser }) => {
+    test('awareness frames (current-map, briefing-edit, away) reach B and render in the roster DOM', async ({ browser }) => {
         // 1. Seed ONE shared user (Node side: the account is born verified) + atlas + map.
         const owner = await createVerifiedUser({ prefix: 'presence', nome: 'Presence User' });
         const seedPage = await browser.newPage();
@@ -260,23 +257,25 @@ describeOrSkip('Presence/awareness (two real browser clients + real backend)', (
         const connA = await connectClient(pageA, { ...cfg, clientId: clientIdA });
         await connectClient(pageB, { ...cfg, clientId: `awz-B-${crypto.randomUUID().slice(0, 8)}` });
 
-        // 2. A broadcasts the full awareness set: active map (via cursor mapId),
-        //    a temporal instant, a briefing-edit start. The mapId carries the
-        //    active-map indicator (case C); the temporal frame carries case E.
+        // 2. A broadcasts the full awareness set: active map (via cursor mapId) and a
+        //    briefing-edit start. The mapId carries the active-map indicator (case C).
+        //
+        //    O INSTANTE DA LINHA DO TEMPO NÃO ESTÁ MAIS AQUI (dono, 2026-09-21): o quadro saiu
+        //    dos dois pacotes, e o transporte nem tem mais o método de envio. O conjunto de
+        //    consciência que viaja passou a ser mapa ativo, seleção, edição de briefing e
+        //    ausente/presente.
         await pageA.evaluate(({ mapName }) => {
             // The real bridge broadcasts the active map BY NAME (getCurrentMapNameSync) — the
             // app is name-keyed — so peers render a human label. Simulate that faithfully
-            // (the backend UUID is never what the cursor/temporal frames carry).
+            // (the backend UUID is never what the cursor frames carry).
             window.__presence.ws.sendCursor({ position: { lng: -43.2, lat: -22.9 }, mapId: mapName });
-            window.__presence.ws.sendTemporal({ cursor: 1700000000000, label: 'D+3', playing: false }, mapName);
             window.__presence.ws.sendBriefingEditStart('briefing-xyz');
         }, { mapName: seed.mapName });
 
-        // 3. B must receive the temporal + briefing-edit frames from A (poll async).
+        // 3. B must receive the cursor + briefing-edit frames from A (poll async).
         const received = await pageB.evaluate(async (senderUserId) => {
             const deadline = Date.now() + 4000;
             const ok = () =>
-                window.__presence.temporal.some((t) => t.userId === senderUserId && t.state && t.state.label === 'D+3') &&
                 window.__presence.briefingEdit.some((b) => b.type === 'briefing_edit_started' && b.briefingId === 'briefing-xyz') &&
                 window.__presence.cursors.some((c) => c.userId === senderUserId && c.mapId);
             while (Date.now() < deadline && !ok()) await new Promise((r) => setTimeout(r, 25));
@@ -289,8 +288,11 @@ describeOrSkip('Presence/awareness (two real browser clients + real backend)', (
         const roster = pageB.locator('#roster-under-test');
         // Case C — active-map indicator shows the seeded map name.
         await expect(roster.getByTestId('online-user-map')).toContainText('Mapa Tático');
-        // Case E — temporal instant ("em D+3").
-        await expect(roster.getByTestId('online-user-temporal')).toContainText('D+3');
+        // O INSTANTE DA LINHA DO TEMPO NÃO É DESENHADO: a lista não tem mais a linha "em D+3".
+        // A afirmação é de contagem zero, e ela só vale por causa do PISO acima e abaixo (mapa
+        // ativo e edição de briefing, na MESMA linha do roster): sem eles, o zero passaria
+        // idêntico com o roster vazio.
+        await expect(roster.getByTestId('online-user-temporal')).toHaveCount(0);
         // Case D — briefing-edit indicator.
         await expect(roster.getByTestId('online-user-briefing')).toContainText('editando briefing');
 

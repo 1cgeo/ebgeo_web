@@ -116,7 +116,7 @@ describe('PresenceStore', () => {
             expect(payloads[0].users).toHaveLength(1);
         });
 
-        it('ingests awareness state from the join snapshot (mapId/temporalState/selectedFeatures/status)', () => {
+        it('ingests awareness state from the join snapshot (mapId/selectedFeatures/status)', () => {
             // Snapshot items key on `id` + `nome` and carry awareness fields.
             store.setInitial([
                 {
@@ -126,7 +126,6 @@ describe('PresenceStore', () => {
                     mapId: 'm1',
                     cursorPosition: { lng: 10, lat: 20 },
                     status: 'away',
-                    temporalState: { cursor: 1000, label: 'D+2' },
                     selectedFeatures: ['f1', 'f2'],
                 },
             ]);
@@ -138,7 +137,6 @@ describe('PresenceStore', () => {
             expect(user.currentMap).toBe('m1');
             expect(user.cursor).toMatchObject({ lng: 10, lat: 20, mapId: 'm1' });
             expect(user.away).toBe(true);
-            expect(user.temporal).toEqual({ cursor: 1000, label: 'D+2' });
             // Legacy snapshot (selectedFeatures, no selectionContext) → 2D selection.
             expect(user.selection).toEqual({
                 surface: '2d', featureIds: ['f1', 'f2'], featureMeta: null,
@@ -151,7 +149,6 @@ describe('PresenceStore', () => {
             const user = store.getUsers()[0];
             expect(user.away).toBe(false);
             expect(user.currentMap).toBeNull();
-            expect(user.temporal).toBeNull();
             expect(user.selection).toBeNull();
             expect(user.cursor).toBeNull();
             expect(user.briefingEdit).toBeNull();
@@ -451,29 +448,30 @@ describe('PresenceStore', () => {
         });
     });
 
-    // ===== Case E — temporal presence =====
-    describe('setTemporal', () => {
-        it('stores the temporal state blob and emits PRESENCE_CHANGED', () => {
-            store.userJoined({ clientId: 'c1' });
-            emitSpy.mockClear();
+    // ===== O instante da linha do tempo SAIU do roster (dono, 2026-09-21) =====
+    describe('o instante da linha do tempo não é estado de presença', () => {
+        it('não há mutação para ele, e o retrato de entrada que o carregue é ignorado', () => {
+            // A superfície: o store não expõe mais mutação de instante temporal.
+            expect(store.setTemporal).toBeUndefined();
 
-            const tState = { cursor: 1000, label: 'D+3', playing: true };
-            store.setTemporal({ clientId: 'c1', state: tState, mapId: 'm1' });
-            expect(store.getUsers()[0].temporal).toEqual(tState);
-            expect(store.getUsers()[0].currentMap).toBe('m1');
-            expect(emitsFor(EventTypes.PRESENCE_CHANGED)).toHaveLength(1);
-        });
-
-        it('clears the temporal state when state is null', () => {
-            store.userJoined({ clientId: 'c1' });
-            store.setTemporal({ clientId: 'c1', state: { cursor: 1 } });
-            store.setTemporal({ clientId: 'c1', state: null });
-            expect(store.getUsers()[0].temporal).toBeNull();
-        });
-
-        it('ignores temporal messages with no usable id', () => {
-            store.setTemporal({ state: { cursor: 1 } });
-            expect(store.count()).toBe(0);
+            // E um servidor ANTIGO ainda pode mandar o campo no retrato de entrada. Ele não vira
+            // estado nenhum: a entrada nasce sem campo de instante, e os vizinhos do MESMO
+            // retrato (PISO) continuam sendo ingeridos, então a ausência é do campo removido e
+            // não de uma ingestão quebrada.
+            store.setInitial([
+                {
+                    id: 'u1',
+                    nome: 'Alice',
+                    mapId: 'm1',
+                    status: 'away',
+                    temporalState: { cursor: 1000, label: 'D+2' },
+                },
+            ]);
+            const user = store.getUsers()[0];
+            expect(user.temporal).toBeUndefined();
+            expect('temporal' in user).toBe(false);
+            expect(user.currentMap).toBe('m1');
+            expect(user.away).toBe(true);
         });
     });
 

@@ -6,6 +6,13 @@
  * Pins the inbound routing (WS 'connected'/'presence'/'cursor'/'selection' ->
  * presence store), the throttled outbound cursor broadcast on map 'mousemove',
  * idempotent start/stop, and teardown (map unbind + store clear).
+ *
+ * O "CASO E" SAIU EM 2026-09-21, por decisão do dono: o instante da linha do tempo de uma
+ * pessoa não se propaga. Este arquivo tinha um caso de entrada e um de saída para ele, e os
+ * dois foram removidos. O que ficou no lugar é a AUSÊNCIA afirmada: a ponte não registra
+ * manipulador para o quadro e não envia nada quando a linha do tempo anda. A varredura
+ * estrutural que impede a volta do símbolo está em
+ * `tests/unit/presenca-temporal-nao-volta.test.js`.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -23,12 +30,13 @@ const {
     presenceStoreMock,
     eventBusMock,
     stateManagerMock,
-    temporalControlMock,
-    getControlMock,
     getCurrentMapNameSyncMock,
 } = vi.hoisted(() => {
     /** Single-handler-per-event registry, mirroring ws-client.on(). */
     const handlers = {};
+    // OS DUPLOS NÃO TÊM O MÉTODO DO QUADRO DE LINHA DO TEMPO, e essa ausência é metade do
+    // guarda: religar o envio na ponte não falha uma asserção, LANÇA aqui dentro (chamar
+    // `undefined`), que é o vermelho mais barato de ler.
     const ws = {
         on: vi.fn((event, handler) => {
             handlers[event] = handler;
@@ -37,7 +45,6 @@ const {
         isConnected: vi.fn(() => true),
         sendCursor: vi.fn(),
         sendSelection: vi.fn(),
-        sendTemporal: vi.fn(),
         sendBriefingEditStart: vi.fn(),
         sendBriefingEditEnd: vi.fn(),
     };
@@ -49,7 +56,6 @@ const {
         userBack: vi.fn(),
         setCursor: vi.fn(),
         setSelection: vi.fn(),
-        setTemporal: vi.fn(),
         setBriefingEdit: vi.fn(),
         setCurrentMap: vi.fn(),
         clear: vi.fn(),
@@ -84,12 +90,6 @@ const {
         },
     };
 
-    const temporalControl = {
-        isPlaying: vi.fn(() => false),
-        getTimeContext: vi.fn(() => ({ modo: 'relativo', origem: 0, unidade: 'DIA' })),
-    };
-    const getControl = vi.fn((name) => (name === 'TemporalControl' ? temporalControl : null));
-
     const getMapName = vi.fn(() => 'mapa-1');
     return {
         wsHandlers: handlers,
@@ -98,23 +98,20 @@ const {
         presenceStoreMock: store,
         eventBusMock: bus,
         stateManagerMock: stateManager,
-        temporalControlMock: temporalControl,
-        getControlMock: getControl,
         getCurrentMapNameSyncMock: getMapName,
     };
 });
 
 vi.mock('@store/sync/ws-client.js', () => ({ wsClient: wsClientMock }));
 vi.mock('@js/presence/presence-store.js', () => ({ presenceStore: presenceStoreMock }));
+// O duplo de `@store` NÃO expõe `getControl`, e isso é deliberado: era por ele que a ponte
+// alcançava o controlador da linha do tempo para montar o rótulo do par. Reintroduzir aquele
+// import faz o vitest recusar o módulo ("No getControl export is defined on the mock").
 vi.mock('@store', () => ({
     getCurrentMapNameSync: getCurrentMapNameSyncMock,
     getStateManager: () => stateManagerMock,
-    getControl: getControlMock,
 }));
 vi.mock('@store/services.js', () => ({ getEventBus: () => eventBusMock }));
-vi.mock('@js/temporal/temporal.utils.js', () => ({
-    formatTimelineLabel: (cursor) => `D+${cursor}`,
-}));
 
 /** Fire a bus event registered via getEventBus().on(event, ...). */
 function fireBus(event, payload) {
@@ -162,7 +159,6 @@ function resetMocks() {
     wsClientMock.isConnected.mockReturnValue(true);
     wsClientMock.sendCursor.mockClear();
     wsClientMock.sendSelection.mockClear();
-    wsClientMock.sendTemporal.mockClear();
     wsClientMock.sendBriefingEditStart.mockClear();
     wsClientMock.sendBriefingEditEnd.mockClear();
     for (const fn of Object.values(presenceStoreMock)) fn.mockClear();
@@ -172,9 +168,6 @@ function resetMocks() {
     stateManagerMock.subscribe.mockClear();
     stateManagerMock.getSelectedFeatures.mockClear();
     stateManagerMock._selected = [];
-    temporalControlMock.isPlaying.mockClear();
-    temporalControlMock.getTimeContext.mockClear();
-    getControlMock.mockClear();
     getCurrentMapNameSyncMock.mockClear();
     getCurrentMapNameSyncMock.mockReturnValue('mapa-1');
 }
@@ -203,13 +196,21 @@ describe('presence-bridge', () => {
             startPresence({ map });
         });
 
-        it('registers handlers for connected/presence/cursor/selection/temporal/briefingEdit', () => {
+        it('registers handlers for connected/presence/cursor/selection/briefingEdit', () => {
             expect(wsHandlers.connected).toBeTypeOf('function');
             expect(wsHandlers.presence).toBeTypeOf('function');
             expect(wsHandlers.cursor).toBeTypeOf('function');
             expect(wsHandlers.selection).toBeTypeOf('function');
-            expect(wsHandlers.temporal).toBeTypeOf('function');
             expect(wsHandlers.briefingEdit).toBeTypeOf('function');
+        });
+
+        it('NÃO registra manipulador para o quadro da linha do tempo (dono, 2026-09-21)', () => {
+            // O quadro deixou de existir nos dois pacotes. Um SERVIDOR antigo ainda pode mandá-lo,
+            // e sem manipulador registrado ele morre no cliente sem tocar a lista de quem está
+            // online. O piso ao lado prova que a varredura olha o registro certo: o vizinho
+            // `selection`, que continua vivo, está lá.
+            expect(wsHandlers.temporal).toBeUndefined();
+            expect(wsHandlers.selection).toBeTypeOf('function');
         });
 
         it("routes 'connected' to presenceStore.setInitial with usersOnline", () => {
@@ -255,12 +256,6 @@ describe('presence-bridge', () => {
             expect(presenceStoreMock.setSelection).toHaveBeenCalledWith(msg);
         });
 
-        it("routes 'temporal' to presenceStore.setTemporal (case E inbound)", () => {
-            const msg = { userId: 'u1', state: { cursor: 5, label: 'D+5' }, mapId: 'm1' };
-            wsHandlers.temporal(msg);
-            expect(presenceStoreMock.setTemporal).toHaveBeenCalledWith(msg);
-        });
-
         it("routes 'briefingEdit' started/ended to presenceStore.setBriefingEdit (case D inbound)", () => {
             wsHandlers.briefingEdit({ type: 'briefing_edit_started', userId: 'u1', userName: 'Alice', briefingId: 'b1' });
             expect(presenceStoreMock.setBriefingEdit).toHaveBeenLastCalledWith(
@@ -274,7 +269,7 @@ describe('presence-bridge', () => {
         });
     });
 
-    // ===== Outbound awareness (cases C/E/D/F) =====
+    // ===== Outbound awareness (cases C/D/F) =====
     describe('outbound awareness — bus + state triggers', () => {
         beforeEach(() => {
             startPresence({ map });
@@ -285,13 +280,20 @@ describe('presence-bridge', () => {
             expect(wsClientMock.sendCursor).toHaveBeenCalledWith({ position: null, mapId: 'mapa-1', surface: '2d' });
         });
 
-        it('case E: sends temporal state (cursor + derived label + playing) on TEMPORAL_CURSOR_CHANGED', () => {
-            temporalControlMock.isPlaying.mockReturnValue(true);
+        it('O INSTANTE DA LINHA DO TEMPO NÃO VIAJA, e a ponte nem assina o evento (dono, 2026-09-21)', () => {
+            // A ponte não tem assinante de TEMPORAL_CURSOR_CHANGED, então disparar o evento (e
+            // deixar toda janela de estrangulamento fechar) não produz envio nenhum. Se alguém
+            // religar o envio, o duplo do socket não tem o método e a chamada LANÇA aqui.
+            expect(busHandlers.__bus?.[EventTypes.TEMPORAL_CURSOR_CHANGED]?.size ?? 0).toBe(0);
             fireBus(EventTypes.TEMPORAL_CURSOR_CHANGED, { cursor: 3 });
-            expect(wsClientMock.sendTemporal).toHaveBeenCalledWith(
-                { cursor: 3, label: 'D+3', playing: true },
-                'mapa-1',
-            );
+            vi.advanceTimersByTime(200);
+            expect(wsClientMock.sendCursor).not.toHaveBeenCalled();
+            expect(wsClientMock.sendSelection).not.toHaveBeenCalled();
+
+            // PISO: o MESMO barramento continua carregando o caso C, então a ausência acima é do
+            // quadro removido e não de um barramento morto neste teste.
+            fireBus(EventTypes.MAP_LOCK_CHANGED, { mapName: 'mapa-1', locked: false });
+            expect(wsClientMock.sendCursor).toHaveBeenCalledWith({ position: null, mapId: 'mapa-1', surface: '2d' });
         });
 
         it('case D: forwards briefing edit start/end to the ws client', () => {
@@ -327,13 +329,11 @@ describe('presence-bridge', () => {
         it('does not send awareness frames while the socket is disconnected', () => {
             wsClientMock.isConnected.mockReturnValue(false);
             fireBus(EventTypes.MAP_LOCK_CHANGED, { mapName: 'mapa-1' });
-            fireBus(EventTypes.TEMPORAL_CURSOR_CHANGED, { cursor: 3 });
             fireBus(EventTypes.BRIEFING_EDIT_STARTED, { briefingId: 'b1' });
             stateManagerMock._selected = [{ type: 'point', id: 'f1' }];
             stateManagerMock._fireSelection();
 
             expect(wsClientMock.sendCursor).not.toHaveBeenCalled();
-            expect(wsClientMock.sendTemporal).not.toHaveBeenCalled();
             expect(wsClientMock.sendBriefingEditStart).not.toHaveBeenCalled();
             expect(wsClientMock.sendSelection).not.toHaveBeenCalled();
         });

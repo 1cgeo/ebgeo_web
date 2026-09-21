@@ -227,7 +227,7 @@ describe('WsClient — outbound', () => {
     });
 });
 
-describe('WsClient — presence/awareness outbound (cases C/E/F/D)', () => {
+describe('WsClient — presence/awareness outbound (cases C/F/D)', () => {
     /** @type {ReturnType<typeof setup>['ws']} */
     let ws;
     /** @type {FakeSocket} */
@@ -253,10 +253,13 @@ describe('WsClient — presence/awareness outbound (cases C/E/F/D)', () => {
         expect(sock.last).toEqual({ type: 'selection', featureIds: ['f1', 'f2'], mapId: 'm1' });
     });
 
-    it('sendTemporal emits a temporal frame with state + mapId (case E)', () => {
-        const stateBlob = { cursor: 3, label: 'D+3', playing: true };
-        expect(ws.sendTemporal(stateBlob, 'm1')).toBe(true);
-        expect(sock.last).toEqual({ type: 'temporal', state: stateBlob, mapId: 'm1' });
+    it('NÃO EXISTE ENVIO DE ESTADO DA LINHA DO TEMPO (dono, 2026-09-21)', () => {
+        // O transporte tinha um `sendTemporal` que montava `{ type: 'temporal', state, mapId }`.
+        // Ele saiu com o quadro inteiro. O PISO ao lado (a seleção, que continua viajando) prova
+        // que a ausência é deste método e não do duplo de socket.
+        expect(ws.sendTemporal).toBeUndefined();
+        expect(ws.sendSelection({ featureIds: ['f1'], mapId: 'm1' })).toBe(true);
+        expect(sock.last.type).toBe('selection');
     });
 
     it('sendBriefingEditStart/End emit briefing_edit_start/end frames (case D)', () => {
@@ -268,13 +271,13 @@ describe('WsClient — presence/awareness outbound (cases C/E/F/D)', () => {
 
     it('returns false for awareness sends when not connected', () => {
         const { ws: ws2 } = setup();
-        expect(ws2.sendTemporal({ cursor: 1 }, 'm1')).toBe(false);
+        expect(ws2.sendSelection({ featureIds: ['f1'], mapId: 'm1' })).toBe(false);
         expect(ws2.sendBriefingEditStart('b1')).toBe(false);
         expect(ws2.sendBriefingEditEnd('b1')).toBe(false);
     });
 });
 
-describe('WsClient — presence/awareness inbound routing (cases E/D)', () => {
+describe('WsClient — presence/awareness inbound routing (case D)', () => {
     let ctx, sock;
     beforeEach(async () => {
         ctx = setup();
@@ -284,12 +287,21 @@ describe('WsClient — presence/awareness inbound routing (cases E/D)', () => {
         await p;
     });
 
-    it("routes inbound 'temporal' frames to the temporal handler (case E)", () => {
+    it('um quadro de linha do tempo de SERVIDOR ANTIGO é ignorado em silêncio', () => {
+        // O cliente novo não tem rota para ele: cai no `default`, que só registra o tipo
+        // desconhecido. Nenhum manipulador é chamado e nada estoura. O PISO é o vizinho
+        // `selection`, emitido pelo MESMO socket logo em seguida: se o roteamento estivesse
+        // morto, ele também não chegaria, e a asserção de silêncio acima não valeria nada.
         const onTemporal = vi.fn();
+        const onSelection = vi.fn();
         ctx.ws.on('temporal', onTemporal);
-        const msg = { type: 'temporal', userId: 'u2', state: { cursor: 7, label: 'D+7' }, mapId: 'm1' };
-        sock.emit(msg);
-        expect(onTemporal).toHaveBeenCalledWith(expect.objectContaining(msg));
+        ctx.ws.on('selection', onSelection);
+
+        sock.emit({ type: 'temporal', userId: 'u2', state: { cursor: 7, label: 'D+7' }, mapId: 'm1' });
+        expect(onTemporal).not.toHaveBeenCalled();
+
+        sock.emit({ type: 'selection', userId: 'u2', featureIds: ['f1'], mapId: 'm1' });
+        expect(onSelection).toHaveBeenCalledTimes(1);
     });
 
     it("routes briefing_edit_started/ended to the briefingEdit handler (case D)", () => {

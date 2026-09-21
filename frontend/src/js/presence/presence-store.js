@@ -37,7 +37,6 @@ import { EventTypes } from '@events/event_types.js';
  *   tilesetId: string|null, photoName: string|null }|null} selection
  * @property {boolean} away
  * @property {string|null} currentMap - Id of the map the user is currently viewing.
- * @property {*} temporal - Peer's temporal viewing state (cursor/playing/ctx), or null.
  * @property {{ briefingId: string, userName: (string|null) }|null} briefingEdit -
  *   The briefing this user is editing, or null when not editing.
  */
@@ -158,11 +157,16 @@ function normalizeSelection(featureIds, mapId, extra) {
  * Normalizes a raw user descriptor into a complete PresenceUser, preserving
  * any awareness state already held under the same key.
  *
- * Awareness fields (currentMap/cursor/selection/temporal/away) are seeded from
+ * Awareness fields (currentMap/cursor/selection/away) are seeded from
  * the raw descriptor only when it actually carries them — this lets the join
- * snapshot ingest `{ mapId, cursorPosition, temporalState, selectedFeatures,
- * status }` while a plain `user_joined`/`setCursor` re-key preserves existing
- * awareness instead of wiping it.
+ * snapshot ingest `{ mapId, cursorPosition, selectedFeatures, status }` while a
+ * plain `user_joined`/`setCursor` re-key preserves existing awareness instead of
+ * wiping it.
+ *
+ * O INSTANTE DA LINHA DO TEMPO NÃO ESTÁ NESTA LISTA, e a ausência é decisão do dono
+ * (2026-09-21): o retrato de entrada já trouxe o instante de cada par, e o roster guardava um
+ * campo por pessoa para desenhá-lo. Os dois saíram junto com o quadro de presença que os
+ * alimentava, nos dois pacotes.
  * @param {Object} raw
  * @param {PresenceUser} [existing]
  * @returns {PresenceUser}
@@ -184,7 +188,6 @@ function normalizeUser(raw, existing) {
     // the existing awareness state untouched.
     const hasCursor = raw.cursorPosition !== undefined;
     const hasSelection = raw.selectedFeatures !== undefined || raw.selectionContext !== undefined;
-    const hasTemporal = raw.temporalState !== undefined;
     const hasStatus = raw.status !== undefined;
 
     return {
@@ -210,7 +213,6 @@ function normalizeUser(raw, existing) {
             : (existing?.selection ?? null),
         away: hasStatus ? raw.status === 'away' : (existing?.away ?? false),
         currentMap,
-        temporal: hasTemporal ? (raw.temporalState ?? null) : (existing?.temporal ?? null),
         briefingEdit: existing?.briefingEdit ?? null,
     };
 }
@@ -350,7 +352,7 @@ export class PresenceStore {
 
     /**
      * Updates a user's active-map indicator (case C). Normally piggybacked on
-     * cursor/selection/temporal frames, but exposed as a mutation so the bridge
+     * cursor/selection frames, but exposed as a mutation so the bridge
      * can route an explicit map-switch frame.
      * @param {{ userId?: string, clientId?: string, mapId?: string }} msg
      */
@@ -368,28 +370,6 @@ export class PresenceStore {
         if (changed) {
             this._emitUsers();
         }
-    }
-
-    /**
-     * Updates a user's temporal viewing state (case E). The timeline is local
-     * per user (cursor/playback), so this is pure awareness — the `state` blob is
-     * stored opaquely and rendered by the roster.
-     * @param {{ userId?: string, clientId?: string, state?: *, mapId?: string }} msg
-     */
-    setTemporal(msg) {
-        if (!msg || typeof msg !== 'object') {
-            return;
-        }
-        const key = resolveKey(msg);
-        if (!key) {
-            return;
-        }
-        const user = this._users.get(key) ?? normalizeUser(msg);
-        user.temporal = msg.state ?? null;
-        // Temporal frames carry the active map too.
-        this._applyCurrentMap(user, msg.mapId);
-        this._users.set(key, user);
-        this._emitUsers();
     }
 
     /**

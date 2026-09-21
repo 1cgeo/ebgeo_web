@@ -9,7 +9,6 @@ import { VALIDATION_OPTIONS } from '../../middleware/validate.js';
 import { PERMISSION_LEVELS } from '../../middleware/permissions.js';
 import {
   cursorPresenceSchema,
-  temporalPresenceSchema,
   selectionPresenceSchema,
   validatePresenceFrame,
 } from './collab.schemas.js';
@@ -67,7 +66,7 @@ function validateOps(ws, ops) {
 }
 
 /**
- * Validates an EPHEMERAL presence frame (cursor/temporal/selection) and returns the
+ * Validates an EPHEMERAL presence frame (cursor/selection) and returns the
  * normalized value, or null after answering with a VALIDATION_ERROR.
  *
  * Presence is retained on the socket and re-serialized into the `connected` snapshot of
@@ -203,25 +202,14 @@ export function handleCursor(ws, data) {
   }, ws);
 }
 
-/**
- * Handles temporal-presence updates (caso E). Mirrors handleCursor: live state is
- * kept in-memory on the ws object and broadcast to peers (sender excluded).
- */
-export function handleTemporal(ws, data) {
-  const value = normalizePresence(ws, temporalPresenceSchema, data);
-  if (!value) return;
-
-  ws.temporalState = value.state;
-  if (value.mapId !== undefined) ws.currentMapId = value.mapId;
-
-  broadcastToRoom(ws.atlasId, {
-    clientId: ws.clientId ?? null, // veja o porquê em handleCursor
-    type: 'temporal',
-    userId: ws.userId,
-    state: value.state,
-    mapId: value.mapId,
-  }, ws);
-}
+// NÃO EXISTE MAIS TRATADOR DO QUADRO DE LINHA DO TEMPO, e a ausência é decisão do dono
+// (2026-09-21). Havia aqui um "caso E" que retinha o instante do emissor no socket e o
+// retransmitia à sala, e `getRoomUsers` o entregava a quem entrasse depois. A presença passou a
+// dizer só se a pessoa está no mapa; o instante é visualização de cada um, como já eram o ligar e
+// desligar, a reprodução e a velocidade desde 2026-09-20. Um cliente ANTIGO ainda manda o quadro,
+// e ele cai no `default` do roteamento do gateway: registrado como tipo desconhecido, sem erro ao
+// remetente, sem retransmissão e sem derrubar o socket. Não reponha um tratador para "não perder
+// o quadro": o ponto é justamente não ter para onde levá-lo.
 
 /**
  * Handles feature selection updates (live presence awareness, across the 2D map,
@@ -229,7 +217,7 @@ export function handleTemporal(ws, data) {
  *
  * Gated to editors-and-above: owner / manage / write broadcast their selection.
  * A Comentarista (`comment`) or Visualizador (`read`) only RECEIVES peers'
- * selections — it never emits its own. (Cursor/temporal stay ungated; selection
+ * selections — it never emits its own. (The cursor stays ungated; selection
  * is intentionally stricter, per product decision.) Selection is ephemeral: the
  * context is held in-memory on the ws object for the join snapshot and never
  * persisted.
@@ -435,7 +423,7 @@ export function handleBriefingEditStart(ws, data) {
     // por extenso em `handleCursor`: o roster é CHAVEADO por clientId, então um frame que só
     // carrega userId não atualiza a entrada existente, ele CRIA UMA SEGUNDA. Quem editava um
     // briefing aparecia duas vezes na lista de quem está online, uma com nome e outra com o
-    // UUID cru. Cursor e temporal foram corrigidos; estes dois ficaram para trás, e só um
+    // UUID cru. Cursor e seleção foram corrigidos; estes dois ficaram para trás, e só um
     // teste que CONTA as linhas do roster pegaria isso (contar era o que faltava).
     clientId: ws.clientId ?? null,
     type: 'briefing_edit_started',

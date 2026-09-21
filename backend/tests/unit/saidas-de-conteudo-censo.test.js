@@ -552,7 +552,7 @@ const CENSO_ENVIO_WS = [
 
 const RELAY = "Relay de operação de sync: carrega documento de entidade escrito por um cliente e reenviado à sala inteira, visitante anônimo de link público incluído. Atravessa o embrulho de `ws.send`, e o lote é podado como OBJETO antes do fan-out para não pagar a varredura por destinatário.";
 const SNAPSHOT = "Resposta de `sync_request`: snapshot inteiro do atlas ou trecho do log. É o único frame que carrega definição AUTORIZADA, por isso é entregue ao `send` como OBJETO — a autorização é por identidade e não sobrevive a um `JSON.stringify` feito antes da fronteira.";
-const PRESENCA = "Frame de presença/consciência: identidade, cursor, seleção, janela temporal, entrada e saída de par. Não carrega documento de entidade.";
+const PRESENCA = "Frame de presença/consciência: identidade, cursor, seleção, entrada e saída de par. Não carrega documento de entidade.";
 const CONTROLE = "Frame de controle do protocolo (handshake, keepalive, ack, erro, ajuste adaptativo). Carrega id, versão e texto de erro, nunca payload de entidade.";
 const AVISO = "Aviso de mudança no ATLAS emitido por rota HTTP: o cliente reage buscando o dado novo. Carrega id, e no caso de `atlas_updated` a linha de `atlas` (schema fechado, sem coluna livre) e as `settings` (schema declarado, `stripUnknown`). Nenhum carrega documento de mapa.";
 
@@ -577,7 +577,10 @@ const CENSO_TIPO_WS = [
   // atravessa. Ver a decisao de 2026-08-28.
   { tipo: 'cursors', classe: M_SEM_ENTIDADE, motivo: PRESENCA },
   { tipo: 'selection', classe: M_SEM_ENTIDADE, motivo: PRESENCA },
-  { tipo: 'temporal', classe: M_SEM_ENTIDADE, motivo: PRESENCA },
+  // HOUVE UM `temporal` AQUI, e ele saiu em 2026-09-21 com o quadro inteiro (o instante da linha
+  // do tempo de uma pessoa não se propaga). A entrada saiu junto de propósito: o censo cobra que
+  // todo tipo EMITIDO esteja classificado, então religar a emissão sem reclassificá-la reprova
+  // neste arquivo, que é uma rede a mais sobre a remoção.
   { tipo: 'user_joined', classe: M_SEM_ENTIDADE, motivo: PRESENCA },
   { tipo: 'user_left', classe: M_SEM_ENTIDADE, motivo: PRESENCA },
   { tipo: 'user_away', classe: M_SEM_ENTIDADE, motivo: PRESENCA },

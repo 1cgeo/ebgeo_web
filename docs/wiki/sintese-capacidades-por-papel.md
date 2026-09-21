@@ -14,7 +14,7 @@ Gateie UI por `role`. Gatear por `permission` é o bug clássico, porque `manage
 
 A rota de push exige `comment`, não `write` (`backend/src/modules/sync/sync.routes.js`). Quem gatear o cliente em `write` para todo push quebra o Comentarista silenciosamente. O filtro fino é por operação: `permission === 'comment' && op.target !== 'comment'` lança `ForbiddenError` (`assertOperationAllowed`, `backend/src/modules/sync/sync.service.js`). Ou seja, o Comentarista **passa pela rota** e é barrado por op. Não confunda "não pode push" com "não pode falar". Ver [[comentario-espacial]] e [[fila-operacoes-outbound]].
 
-Assimetria irmã, na presença: **broadcast da própria seleção é editor-and-above**. Visualizador e Comentarista **recebem** seleção de terceiros e nunca emitem a sua (`handleSelection`, `backend/src/modules/collab/collab.handlers.js`). Cursor e estado temporal ficam ungated de propósito, então "recebe presença" não implica "emite presença". Ver [[presenca-colaborativa]].
+Assimetria irmã, na presença: **broadcast da própria seleção é editor-and-above**. Visualizador e Comentarista **recebem** seleção de terceiros e nunca emitem a sua (`handleSelection`, `backend/src/modules/collab/collab.handlers.js`). O cursor fica ungated de propósito, então "recebe presença" não implica "emite presença". Ver [[presenca-colaborativa]].
 
 Dentro do comentário há um segundo gate, de **autoria**, invisível fora do SQL: update e delete só passam com `($isEditor OR author_id = $userId)` (`applyCommentOp`, `backend/src/modules/sync/sync.service.js`). O delete de raiz cascateia para as respostas **independentemente do autor delas**: apagar a thread apaga a thread.
 

@@ -620,10 +620,9 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
   // Inicializado explicitamente porque `getRoomUsers` o serializa em TODA entrada do
   // roster: sem isto o valor era `undefined`, e `JSON.stringify` remove a chave — o
   // frame `connected` mudava de SHAPE conforme o par já ter emitido uma seleção ou
-  // não. Os vizinhos (`selectedFeatures`, `temporalState`) já tinham default; este
-  // faltava, e um contrato congelado que só às vezes traz o campo não está congelado.
+  // não. O vizinho `selectedFeatures` já tinha default; este faltava, e um contrato
+  // congelado que só às vezes traz o campo não está congelado.
   ws.selectionContext = null;
-  ws.temporalState = null;
 
   // NOTHING IS WRITTEN TO THE DATABASE HERE, by decision of 2026-07-25, and since 2026-08-23
   // there is not even a table to write to.
@@ -761,9 +760,11 @@ async function handleMessage(ws, data) {
       handlers.handleCursor(ws, data);
       break;
 
-    case 'temporal':
-      handlers.handleTemporal(ws, data);
-      break;
+    // NÃO HÁ RAMO PARA O QUADRO DA LINHA DO TEMPO, e a ausência é o contrato (dono, 2026-09-21):
+    // o instante de uma pessoa deixou de se propagar. Um cliente ANTIGO ainda o manda, e ele tem
+    // de cair no `default` abaixo, que registra o tipo desconhecido e não responde nada, não
+    // retransmite e não derruba o socket. Um ramo vazio aqui diria a mesma coisa de um segundo
+    // jeito e voltaria a sugerir que existe um tratador a escrever.
 
     case 'selection':
       handlers.handleSelection(ws, data);

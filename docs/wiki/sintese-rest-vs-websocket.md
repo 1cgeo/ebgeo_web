@@ -37,7 +37,7 @@ Dois handlers têm gate de `isOnline()` que parece redundante e não é: `sync_r
 
 - **Push e pull são propositalmente sem timeout**; só o boot usa `BOOT_TIMEOUT_MS` (`frontend/src/js/store/sync/api-client.js`). Abortar push arriscaria reenvio duplicado (seguro por idempotência, mas ruidoso); abortar snapshot grande quebraria o boot em rede lenta.
 - **401 tem refresh único e retry no REST**; o WS não tem esse caminho. O token vai na query do handshake e a autorização é reconciliada por heartbeat, então revogação de share **fecha o socket** em vez de renegociar.
-- **Backpressure só descarta presença**: acima do teto de buffer, frames `cursor`/`selection`/`temporal` são dropados, nunca ops nem controle. É correto porque o frame seguinte de presença supera o anterior. Ver [[presenca-colaborativa]] e [[qualidade-conexao-adaptativa]].
+- **Backpressure só descarta presença**: acima do teto de buffer, frames `cursor`/`selection` são dropados, nunca ops nem controle. É correto porque o frame seguinte de presença supera o anterior. Ver [[presenca-colaborativa]] e [[qualidade-conexao-adaptativa]].
 - **`_sendRaw` retorna `false` em vez de lançar** com socket fechado. Presença pode ignorar; qualquer chamador durável teria que reenfileirar sozinho. Mais um motivo para o durável viver no HTTP.
 
 ## Contrato congelado: o que nunca troca de canal

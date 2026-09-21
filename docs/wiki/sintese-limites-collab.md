@@ -6,7 +6,7 @@ Reunião dos limites atuais do sistema colaborativo, salas por atlas e não por 
 
 O registro de salas é literalmente `atlasId -> Set<WebSocket>` (`backend/src/modules/collab/collab.rooms.js`). Não existe sub-canal por mapa. Consequências práticas:
 
-- Cursor, seleção e presença temporal de um usuário que está em outro mapa chegam a todo mundo. O **frontend** é quem filtra (`frontend/src/js/presence/remote-cursors.layer.js`), e um `mapId` ausente resulta em zero cursores.
+- Cursor e seleção de um usuário que está em outro mapa chegam a todo mundo. O **frontend** é quem filtra (`frontend/src/js/presence/remote-cursors.layer.js`), e um `mapId` ausente resulta em zero cursores.
 - **O custo disso é quadrático no tamanho da sala, e foi medido.** Sem subcanal, o trabalho de transmissão é `S x f x 12,5 x (S-1)` por segundo, então dobrar a sala quadruplica a escrita em socket. Foi o que fez o limite operacional ser de cinquenta pessoas até 2026-08-28, quando o cursor passou a sair em lote e o limite subiu para duzentas. Números e o que continua aberto em [[capacidade-de-uma-instancia]].
 - Operações são fan-out para a sala inteira, independentemente do mapa. Um atlas com muitos mapas paga banda de todos eles em cada aba conectada.
 - O emissor é excluído por identidade de socket. O push por REST **não tem socket para excluir**, então o próprio cliente recebe o eco e precisa descartá-lo pelo `clientId`. Ver [[client-id-estavel]] e [[canal-collab-websocket]].

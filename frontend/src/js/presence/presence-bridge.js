@@ -10,7 +10,6 @@
  *              wsClient 'presence'     -> userJoined / userLeft / userAway / userBack
  *              wsClient 'cursor'       -> presenceStore.setCursor (also currentMap)
  *              wsClient 'selection'    -> presenceStore.setSelection
- *              wsClient 'temporal'     -> presenceStore.setTemporal
  *              wsClient 'briefingEdit' -> presenceStore.setBriefingEdit
  *   outbound : map 'mousemove' (throttled ~80ms)        -> wsClient.sendCursor (2D)
  *              CURSOR_360_MOVED / CURSOR_3D_MOVED        -> wsClient.sendCursor (360 / 3D)
@@ -18,12 +17,18 @@
  *              StateManager 'selection.features' change  -> wsClient.sendSelection (2D)  [case F]
  *              MARKER_3D_CLICKED / _DESELECTED           -> wsClient.sendSelection (3D)  [case F]
  *              MARKER_360_CLICKED / _DESELECTED          -> wsClient.sendSelection (360) [case F]
- *              TEMPORAL_CURSOR_CHANGED                   -> wsClient.sendTemporal    [case E]
  *              BRIEFING_EDIT_STARTED / _ENDED            -> wsClient.sendBriefingEdit[case D]
+ *
+ * O INSTANTE DA LINHA DO TEMPO NÃO VIAJA (dono, 2026-09-21). Existiu aqui um "caso E" que
+ * assinava TEMPORAL_CURSOR_CHANGED, coalescia e mandava `{cursor, label, playing}` ao par, que
+ * desenhava "em D+3" na lista de quem está online. Ele saiu inteiro, nos dois pacotes: a presença
+ * diz se a pessoa está no mapa ou não, e a linha do tempo é visualização de cada um, como já eram
+ * o ligar e desligar, a reprodução e a velocidade desde 2026-09-20. TEMPORAL_CURSOR_CHANGED segue
+ * existindo no barramento local (3D, 360 e derivação o ouvem); só esta ponte deixou de ouvi-lo.
  *
  * Selection (case F) is editor-gated: only owner/editor broadcast their selection;
  * a Comentarista/Visualizador only RECEIVES peers' selections (mirrors the backend
- * handleSelection gate). Cursor/temporal stay ungated.
+ * handleSelection gate). The cursor stays ungated.
  *
  * The bridge owns no UI; the presence overlays/roster consume the store via the
  * PRESENCE_CHANGED / PRESENCE_CURSORS_CHANGED events. Self is excluded by the
@@ -47,11 +52,9 @@ import { presenceStore } from '@js/presence/presence-store.js';
 import {
     getCurrentMapNameSync,
     getStateManager,
-    getControl,
 } from '@store';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
-import { formatTimelineLabel } from '@js/temporal/temporal.utils.js';
 import {
     setupCleanup,
     subscribe,
@@ -62,25 +65,20 @@ import {
 /** Throttle window for outbound cursor broadcasts, in milliseconds. */
 const CURSOR_THROTTLE_MS = 80;
 
-/** Throttle window for outbound temporal-cursor broadcasts (fires per rAF during playback). */
-const TEMPORAL_THROTTLE_MS = 80;
-
 /** WS inbound events this bridge owns (restored to no-ops on stop). */
-const OWNED_WS_EVENTS = Object.freeze(['connected', 'presence', 'cursor', 'selection', 'temporal', 'briefingEdit']);
+const OWNED_WS_EVENTS = Object.freeze(['connected', 'presence', 'cursor', 'selection', 'briefingEdit']);
 
 /**
  * Module-level bridge state. Doubles as the "instance" passed to the
  * event-cleanup helpers, which track DOM listeners, bus subscriptions and timers.
  * @type {{ _started: boolean, _map: (import('maplibre-gl').Map|null),
  *   _cursorThrottle: { last: number, timer: (number|null), pending: (Object|null) },
- *   _temporalThrottle: { last: number, timer: (number|null), pending: (number|null) },
  *   _stateUnsub: (Function|null) }}
  */
 const state = {
     _started: false,
     _map: null,
     _cursorThrottle: { last: 0, timer: null, pending: null },
-    _temporalThrottle: { last: 0, timer: null, pending: null },
     _stateUnsub: null,
 };
 
@@ -279,33 +277,6 @@ function scheduleCoalesced(throttle, intervalMs, value, send) {
 }
 
 /**
- * Sends the local temporal viewing state to peers (case E). The timeline is
- * local per user, so this is awareness only: we ship the cursor plus a
- * precomputed short label (e.g. "D+3") so peers can render it without the
- * sender's temporal config. Best-effort.
- * @param {number} cursor - Timeline cursor (epoch ms) from TEMPORAL_CURSOR_CHANGED.
- */
-function broadcastTemporal(cursor) {
-    if (!wsClient.isConnected()) {
-        return;
-    }
-    let label = null;
-    let playing = false;
-    try {
-        const ctrl = getControl('TemporalControl');
-        if (ctrl) {
-            playing = typeof ctrl.isPlaying === 'function' ? ctrl.isPlaying() : false;
-            if (typeof ctrl.getTimeContext === 'function' && Number.isFinite(cursor)) {
-                label = formatTimelineLabel(cursor, ctrl.getTimeContext());
-            }
-        }
-    } catch {
-        // Temporal control not available — ship the raw cursor only.
-    }
-    wsClient.sendTemporal({ cursor, label, playing }, getCurrentMapNameSync());
-}
-
-/**
  * Throttled mousemove handler: emits the leading move immediately, then at most
  * one trailing move per window. The trailing timer is tracked for cleanup.
  * @param {{ lngLat?: { lng: number, lat: number } }} e - MapLibre mouse event.
@@ -350,7 +321,6 @@ export function startPresence({ map } = {}) {
     state._started = true;
     state._map = map || null;
     state._cursorThrottle = { last: 0, timer: null, pending: null };
-    state._temporalThrottle = { last: 0, timer: null, pending: null };
 
     setupCleanup(state);
 
@@ -361,7 +331,6 @@ export function startPresence({ map } = {}) {
     wsClient.on('presence', routePresence);
     wsClient.on('cursor', (msg) => presenceStore.setCursor(msg));
     wsClient.on('selection', (msg) => presenceStore.setSelection(msg));
-    wsClient.on('temporal', (msg) => presenceStore.setTemporal(msg));
     wsClient.on('briefingEdit', routeBriefingEdit);
 
     // Outbound: local cursor -> peers (throttled). MapLibre's Map is an Evented
@@ -370,7 +339,7 @@ export function startPresence({ map } = {}) {
         state._map.on('mousemove', onMouseMove);
     }
 
-    // Outbound awareness on the application event bus (cases C/E/D). These are
+    // Outbound awareness on the application event bus (cases C/D). These are
     // tracked for cleanup via subscribe(); self is excluded by the UI layer.
     const eventBus = getEventBus();
 
@@ -394,13 +363,9 @@ export function startPresence({ map } = {}) {
         if (!wsClient.isConnected()) presenceStore.clear();
     });
 
-    // Case E — temporal instant/playback: the timeline is local per user; share
-    // the cursor so peers can show "Fulano — em D+3".
-    subscribe(state, eventBus, EventTypes.TEMPORAL_CURSOR_CHANGED, ({ cursor } = {}) => {
-        // Coalesce: TEMPORAL_CURSOR_CHANGED fires per rAF during playback — throttle like the
-        // cursor (leading + single trailing) so playback doesn't flood the socket.
-        scheduleCoalesced(state._temporalThrottle, TEMPORAL_THROTTLE_MS, cursor, broadcastTemporal);
-    });
+    // NÃO ASSINE AQUI `TEMPORAL_CURSOR_CHANGED` (dono, 2026-09-21): o instante da linha do tempo
+    // é visualização de cada um e não se propaga. O evento continua no barramento para o 3D, o 360
+    // e a derivação; a presença não tem nada a dizer sobre ele.
 
     // Case D — briefing-edit indicator: forward the open/close of a briefing
     // editor outbound so peers see who is editing what.

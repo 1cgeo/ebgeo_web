@@ -2,9 +2,13 @@
 
 /**
  * @fileoverview Render tests for the OnlineUsersControl roster (§A/§B gap +
- * cases C/D/E/G). Asserts the roster DOM renders peer names, the active-map
- * indicator, the away state, the briefing-edit indicator, the temporal instant
- * and the selection count — driven from the presence store via PRESENCE_CHANGED.
+ * cases C/D/G). Asserts the roster DOM renders peer names, the active-map
+ * indicator, the away state, the briefing-edit indicator and the selection
+ * count — driven from the presence store via PRESENCE_CHANGED.
+ *
+ * O INSTANTE DA LINHA DO TEMPO ("em D+3") SAIU EM 2026-09-21, por decisão do dono, junto com o
+ * quadro de presença que o alimentava. O caso que o afirmava virou o caso que afirma a AUSÊNCIA,
+ * alimentado com o campo que um servidor antigo ainda produziria.
  *
  * The vitest env is `node` (no jsdom), so a minimal DOM stub stands in for the
  * handful of element APIs the control touches (createElement, setAttribute,
@@ -115,7 +119,6 @@ function peer(overrides = {}) {
         selection: null,
         away: false,
         currentMap: null,
-        temporal: null,
         briefingEdit: null,
         ...overrides,
     };
@@ -244,15 +247,20 @@ describe('OnlineUsersControl — roster render', () => {
         expect(edits[0].textContent).toContain('editando briefing');
     });
 
-    it('case E: renders the temporal instant from the precomputed label ("em D+3")', () => {
+    it('O INSTANTE DA LINHA DO TEMPO NÃO É DESENHADO, nem com o campo presente (dono, 2026-09-21)', () => {
+        // A lista escrevia "em D+3" a partir do quadro de presença que carregava o instante do
+        // par. O quadro saiu dos dois pacotes, e a linha saiu da lista. O campo é passado aqui de
+        // propósito (é o que um servidor antigo ainda produziria) para provar que a ausência é
+        // da REGRA e não do dado; o PISO ao lado mostra que a mesma pessoa continua rendendo as
+        // outras afordâncias de consciência.
         presenceStoreMock.getOthers.mockReturnValue([
-            peer({ temporal: { cursor: 12345, label: 'D+3', playing: false } }),
+            peer({ temporal: { cursor: 12345, label: 'D+3', playing: false }, currentMap: 'Mapa B' }),
         ]);
         firePresenceChanged();
 
-        const temporal = container.queryAllByTestId('online-user-temporal');
-        expect(temporal).toHaveLength(1);
-        expect(temporal[0].textContent).toContain('em D+3');
+        expect(container.queryAllByTestId('online-user-temporal')).toHaveLength(0);
+        expect(rosterItems()[0].allText).not.toContain('D+3');
+        expect(container.queryAllByTestId('online-user-map')).toHaveLength(1);
     });
 
     it('case F: renders a selection count indicator', () => {
@@ -273,7 +281,6 @@ describe('OnlineUsersControl — roster render', () => {
                 currentMap: 'Mapa B',
                 away: true,
                 briefingEdit: { briefingId: 'b9', userName: 'Bravo' },
-                temporal: { cursor: 1, label: 'H+5' },
                 selection: { featureIds: ['f1'], mapId: 'm1' },
             }),
         ]);
@@ -282,7 +289,6 @@ describe('OnlineUsersControl — roster render', () => {
         expect(container.queryAllByTestId('online-user-map')).toHaveLength(1);
         expect(container.queryAllByTestId('online-user-away')).toHaveLength(1);
         expect(container.queryAllByTestId('online-user-briefing')).toHaveLength(1);
-        expect(container.queryAllByTestId('online-user-temporal')).toHaveLength(1);
         expect(container.queryAllByTestId('online-user-selection')).toHaveLength(1);
         const item = rosterItems()[0];
         expect(item.allText).toContain('Bravo');

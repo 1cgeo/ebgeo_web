@@ -8,10 +8,14 @@
  * drives the {@link connectionState} machine, and routes the documented protocol:
  *
  *   inbound  : connected | operation | operations | ack | ack_batch | sync_response |
- *              cursor | selection | temporal | user_joined | user_left | user_away |
+ *              cursor | selection | user_joined | user_left | user_away |
  *              user_back | pong | error | adaptive-settings | briefing_edit_started/ended
- *   outbound : operation | operations | ping | cursor | selection | temporal |
+ *   outbound : operation | operations | ping | cursor | selection |
  *              briefing_edit_start | briefing_edit_end | sync_request | leave
+ *
+ * NÃO HÁ QUADRO `temporal` NESTA LISTA desde 2026-09-21, por decisão do dono: o instante da
+ * linha do tempo de uma pessoa deixou de se propagar. Um SERVIDOR antigo ainda pode mandar um,
+ * e ele cai no `default` do roteamento de entrada, que já descarta tipo desconhecido em silêncio.
  *
  * Features: heartbeat ping, exponential-backoff reconnect, and on (re)connect a
  * `sync_request` with the last applied version so the server replays missed ops. That frame also
@@ -37,7 +41,7 @@ const DEFAULT_RECONNECT_BASE_MS = 1000;
 const DEFAULT_RECONNECT_MAX_MS = 30000;
 
 /** Coalescable presence frame types — safe to drop under local outbound backpressure. */
-const COALESCABLE_TYPES = new Set(['cursor', 'cursors', 'selection', 'temporal']);
+const COALESCABLE_TYPES = new Set(['cursor', 'cursors', 'selection']);
 /** Drop coalescable presence frames when the local outbound buffer exceeds this (bytes). */
 const PRESENCE_BUFFER_LIMIT = 1 << 20; // 1 MiB
 
@@ -115,7 +119,7 @@ export class WsClient {
     /**
      * Registers a handler for an inbound event. Known events:
      * 'connected', 'operation', 'ack', 'syncResponse', 'presence', 'cursor',
-     * 'selection', 'temporal', 'error', 'adaptiveSettings', 'briefingEdit',
+     * 'selection', 'error', 'adaptiveSettings', 'briefingEdit',
      * 'stateChange'.
      * @param {string} event
      * @param {Function} handler
@@ -228,17 +232,6 @@ export class WsClient {
         if (tilesetId != null) msg.tilesetId = tilesetId;
         if (photoName != null) msg.photoName = photoName;
         return this._sendRaw(msg);
-    }
-
-    /**
-     * Sends the local temporal viewing state (presence). The timeline is local
-     * per user, so this is awareness only — peers render the instant/playback.
-     * @param {*} state - Opaque temporal state blob (cursor/playing/ctx).
-     * @param {string} mapId - Active map id.
-     * @returns {boolean}
-     */
-    sendTemporal(state, mapId) {
-        return this._sendRaw({ type: 'temporal', state, mapId });
     }
 
     /**
@@ -401,9 +394,6 @@ export class WsClient {
                 break;
             case 'selection':
                 this._emit('selection', msg);
-                break;
-            case 'temporal':
-                this._emit('temporal', msg);
                 break;
             case 'user_joined':
             case 'user_left':

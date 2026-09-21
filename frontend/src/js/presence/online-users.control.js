@@ -51,10 +51,14 @@ function rosterLabel(user) {
  * Builds the short awareness label suffix for a roster row, in pt-BR:
  *   - active map ("Mapa Y") — case C
  *   - briefing edit ("editando briefing") — case D
- *   - temporal instant ("em D+3") — case E
  *   - away ("ausente") — case G
  * Returns a list of { text, testid } parts so the renderer can tag each with a
  * data-testid for assertions, without injecting untrusted text as HTML.
+ *
+ * O INSTANTE DA LINHA DO TEMPO SAIU DAQUI (dono, 2026-09-21). A linha escrevia "em D+3" a
+ * partir do quadro de presença que carregava o instante do par; a presença passou a dizer só
+ * se a pessoa está no mapa, e a linha do tempo é visualização de cada um. Não reponha a linha
+ * sem repor o quadro, que não existe mais em nenhum dos dois pacotes.
  * @param {import('@js/presence/presence-store.js').PresenceUser} user
  * @returns {Array<{ text: string, testid: string }>}
  */
@@ -72,10 +76,6 @@ function awarenessParts(user) {
     if (user.briefingEdit && user.briefingEdit.briefingId) {
         parts.push({ text: 'editando briefing', testid: 'online-user-briefing' });
     }
-    const temporalLabel = temporalInstantLabel(user.temporal);
-    if (temporalLabel) {
-        parts.push({ text: `em ${temporalLabel}`, testid: 'online-user-temporal' });
-    }
     const selCount = user.selection && Array.isArray(user.selection.featureIds)
         ? user.selection.featureIds.length
         : 0;
@@ -84,26 +84,6 @@ function awarenessParts(user) {
     }
 
     return parts;
-}
-
-/**
- * Derives a short temporal label from a peer's temporal state. Prefers the
- * precomputed `label` shipped by the sender (e.g. "D+3"); falls back to the raw
- * cursor when no label is present. Returns null when there is nothing to show.
- * @param {*} temporal
- * @returns {string|null}
- */
-function temporalInstantLabel(temporal) {
-    if (!temporal || typeof temporal !== 'object') {
-        return null;
-    }
-    if (typeof temporal.label === 'string' && temporal.label) {
-        return temporal.label;
-    }
-    if (Number.isFinite(temporal.cursor)) {
-        return String(temporal.cursor);
-    }
-    return null;
 }
 
 /**
@@ -371,8 +351,8 @@ export class OnlineUsersControl {
             nameEl.textContent = rosterLabel(user);
             bodyEl.appendChild(nameEl);
 
-            // Awareness suffixes: active map / briefing-edit / temporal / away /
-            // selection. Each is a separate tagged span, grouped as subtext.
+            // Awareness suffixes: active map / briefing-edit / away / selection.
+            // Each is a separate tagged span, grouped as subtext.
             const parts = awarenessParts(user);
             if (parts.length > 0) {
                 const metaRow = document.createElement('span');
