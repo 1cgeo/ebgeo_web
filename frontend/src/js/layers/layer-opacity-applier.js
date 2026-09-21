@@ -21,9 +21,25 @@
  *
  * O guarda das duas, incluindo o caso que o atalho poderia engolir (opacidade que VOLTA para 1),
  * esta em `tests/unit/opacidade-de-camada-nao-escreve-a-toa.test.js`.
+ *
+ * ESTE MODULO E O DONO UNICO DAS PROPRIEDADES DE OPACIDADE, desde 2026-09-21 (achado M2). Ate
+ * entao o "revelar ocultas" do temporal escrevia as MESMAS propriedades por um caminho proprio
+ * (`applyRevealDim`), com um cache de "original" proprio. Medido no navegador: com o revelar
+ * ligado, ajustar a opacidade de uma camada nao tinha efeito nenhum, porque o revelar reescrevia
+ * a tinta por cima a partir do retrato DELE; e ao desligar o revelar a camada voltava a 100% com
+ * 0,5 gravado nela, porque o retrato do revelar tinha sido tirado com o multiplicador ja aplicado.
+ * Dois donos da mesma propriedade, cada um com o seu "original", e um deles fotografando depois
+ * do outro escrever.
+ *
+ * O escurecimento virou, por isso, mais UM FATOR dentro da expressao daqui
+ * (`['*', original, match-de-camada, caso-de-revelar]`), posto por `setRevealDimWindow`. Com isso
+ * ele herda de graca as tres coisas que o caminho paralelo nao tinha: um retrato so, a
+ * invalidacao em troca de estilo (`invalidateOpacityCache`) e a assinatura que evita reescrita a
+ * toa. A assinatura passou a incluir a JANELA do revelar, porque ela muda a expressao.
  */
 
 import { FEATURE_LAYER_IDS } from './layer.constants.js';
+import { buildTemporalOverlapFilter } from './visibility-filter.js';
 import { getLayers } from '../store';
 
 /**
@@ -60,6 +76,24 @@ const originalPaintCache = new Map();
 
 /** Last applied opacity signature, for short-circuiting redundant work. */
 let lastSignature = null;
+
+/**
+ * Multiplicador aplicado a feicao TEMPORALMENTE ESCONDIDA enquanto o modo "revelar ocultas" esta
+ * ligado: em vez de sumir, ela fica esmaecida e continua selecionavel.
+ */
+const REVEAL_DIM = 0.4;
+
+/**
+ * A janela do "revelar ocultas", ou `null` quando o modo esta desligado.
+ *
+ * Ela e a MESMA celula quantizada que o filtro de visibilidade usa (achado M3): montar o teste com
+ * o CURSOR cru escurecia feicao que o filtro mostrava, e, pior, punha o instante dentro da
+ * expressao de tinta, de modo que a expressao mudava a cada quadro e repintava todas as camadas de
+ * feicao por quadro de reproducao. Com a janela, a expressao so muda na fronteira do passo, que e
+ * a mesma cadencia do filtro.
+ * @type {{start: number, end: number}|null}
+ */
+let janelaDeRevelacao = null;
 
 /**
  * A ultima instancia de mapa entregue a `applyLayerOpacities`, para que o preview ao vivo
@@ -122,10 +156,14 @@ function buildOpacityMatch(layers) {
  * @returns {string}
  */
 function computeSignature(layers) {
-    return layers
+    const camadas = layers
         .map(l => `${l.id}=${typeof l.opacity === 'number' ? l.opacity : 1}`)
         .sort()
         .join('|');
+    // A JANELA ENTRA NA ASSINATURA, senao o curto-circuito engoliria tanto o ligar do revelar
+    // (mesmas opacidades, expressao diferente) quanto o avanco do cursor para a proxima celula.
+    const revelar = janelaDeRevelacao ? `${janelaDeRevelacao.start}:${janelaDeRevelacao.end}` : 'off';
+    return `${camadas}||revelar=${revelar}`;
 }
 
 /**
@@ -137,6 +175,30 @@ export function applyLayerOpacities(mapInstance) {
     if (!mapInstance) return;
     ultimoMapa = mapInstance;
     aplicarExpressoesDeOpacidade(mapInstance, getLayers());
+}
+
+/**
+ * Liga ou desliga o escurecimento do "revelar ocultas", como mais um fator da expressao de
+ * opacidade deste modulo (achado M2: ver o cabecalho do arquivo).
+ *
+ * `janela` e a celula quantizada do filtro; `null` desliga. O mapa e opcional: quando nao vem,
+ * reusa o ultimo entregue a `applyLayerOpacities`, que e a mesma fonte que o preview do controle
+ * deslizante usa. A reaplicacao passa pela assinatura, entao chamar isto com a mesma janela nao
+ * escreve tinta nenhuma.
+ *
+ * @param {Object|null} mapInstance - Instancia do mapa MapLibre (ou nulo para reusar a ultima)
+ * @param {{start: number, end: number}|null} janela - Celula do filtro, ou nulo para desligar
+ */
+export function setRevealDimWindow(mapInstance, janela) {
+    janelaDeRevelacao =
+        janela && Number.isFinite(janela.start) && Number.isFinite(janela.end)
+            ? { start: janela.start, end: janela.end }
+            : null;
+
+    const alvo = mapInstance || ultimoMapa;
+    if (!alvo) return;
+    ultimoMapa = alvo;
+    aplicarExpressoesDeOpacidade(alvo, getLayers());
 }
 
 /**
@@ -183,11 +245,19 @@ function aplicarExpressoesDeOpacidade(mapInstance, layers) {
     //
     // A bandeira e obrigatoria: depois que uma opacidade saiu de 1, voltar todas para 1 e uma
     // RESTAURACAO, e restaurar exige escrever.
+    // O REVELAR E' A SEGUNDA METADE DA CONDICAO: com ele ligado a expressao deixa de ser a
+    // identidade mesmo com toda opacidade em 1, entao o atalho nao pode pular a escrita.
+    const revelando = janelaDeRevelacao !== null;
     const todasEmUm = layers.every((l) => (typeof l.opacity === 'number' ? l.opacity : 1) === 1);
-    if (todasEmUm && !multiplicadorAplicado) return;
-    multiplicadorAplicado = !todasEmUm;
+    if (todasEmUm && !revelando && !multiplicadorAplicado) return;
+    multiplicadorAplicado = !todasEmUm || revelando;
 
     const opacityMatch = buildOpacityMatch(layers);
+    // O MESMO predicado do filtro de visibilidade, nao uma copia a mao: quem e' escurecido e'
+    // exatamente quem o filtro esconderia naquela celula.
+    const casoDeRevelar = revelando
+        ? ['case', buildTemporalOverlapFilter(janelaDeRevelacao.start, janelaDeRevelacao.end), 1, REVEAL_DIM]
+        : null;
 
     for (const mapLayerId of FEATURE_LAYER_IDS) {
         const camada = mapInstance.getLayer(mapLayerId);
@@ -197,8 +267,11 @@ function aplicarExpressoesDeOpacidade(mapInstance, layers) {
             const original = snapshotOriginal(mapInstance, mapLayerId, prop);
             if (original === undefined || original === null) continue;
 
+            const expressao = casoDeRevelar
+                ? ['*', original, opacityMatch, casoDeRevelar]
+                : ['*', original, opacityMatch];
             try {
-                mapInstance.setPaintProperty(mapLayerId, prop, ['*', original, opacityMatch]);
+                mapInstance.setPaintProperty(mapLayerId, prop, expressao);
             } catch (error) {
                 console.warn(`Error applying opacity ${prop} on ${mapLayerId}:`, error);
             }
@@ -213,6 +286,11 @@ function aplicarExpressoesDeOpacidade(mapInstance, layers) {
 export function invalidateOpacityCache() {
     originalPaintCache.clear();
     lastSignature = null;
+    // `janelaDeRevelacao` SOBREVIVE de proposito: ela e estado da pessoa (o botao "revelar
+    // ocultas" continua apertado), nao estado do estilo. Zera-la aqui apagaria o escurecimento na
+    // troca de mapa base, e a proxima `applyLayerOpacities` (que o mesmo `setupMapFeatures`
+    // chama logo adiante) o repoe sobre o estilo NOVO, que e o que o cache antigo do revelar,
+    // nunca zerado, fazia errado.
     // O estilo foi remontado, entao nenhum multiplicador sobreviveu nele. Nao zerar aqui deixaria
     // o atalho de identidade acreditando que ainda ha o que restaurar, e reescreveria 43
     // propriedades de tinta a cada troca de mapa base sem motivo.

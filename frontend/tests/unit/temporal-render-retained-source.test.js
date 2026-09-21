@@ -296,3 +296,107 @@ describe('updateTrajectoryPositions — retained source data', () => {
         await expect(updateTrajectoryPositions(map, T0 + 500)).resolves.toBeUndefined();
     });
 });
+
+/**
+ * ACHADO M7: com o temporal DESLIGADO — o caso da maioria dos mapas — toda mudanca de camada
+ * pagava TRES leituras completas de fonte.
+ *
+ * A mecanica: o controlador re-sincroniza a cada LAYERS_CHANGED (a maioria dos quais e' so um
+ * ligar/desligar de visibilidade ou de trava), a sincronizacao chama `resetTrajectoryCache()`, e
+ * a passada seguinte, com o cursor nulo, re-varria as tres fontes moveis apenas para descobrir
+ * que nao havia posicao nenhuma a restaurar.
+ *
+ * A saida cedo tem de ser CONDICIONAL, e e' essa a metade que morde: se ela apenas olhasse "o
+ * cursor e' nulo", uma feicao ja deslocada ficaria fora da posicao canonica ao desligar o
+ * temporal, porque a restauracao e' feita por esta mesma funcao. Dai a bandeira de deslocamento,
+ * que sobrevive de proposito ao `resetTrajectoryCache`.
+ */
+describe('updateTrajectoryPositions — o temporal desligado nao paga leitura (M7)', () => {
+    beforeEach(() => {
+        resetTrajectoryCache();
+    });
+
+    /**
+     * Zera a bandeira de deslocamento (estado de modulo, sem porta de saida): uma passada de
+     * restauracao completa a limpa. Devolve as fontes ja com o contador de leituras zerado.
+     */
+    async function comNadaDeslocado(map, sources) {
+        await updateTrajectoryPositions(map, null);
+        for (const s of Object.values(sources)) s.getDataCalls = 0;
+        resetTrajectoryCache();
+    }
+
+    it('REGRESSAO: cursor nulo com nada deslocado nao le fonte nenhuma, mesmo apos o resync', async () => {
+        const source = makeSource(collection(movingFeature('a', 0, 1)));
+        const map = makeMap({ points: source });
+        await comNadaDeslocado(map, { points: source });
+
+        await updateTrajectoryPositions(map, null);
+        await updateTrajectoryPositions(map, null);
+
+        expect(source.getDataCalls).toBe(0);
+        expect(source.setDataCalls).toBe(0);
+    });
+
+    it('CONTROLE DE VACUO: com o cursor real, a MESMA chamada le e desloca', async () => {
+        const source = makeSource(collection(movingFeature('a', 0, 1)));
+        const map = makeMap({ points: source });
+        await comNadaDeslocado(map, { points: source });
+
+        await updateTrajectoryPositions(map, T0 + 500);
+
+        expect(source.getDataCalls).toBe(1);
+        expect(lngOf(source, 'a')).toBeCloseTo(0.5, 10);
+    });
+
+    it('A METADE QUE IMPORTA: uma feicao deslocada AINDA volta para casa ao desligar', async () => {
+        const source = makeSource(collection(movingFeature('a', 0, 1, [42, 7])));
+        const map = makeMap({ points: source });
+        await comNadaDeslocado(map, { points: source });
+
+        await updateTrajectoryPositions(map, T0 + 500);
+        expect(lngOf(source, 'a')).toBeCloseTo(0.5, 10);
+
+        // O resync do controlador acontece ANTES do desligar, e ele derruba o cache retido.
+        resetTrajectoryCache();
+        await updateTrajectoryPositions(map, null);
+
+        expect(source._worker.features[0].geometry.coordinates).toEqual([42, 7]);
+        expect(source._worker.features[0].properties._temporalHome).toBeUndefined();
+    });
+
+    it('depois de restaurar, a proxima passada nula volta a nao ler nada', async () => {
+        const source = makeSource(collection(movingFeature('a', 0, 1, [42, 7])));
+        const map = makeMap({ points: source });
+        await comNadaDeslocado(map, { points: source });
+
+        await updateTrajectoryPositions(map, T0 + 500);
+        await updateTrajectoryPositions(map, null);
+        const leiturasAposRestaurar = source.getDataCalls;
+        resetTrajectoryCache();
+        await updateTrajectoryPositions(map, null);
+
+        expect(source.getDataCalls).toBe(leiturasAposRestaurar);
+    });
+
+    it('fonte que RECUSA a leitura mantem a bandeira de pe: a restauracao sera tentada de novo', async () => {
+        const source = makeSource(collection(movingFeature('a', 0, 1, [42, 7])));
+        const map = makeMap({ points: source });
+        await comNadaDeslocado(map, { points: source });
+
+        await updateTrajectoryPositions(map, T0 + 500);
+
+        // A passada de restauracao falha: a feicao continua deslocada na tela.
+        const real = source.getData;
+        source.getData = async () => { throw new Error('worker gone'); };
+        resetTrajectoryCache();
+        await updateTrajectoryPositions(map, null);
+        expect(lngOf(source, 'a')).toBeCloseTo(0.5, 10);
+
+        // Limpar a bandeira ali teria abandonado a feicao fora da posicao canonica para sempre.
+        source.getData = real;
+        resetTrajectoryCache();
+        await updateTrajectoryPositions(map, null);
+        expect(source._worker.features[0].geometry.coordinates).toEqual([42, 7]);
+    });
+});

@@ -71,15 +71,31 @@ const MAX_TS = 8.64e15;
  * Missing/null bounds coalesce to the date-range sentinels, so a feature without
  * temporal data is permanent. With windowEnd === windowStart this is the classic
  * "cursor inside the feature window" instantaneous test.
+ *
+ * THE THIRD CLAUSE IS NOT COSMETIC (finding M6). `inicio <= fim` rejects a feature
+ * whose validity is INVERTED (end before start, which nothing in the product
+ * validates). Without it the overlap test SHOWS such a feature whenever the timeline
+ * window straddles the inversion, while every instant test hides it at every cursor:
+ * the same feature, two answers, depending on the surface. The pure twin of this
+ * expression is `isTemporallyVisibleInWindow` (`temporal/temporal-model.js`), and
+ * `tests/unit/visibilidade-temporal-uma-regra-so.test.js` evaluates BOTH over the
+ * same corpus and demands identical answers.
+ *
+ * Exported because the reveal-dim multiplier in `layers/layer-opacity-applier.js`
+ * has to ask the very same question: it decides which features are dimmed BECAUSE
+ * they are temporally hidden, so a second hand-written copy there is the M3 bug.
  * @param {number} windowStart - Window start (epoch ms).
  * @param {number} windowEnd - Window end (epoch ms).
  * @returns {Array} MapLibre filter expression.
  */
-function buildTemporalFilter(windowStart, windowEnd) {
+export function buildTemporalOverlapFilter(windowStart, windowEnd) {
+    const inicio = ['coalesce', ['get', 'temporalInicio'], MIN_TS];
+    const fim = ['coalesce', ['get', 'temporalFim'], MAX_TS];
     return [
         'all',
-        ['<=', ['coalesce', ['get', 'temporalInicio'], MIN_TS], windowEnd],
-        ['>=', ['coalesce', ['get', 'temporalFim'], MAX_TS], windowStart],
+        ['<=', inicio, windowEnd],
+        ['>=', fim, windowStart],
+        ['<=', inicio, fim],
     ];
 }
 
@@ -88,7 +104,7 @@ function buildTemporalFilter(windowStart, windowEnd) {
  */
 function temporalClauses() {
     if (activeTemporalCursor === null || revealMode) return [];
-    return [buildTemporalFilter(activeTemporalCursor, activeTemporalCursorEnd ?? activeTemporalCursor)];
+    return [buildTemporalOverlapFilter(activeTemporalCursor, activeTemporalCursorEnd ?? activeTemporalCursor)];
 }
 
 /**

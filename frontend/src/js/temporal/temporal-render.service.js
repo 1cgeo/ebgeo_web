@@ -16,96 +16,51 @@ import {
     setRevealMode,
     updateAllLayerFilters,
 } from '../layers/visibility-filter.js';
-import { FEATURE_LAYER_IDS, FEATURE_SOURCES } from '../layers/layer.constants.js';
+import { setRevealDimWindow } from '../layers/layer-opacity-applier.js';
+import { FEATURE_SOURCES } from '../layers/layer.constants.js';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { getStateManager } from '../store';
 import { TRAJECTORY_SOURCE_IDS } from './temporal.constants.js';
 import { normalizeTrajectory, resolveTrajectoryTargetNormalized } from './temporal-model.js';
 
-/** Sentinels at the edges of the JS Date range (used as "no bound"). */
-const MIN_TS = -8.64e15;
-const MAX_TS = 8.64e15;
-/** Opacity multiplier applied to temporally out-of-window features in reveal mode. */
-const REVEAL_DIM = 0.4;
-/** Opacity paint properties to dim, by MapLibre layer type. */
-const OPACITY_PROPS_BY_TYPE = {
-    circle: ['circle-opacity', 'circle-stroke-opacity'],
-    fill: ['fill-opacity'],
-    line: ['line-opacity'],
-    symbol: ['icon-opacity', 'text-opacity'],
-    'fill-extrusion': ['fill-extrusion-opacity'],
-};
-/** Cache of each layer's original opacity paint value (`${layerId}|${prop}`). */
-const originalOpacity = new Map();
-/** Whether the dim paint override is currently applied to the layers. */
-let dimApplied = false;
+/**
+ * Last reveal window handed to the opacity applier, as a comparable key. It is the
+ * hot-path guard the old in-module dim sweep had: with reveal off (the playback
+ * default) this module must not even read the layer list, let alone touch paint.
+ * @type {string}
+ */
+let ultimaChaveDeRevelacao = 'off';
 
 /**
  * Reveal mode: instead of hiding out-of-window features, render them dimmed so
- * they remain editable while it stays clear they are temporally hidden. Restores
- * the original opacity paint when reveal is off.
+ * they remain editable while it stays clear they are temporally hidden.
+ *
+ * THIS MODULE NO LONGER WRITES PAINT (finding M2). It hands the window to
+ * `layers/layer-opacity-applier.js`, which is the single owner of the opacity paint
+ * properties: two writers, each with its own "original" snapshot, is what made a
+ * layer-opacity adjustment have no effect at all while reveal was on, and left 0.5
+ * recorded on a layer drawn at 100% after reveal was switched off.
+ *
+ * It also takes the WINDOW and not the raw cursor (finding M3): the dim clause has to
+ * ask the same question the visibility filter asks, or the mode dims features that
+ * are on screen — and a cursor baked into a paint expression changes every frame,
+ * repainting every feature layer per playback frame.
+ *
  * @param {Object} map - MapLibre map instance.
- * @param {number|null} cursor - Cursor (epoch ms).
+ * @param {number|null} winStart - Filter window start (epoch ms).
+ * @param {number|null} winEnd - Filter window end (epoch ms).
  * @param {boolean} reveal - Whether reveal mode is active.
  */
-export function applyRevealDim(map, cursor, reveal) {
+export function applyRevealDim(map, winStart, winEnd, reveal) {
     if (!map) return;
-    const wantDim = reveal && Number.isFinite(cursor);
-    // Hot-path guard: reveal mode is off (the playback default) and nothing is
-    // currently dimmed, so there is nothing to restore — skip the full layer
-    // sweep that would otherwise run get/setPaintProperty on every frame.
-    if (!wantDim && !dimApplied) return;
-
-    const dimCase = wantDim
-        ? [
-            'case',
-            [
-                'all',
-                ['<=', ['coalesce', ['get', 'temporalInicio'], MIN_TS], cursor],
-                ['>=', ['coalesce', ['get', 'temporalFim'], MAX_TS], cursor],
-            ],
-            1,
-            REVEAL_DIM,
-        ]
-        : null;
-
-    for (const layerId of FEATURE_LAYER_IDS) {
-        let layer;
-        try {
-            layer = map.getLayer(layerId);
-        } catch {
-            layer = null;
-        }
-        if (!layer) continue;
-        const props = OPACITY_PROPS_BY_TYPE[layer.type];
-        if (!props) continue;
-
-        for (const prop of props) {
-            const key = `${layerId}|${prop}`;
-            if (!originalOpacity.has(key)) {
-                let original;
-                try {
-                    original = map.getPaintProperty(layerId, prop);
-                } catch {
-                    // Defensive: MapLibre throws if `prop` is not valid for this
-                    // layer's type. `props` is already type-filtered, but guard anyway.
-                    original = undefined;
-                }
-                originalOpacity.set(key, original);
-            }
-            const orig = originalOpacity.get(key);
-            try {
-                if (dimCase) {
-                    map.setPaintProperty(layerId, prop, ['*', orig == null ? 1 : orig, dimCase]);
-                } else {
-                    map.setPaintProperty(layerId, prop, orig == null ? undefined : orig);
-                }
-            } catch {
-                /* layer may not support this paint property — ignore */
-            }
-        }
-    }
-    dimApplied = wantDim;
+    const janela =
+        reveal && Number.isFinite(winStart) && Number.isFinite(winEnd)
+            ? { start: winStart, end: winEnd }
+            : null;
+    const chave = janela ? `${janela.start}:${janela.end}` : 'off';
+    if (chave === ultimaChaveDeRevelacao) return;
+    ultimaChaveDeRevelacao = chave;
+    setRevealDimWindow(map, janela);
 }
 
 /**
@@ -117,6 +72,21 @@ export function applyRevealDim(map, cursor, reveal) {
  * @type {string[]|null}
  */
 let activeTrajectorySources = null;
+
+/**
+ * Whether this module has moved at least one feature away from its authoring position
+ * and has not restored it yet.
+ *
+ * It is the other half of the early exit for a null cursor (finding M7). `resetTrajectoryCache()`
+ * runs on EVERY resync — and the controller resyncs on every LAYERS_CHANGED, most of which are
+ * visibility or lock toggles — so with temporal off the next pass used to rescan and fully read
+ * all three moving sources just to discover there was nothing to restore. This flag is
+ * deliberately NOT cleared by `resetTrajectoryCache`: the retained copy is stale, but a feature
+ * that is displaced on screen stays displaced, and skipping the restore because the cache was
+ * dropped is exactly how a feature would be left off its canonical position.
+ * @type {boolean}
+ */
+let algumaFeicaoDeslocada = false;
 
 /**
  * Per-source playback state retained between frames, keyed by source id.
@@ -240,12 +210,21 @@ export function resetTrajectoryCache() {
 export async function updateTrajectoryPositions(map, cursor) {
     if (!map) return;
 
+    // TEMPORAL OFF AND NOTHING DISPLACED — the case of most maps, on every layer change
+    // (finding M7). There is no position to restore, so the three full source reads below would
+    // answer a question nobody asked. The flag survives `resetTrajectoryCache`, so a feature this
+    // module actually moved is still restored after a resync.
+    if (cursor === null && !algumaFeicaoDeslocada) return;
+
     const rescan = activeTrajectorySources === null;
     const sourceIds = rescan ? TRAJECTORY_SOURCE_IDS : activeTrajectorySources;
     if (sourceIds.length === 0) return; // no moving features — nothing to recompute
 
     const displaced = new Map(); // featureId -> [lng, lat] for selection-box sync
     const nextActive = rescan ? [] : null;
+    // A source whose read failed may still hold a displaced feature, so the restore pass below
+    // only clears the flag when every source it needed actually answered.
+    let algumaFonteFalhou = false;
 
     for (const sourceId of sourceIds) {
         let source;
@@ -257,7 +236,10 @@ export async function updateTrajectoryPositions(map, cursor) {
         if (!source || typeof source.getData !== 'function') continue;
 
         const state = await acquireSourceState(source, sourceId);
-        if (!state) continue;
+        if (!state) {
+            algumaFonteFalhou = true;
+            continue;
+        }
 
         let changed = false;
         let hasTrajectory = false;
@@ -302,6 +284,10 @@ export async function updateTrajectoryPositions(map, cursor) {
     }
 
     if (rescan) activeTrajectorySources = nextActive;
+    if (cursor !== null && displaced.size > 0) algumaFeicaoDeslocada = true;
+    // The restore pass has just put everything back home, so the next null-cursor call can bail
+    // out at the top. Only when every source answered: a failed read may have left one behind.
+    if (cursor === null && !algumaFonteFalhou) algumaFeicaoDeslocada = false;
 
     syncSelectionGeometry(displaced);
 }
@@ -467,5 +453,5 @@ export async function applyTemporalState(map, { enabled, cursor, filterStart, fi
     // those changes and short-circuits the per-frame intra-step calls.
     updateAllLayerFilters(map);
     await updateTrajectoryPositions(map, effectiveCursor);
-    applyRevealDim(map, effectiveCursor, revealOn);
+    applyRevealDim(map, winStart, winEnd, revealOn);
 }

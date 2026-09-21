@@ -47,11 +47,12 @@ const CUT = [200, 60, 60];
  * @param {number} opts.dpi
  * @param {'landscape'|'portrait'} opts.orientation - Page orientation (sets duplex edge)
  * @param {string} [opts.title] - Optional map title
+ * @param {string|null} [opts.temporalStamp] - Instante retratado (ver `temporalStampText`)
  * @param {number} opts.pageW - Page width (mm)
  * @param {number} opts.pageH - Page height (mm)
  * @param {number} [opts.overlapMm=MOSAIC_OVERLAP_MM] - Seam overlap duplicated between sheets (mm)
  */
-export function drawCoverPage(doc, { rows, cols, scaleLabel, dpi, orientation, title, pageW, pageH, overlapMm = MOSAIC_OVERLAP_MM }) {
+export function drawCoverPage(doc, { rows, cols, scaleLabel, dpi, orientation, title, temporalStamp = null, pageW, pageH, overlapMm = MOSAIC_OVERLAP_MM }) {
     // The duplex flip must preserve top/bottom so the verso "TOPO" backs the map's
     // North. That requires flipping about the A4 vertical (210 mm) edge — which is
     // the LONG edge in portrait but the SHORT edge in landscape.
@@ -79,6 +80,18 @@ export function drawCoverPage(doc, { rows, cols, scaleLabel, dpi, orientation, t
         `${rows} × ${cols} páginas A4  ·  escala ${scaleLabel}  ·  ${dpi} DPI  ·  ${rows * cols} folhas`,
         margin, y
     );
+
+    // O INSTANTE RETRATADO (achado V8). A capa e' o unico lugar do mosaico que se le antes de
+    // montar as folhas, entao a declaracao de recorte temporal entra aqui tambem, e nao so na
+    // tarja de cada folha: quem receber o bloco montado ja ficou sabendo na primeira pagina.
+    if (temporalStamp) {
+        y += 6;
+        setColor(doc, 'text', INK);
+        doc.setFont('helvetica', 'bold');
+        doc.text(temporalStamp, margin, y);
+        doc.setFont('helvetica', 'normal');
+        setColor(doc, 'text', MUTED);
+    }
 
     // Divider
     y += 6;

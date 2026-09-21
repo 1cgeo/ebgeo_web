@@ -46,6 +46,21 @@ describe('visibility filter temporal clause', () => {
             'all',
             ['<=', ['coalesce', ['get', 'temporalInicio'], MIN_TS], 1000],
             ['>=', ['coalesce', ['get', 'temporalFim'], MAX_TS], 1000],
+            ['<=', ['coalesce', ['get', 'temporalInicio'], MIN_TS], ['coalesce', ['get', 'temporalFim'], MAX_TS]],
+        ]);
+    });
+
+    it('carries the NOT-INVERTED clause, which is what keeps the two rules in agreement', () => {
+        // Achado M6: sem `inicio <= fim`, a sobreposicao MOSTRA uma feicao de janela invertida
+        // sempre que a celula atravessa a inversao, enquanto todo teste de instante a esconde.
+        // A equivalencia ponta a ponta esta em `visibilidade-temporal-uma-regra-so.test.js`.
+        setTemporalCursor(1000, 2000);
+        const clause = temporalClause(createLayerVisibilityFilter(['l1']));
+        expect(clause).toHaveLength(4);
+        expect(clause[3]).toEqual([
+            '<=',
+            ['coalesce', ['get', 'temporalInicio'], MIN_TS],
+            ['coalesce', ['get', 'temporalFim'], MAX_TS],
         ]);
     });
 

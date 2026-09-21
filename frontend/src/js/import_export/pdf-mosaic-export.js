@@ -80,6 +80,7 @@ function waitForIdle(hiddenMap, timeoutMs = 20000) {
  * @param {boolean} [config.showScaleBar] - Draw the scale bar as if the mosaic were one map
  * @param {boolean} [config.showNorthArrow] - Draw the north arrow as if the mosaic were one map
  * @param {Object} [config.featuresByType] - { type: { count, color } } for the legend
+ * @param {string|null} [config.temporalStamp] - Instante retratado (ver `temporalStampText`)
  * @param {string} [config.title]
  * @param {boolean} [config.includeCover=true]
  * @param {boolean} [config.includeVerso=true]
@@ -103,6 +104,7 @@ export async function exportMosaicPdf(config) {
         showScaleBar = false,
         showNorthArrow = false,
         featuresByType = {},
+        temporalStamp = null,
         title = '',
         includeCover = true,
         includeVerso = true,
@@ -134,7 +136,7 @@ export async function exportMosaicPdf(config) {
     // Seam overlap in device pixels — needed to place mosaic-wide cartographic
     // elements in the assembled-mosaic frame (tiles advance by tileW − overlapPx).
     const overlapPx = Math.round((overlapMm / 25.4) * dpi);
-    const drawCarto = showLegend || showScaleBar || showNorthArrow || !!title;
+    const drawCarto = showLegend || showScaleBar || showNorthArrow || !!title || !!temporalStamp;
 
     let hiddenContainer = null;
     let hiddenMap = null;
@@ -195,7 +197,7 @@ export async function exportMosaicPdf(config) {
         if (includeCover) {
             newPage();
             drawCoverPage(doc, {
-                rows, cols, scaleLabel: scaleLabel(scale), dpi, orientation, title,
+                rows, cols, scaleLabel: scaleLabel(scale), dpi, orientation, title, temporalStamp,
                 pageW: page.w, pageH: page.h, overlapMm,
             });
             newPage();
@@ -228,7 +230,7 @@ export async function exportMosaicPdf(config) {
             const dataUrl = captureTile(hiddenMap, {
                 drawGrid, scale, showLatLongGrid, showUTMGrid, dpi, pixelRatio, bands, bandPx,
                 drawCarto, overlapPx, row: tile.row, col: tile.col, rows, cols,
-                title, showLegend, showScaleBar, showNorthArrow, featuresByType,
+                title, showLegend, showScaleBar, showNorthArrow, featuresByType, temporalStamp,
             });
 
             newPage();
@@ -269,7 +271,7 @@ export async function exportMosaicPdf(config) {
 function captureTile(hiddenMap, {
     drawGrid, scale, showLatLongGrid, showUTMGrid, dpi, pixelRatio, bands, bandPx,
     drawCarto, overlapPx, row, col, rows, cols,
-    title, showLegend, showScaleBar, showNorthArrow, featuresByType,
+    title, showLegend, showScaleBar, showNorthArrow, featuresByType, temporalStamp,
 }) {
     const glCanvas = hiddenMap.getCanvas();
 
@@ -336,6 +338,7 @@ function captureTile(hiddenMap, {
             showScaleBar,
             showLegend,
             featuresByType,
+            temporalStamp,
             scale,
             dpi,
         });

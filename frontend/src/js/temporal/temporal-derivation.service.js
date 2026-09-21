@@ -22,7 +22,7 @@
 
 import { setupCleanup, subscribe, cleanup } from '../utilities/event-cleanup.js';
 import { EventTypes } from '../events';
-import { getControl, registerControl } from '../store';
+import { getControl, registerControl, isMapTemporalEnabledSync } from '../store';
 import { loadImageToMap } from '@utils';
 import { normalizeTrajectory, headingAtSorted, speedAtSorted } from './temporal-model.js';
 
@@ -119,6 +119,13 @@ export class TemporalDerivationService {
         } catch {
             return;
         }
+
+        // O PORTAO SO REABRE COM O TEMPORAL LIGADO NA TELA (achado E9). Sem esta pergunta,
+        // marcar "direcao automatica" com o temporal DESLIGADO reabria o portao (a feicao ainda
+        // carrega `autoDirection`, entao `_refreshEnabled` responde verdadeiro) e assava na
+        // imagem uma seta calculada com o CURSOR VELHO, que nao volta a nao numerico no ramo
+        // desligado. O repintar canonico acima ja aconteceu, que e o desfecho certo aqui.
+        if (!isMapTemporalEnabledSync()) return;
 
         // Re-open the gate, then re-apply any still-enabled binding at the current cursor.
         await this._refreshEnabled();

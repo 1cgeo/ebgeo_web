@@ -34,9 +34,9 @@ import {
 // chunk by pdf-mosaic-export.js (static import), so a dynamic import here would not
 // split it into a separate chunk — it only triggered a Rollup mixed-import warning.
 // Cartographic layout is composed on every PDF export (see "Always compose" below).
-import { composeLayout, loadLogoImage } from './pdf-cartographic-elements.js'
+import { composeLayout, loadLogoImage, temporalStampText } from './pdf-cartographic-elements.js'
 import { isMapTemporalEnabledSync, getControl } from '@store'
-import { isTemporallyVisible } from '@js/temporal/temporal-model.js'
+import { isVisibleUnderTemporal } from '@js/temporal/temporal-model.js'
 // Por ARQUIVO, de dois modulos folha. A `prop` separa os DOIS motores do mesmo painel: `folha` e
 // o caminho do GDAL (saida georreferenciada) e `mosaico` e o do jsPDF, que nao georreferencia.
 import { registrarUso } from '@js/session/uso-lote.js'
@@ -923,6 +923,7 @@ export default class PDFExportTab {
                 showScaleBar: this.showScaleBar,
                 showNorthArrow: this.showNorthArrow,
                 featuresByType,
+                temporalStamp: this._temporalStamp(),
                 title: this.showTitle ? this.mapTitle : '',
                 includeCover: true,
                 includeVerso: true,
@@ -1101,6 +1102,7 @@ export default class PDFExportTab {
                     // Always 0 — hidden map is rendered north-up for correct georeferencing
                     bearing: 0,
                     featuresByType: await featureStatsPromise,
+                    temporalStamp: this._temporalStamp(),
                     mapBounds: {
                         west: hiddenMap.getBounds().getWest(),
                         east: hiddenMap.getBounds().getEast(),
@@ -1322,6 +1324,21 @@ export default class PDFExportTab {
      * @param {Object} [boundsPolygon] - Turf polygon for spatial filtering (null = count all)
      * @returns {Promise<Object>} Stats keyed by source type: { count, color }
      */
+    /**
+     * O SELO DO INSTANTE, quando o temporal esta ligado na tela para o mapa corrente (achado V8).
+     * Os DOIS motores o pedem aqui, por um so caminho, para que a folha unica e o mosaico nunca
+     * declarem instantes diferentes. Devolve nulo com o temporal desligado.
+     * @returns {string|null}
+     */
+    _temporalStamp() {
+        const control = getControl('TemporalControl');
+        return temporalStampText(
+            isMapTemporalEnabledSync(),
+            control?.getCursor?.(),
+            control?.getTimeContext?.(),
+        );
+    }
+
     async _collectFeatureStats(boundsPolygon) {
         const stats = {};
         const sourceTypes = [
@@ -1344,10 +1361,15 @@ export default class PDFExportTab {
         };
 
         // When temporal control is active, exclude features hidden at the current
-        // cursor so the legend mirrors what is actually rendered. NaN cursor (off)
-        // makes isTemporallyVisible() return true for everything.
+        // window so the legend mirrors what is actually rendered.
+        //
+        // A REGRA E' A DO MAPA, e nao uma segunda escrita dela (achados M1/V6 e V7). Ate
+        // 2026-09-21 esta contagem testava o INSTANTE do cursor enquanto a imagem impressa vinha
+        // do filtro, que testa a celula quantizada do passo: a folha desenhava a feicao e a
+        // legenda nao a contava. E o modo "revelar ocultas" nao chegava aqui, de modo que a
+        // legenda subtraia justamente o que a imagem mostrava esmaecido.
         const temporalActive = isMapTemporalEnabledSync();
-        const cursor = temporalActive ? getControl('TemporalControl')?.getCursor() : NaN;
+        const temporalControl = getControl('TemporalControl');
 
         for (const sourceName of sourceTypes) {
             try {
@@ -1360,8 +1382,8 @@ export default class PDFExportTab {
                 let representativeColor = null;
 
                 for (const feature of data.features) {
-                    // Skip features hidden by the active temporal cursor.
-                    if (temporalActive && !isTemporallyVisible(feature.properties, cursor)) {
+                    // Skip features hidden by the active temporal window.
+                    if (!isVisibleUnderTemporal(feature.properties, temporalActive, temporalControl)) {
                         continue;
                     }
 

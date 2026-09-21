@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
 import {
     isTemporallyVisible,
+    isTemporallyVisibleInWindow,
     normalizeTrajectory,
     decimateTrajectory,
     interpolatePosition,
@@ -79,6 +80,77 @@ describe('isTemporallyVisible', () => {
                 }
             )
         );
+    });
+
+    it('an INVERTED window (fim before inicio) is never visible, at any cursor', () => {
+        // Achado M6. O predicado de instante sempre respondeu assim; o que mudou e que a
+        // sobreposicao do filtro passou a concordar (ver visibilidade-temporal-uma-regra-so).
+        const invertida = { temporalInicio: 5000, temporalFim: 1000 };
+        for (const cursor of [0, 1000, 3000, 5000, 9999]) {
+            expect(isTemporallyVisible(invertida, cursor)).toBe(false);
+        }
+    });
+});
+
+// ============================================================================
+// isTemporallyVisibleInWindow — a regra unica de visibilidade
+// ============================================================================
+
+describe('isTemporallyVisibleInWindow', () => {
+    it('collapses to the instantaneous test when start === end', () => {
+        const p = { temporalInicio: 100, temporalFim: 200 };
+        for (const cursor of [50, 99, 100, 150, 200, 201, 500]) {
+            expect(isTemporallyVisibleInWindow(p, cursor, cursor)).toBe(isTemporallyVisible(p, cursor));
+        }
+    });
+
+    it('is an OVERLAP test, so a feature starting inside the window is visible', () => {
+        // O caso que divergia entre o mapa e as outras tres superficies (M1 = V6): janela
+        // [0, 100], feicao que so comeca em 60.
+        expect(isTemporallyVisibleInWindow({ temporalInicio: 60 }, 0, 100)).toBe(true);
+        // E o controle: a mesma feicao testada pelo INSTANTE do inicio da janela some.
+        expect(isTemporallyVisible({ temporalInicio: 60 }, 0)).toBe(false);
+    });
+
+    it('is inclusive on both ends: touching counts as overlapping', () => {
+        expect(isTemporallyVisibleInWindow({ temporalInicio: 100, temporalFim: 200 }, 200, 300)).toBe(true);
+        expect(isTemporallyVisibleInWindow({ temporalInicio: 100, temporalFim: 200 }, 0, 100)).toBe(true);
+        expect(isTemporallyVisibleInWindow({ temporalInicio: 100, temporalFim: 200 }, 201, 300)).toBe(false);
+        expect(isTemporallyVisibleInWindow({ temporalInicio: 100, temporalFim: 200 }, 0, 99)).toBe(false);
+    });
+
+    it('treats missing/NaN bounds as unbounded (permanent on that side)', () => {
+        expect(isTemporallyVisibleInWindow({}, 0, 10)).toBe(true);
+        expect(isTemporallyVisibleInWindow(null, 0, 10)).toBe(true);
+        expect(isTemporallyVisibleInWindow({ temporalInicio: NaN, temporalFim: NaN }, 0, 10)).toBe(true);
+        expect(isTemporallyVisibleInWindow({ temporalInicio: 5 }, -1e12, -1e11)).toBe(false);
+        expect(isTemporallyVisibleInWindow({ temporalFim: 5 }, 1e11, 1e12)).toBe(false);
+    });
+
+    it('a non-finite window shows everything (temporal off / bounds not resolved yet)', () => {
+        const p = { temporalInicio: 100, temporalFim: 200 };
+        expect(isTemporallyVisibleInWindow(p, NaN, NaN)).toBe(true);
+        expect(isTemporallyVisibleInWindow(p, null, null)).toBe(true);
+        expect(isTemporallyVisibleInWindow(p, undefined, 500)).toBe(true);
+    });
+
+    it('a BACKWARDS window collapses to its start, mirroring setTemporalCursor', () => {
+        const p = { temporalInicio: 100, temporalFim: 200 };
+        expect(isTemporallyVisibleInWindow(p, 150, 10)).toBe(true);   // instante 150
+        expect(isTemporallyVisibleInWindow(p, 500, 10)).toBe(false);  // instante 500
+    });
+
+    it('an INVERTED feature window is never visible, even when the window straddles it (M6)', () => {
+        const invertida = { temporalInicio: 5000, temporalFim: 1000 };
+        expect(isTemporallyVisibleInWindow(invertida, 0, 9000)).toBe(false);
+        expect(isTemporallyVisibleInWindow(invertida, 1000, 5000)).toBe(false);
+        // CONTROLE: a mesma janela na ordem certa aparece.
+        expect(isTemporallyVisibleInWindow({ temporalInicio: 1000, temporalFim: 5000 }, 0, 9000)).toBe(true);
+    });
+
+    it('BORDA: epoch 0 is a legitimate bound, not an absent one', () => {
+        expect(isTemporallyVisibleInWindow({ temporalInicio: 0, temporalFim: 0 }, 0, 0)).toBe(true);
+        expect(isTemporallyVisibleInWindow({ temporalInicio: 0, temporalFim: 0 }, 1, 10)).toBe(false);
     });
 });
 
@@ -378,27 +450,175 @@ describe('interpolatePosition', () => {
         expect(Number.isFinite(r[1])).toBe(true);
     });
 
-    it('property: result stays within the lng/lat bounding box of keypoints', () => {
-        const kp = fc.record({
-            t: fc.integer({ min: 0, max: 1000 }),
-            lng: fc.double({ min: -180, max: 180, noNaN: true }),
-            lat: fc.double({ min: -90, max: 90, noNaN: true }),
+    // ------------------------------------------------------------------------
+    // A PROPRIEDADE QUE SUBSTITUIU A CAIXA ENVOLVENTE (achado M9).
+    //
+    // A versao anterior exigia apenas que o resultado caisse na caixa envolvente dos
+    // pontos-chave. Uma caixa aprova QUALQUER ponto dentro dela, inclusive um que nao esteja em
+    // segmento nenhum: uma implementacao que devolvesse o centro da caixa passaria. O que a
+    // interpolacao promete e mais forte e tem duas metades, e sao as duas que ficam presas aqui:
+    // o ponto esta SOBRE o segmento que o cursor atravessa (colinearidade, com o parametro
+    // dentro de [0,1]), e andar com o cursor para a frente nunca anda para tras ao longo da
+    // poligonal (monotonicidade).
+    // ------------------------------------------------------------------------
+
+    /**
+     * Posicao ao longo da poligonal, como `indice do segmento + fracao`, por varredura linear:
+     * um caminho INDEPENDENTE da busca binaria que esta sob teste.
+     * @param {Array<{t:number,lng:number,lat:number}>} pts - Pontos ja normalizados.
+     * @param {number} cursor
+     * @returns {number}
+     */
+    function parametroNaPoligonal(pts, cursor) {
+        if (cursor <= pts[0].t) return 0;
+        const ultimo = pts.length - 1;
+        if (cursor >= pts[ultimo].t) return ultimo;
+        for (let i = 0; i < ultimo; i++) {
+            const a = pts[i];
+            const b = pts[i + 1];
+            if (cursor >= a.t && cursor <= b.t) {
+                const span = b.t - a.t;
+                return i + (span === 0 ? 0 : (cursor - a.t) / span);
+            }
+        }
+        return ultimo;
+    }
+
+    /**
+     * Percurso com instantes ESTRITAMENTE crescentes e um cursor garantidamente DENTRO do vao.
+     *
+     * O gerador ingenuo (instantes sorteados livremente, cursor sorteado a parte, coordenadas por
+     * `fc.double`) foi MEDIDO e reprovado, DUAS vezes e por dois motivos diferentes:
+     *
+     *  - em mil sorteios, 587 caiam FORA do vao, e o clamp devolve um ponto-chave, que e
+     *    trivialmente colinear;
+     *  - dos 413 restantes, so 6 caiam num segmento capaz de revelar erro, porque `fc.double`
+     *    sorteia entre os doubles REPRESENTAVEIS da faixa, que se adensam perto de zero: quase
+     *    todo segmento nascia com deslocamento minusculo, e `fc.double({min:0,max:1})` para a
+     *    posicao do cursor entregava 0 ou 1 quase sempre.
+     *
+     * Com uma interpolacao propositalmente errada no lugar da real, a propriedade passava VERDE.
+     * E a mesma cobertura vazia que o achado M9 denuncia, so que uma camada acima: a propriedade
+     * estava certa e o corpus e' que nao a exercitava. Dai os inteiros escalados e o contador de
+     * casos discriminantes no fim de cada propriedade.
+     */
+    const grau = (max) => fc.integer({ min: -max * 100, max: max * 100 }).map((n) => n / 100);
+    const percursoArb = fc.record({
+        inicio: fc.integer({ min: -1000, max: 1000 }),
+        passos: fc.array(
+            fc.record({
+                dt: fc.integer({ min: 1, max: 500 }),
+                lng: grau(170),
+                lat: grau(80),
+            }),
+            { minLength: 2, maxLength: 8 },
+        ),
+        posicao: fc.integer({ min: 0, max: 1000 }),
+    }).map(({ inicio, passos, posicao }) => {
+        let t = inicio;
+        const pts = passos.map((p, i) => {
+            if (i > 0) t += p.dt;
+            return { t, lng: p.lng, lat: p.lat };
         });
+        const span = pts[pts.length - 1].t - pts[0].t;
+        return { pts, cursor: Math.round(pts[0].t + (span * posicao) / 1000), span };
+    });
+
+    /** Verdadeiro quando o cursor cai num segmento que pode revelar um erro de interpolacao. */
+    function segmentoDiscriminante(pts, cursor) {
+        const param = parametroNaPoligonal(pts, cursor);
+        const i = Math.min(Math.floor(param), pts.length - 2);
+        const frac = param - i;
+        const dx = pts[i + 1].lng - pts[i].lng;
+        const dy = pts[i + 1].lat - pts[i].lat;
+        return frac > 0.01 && frac < 0.99 && Math.abs(dx) > 1 && Math.abs(dy) > 1;
+    }
+
+    it('property: the point lies ON the bracketing segment (collinear, 0<=t<=1)', () => {
+        let discriminantes = 0;
         fc.assert(
-            fc.property(fc.array(kp, { minLength: 2, maxLength: 8 }), fc.integer({ min: -100, max: 1100 }), (traj, cursor) => {
-                const pos = interpolatePosition(traj, cursor);
+            fc.property(percursoArb, ({ pts, cursor }) => {
+                if (segmentoDiscriminante(pts, cursor)) discriminantes++;
+                const pos = interpolatePosition(pts, cursor);
                 if (pos === null) return true;
-                const lngs = traj.map((k) => k.lng);
-                const lats = traj.map((k) => k.lat);
-                const eps = 1e-9;
-                return (
-                    pos[0] >= Math.min(...lngs) - eps &&
-                    pos[0] <= Math.max(...lngs) + eps &&
-                    pos[1] >= Math.min(...lats) - eps &&
-                    pos[1] <= Math.max(...lats) + eps
-                );
-            })
+
+                const param = parametroNaPoligonal(pts, cursor);
+                const i = Math.min(Math.floor(param), pts.length - 2);
+                const a = pts[i];
+                const b = pts[i + 1];
+
+                const dx = b.lng - a.lng;
+                const dy = b.lat - a.lat;
+                const px = pos[0] - a.lng;
+                const py = pos[1] - a.lat;
+
+                // Colinearidade: o produto vetorial e zero, com folga proporcional ao tamanho do
+                // segmento (a aritmetica de ponto flutuante sobre graus nao fecha em zero exato).
+                const escala = Math.max(1, Math.abs(dx) + Math.abs(dy));
+                if (Math.abs(dx * py - dy * px) > 1e-9 * escala) return false;
+
+                // Dentro do segmento: o parametro escalar fica em [0, 1].
+                const len2 = dx * dx + dy * dy;
+                if (len2 === 0) return Math.abs(px) <= 1e-9 && Math.abs(py) <= 1e-9;
+                const t = (px * dx + py * dy) / len2;
+                return t >= -1e-9 && t <= 1 + 1e-9;
+            }),
+            { numRuns: 500 },
         );
+        // CONTROLE DE VACUO da propria propriedade: um corpus que so tocasse ponta de segmento ou
+        // segmento degenerado aprovaria qualquer implementacao. Ver o comentario do gerador.
+        expect(discriminantes).toBeGreaterThan(100);
+    });
+
+    it('property: advancing the cursor never walks backwards along the path', () => {
+        let discriminantes = 0;
+        fc.assert(
+            fc.property(percursoArb, fc.integer({ min: 0, max: 1000 }), ({ pts, cursor, span }, avancoRel) => {
+                const avanco = Math.round((span * avancoRel) / 1000);
+                if (avanco > 0 && segmentoDiscriminante(pts, cursor)) discriminantes++;
+                const antes = interpolatePosition(pts, cursor);
+                const depois = interpolatePosition(pts, cursor + avanco);
+                if (antes === null || depois === null) return true;
+
+                // O parametro e monotonico no cursor; um resultado que saltasse para outro
+                // segmento (ou voltasse dentro do mesmo) quebraria esta comparacao.
+                const pAntes = parametroNaPoligonal(pts, cursor);
+                const pDepois = parametroNaPoligonal(pts, cursor + avanco);
+                if (pDepois < pAntes - 1e-12) return false;
+
+                // E a distancia percorrida ate o ponto, MEDIDA SOBRE O RESULTADO, nunca diminui:
+                // uma implementacao que andasse para tras dentro do segmento cairia aqui.
+                const percorrido = (param, pos) => {
+                    const inteiro = Math.min(Math.floor(param), pts.length - 2);
+                    let acc = 0;
+                    for (let i = 0; i < inteiro; i++) {
+                        acc += Math.hypot(pts[i + 1].lng - pts[i].lng, pts[i + 1].lat - pts[i].lat);
+                    }
+                    return acc + Math.hypot(pos[0] - pts[inteiro].lng, pos[1] - pts[inteiro].lat);
+                };
+                const escala = Math.max(1, Math.abs(pts[pts.length - 1].lng) + Math.abs(pts[pts.length - 1].lat));
+                return percorrido(pDepois, depois) >= percorrido(pAntes, antes) - 1e-9 * escala;
+            }),
+            { numRuns: 500 },
+        );
+        expect(discriminantes).toBeGreaterThan(100);
+    });
+
+    it('CONTROLE NEGATIVO da propria propriedade: o centro da caixa envolvente REPROVA', () => {
+        // A caixa envolvente aprovava este ponto; a colinearidade nao. E o que mostra que a
+        // propriedade trocada mede alguma coisa a mais.
+        const pts = [
+            { t: 0, lng: 0, lat: 0 },
+            { t: 100, lng: 10, lat: 0 },
+            { t: 200, lng: 10, lat: 10 },
+        ];
+        const centroDaCaixa = [5, 5];
+        const a = pts[0];
+        const b = pts[1];
+        const cruz = (b.lng - a.lng) * (centroDaCaixa[1] - a.lat) - (b.lat - a.lat) * (centroDaCaixa[0] - a.lng);
+        expect(Math.abs(cruz)).toBeGreaterThan(1e-6);
+        // E o valor REAL no mesmo cursor esta sobre o segmento.
+        expect(interpolatePosition(pts, 50)).toEqual([5, 0]);
     });
 });
 

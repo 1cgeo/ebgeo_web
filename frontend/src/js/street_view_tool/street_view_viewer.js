@@ -39,7 +39,7 @@ import {
     isMapTemporalEnabledSync,
     getControl
 } from '@store';
-import { isTemporallyVisible } from '@js/temporal/temporal-model.js';
+import { isVisibleUnderTemporal } from '@js/temporal/temporal-model.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
 import { LRUCache } from '@utils/lru-cache.js';
 import { ensureTurf } from '@utils/turf-loader.js';
@@ -1738,16 +1738,19 @@ async function handleMarkerPositionClicked(data) {
  * Filters 360 markers by temporal validity when the active map has the temporal
  * module enabled. When temporal is off (or the cursor is unavailable/NaN) every
  * marker is returned unchanged.
+ *
+ * DELEGA A REGRA, e nao a reescreve (achados M1/V6 e V7). Ate 2026-09-21 ela testava o INSTANTE
+ * do cursor enquanto o mapa 2D testava a celula quantizada do passo, entao a mesma foto perdia um
+ * marcador que o mapa mostrava; e o modo "revelar ocultas" nao alcancava o panorama.
  * @param {Array} markers - Markers for the current photo.
- * @returns {Array} Markers visible at the current temporal cursor.
+ * @returns {Array} Markers visible in the current temporal window.
  */
 function filterMarkersByTemporal(markers) {
-    if (!isMapTemporalEnabledSync()) return markers;
+    const enabled = isMapTemporalEnabledSync();
+    if (!enabled) return markers;
 
-    const cursor = getControl('TemporalControl')?.getCursor();
-    if (!Number.isFinite(cursor)) return markers;
-
-    return markers.filter(marker => isTemporallyVisible(marker.properties, cursor));
+    const control = getControl('TemporalControl');
+    return markers.filter(marker => isVisibleUnderTemporal(marker.properties, enabled, control));
 }
 
 /**

@@ -68,12 +68,23 @@ function layerClause(ids) {
     return ['in', ['coalesce', ['get', 'layerId'], 'default'], ['literal', ids]];
 }
 
-/** The temporal clause for an explicit window, re-derived here instead of imported. */
+/**
+ * The temporal clause for an explicit window, re-derived here instead of imported.
+ *
+ * A TERCEIRA COMPARACAO entrou em 2026-09-21 (achado M6): `inicio <= fim` recusa a feicao de
+ * janela INVERTIDA, que a sobreposicao sozinha mostrava sempre que a celula atravessava a
+ * inversao, enquanto todo teste de instante a escondia. Ela nao muda a contagem de elementos do
+ * filtro EXTERNO (a clausula temporal continua sendo UM elemento), que e o que os `toHaveLength`
+ * desta suite medem.
+ */
 function temporalClause(start, end) {
+    const inicio = ['coalesce', ['get', 'temporalInicio'], MIN_TS];
+    const fim = ['coalesce', ['get', 'temporalFim'], MAX_TS];
     return [
         'all',
-        ['<=', ['coalesce', ['get', 'temporalInicio'], MIN_TS], end],
-        ['>=', ['coalesce', ['get', 'temporalFim'], MAX_TS], start],
+        ['<=', inicio, end],
+        ['>=', fim, start],
+        ['<=', inicio, fim],
     ];
 }
 

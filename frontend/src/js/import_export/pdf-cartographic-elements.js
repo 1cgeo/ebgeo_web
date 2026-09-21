@@ -12,6 +12,7 @@
 
 import proj4 from 'proj4';
 import { GRID_MARGIN_MM, UTM_MAX_SCALE_DENOM, parseScaleDenom } from './pdf-export.constants.js';
+import { formatTimelineLabel } from '@js/temporal/temporal.utils.js';
 // Re-exported so pdf-export.tab.js can dynamically import it alongside composeLayout.
 export { loadLogoImage } from '@utils/logo-base64.js';
 
@@ -26,6 +27,38 @@ const SCALE_BAR_HEIGHT = 60;
 const NORTH_ARROW_SIZE = 90;
 const LOGO_SIZE = 90;
 const FONT_FAMILY = 'Arial, Helvetica, sans-serif';
+/** Altura da tarja do instante temporal (unidades de 200 DPI, como os demais). */
+const TEMPORAL_STAMP_HEIGHT = 34;
+
+// ============================================================================
+// SELO DO INSTANTE TEMPORAL (achado V8)
+// ============================================================================
+
+/**
+ * Monta o texto que declara QUE INSTANTE a carta retrata, ou `null` quando o temporal esta
+ * desligado e a folha nao e' recorte de tempo nenhum.
+ *
+ * Achado V8: uma carta exportada com o temporal ligado e' um recorte do dado, e ate 2026-09-21
+ * ela saia sem dizer isso em lugar nenhum. Quem a recebe impressa nao tem como saber que metade
+ * das feicoes do mapa nao esta ali por decisao de tempo, e nao por ausencia.
+ *
+ * PURA de proposito (o desenho fica com `_drawTemporalStamp`): a montagem do texto e' a parte
+ * que erra, e ela e' a mesma nos DOIS motores, o do GDAL (folha unica) e o do jsPDF (mosaico).
+ * O rotulo sai pela MESMA funcao que a regua da barra usa, entao um mapa em modo relativo imprime
+ * "D+3" como a tela mostra, em vez de uma data que a pessoa teria de converter.
+ *
+ * @param {boolean} ativo - Se o temporal esta ligado na tela para o mapa corrente.
+ * @param {number} cursor - Instante corrente (epoch ms).
+ * @param {{modo: (string|null), origem: (number|null), unidade: (string|null)}} [contexto]
+ *   Contexto de exibicao do controlador (`getTimeContext()`).
+ * @returns {string|null} Texto pronto, ou nulo quando nao ha instante a declarar.
+ */
+export function temporalStampText(ativo, cursor, contexto) {
+    if (!ativo || !Number.isFinite(cursor)) return null;
+    const rotulo = formatTimelineLabel(cursor, contexto || {});
+    if (!rotulo) return null;
+    return `Instante retratado: ${rotulo}`;
+}
 
 /** Number of sample points for drawing curved grid lines */
 const GRID_LINE_SAMPLES = 80;
@@ -55,6 +88,7 @@ const GRID_LINE_SAMPLES = 80;
  * @param {Object} [options.mapBounds] - { west, east, south, north } in degrees
  * @param {Function} [options.projectionFn] - (lngLat) => { x, y } canvas pixels
  * @param {number} [options.dpi=300] - Output DPI for pixel calculations
+ * @param {string|null} [options.temporalStamp] - Instante retratado (ver `temporalStampText`)
  * @returns {HTMLCanvasElement} Composite canvas
  */
 export function composeLayout(mapCanvas, options) {
@@ -72,6 +106,7 @@ export function composeLayout(mapCanvas, options) {
         projectionFn,
         dpi = 300,
         logoImage,
+        temporalStamp = null,
     } = options;
 
     const mapW = mapCanvas.width;
@@ -171,6 +206,15 @@ export function composeLayout(mapCanvas, options) {
         ctx.save();
         ctx.scale(uiScale, uiScale);
         _drawLegend(ctx, (marginPx + mapW) / uiScale, (marginPx + mapH) / uiScale, legendEntries);
+        ctx.restore();
+    }
+
+    // Instante retratado (rodape central) — independente da legenda, porque a declaracao de
+    // recorte temporal vale mesmo numa folha sem legenda nenhuma.
+    if (temporalStamp) {
+        ctx.save();
+        ctx.scale(uiScale, uiScale);
+        _drawTemporalStamp(ctx, (marginPx + mapW / 2) / uiScale, (marginPx + mapH) / uiScale, temporalStamp);
         ctx.restore();
     }
 
@@ -469,11 +513,12 @@ function _utmBorderLines(mapBounds, scaleDenom) {
  * @param {string} o.scale - Scale string like "1:25000"
  * @param {number} [o.dpi=300]
  * @param {HTMLImageElement} [o.logoImage]
+ * @param {string|null} [o.temporalStamp] - Instante retratado (ver `temporalStampText`)
  */
 export function drawMosaicCartographicOverlay(ctx, {
     offsetX, offsetY, mosaicW, mosaicH, frameInset = 0,
     title, showNorthArrow, showScaleBar, showLegend,
-    featuresByType = {}, scale, dpi = 300, logoImage,
+    featuresByType = {}, scale, dpi = 300, logoImage, temporalStamp = null,
 }) {
     const uiScale = dpi / 200;
     const frameLeft = frameInset;
@@ -519,6 +564,13 @@ export function drawMosaicCartographicOverlay(ctx, {
         ctx.save();
         ctx.scale(uiScale, uiScale);
         _drawLegend(ctx, frameRight / uiScale, frameBottom / uiScale, legendEntries);
+        ctx.restore();
+    }
+
+    if (temporalStamp) {
+        ctx.save();
+        ctx.scale(uiScale, uiScale);
+        _drawTemporalStamp(ctx, (frameLeft + frameW / 2) / uiScale, frameBottom / uiScale, temporalStamp);
         ctx.restore();
     }
 
@@ -763,6 +815,37 @@ function _drawLegend(ctx, canvasWidth, mapBottom, legendEntries) {
 
         offsetY += LEGEND_ROW_HEIGHT;
     }
+}
+
+/**
+ * Desenha a tarja do instante temporal, centrada no rodape da area de mapa.
+ *
+ * O rodape CENTRAL e' o unico canto livre: a barra de escala mora na esquerda, a legenda na
+ * direita, a rosa dos ventos no alto a direita e o logotipo no alto a esquerda.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} centerX - Centro horizontal da area de mapa
+ * @param {number} mapBottom - Coordenada Y do rodape da area de mapa
+ * @param {string} texto - Texto pronto (ver `temporalStampText`)
+ */
+function _drawTemporalStamp(ctx, centerX, mapBottom, texto) {
+    const padding = 14;
+    ctx.font = `bold 15px ${FONT_FAMILY}`;
+    const larguraTexto = ctx.measureText(texto).width;
+    const totalW = larguraTexto + padding * 2;
+    const boxX = centerX - totalW / 2;
+    const boxY = mapBottom - TEMPORAL_STAMP_HEIGHT - 30;
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+    ctx.strokeStyle = '#999999';
+    ctx.lineWidth = 1;
+    _roundRect(ctx, boxX, boxY, totalW, TEMPORAL_STAMP_HEIGHT, 6);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#333333';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(texto, centerX, boxY + TEMPORAL_STAMP_HEIGHT / 2);
 }
 
 /**

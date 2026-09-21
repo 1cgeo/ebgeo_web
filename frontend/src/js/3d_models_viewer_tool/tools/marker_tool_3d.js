@@ -17,7 +17,7 @@ import {
 } from '@store/index.js';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
-import { isTemporallyVisible } from '@js/temporal/temporal-model.js';
+import { isVisibleUnderTemporal } from '@js/temporal/temporal-model.js';
 import { hexToCesiumColor } from '../services/cesium-color.js';
 import { escolherAlvo } from '../services/pick-de-alvo.js';
 import { presenceStore } from '@js/presence/presence-store.js';
@@ -49,23 +49,22 @@ const MARKER_REFRESH_DEBOUNCE_MS = 80;
 // ===== MARKER VISUALIZATION =====
 
 /**
- * Resolves the active temporal cursor for the current map.
- * @returns {number} Epoch ms, or NaN when temporal control is off/unknown.
- */
-function getTemporalCursor() {
-    return getControl('TemporalControl')?.getCursor?.() ?? NaN;
-}
-
-/**
  * Decides whether a marker should be visible under the current temporal state.
- * When the active map has temporal disabled, every marker is visible. Otherwise
- * a marker is shown only when the cursor falls inside its validity window.
+ *
+ * DELEGA A REGRA, e nao a reescreve (achados M1/V6 e V7). Ate 2026-09-21 esta funcao testava o
+ * INSTANTE do cursor enquanto o mapa 2D testava a celula quantizada do passo, entao com unidade
+ * HORA e cursor as 10:00 um marcador que comeca as 10:20 aparecia no mapa e sumia da cena 3D; e o
+ * modo "revelar ocultas" nao chegava aqui de forma alguma, de modo que o marcador desaparecia da
+ * cena enquanto o mapa o desenhava esmaecido.
  * @param {Object} marker - Marker data
  * @returns {boolean}
  */
 function isMarkerTemporallyVisible(marker) {
-    if (!isMapTemporalEnabledSync()) return true;
-    return isTemporallyVisible(marker.properties, getTemporalCursor());
+    return isVisibleUnderTemporal(
+        marker.properties,
+        isMapTemporalEnabledSync(),
+        getControl('TemporalControl'),
+    );
 }
 
 /**

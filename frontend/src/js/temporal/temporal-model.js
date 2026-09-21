@@ -18,24 +18,97 @@ const distM = (a, b) => calculateDistance([a.lng, a.lat], [b.lng, b.lat]);
 const bearingDeg = (a, b) => calculateBearing([a.lng, a.lat], [b.lng, b.lat]);
 
 /**
+ * Sentinels at the edges of the JS Date range, used as "no bound" on a feature
+ * whose validity is open on that side. They are the SAME two numbers the MapLibre
+ * filter coalesces to in `layers/visibility-filter.js`; a drift between the two
+ * copies is what `tests/unit/visibilidade-temporal-uma-regra-so.test.js` pins.
+ */
+export const TEMPORAL_MIN_TS = -8.64e15;
+export const TEMPORAL_MAX_TS = 8.64e15;
+
+/**
  * Decides whether a feature is visible at the given timeline cursor.
  * Permanent (no `temporalInicio`/`temporalFim`) features are always visible.
  * A non-finite cursor (temporal off / unknown) is treated as "show everything".
+ *
+ * This is the DEGENERATE case of `isTemporallyVisibleInWindow` (start === end), and
+ * it stays only for the callers that genuinely have an instant and no window. Every
+ * surface that decides show/hide must go through `isVisibleUnderTemporal` instead,
+ * because the 2D map filters by the quantized STEP CELL, not by the raw instant.
  *
  * @param {Object} props - Feature properties (may carry temporalInicio/temporalFim).
  * @param {number} cursor - Current timeline cursor (epoch ms).
  * @returns {boolean} True when the feature should be shown at `cursor`.
  */
 export function isTemporallyVisible(props, cursor) {
+    return isTemporallyVisibleInWindow(props, cursor, cursor);
+}
+
+/**
+ * THE ONE VISIBILITY RULE. Decides whether a feature's validity window
+ * [temporalInicio, temporalFim] OVERLAPS the timeline window [windowStart, windowEnd],
+ * with exactly the semantics of the MapLibre expression built by
+ * `buildTemporalOverlapFilter` (`layers/visibility-filter.js`):
+ *
+ *  - a missing/non-finite bound coalesces to the date-range sentinel, so a feature
+ *    with no temporal data is PERMANENT;
+ *  - the comparisons are INCLUSIVE on both ends (touching counts as overlapping);
+ *  - an INVERTED feature window (inicio > fim) is never visible, at any window. The
+ *    overlap test alone would SHOW it whenever the timeline window straddled the
+ *    inversion, while the instant test hid it at every cursor: that disagreement is
+ *    finding M6, and the third clause of the filter is what removes it;
+ *  - a non-finite window (temporal off / unknown) shows everything;
+ *  - an inverted WINDOW collapses to the instant `windowStart`, mirroring the clamp
+ *    in `setTemporalCursor`, so both sides answer the same for a backwards window.
+ *
+ * @param {Object} props - Feature properties (may carry temporalInicio/temporalFim).
+ * @param {number} windowStart - Window start (epoch ms).
+ * @param {number} windowEnd - Window end (epoch ms).
+ * @returns {boolean} True when the feature should be shown anywhere in the window.
+ */
+export function isTemporallyVisibleInWindow(props, windowStart, windowEnd) {
     if (!props) return true;
-    if (!Number.isFinite(cursor)) return true;
+    if (!Number.isFinite(windowStart)) return true;
+    const end = Number.isFinite(windowEnd) ? Math.max(windowEnd, windowStart) : windowStart;
 
-    const inicio = props.temporalInicio;
-    const fim = props.temporalFim;
+    const inicio = Number.isFinite(props.temporalInicio) ? props.temporalInicio : TEMPORAL_MIN_TS;
+    const fim = Number.isFinite(props.temporalFim) ? props.temporalFim : TEMPORAL_MAX_TS;
 
-    if (Number.isFinite(inicio) && cursor < inicio) return false;
-    if (Number.isFinite(fim) && cursor > fim) return false;
-    return true;
+    if (inicio > fim) return false;
+    return inicio <= end && fim >= windowStart;
+}
+
+/**
+ * Resolves the visibility of a feature under the CURRENT temporal state, for the
+ * surfaces that draw outside the MapLibre filter pipeline (3D markers, 360 markers,
+ * the PDF legend). It is pure: the controller arrives duck-typed as an argument, so
+ * this stays unit-testable in node and carries no store/DOM import.
+ *
+ * Reading order, and each step is a finding:
+ *  - temporal off for the active map → everything is visible;
+ *  - "reveal hidden" on → nothing is HIDDEN anywhere (V7: the mode used to reach the
+ *    2D map only, so a marker vanished from the 3D scene while the map still drew it
+ *    dimmed);
+ *  - the controller's filter window → the SAME quantized step cell the 2D filters use
+ *    (M1/V6: these surfaces tested the raw instant, so with unit HOUR and the cursor
+ *    at 10:00 a feature starting at 10:20 showed on the map and vanished here);
+ *  - no window (older controller, or bounds not resolved yet) → fall back to the
+ *    instant test, which is the behaviour these callers had before.
+ *
+ * @param {Object} props - Feature properties.
+ * @param {boolean} enabled - Whether temporal is enabled for the active map.
+ * @param {Object|null} control - TemporalControl (getFilterWindow/isRevealing/getCursor).
+ * @returns {boolean} True when the feature should be drawn.
+ */
+export function isVisibleUnderTemporal(props, enabled, control) {
+    if (!enabled) return true;
+    if (control?.isRevealing?.() === true) return true;
+
+    const win = control?.getFilterWindow?.() ?? null;
+    if (win && Number.isFinite(win.start)) {
+        return isTemporallyVisibleInWindow(props, win.start, win.end);
+    }
+    return isTemporallyVisible(props, control?.getCursor?.());
 }
 
 /**
