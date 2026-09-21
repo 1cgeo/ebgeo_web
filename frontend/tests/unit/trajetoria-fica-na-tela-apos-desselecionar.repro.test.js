@@ -54,9 +54,17 @@ const FEICAO = {
 function mapaFalso() {
     const camadas = new Set();
     const fontes = new Map();
+    // `getCanvasContainer` entrou em 2026-09-21: o arrasto de alça virou de PONTEIRO e o ouvinte
+    // de descida passou a morar no contêiner, não no mapa (achado E5).
+    const container = {
+        addEventListener() {}, removeEventListener() {},
+        setPointerCapture() {}, releasePointerCapture() {},
+        getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+    };
     return {
-        camadas, fontes,
+        camadas, fontes, container,
         getCanvas: () => ({ style: { cursor: '' }, addEventListener() {}, removeEventListener() {} }),
+        getCanvasContainer: () => container,
         on() {}, off() {},
         dragPan: { enable() {}, disable() {} },
         getLayer: (id) => (camadas.has(id) ? { id } : undefined),

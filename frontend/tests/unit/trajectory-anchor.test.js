@@ -64,9 +64,13 @@ describe('reanchorOnMove', () => {
         expect(reanchorOnMove({ trajetoria: traj() }, null)).toBeNull();
     });
 
-    it('re-anchors a non-displaced feature (no _temporalHome) without touching home', () => {
+    // A ROTA INTEIRA ACOMPANHA O ARRASTO desde 2026-09-21 (achado E7): antes só a âncora se
+    // mexia e os demais pontos-chave ficavam onde estavam, de modo que arrastar a feição
+    // DEFORMAVA a rota. Sem `fromCoords` a origem do deslocamento é a própria âncora, então
+    // aqui o delta é [4, 3] e o segundo ponto-chave vai de [7, 8] para [11, 11].
+    it('moves the WHOLE route of a non-displaced feature (no _temporalHome) without touching home', () => {
         const patch = reanchorOnMove({ trajetoria: traj() }, [9, 9]);
-        expect(patch).toEqual({ trajetoria: [{ t: 100, lng: 9, lat: 9 }, { t: 200, lng: 7, lat: 8 }] });
+        expect(patch).toEqual({ trajetoria: [{ t: 100, lng: 9, lat: 9 }, { t: 200, lng: 11, lat: 11 }] });
         expect(patch._temporalHome).toBeUndefined();
     });
 

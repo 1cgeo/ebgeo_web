@@ -128,6 +128,17 @@
     touch-action: none;
 }
 
+/* A régua é um slider que atende setas, PageUp/PageDown e Home/End, então o foco
+   tem de ser VISÍVEL: sem isto a pessoa que chega por Tab digita às cegas, e o
+   clique (que agora também dá foco) não deixa rastro nenhum na tela. O contorno é
+   afastado para não ser comido pelo trilho, que tem menos altura que a área de
+   clique. */
+.temporal-bar__track:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: var(--radius-full);
+}
+
 /* The visual rail sits centered in the taller hit area. */
 .temporal-bar__track::before {
     content: "";
@@ -370,13 +381,13 @@
     cursor: pointer;
 }
 
-.temporal-auto-binding--disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.temporal-auto-binding--disabled input {
-    cursor: not-allowed;
+/* TRAVADO NÃO É DESABILITADO: sob a lente relativa a CHAVE do vínculo de GDH não
+   vira (o vínculo já ligado continua valendo), e isso é estado reversível pela
+   própria pessoa, então a caixa continua desenhada, clicável e com `aria-disabled`
+   no JS. O cursor segue o de um comando de propósito: o clique É como o motivo
+   chega. Daí também a ausência de `:disabled` aqui. */
+.temporal-auto-binding--travado {
+    opacity: 0.6;
 }
 
 .temporal-trajectory-list {

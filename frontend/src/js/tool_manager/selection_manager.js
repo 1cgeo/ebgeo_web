@@ -601,6 +601,14 @@ class SelectionManager {
         // add waypoints to the selected feature and must not deselect it (which would
         // close the panel and tear down the editor).
         if (getControl('TrajectoryEditControl')?.isAdding?.()) return;
+        // E FORA DO MODO DE ACRÉSCIMO, O CLIQUE QUE TERMINA NUMA ALÇA DO EDITOR TAMBÉM É DELE.
+        // A isenção acima cobria só `isAdding`, e por isso clicar num PONTO MÉDIO inseria o
+        // ponto-chave e, no mesmo gesto, desselecionava a feição e fechava o painel (medido no
+        // navegador: 3 pontos-chave viravam 4 e a seleção ia a zero). Inserir por clique não
+        // ANDA, então a regra de fim de arrasto acima, que só descarta cliques de mais de 3px,
+        // não alcança o caso; e a alça está longe do ícone da feição, então o clique caía "no
+        // vazio". O predicado é do editor porque só ele sabe quais camadas são alças suas.
+        if (getControl('TrajectoryEditControl')?.isHandleAt?.(e.point)) return;
 
         // Skip if click is on viewer layers (3D Models, Street View)
         // These have their own click handlers and should not trigger feature selection

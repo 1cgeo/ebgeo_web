@@ -21,7 +21,10 @@ import { withMapDocument } from './document-lock.js';
 import { deepClone, deepEqual } from '../utilities/deep-utils.js';
 import { EventTypes } from '../events';
 import { applyGeneratedBitmap } from '../layers/bitmap-version.js';
-import { formatDTG } from '../temporal/temporal.utils.js';
+// Leaf modules (no store in their graph), so the mirror below shares the PANEL'S derivation
+// instead of carrying a second copy of it. `temporal-attributes.model.js` imports only
+// `temporal-model.js` and `temporal.utils.js`; nothing there reaches back into the store.
+import { derivarCamposDtg } from '../temporal/temporal-attributes.model.js';
 
 // ===== TIMESTAMP AND VERSION HELPERS =====
 
@@ -699,14 +702,34 @@ export async function stampGeneratedBitmap(feature, result, mapName = null, isCu
 
 /**
  * Updates a single property on a feature.
+ *
+ * UNDO IS OPT-IN, AND THE DEFAULT IS "NO UNDO" ON PURPOSE. This is the property write of the
+ * whole product: the visibility eye, the padlock, a cell of the attribute table, the temporal
+ * amplifiers. Most of those are not gestures a person expects Ctrl+Z to reach, and several of
+ * them run in LOOPS over a multi-selection, where one entry per feature would bury the undo
+ * stack. So the caller that IS a gesture says so, with `{ recordUndo: true }`, and gets the same
+ * `'update'` entry that `updateFeature` records: the inversion goes back through `updateFeature`
+ * with the pre-write clone, and the repaint of the MapLibre source is the one the undo runner
+ * already does for every action (`map/undo-redo.runner.js` calls `switchMap`).
+ *
+ * WHO ASKS FOR IT TODAY: every trajectory gesture (drag / insert / remove a keypoint, and the
+ * whole "Adicionar no mapa" session, which persists once at the end so it is ONE entry). Until
+ * 2026-09-21 no trajectory edit was undoable at all, while dragging the FIRST keypoint was,
+ * because that one goes through the owning control's `updateFeatures` → `updateFeature`: the
+ * same gesture had two rules (achado E2).
+ *
+ * GROUPING IS THE CALLER'S TOO: `recordAction` honours `memoryStore.batchCollector`, so a caller
+ * that wraps several writes in `startBatchUndo()` / `commitBatchUndo()` gets a single entry.
+ *
  * @param {string} featureType - Storage type
  * @param {string} featureId - Feature ID
  * @param {string} property - Property name
  * @param {*} value - New value
  * @param {string} [mapName=null] - Target map name
+ * @param {{recordUndo?: boolean}} [options] - `recordUndo` pushes one 'update' undo entry.
  * @returns {Promise<boolean>} Whether update was successful
  */
-export async function updateFeatureProperty(featureType, featureId, property, value, mapName = null) {
+export async function updateFeatureProperty(featureType, featureId, property, value, mapName = null, { recordUndo = false } = {}) {
     const targetMap = resolveMap(mapName);
     if (guardWrite(GuardAction.UPDATE_FEATURE, 'updateFeatureProperty', targetMap).blocked) return false;
 
@@ -736,6 +759,21 @@ export async function updateFeatureProperty(featureType, featureId, property, va
                 }
             }
 
+            if (recordUndo && shouldRecordUndo(mapName)) {
+                // The clone of the NEW side is taken inside the deferral's closure argument, not
+                // after persistence: `feature` is the live object inside `currentMapData` and a
+                // later write to the same property would otherwise rewrite the redo snapshot.
+                const newFeature = deepClone(feature);
+                tx.deferSync(() => {
+                    mapManager.recordAction({
+                        type: 'update',
+                        featureType,
+                        oldFeature,
+                        newFeature
+                    });
+                });
+            }
+
             {
                 const mapId = mapManager.getMapId(targetMap);
                 tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, featureId, mapId, feature, oldFeature);
@@ -760,16 +798,34 @@ export async function updateFeatureProperty(featureType, featureId, property, va
  * unreachable and nothing threw, so a rescheduled symbol kept the old date-time group
  * printed beside its new window. Converted at the call site with
  * `getSourceTypeFromStorage`.
+ *
+ * NÃO É MAIS UM ESPELHO, É O MESMO CÓDIGO (2026-09-21). A regra vive em `derivarCamposDtg`
+ * (`temporal/temporal-attributes.model.js`, folha, testável em node), que o painel de atributos
+ * também chama: duas cópias da mesma derivação divergem, e divergiram — o painel ganhou a
+ * limpeza do amplificador (E8) enquanto esta cópia seguia escrevendo o valor velho depois de um
+ * Reagendar.
+ *
+ * A CHAMADA DECIDE UMA COISA AQUI, e ela não é da função pura: o instante AUSENTE escreve
+ * vazio, e não deixa o amplificador velho impresso; mas `''` não é gravado por cima de
+ * `undefined`, porque isso seria uma mudança de propriedade que enfileiraria op de sync para
+ * uma feição que nunca teve o campo.
+ *
+ * A LENTE NÃO ENTRA NA CONTA, e por um dia ela entrou. Entre a manhã e a tarde de 2026-09-21
+ * esta função recebia um `relativo` e saía sem escrever nada sob a lente D+N, para casar com o
+ * que a caixa do painel dizia. O ramo era pior que o desalinho: o "Reagendar" só existe no modo
+ * RELATIVO (a engrenagem só o desenha ali), então no ÚNICO caminho que chega aqui a rederivação
+ * nunca acontecia, e o símbolo ficava com o GDH velho descrevendo uma janela que acabara de
+ * andar. Um GDH absoluto fresco num mapa D+N é no máximo estranho; um GDH velho é dado errado
+ * impresso. A invariante que vale: `autoDtg` ligado implica GDH igual à janela, em qualquer
+ * lente, como manda o modelo de lente pura.
+ *
  * @param {string} sourceType - Source feature type: 'military_symbol' / 'coordination_measure'.
  * @param {Object} p - Feature properties (already shifted in place).
  */
 function rederiveAutoDtg(sourceType, p) {
-    if (p.autoDtg !== true) return;
-    if (sourceType === 'military_symbol') {
-        if (Number.isFinite(p.temporalInicio)) p.dateTimeGroup = formatDTG(p.temporalInicio, 'military');
-    } else if (sourceType === 'coordination_measure') {
-        if (Number.isFinite(p.temporalInicio)) p.gdhIni = formatDTG(p.temporalInicio, 'coordination');
-        if (Number.isFinite(p.temporalFim)) p.gdhFim = formatDTG(p.temporalFim, 'coordination');
+    for (const [prop, valor] of Object.entries(derivarCamposDtg(p, sourceType))) {
+        if (valor === '' && p[prop] === undefined) continue;
+        p[prop] = valor;
     }
 }
 

@@ -19,8 +19,12 @@ import { getEmptyMapData } from '../../src/js/store/repository.utils.js';
 // Drives the PUBLIC function (`shiftMapTemporalTimes`), never the private helper, so a
 // fix that only renamed the helper would not satisfy it.
 
-const { mockMapData, mockMapManager, mockLockedMaps } = vi.hoisted(() => ({
+const { mockMapData, mockMapManager, mockLockedMaps, mockTemporalConfigs } = vi.hoisted(() => ({
     mockMapData: { value: null },
+    // A LENTE DO MAPA, que este arquivo não tinha e que era o buraco do instrumento: sem
+    // `temporalConfigs` no dublê, todo caso caía no padrão ABSOLUTO, e a suíte inteira
+    // media o modo em que o "Reagendar" não existe. Ver o caso do modo relativo no fim.
+    mockTemporalConfigs: { value: new Map() },
     mockMapManager: {
         getCurrentMapName: vi.fn(() => 'TestMap'),
         getCurrentMapId: vi.fn(() => 'map-uuid-123'),
@@ -74,6 +78,7 @@ vi.mock('../../src/js/store/memory-store.js', () => ({
     memoryStore: {
         get lockedMaps() { return mockLockedMaps.value; },
         set lockedMaps(v) { mockLockedMaps.value = v; },
+        get temporalConfigs() { return mockTemporalConfigs.value; },
         currentMap: 'TestMap',
     },
 }));
@@ -121,6 +126,7 @@ describe('Reagendar — re-derivação do GDH automático', () => {
         vi.clearAllMocks();
         mockMapData.value = getEmptyMapData();
         mockLockedMaps.value = new Set();
+        mockTemporalConfigs.value = new Map();
     });
 
     it('desloca a janela do símbolo militar (controle positivo)', async () => {
@@ -176,6 +182,31 @@ describe('Reagendar — re-derivação do GDH automático', () => {
         expect(persisted('coordination_measures', 'c1').gdhIni).toBe(GDH_INI_ANTES);
         expect(persisted('coordination_measures', 'c1').gdhFim).toBe(GDH_FIM_ANTES);
         // …and the window still moved, so "quiet" is not "nothing ran".
+        expect(persisted('military_symbols', 's1').temporalInicio).toBe(T0 + DELTA);
+    });
+
+    it('re-deriva com o mapa em modo RELATIVO, que é o ÚNICO caminho real do Reagendar', async () => {
+        // O CASO QUE FALTAVA, e a razão de ele faltar era o dublê: sem `temporalConfigs`
+        // todo caso acima roda sob o padrão ABSOLUTO, e o "Reagendar" não existe ali — a
+        // engrenagem da barra só desenha o botão no modo relativo. Ou seja, a suíte
+        // inteira media um modo em que esta função nunca é chamada em produção, e uma
+        // pausa da derivação sob D+N (que existiu por algumas horas em 2026-09-21)
+        // passaria verde por aqui enquanto deixava o símbolo com o GDH velho na tela.
+        mockTemporalConfigs.value = new Map([['TestMap', { modo: 'relativo', origem: T0 }]]);
+        mockMapData.value.features.military_symbols.push(
+            timedFeature('s1', { autoDtg: true, dateTimeGroup: DTG_ANTES }),
+        );
+        mockMapData.value.features.coordination_measures.push(
+            timedFeature('c1', { autoDtg: true, gdhIni: GDH_INI_ANTES, gdhFim: GDH_FIM_ANTES }),
+        );
+
+        await shiftMapTemporalTimes('TestMap', DELTA);
+
+        // A lente é exibição: o GDH é absoluto e acompanha a janela em qualquer modo.
+        expect(persisted('military_symbols', 's1').dateTimeGroup).toBe(DTG_DEPOIS);
+        expect(persisted('coordination_measures', 'c1').gdhIni).toBe(GDH_INI_DEPOIS);
+        expect(persisted('coordination_measures', 'c1').gdhFim).toBe(GDH_FIM_DEPOIS);
+        // E a janela andou, senão o GDH novo não provaria a rederivação.
         expect(persisted('military_symbols', 's1').temporalInicio).toBe(T0 + DELTA);
     });
 

@@ -24,7 +24,8 @@ import { showError, showSuccess, showToast } from '@utils/index.js';
 import { validateImagePayload, IMAGE_CONFIG } from '@utils/image_utils.js';
 import { showConfirm } from '@modals/index.js';
 import { deepClone } from '@utils/deep-utils.js';
-import { createTemporalValiditySection, releaseTemporalSection } from '@js/temporal/temporal-attributes-section.js';
+import { createTemporalValiditySection, createTemporalReadonlySection, releaseTemporalSection } from '@js/temporal/temporal-attributes-section.js';
+import { semEdicaoSync } from '@store/edicao-indisponivel.js';
 import {
     createModernSlider,
     createModernColorPicker,
@@ -844,20 +845,32 @@ function preencherCoordenadasDaFoto(linha, texto, photoName) {
  * the panel's cleanup chain: this panel is rebuilt on every marker selection, and
  * the lazy `isConnected` fallback only fires on the NEXT temporal event, which may
  * never come.
+ *
+ * A MESMA PERGUNTA DO PAINEL 2D, E NÃO NENHUMA (V4). Este painel oferecia os dois
+ * campos editáveis a um Leitor e com o mapa travado; a escrita morria no guarda da
+ * store e o valor digitado ficava no campo, que é a tela afirmando o contrário do
+ * que aconteceu. `semEdicaoSync` soma os DOIS eixos (posto e trava), e é a mesma
+ * soma que `feature-panel-content.js` usa para trocar a seção editável pelo resumo
+ * somente leitura.
  * @param {HTMLElement} container - Parent container.
  * @param {Object} marker - Current marker state.
  * @param {Array<Function>} cleanupFunctions - The panel's cleanup chain.
  */
 function buildTemporalSection(container, marker, cleanupFunctions) {
-    const section = createTemporalValiditySection({
-        inicio: marker.properties?.temporalInicio,
-        fim: marker.properties?.temporalFim,
-        onChange: async (prop, epoch) => {
-            const value = Number.isFinite(epoch) ? epoch : null;
-            marker.properties = { ...marker.properties, [prop]: value };
-            await updateMarker360(marker.id, { properties: { [prop]: value } });
-        },
-    });
+    const section = semEdicaoSync()
+        ? createTemporalReadonlySection({ feature: marker })
+        : createTemporalValiditySection({
+            inicio: marker.properties?.temporalInicio,
+            fim: marker.properties?.temporalFim,
+            onChange: async (prop, epoch) => {
+                const value = Number.isFinite(epoch) ? epoch : null;
+                marker.properties = { ...marker.properties, [prop]: value };
+                await updateMarker360(marker.id, { properties: { [prop]: value } });
+            },
+        });
+    // O resumo devolve null quando o marcador não tem dado temporal nenhum, que é o
+    // mesmo "não desenha nada" do painel 2D para uma feição puramente espacial.
+    if (!section) return;
     container.appendChild(section);
     cleanupFunctions.push(() => releaseTemporalSection(section));
 }

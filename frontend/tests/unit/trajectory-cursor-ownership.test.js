@@ -10,10 +10,17 @@ beforeAll(async () => {
 let editor;
 let map;
 let canvas;
+let container;
 beforeEach(() => {
     canvas = { style: { cursor: '' }, addEventListener: vi.fn(), removeEventListener: vi.fn() };
+    // `getCanvasContainer` entrou em 2026-09-21 (achado E5): o arrasto de alça virou de
+    // PONTEIRO com captura, e os ouvintes dele moram no contêiner, não no mapa.
+    container = {
+        addEventListener: vi.fn(), removeEventListener: vi.fn(),
+        setPointerCapture: vi.fn(), releasePointerCapture: vi.fn(),
+    };
     map = {
-        getCanvas: () => canvas, on: vi.fn(), off: vi.fn(),
+        getCanvas: () => canvas, getCanvasContainer: () => container, on: vi.fn(), off: vi.fn(),
         getLayer: vi.fn(), getSource: vi.fn(), dragPan: { enable: vi.fn() },
     };
     editor = new TrajectoryEditControl();

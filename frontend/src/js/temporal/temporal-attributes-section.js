@@ -14,6 +14,14 @@
  *
  * Both self-persist on change (live source via the control, store via
  * updateFeatureProperty) and ask the TemporalController to re-apply render.
+ *
+ * O CONTRATO DA RECUSA, que não se adivinha lendo uma chamada só: o `onChange` de um
+ * campo de tempo pode devolver FALSO, e nesse caso o campo se reconstrói a partir do
+ * último valor aceito. Sem isso, o número digitado fica no input depois de a escrita
+ * ser recusada, e uma recusa se lê como gravação. Duas recusas existem hoje, e as
+ * duas decidem em `temporal-attributes.model.js`, em função pura: janela invertida
+ * (fim antes do início) e troca de instante que mudaria quem é a ÂNCORA da
+ * trajetória.
  */
 
 import { getControl, getEventBus, updateFeatureProperty, getStorageTypeFromSource, getMapTemporalConfigSync } from '@store';
@@ -25,7 +33,6 @@ import {
     offsetToEpoch,
     unitLetter,
     formatTimelineLabel,
-    formatDTG,
 } from './temporal.utils.js';
 import { normalizeTrajectory, trajectoryStats } from './temporal-model.js';
 import {
@@ -34,6 +41,18 @@ import {
     TEMPORAL_MODES,
 } from './temporal.constants.js';
 import { updateSourceFeatureProperty } from './temporal-render.service.js';
+import {
+    validarJanela,
+    fraseDeJanelaInvertida,
+    decidirTrocaDeInstante,
+    derivarCamposDtg,
+    fraseDeLimpezaDeTrajetoria,
+    fraseDaJanelaDaRegua,
+    GDH_LIGA_SO_NO_ABSOLUTO,
+    GDH_SUFIXO_SO_ABSOLUTO,
+} from './temporal-attributes.model.js';
+import { showWarning } from '@utils/toast_service.js';
+import { showConfirm } from '@modals/confirm.modal.js';
 
 /**
  * Resolves the active map's time context for input rendering/conversion.
@@ -139,6 +158,20 @@ export function createTemporalAttributesSection({ feature, featureType, selected
     return createTemporalValiditySection({
         inicio: feature.properties?.temporalInicio,
         fim: feature.properties?.temporalFim,
+        // A JANELA DE VALIDADE NÃO PEDE DESFAZER, e a ausência aqui é decisão, não
+        // esquecimento (2026-09-21). O gesto é explícito e seria elegível pelo mesmo
+        // critério da trajetória, mas ele não é a única escrita: `deriveDtgFields`
+        // grava o GDH derivado logo abaixo, por outra chamada, sem `await`. Um
+        // Ctrl+Z que devolvesse `temporalInicio` e deixasse o `dateTimeGroup`
+        // descrevendo a janela velha entregaria uma feição num estado que nunca
+        // existiu, e meio desfazer custa mais que desfazer nenhum. Agrupar os dois
+        // numa entrada só existe (`startBatchUndo`/`commitBatchUndo`), mas exige que
+        // esta função vire assíncrona e AWAITE as duas escritas, e ela é síncrona por
+        // contrato: é o `false` devolvido daqui que `buildTimeField` lê para recusar
+        // a janela invertida, e uma Promise nunca é `=== false`. Condição para acender
+        // isto depois: o caminho awaitado com as duas escritas dentro do mesmo lote.
+        // Gatear por tipo de feição (só quem não deriva GDH) está fora: seria de novo
+        // o mesmo gesto com duas regras, que é o defeito que o E2 nomeou.
         onChange: (prop, epoch) => {
             const value = Number.isFinite(epoch) ? epoch : null;
             control?.updateFeaturesProperty?.(selectedFeatures, prop, value);
@@ -176,9 +209,22 @@ export function createTemporalValiditySection({ inicio, fim, onChange, timeConte
         temporalFim: Number.isFinite(fim) ? fim : null,
     };
 
+    // Returns FALSE to refuse, which is the contract `buildTimeField` reads to put the
+    // field back to the last accepted value. An inverted window (fim < inicio) is
+    // refused here and nowhere else in the product: stored, it makes the feature
+    // invisible at EVERY cursor, so it vanishes from the 3D, the 360 and the PDF
+    // legend while the 2D map may still draw it (M6/E6).
     const handleChange = (prop, epoch) => {
-        times[prop] = Number.isFinite(epoch) ? epoch : null;
-        onChange(prop, times[prop]);
+        const proposto = Number.isFinite(epoch) ? epoch : null;
+        const decisao = validarJanela(prop, proposto, times);
+        if (!decisao.aceita) {
+            const ctx = timeContext || getActiveTimeContext();
+            showWarning(fraseDeJanelaInvertida(decisao, formatTimelineLabel(decisao.limite, ctx)));
+            return false;
+        }
+        times[prop] = proposto;
+        onChange(prop, proposto);
+        return true;
     };
 
     const renderBody = () => {
@@ -325,9 +371,17 @@ function buildTimeField({ epoch, onChange, timeContext }) {
     const field = document.createElement('div');
     field.className = 'temporal-attr-row__field';
 
+    // `onChange` may REFUSE by returning false (inverted window, anchor swap). The
+    // field then rebuilds from `current`, the last value that was actually stored:
+    // leaving the typed number sitting in an input that nothing accepted is how a
+    // refused edit reads as a saved one.
     const emit = (value) => {
-        current = Number.isFinite(value) ? value : null;
-        onChange(current);
+        const proposto = Number.isFinite(value) ? value : null;
+        if (onChange(proposto) === false) {
+            render();
+            return;
+        }
+        current = proposto;
     };
 
     const render = () => {
@@ -355,11 +409,16 @@ function buildDatetimeInput(epoch, emit, timeContext) {
     input.type = 'datetime-local';
     input.className = 'temporal-attr-row__input';
     input.value = Number.isFinite(epoch) ? epochToDatetimeLocal(epoch) : '';
-    // Highlight the temporal-bar window in the native calendar: bound selectable
-    // dates to [início, fim] so the timeline start/end stand out while picking.
+    // A JANELA DA RÉGUA É DICA, NÃO CERCA (E11). Aqui havia `input.min`/`input.max`
+    // com um comentário que os chamava de "highlight": o navegador não destaca, ele
+    // RECUSA tudo fora do intervalo, e o intervalo é derivado da extensão das
+    // feições que já existem. Ou seja, a primeira feição de um período novo era
+    // justamente a que não se conseguia datar. Agora a janela viaja como texto.
     const ctx = timeContext || {};
-    if (Number.isFinite(ctx.inicio)) input.min = epochToDatetimeLocal(ctx.inicio);
-    if (Number.isFinite(ctx.fim)) input.max = epochToDatetimeLocal(ctx.fim);
+    input.title = fraseDaJanelaDaRegua(
+        Number.isFinite(ctx.inicio) ? formatTimelineLabel(ctx.inicio, ctx) : null,
+        Number.isFinite(ctx.fim) ? formatTimelineLabel(ctx.fim, ctx) : null
+    );
     input.addEventListener('change', () => emit(datetimeLocalToEpoch(input.value)));
     return input;
 }
@@ -442,21 +501,29 @@ function persistSymbolProperty(feature, featureType, prop, value) {
 /**
  * Derives the DTG / GDH amplifier(s) from the feature's temporal window when the
  * `autoDtg` binding is on: military `dateTimeGroup`, or coordination `gdhIni`/`gdhFim`.
+ *
+ * A BOUND THAT VIROU NULO APAGA O GDH (E8). Antes a escrita acontecia só com o
+ * instante finito, então apagar o "Início" de um símbolo com GDH automático deixava
+ * o GDH ANTIGO impresso e gravado, descrevendo uma janela que não existe mais. A
+ * decisão de qual campo recebe o quê é de `derivarCamposDtg`, testável em node; aqui
+ * fica só a escrita, e ela pula o que não mudaria, para não enfileirar op inútil.
+ *
+ * ELA RODA EM QUALQUER MODO, e a lente NÃO entra na conta. `autoDtg` ligado significa
+ * GDH igual à janela, e uma lente de exibição não muda o comportamento do dado (o
+ * modelo de lente pura da casa). O que o modo relativo trava é LIGAR ou DESLIGAR o
+ * vínculo pela caixa; o vínculo já ligado acompanha a janela sob D+N como sob data
+ * absoluta, senão a janela anda e o GDH fica velho, que é dado errado impresso.
  */
 function deriveDtgFields(feature, featureType) {
     const p = feature.properties || {};
-    if (p.autoDtg !== true) return;
-    if (featureType === 'military_symbol') {
-        if (Number.isFinite(p.temporalInicio)) {
-            persistSymbolProperty(feature, featureType, 'dateTimeGroup', formatDTG(p.temporalInicio, 'military'));
-        }
-    } else if (featureType === 'coordination_measure') {
-        if (Number.isFinite(p.temporalInicio)) {
-            persistSymbolProperty(feature, featureType, 'gdhIni', formatDTG(p.temporalInicio, 'coordination'));
-        }
-        if (Number.isFinite(p.temporalFim)) {
-            persistSymbolProperty(feature, featureType, 'gdhFim', formatDTG(p.temporalFim, 'coordination'));
-        }
+    const campos = derivarCamposDtg(p, featureType);
+    for (const [prop, valor] of Object.entries(campos)) {
+        const atual = p[prop];
+        if (atual === valor) continue;
+        // Nunca "limpe" o que nunca existiu: sem isto, toda edição de janela numa
+        // feição que jamais teve GDH gravaria uma string vazia por cima de undefined.
+        if (valor === '' && (atual === undefined || atual === null)) continue;
+        persistSymbolProperty(feature, featureType, prop, valor);
     }
 }
 
@@ -478,8 +545,11 @@ function buildAutoBindings(feature, featureType) {
             : [];
     if (defs.length === 0) return null;
 
-    // GDH is an absolute date-time group, so auto-deriving it makes no sense under
-    // the relative (D+N) lens — disable that one binding while in relative mode.
+    // GDH is an absolute date-time group, so TURNING the binding on or off is an
+    // absolute-mode decision — that one checkbox is state-locked under the relative
+    // (D+N) lens. Locked, not disabled (see the affordance note where the row is
+    // built), and it locks the SWITCH, never the derivation: a binding already on
+    // keeps following the window under any lens.
     const isRelative = getActiveTimeContext().modo === TEMPORAL_MODES.RELATIVO;
 
     const section = document.createElement('div');
@@ -503,14 +573,36 @@ function buildAutoBindings(feature, featureType) {
         cb.type = 'checkbox';
         cb.checked = feature.properties?.[key] === true;
 
-        const dtgDisabled = key === 'autoDtg' && isRelative;
-        if (dtgDisabled) {
-            cb.disabled = true;
-            row.classList.add('temporal-auto-binding--disabled');
-            row.title = 'Indisponível no modo relativo (GDH usa data absoluta).';
+        // O ESTADO RECUSA O CLIQUE, E NÃO SOME (E12). O modo relativo é reversível
+        // pela própria pessoa (a engrenagem da barra temporal), então a caixa
+        // continua desenhada e clicável, com `aria-disabled`, e o clique é o que
+        // entrega o motivo. Nunca a propriedade `disabled`, que era o que estava
+        // aqui: botão desabilitado não dispara clique, e no toque o `title` também
+        // não existe, de modo que o motivo não chegava por caminho nenhum.
+        //
+        // O QUE A TRAVA ALCANÇA É A CHAVE, NÃO O VÍNCULO: a frase diz isso em voz
+        // alta, porque uma versão desta tela chegou a dizer "pausado" e a pausa
+        // correspondente no código deixava o GDH velho impresso depois de a janela
+        // andar.
+        const dtgTravado = key === 'autoDtg' && isRelative;
+        if (dtgTravado) {
+            cb.setAttribute('aria-disabled', 'true');
+            row.classList.add('temporal-auto-binding--travado');
+            row.title = GDH_LIGA_SO_NO_ABSOLUTO;
+            cb.addEventListener('click', (e) => {
+                // `preventDefault` num clique de checkbox cancela a troca de estado.
+                e.preventDefault();
+                showWarning(GDH_LIGA_SO_NO_ABSOLUTO);
+            });
         }
 
         cb.addEventListener('change', () => {
+            // Rede de segurança para o ambiente em que o `preventDefault` acima não
+            // segurou a marcação: o estado da caixa volta ao da feição e nada grava.
+            if (dtgTravado) {
+                cb.checked = feature.properties?.[key] === true;
+                return;
+            }
             persistSymbolProperty(feature, featureType, key, cb.checked);
             if (key === 'autoDtg' && cb.checked) deriveDtgFields(feature, featureType);
             // Re-sync the symbol image so turning a binding OFF drops its derived
@@ -521,7 +613,7 @@ function buildAutoBindings(feature, featureType) {
         });
 
         const span = document.createElement('span');
-        span.textContent = dtgDisabled ? `${label} (somente modo absoluto)` : label;
+        span.textContent = dtgTravado ? `${label} ${GDH_SUFIXO_SO_ABSOLUTO}` : label;
 
         row.append(cb, span);
         section.appendChild(row);
@@ -574,12 +666,24 @@ export function createTrajectorySection({ feature, featureType, map }) {
     // re-apply temporal render, and refresh the map trajectory display. Never
     // replaces feature.properties.trajetoria's array reference, so the active map
     // editor (which shares it) stays in sync.
+    // TODA EDIÇÃO DE TRAJETÓRIA POR AQUI É DESFAZÍVEL desde 2026-09-21 (E2), e é por
+    // isso que o `recordUndo` aparece: `updateFeatureProperty` não registra desfazer
+    // por padrão, de propósito (é a escrita de propriedade do produto inteiro, e
+    // várias das outras rodam em laço sobre multisseleção). Aqui cada chamada vem de
+    // UM gesto explícito da pessoa (limpar, remover um ponto, trocar um instante),
+    // escreve UMA propriedade e não tem escrita derivada atrás dela, que são as três
+    // condições que tornam o desfazer honesto. O primeiro ponto-chave já era
+    // desfazível pelo controle dono, então até esta data o MESMO gesto tinha duas
+    // regras conforme o ponto arrastado.
     const persist = () => {
         const sorted = normalizeTrajectory(feature.properties?.trajetoria);
         if (map && sourceId) {
             updateSourceFeatureProperty(map, sourceId, feature.properties.id, 'trajetoria', sorted);
         }
-        updateFeatureProperty(getStorageTypeFromSource(featureType), feature.properties.id, 'trajetoria', sorted);
+        updateFeatureProperty(
+            getStorageTypeFromSource(featureType), feature.properties.id, 'trajetoria', sorted,
+            null, { recordUndo: true }
+        );
         getControl('TemporalControl')?.sync();
         getControl('TrajectoryEditControl')?.refreshDisplay();
     };
@@ -638,13 +742,28 @@ export function createTrajectorySection({ feature, featureType, map }) {
             epoch: kp.t,
             timeContext,
             onChange: (epoch) => {
-                if (epoch === null) return;
+                // Um ponto-chave não tem instante vazio (é o que o põe na linha do
+                // tempo), então limpar o campo é recusa, e o campo volta ao instante
+                // gravado em vez de ficar em branco sobre um valor que continua lá.
+                if (epoch === null) return false;
+                // A ÂNCORA NÃO TROCA POR EDIÇÃO DE INSTANTE (E4). Ela é o ponto de
+                // partida da feição, ligado 1:1 à posição de origem
+                // (`trajectory-anchor.js`), e o editor do mapa a reimpõe à geometria
+                // no `_persist` seguinte. Sem esta recusa, pôr o ponto 3 antes do
+                // ponto 1 mudava a partida sem mover nada, e a feição teleportava na
+                // interação seguinte com o mapa, longe deste gesto.
+                const decisao = decidirTrocaDeInstante(feature.properties?.trajetoria, kp, epoch);
+                if (!decisao.aceita) {
+                    showWarning(decisao.motivo);
+                    return false;
+                }
                 kp.t = epoch; // mutate the shared keypoint object
                 persist();
                 // Don't renderList() here: re-sorting the rows as the user fills in
                 // each date is disorienting. persist() already sorts the stored array;
                 // the visible order stabilises on the next full render. Refresh stats only.
                 renderStats(normalizeTrajectory(feature.properties?.trajetoria));
+                return true;
             },
         });
         fields.appendChild(timeField);
@@ -702,9 +821,25 @@ export function createTrajectorySection({ feature, featureType, map }) {
     clearBtn.type = 'button';
     clearBtn.className = 'temporal-attr-btn';
     clearBtn.textContent = 'Limpar';
-    clearBtn.addEventListener('click', () => {
-        if (Array.isArray(feature.properties?.trajetoria)) {
-            feature.properties.trajetoria.length = 0; // keep array reference
+    // LIMPAR PERGUNTA, E A PERGUNTA DIZ QUANTO SAI (E2). Nenhuma edição de trajetória
+    // é desfazível (a escrita é por propriedade, que não registra desfazer), então
+    // este é o único ponto em que a pessoa pode voltar atrás, e "Limpar" apagava a
+    // rota inteira num clique. A contagem é a da lista normalizada, que é a que a
+    // pessoa vê e a que de fato é gravada.
+    clearBtn.addEventListener('click', async () => {
+        const arr = feature.properties?.trajetoria;
+        const quantidade = normalizeTrajectory(arr).length;
+        if (quantidade === 0) return;
+        const { titulo, mensagem } = fraseDeLimpezaDeTrajetoria(quantidade);
+        const confirmado = await showConfirm(titulo, {
+            message: mensagem,
+            confirmText: 'Limpar',
+            cancelText: 'Manter',
+            destructive: true,
+        });
+        if (!confirmado) return;
+        if (Array.isArray(arr)) {
+            arr.length = 0; // keep array reference
         }
         persist();
         renderList();

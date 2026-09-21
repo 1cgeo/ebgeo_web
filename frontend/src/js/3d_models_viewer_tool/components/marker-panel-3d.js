@@ -33,7 +33,8 @@ import {
     createSectionDivider
 } from '@tools/helpers/index.js';
 import { getTilesetName, createDescriptionSection, buildPhotoGallerySection } from './panel-shared-3d.js';
-import { createTemporalValiditySection, releaseTemporalSection } from '@js/temporal/temporal-attributes-section.js';
+import { createTemporalValiditySection, createTemporalReadonlySection, releaseTemporalSection } from '@js/temporal/temporal-attributes-section.js';
+import { semEdicaoSync } from '@store/edicao-indisponivel.js';
 
 /**
  * Icons used in the component.
@@ -124,18 +125,31 @@ export function createMarkerPanelContent(marker, tilesetId, onClose) {
     // events, so it has to be released here: this panel is rebuilt on every marker
     // selection, and the lazy `isConnected` fallback only fires on the NEXT
     // temporal event, which may never come.
-    const temporalSection = createTemporalValiditySection({
-        inicio: currentMarker.properties?.temporalInicio,
-        fim: currentMarker.properties?.temporalFim,
-        onChange: async (prop, epoch) => {
-            const value = Number.isFinite(epoch) ? epoch : null;
-            currentMarker.properties = { ...currentMarker.properties, [prop]: value };
-            const { updateMarkerProperties } = await getMarkerTool();
-            await updateMarkerProperties(currentMarker.id, { properties: { [prop]: value } });
-        },
-    });
-    container.appendChild(temporalSection);
-    cleanupFunctions.push(() => releaseTemporalSection(temporalSection));
+    //
+    // A MESMA PERGUNTA DO PAINEL 2D, E NÃO NENHUMA (V4). Este painel oferecia os dois
+    // campos editáveis a um Leitor e com o mapa travado; a escrita morria lá embaixo
+    // no guarda da store e o valor digitado ficava no campo, que é a tela afirmando
+    // o contrário do que aconteceu. `semEdicaoSync` soma os DOIS eixos (posto e
+    // trava) e é a mesma soma que `feature-panel-content.js` usa para trocar a seção
+    // editável pelo resumo somente leitura.
+    const temporalSection = semEdicaoSync()
+        ? createTemporalReadonlySection({ feature: currentMarker })
+        : createTemporalValiditySection({
+            inicio: currentMarker.properties?.temporalInicio,
+            fim: currentMarker.properties?.temporalFim,
+            onChange: async (prop, epoch) => {
+                const value = Number.isFinite(epoch) ? epoch : null;
+                currentMarker.properties = { ...currentMarker.properties, [prop]: value };
+                const { updateMarkerProperties } = await getMarkerTool();
+                await updateMarkerProperties(currentMarker.id, { properties: { [prop]: value } });
+            },
+        });
+    // O resumo devolve null quando o marcador não tem dado temporal nenhum, que é o
+    // mesmo "não desenha nada" do painel 2D para uma feição puramente espacial.
+    if (temporalSection) {
+        container.appendChild(temporalSection);
+        cleanupFunctions.push(() => releaseTemporalSection(temporalSection));
+    }
 
     // 7. Delete button at the end
     buildDeleteButton(container, currentMarker, onClose);

@@ -13,6 +13,15 @@
  * map click appends a keypoint at the current timeline instant. Per-point time
  * editing and the waypoint list live in the feature's attribute panel (the
  * `onChange` callback keeps it in sync).
+ *
+ * TRÊS COISAS QUE ESTE ARQUIVO GANHOU EM 2026-09-21, cada uma com o porquê no seu próprio
+ * ponto, e as três amarradas entre si:
+ *  - o arrasto de alça é de PONTEIRO com captura, não de mouse, senão nada disto obedece a um
+ *    dedo (ver `_setupEditListeners`);
+ *  - por isso mesmo o `preventDefault` da descida deixa o `click` passar, e o gerente de
+ *    seleção precisa de `isHandleAt` para não ler como "clicou no vazio" o clique que acabou
+ *    de INSERIR um ponto-chave;
+ *  - e toda edição daqui é desfazível, uma entrada de Ctrl+Z por gesto (ver `_persist`).
  */
 
 import { showToast, showSuccess } from '@utils/index.js';
@@ -28,8 +37,10 @@ import {
 } from '@store';
 import { EventTypes } from '@events/event_types.js';
 import { getSnappingService } from '@js/snapping/snapping.service.js';
-import { isTouchDevice } from '@utils/pointer-utils.js';
+import { isTouchDevice, getPointerPosition } from '@utils/pointer-utils.js';
 import { setupVertexRemoveLongPress } from '@js/draw_tools/drawing-touch-helpers.js';
+import { handleHitBox } from '@tools/helpers/feature-hit-test.helpers.js';
+import { queryHoverFeatures } from '@tools/helpers/hover-query.helpers.js';
 import { normalizeTrajectory } from '../temporal-model.js';
 import { unitToMs } from '../temporal.utils.js';
 import { TRAJECTORY_TYPE_TO_SOURCE, TRAJECTORY_TYPE_TO_CONTROL } from '../temporal.constants.js';
@@ -77,12 +88,14 @@ export class TrajectoryEditControl {
         this._pendingPreview = false;
         this._cleanupLongPress = null;
         this._editListenersActive = false;
+        this._activeEditPointerId = null;
 
         this._onClick = this._onClick.bind(this);
         this._onKeyDown = this._onKeyDown.bind(this);
-        this._onEditMouseDown = this._onEditMouseDown.bind(this);
-        this._onEditMouseMove = this._onEditMouseMove.bind(this);
-        this._onEditMouseUp = this._onEditMouseUp.bind(this);
+        this._onEditPointerDown = this._onEditPointerDown.bind(this);
+        this._onEditPointerMove = this._onEditPointerMove.bind(this);
+        this._onEditPointerUp = this._onEditPointerUp.bind(this);
+        this._onEditPointerCancel = this._onEditPointerCancel.bind(this);
         this._onHoverMove = this._onHoverMove.bind(this);
         this._onCanvasContextMenu = this._onCanvasContextMenu.bind(this);
         this._performPreview = this._performPreview.bind(this);
@@ -306,7 +319,11 @@ export class TrajectoryEditControl {
         }
         this._normalizeInPlace();
         this._renderAll();
-        this._persist();
+        // O CANCELAMENTO não é gesto de edição: ele repõe o instantâneo tomado na entrada do
+        // modo, então uma entrada de Ctrl+Z ali desfaria uma mudança que ninguém fez. A sessão
+        // inteira de acréscimo, ao contrário, vale UMA entrada, e é este o ponto em que ela
+        // persiste (cada clique no mapa só mexe no array vivo).
+        this._persist({ recordUndo: commit });
 
         if (commit) {
             const n = (this._feature?.properties?.trajetoria || []).length;
@@ -387,13 +404,30 @@ export class TrajectoryEditControl {
 
     // ===== Handle editing (move / insert / remove) =====
 
+    /**
+     * O ARRASTO DE ALÇA É DE PONTEIRO, E NÃO DE MOUSE, desde 2026-09-21 (achado E5).
+     *
+     * ELE NÃO FUNCIONAVA COM O DEDO. `map.on('mousedown'|'mousemove'|'mouseup')` são ouvintes de
+     * MOUSE que o MapLibre registra no DOM e não sintetiza a partir do toque; o contêiner do
+     * canvas declara `touch-action: none` e o próprio MapLibre dá `preventDefault` no `touchmove`,
+     * de modo que o arrasto consome o gesto e nenhum evento de compatibilidade nasce. No tablet
+     * as alças apareciam e não obedeciam: dava para REMOVER ponto-chave (toque longo, que é de
+     * `touchstart`) e não dava para mover nem inserir. As onze ferramentas de desenho já tinham
+     * feito esta travessia; esta é a cópia do modelo do polígono
+     * (`draw_tools/polygon_tool/add_polygon_control.js`).
+     *
+     * A CAPTURA DE PONTEIRO é o que faz o arrasto sobreviver à saída do dedo da alça: sem ela, o
+     * primeiro movimento por cima de outro elemento entregaria os eventos a ele.
+     *
+     * O HOVER CONTINUA DE MOUSE, de propósito: ele só decide o formato do cursor, que não existe
+     * num dedo. Um `pointermove` permanente no contêiner pagaria uma consulta de alça por
+     * movimento de toque para não mudar nada.
+     */
     _setupEditListeners() {
         const map = this._map;
         if (!map) return;
         this._editListenersActive = true;
-        map.on('mousedown', this._onEditMouseDown);
-        map.on('mousemove', this._onEditMouseMove);
-        map.on('mouseup', this._onEditMouseUp);
+        map.getCanvasContainer().addEventListener('pointerdown', this._onEditPointerDown);
         // Drive the hover cursor from a continuous mousemove (like the line tool's
         // onHoverMove) rather than per-layer mouseenter/leave: the boundary events
         // only fire once, so anything that re-asserts the canvas cursor afterwards
@@ -414,9 +448,9 @@ export class TrajectoryEditControl {
         const map = this._map;
         this._cancelPreview();
         if (!map) return;
-        map.off('mousedown', this._onEditMouseDown);
-        map.off('mousemove', this._onEditMouseMove);
-        map.off('mouseup', this._onEditMouseUp);
+        const container = map.getCanvasContainer();
+        container.removeEventListener('pointerdown', this._onEditPointerDown);
+        this._detachDragListeners();
         map.off('mousemove', this._onHoverMove);
         map.getCanvas().removeEventListener('contextmenu', this._onCanvasContextMenu, true);
         // hide() also runs when this editor was never shown. Only release the
@@ -431,6 +465,24 @@ export class TrajectoryEditControl {
             this._cleanupLongPress = null;
         }
         this._resetDrag();
+    }
+
+    /** Drops the per-drag pointer listeners and releases the capture, if any. @private */
+    _detachDragListeners() {
+        const container = this._map?.getCanvasContainer?.();
+        if (!container) return;
+        container.removeEventListener('pointermove', this._onEditPointerMove);
+        container.removeEventListener('pointerup', this._onEditPointerUp);
+        container.removeEventListener('pointercancel', this._onEditPointerCancel);
+        if (this._activeEditPointerId !== null && this._activeEditPointerId !== undefined) {
+            try {
+                container.releasePointerCapture(this._activeEditPointerId);
+            } catch {
+                // O navegador já pode tê-lo soltado (pointercancel), e tentar de novo levanta.
+                // A captura é conveniência, nunca invariante.
+            }
+            this._activeEditPointerId = null;
+        }
     }
 
     /** Continuous hover: re-applies the handle cursor on every move (idle when dragging/adding). */
@@ -457,11 +509,16 @@ export class TrajectoryEditControl {
         this._map.getCanvas().style.cursor = cursor;
     }
 
-    _onEditMouseDown(e) {
+    _onEditPointerDown(e) {
         if (this._adding) return;
-        if (e.originalEvent && e.originalEvent.button === 2) return; // right-click → contextmenu
+        if (e.button === 2) return; // right-click → contextmenu
+        // SÓ O PONTEIRO PRIMÁRIO: num toque de dois dedos o segundo chega aqui como um
+        // `pointerdown` próprio e começaria um segundo arrasto da mesma alça, com o dedo errado.
+        if (e.isPrimary === false) return;
 
-        const handle = this._queryHandle(e.point);
+        const container = this._map.getCanvasContainer();
+        const point = getPointerPosition(e, container);
+        const handle = this._queryHandle(point);
         if (!handle) return;
 
         this._editing = true;
@@ -474,14 +531,38 @@ export class TrajectoryEditControl {
         // "copy" (+) since releasing creates a new keypoint. Both differ from the
         // hover cursors (move / copy) and from MapLibre's idle pan cursor (grab).
         this._map.getCanvas().style.cursor = this._dragType === 'midpoint' ? 'copy' : 'grabbing';
+
+        this._activeEditPointerId = e.pointerId;
+        try {
+            container.setPointerCapture(e.pointerId);
+        } catch {
+            // Sem captura o arrasto ainda funciona enquanto o dedo não sair do elemento.
+            this._activeEditPointerId = null;
+        }
+        container.addEventListener('pointermove', this._onEditPointerMove);
+        container.addEventListener('pointerup', this._onEditPointerUp);
+        // `pointercancel` É OBRIGATÓRIO NO TOQUE: gesto de sistema, notificação ou o navegador
+        // assumindo o gesto interrompem o arrasto sem um `pointerup`, e sem este par a bandeira
+        // ficaria presa em verdadeiro e o ouvinte de movimento vazaria.
+        container.addEventListener('pointercancel', this._onEditPointerCancel);
+
+        // `preventDefault` CANCELA OS EVENTOS DE MOUSE DE COMPATIBILIDADE E NÃO CANCELA O
+        // `click`, que é a razão de `tool_manager/click-after-drag.js` existir e de este editor
+        // publicar `isHandleAt` para o gerente de seleção (achado E3).
         e.preventDefault();
     }
 
-    _onEditMouseMove(e) {
+    _onEditPointerMove(e) {
         if (!this._editing) return;
+        if (e.isPrimary === false) return;
+        // O EVENTO É DOM: `e.point` e `e.lngLat` do evento de mapa do MapLibre não existem num
+        // `PointerEvent`, então a posição de tela e a coordenada se derivam aqui.
+        const point = getPointerPosition(e, this._map.getCanvasContainer());
+        const lngLat = this._map.unproject([point.x, point.y]);
+
         const excludeId = this._feature?.properties?.id;
         const snapping = getSnappingService();
-        const snap = snapping?.resolve(this._map, e.point, e.lngLat, excludeId) ?? e.lngLat;
+        const snap = snapping?.resolve(this._map, point, lngLat, excludeId) ?? lngLat;
         this._previewPos = [snap.lng, snap.lat];
         this._dragMoved = true;
 
@@ -504,7 +585,8 @@ export class TrajectoryEditControl {
         this._map.getSource(HANDLE_SOURCE)?.setData(buildHandleCollection(preview));
     }
 
-    _onEditMouseUp(e) {
+    _onEditPointerUp(e) {
+        this._detachDragListeners();
         if (!this._editing) return;
         const type = this._dragType;
         const index = this._dragIndex;
@@ -515,7 +597,7 @@ export class TrajectoryEditControl {
         this._map.dragPan.enable();
         // Restore the hover cursor for whatever handle is still under the pointer,
         // so the affordance doesn't go blank until the next mouse move off-and-on.
-        this._setHoverCursorAt(e?.point);
+        this._setHoverCursorAt(e ? getPointerPosition(e, this._map.getCanvasContainer()) : null);
         this._resetDrag();
 
         if (!pos) return;
@@ -534,6 +616,24 @@ export class TrajectoryEditControl {
         this._renderAll();
         this._persist();
         this._onChange?.();
+    }
+
+    /**
+     * UM GESTO CANCELADO NÃO ESCREVE, e é aqui que este editor se afasta do modelo do polígono,
+     * que liga o cancelamento ao mesmo tratador do `pointerup`. A diferença é o que está em jogo:
+     * um `pointercancel` sobre uma alça de PONTO MÉDIO com o dedo parado seria indistinguível de
+     * um toque, e o toque INSERE um ponto-chave. Uma notificação do sistema no meio do gesto
+     * passaria a acrescentar pontos à rota. O desfecho certo é descartar a prévia e redesenhar a
+     * trajetória que a store tem.
+     */
+    _onEditPointerCancel() {
+        this._detachDragListeners();
+        if (!this._editing) return;
+        getSnappingService()?.hideIndicator(this._map);
+        this._map.dragPan.enable();
+        this._map.getCanvas().style.cursor = '';
+        this._resetDrag();
+        this._renderAll();
     }
 
     /** Pure preview/commit transform for a drag (no side effects). */
@@ -569,7 +669,10 @@ export class TrajectoryEditControl {
         const canvas = this._map.getCanvas();
         const rect = canvas.getBoundingClientRect();
         const point = [e.clientX - rect.left, e.clientY - rect.top];
-        const handles = this._map.queryRenderedFeatures(point, { layers: [VERTEX_LAYER] });
+        // A MESMA caixa de acerto e a mesma peneira de camadas da descida: consultar por um
+        // PONTO exigia acertar os 9px do círculo, e nomear a camada direto LEVANTA quando ela
+        // não está no estilo (o editor remove as dele em `_removeLayers`).
+        const handles = queryHoverFeatures(this._map, handleHitBox(point), [VERTEX_LAYER]);
         const vertex = handles.find((f) => f.properties?.handleType === 'vertex');
         if (!vertex) return; // let the app context menu show
         e.preventDefault();
@@ -577,10 +680,55 @@ export class TrajectoryEditControl {
         this._commitRemove(vertex.properties.index);
     }
 
+    /**
+     * The handle under a screen point, or null.
+     *
+     * THE QUERY IS A BOX AND NÃO UM PONTO, a mesma `handleHitBox` das ferramentas de desenho: a
+     * alça tem 9px de raio e a ponta de um dedo cobre cerca de 34, então um ponto só acertava
+     * quando o toque caía dentro do círculo. `queryHoverFeatures` ainda peneira as camadas pelo
+     * estilo, porque o MapLibre LEVANTA ao receber um id que não está lá e este editor remove as
+     * dele em `_removeLayers`.
+     * @param {{x:number,y:number}} point - Screen point, canvas-relative.
+     * @returns {Object|null}
+     */
     _queryHandle(point) {
         // Vertex layer sits above the midpoint layer, so an overlapping vertex wins.
-        const handles = this._map.queryRenderedFeatures(point, { layers: [VERTEX_LAYER, MIDPOINT_LAYER] });
+        const handles = queryHoverFeatures(this._map, handleHitBox(point), [VERTEX_LAYER, MIDPOINT_LAYER]);
         return handles.find((f) => f.properties?.role === 'handle') || null;
+    }
+
+    /**
+     * CLICAR NUMA ALÇA NÃO É CLICAR NO VAZIO, e até 2026-09-21 o gerente de seleção achava que
+     * era (achado E3, medido no navegador).
+     *
+     * O QUE ACONTECIA: clicar num ponto médio inseria o ponto-chave (3 viravam 4) e, no MESMO
+     * gesto, a seleção ia a zero e o painel fechava. O `pointerdown` do arrasto de alça dá
+     * `preventDefault`, o que cancela os eventos de mouse de compatibilidade e NÃO cancela o
+     * `click`; a regra de fim de arrasto (`tool_manager/click-after-drag.js`) só descarta cliques
+     * que ANDARAM mais de 3px, e inserir por clique não anda. O clique chegava inteiro a
+     * `_handleMapClick`, caía longe do ícone da feição (os vértices 2..N ficam onde a rota passa)
+     * e desselecionava. A isenção que já existia lá cobria só o modo de ACRÉSCIMO (`isAdding`).
+     *
+     * O PREDICADO É SEM ESTADO de propósito. Uma bandeira "consumi este clique", posta na descida
+     * e lida no clique, fica presa quando o clique não chega (um `pointercancel`, um arrasto que
+     * o MapLibre engole) e come o clique SEGUINTE, que é um desselecionar que não acontece e que
+     * ninguém relaciona com a trajetória. Perguntar pela alça a cada clique se corrige sozinho.
+     *
+     * Vale para o ponto médio (depois de inserir há um VÉRTICE exatamente sob o cursor) e para o
+     * vértice clicado sem arrastar (a alça continua lá).
+     *
+     * @param {{x:number,y:number}} point - Screen point of the click, canvas-relative.
+     * @returns {boolean} True when one of this editor's handles is under `point`.
+     */
+    isHandleAt(point) {
+        if (!this._map || !this._feature || !point) return false;
+        try {
+            return this._queryHandle(point) !== null;
+        } catch {
+            // Um mapa em reconstrução de estilo pode levantar na consulta. Falhar aqui devolve o
+            // comportamento anterior (o clique segue e desseleciona), nunca uma seleção presa.
+            return false;
+        }
     }
 
     _resetDrag() {
@@ -734,7 +882,29 @@ export class TrajectoryEditControl {
 
     // ===== Persistence =====
 
-    _persist() {
+    /**
+     * Persists the live trajectory array.
+     *
+     * TODA EDIÇÃO DE TRAJETÓRIA É DESFAZÍVEL desde 2026-09-21 (achado E2). Antes, só o arrasto do
+     * PRIMEIRO ponto-chave era: ele cai no ramo da âncora, que grava pelo controle dono
+     * (`updateFeatures` → `updateFeature`), e `updateFeature` registra ação de desfazer. Os
+     * demais gestos gravavam por `updateFeatureProperty`, que não registrava nada, então o mesmo
+     * gesto tinha duas regras e arrastar o vértice 2 era irreversível. A escrita de propriedade
+     * ganhou o desfazer como opção EXPLÍCITA (o padrão continua sem, porque ela é a escrita do
+     * olho de visibilidade e do cadeado, em laço sobre seleção múltipla), e cada gesto daqui
+     * acende a opção uma vez: um arrasto, uma inserção, uma remoção e a SESSÃO INTEIRA de
+     * "Adicionar no mapa" valem cada uma UMA entrada de Ctrl+Z, porque o acréscimo só persiste
+     * ao sair do modo.
+     *
+     * QUEM REPINTA: o desfazer não volta por aqui. `map/undo-redo.runner.js` desseleciona (o que
+     * derruba este editor pelo ouvinte de seleção), inverte a ação e reconstrói o mapa base, que
+     * é o que repõe a fonte do MapLibre a partir da store. É o mesmo caminho de qualquer outra
+     * ação, e por isso não há repintura especial de trajetória a escrever.
+     *
+     * @param {{recordUndo?: boolean}} [options] - `recordUndo: false` grava sem entrada de
+     *   desfazer (o CANCELAMENTO do modo de acréscimo, que só repõe o instantâneo de entrada).
+     */
+    _persist({ recordUndo = true } = {}) {
         const props = this._feature?.properties;
         if (!props) return;
         const sorted = normalizeTrajectory(props.trajetoria);
@@ -745,10 +915,15 @@ export class TrajectoryEditControl {
         if (this._syncHomeToAnchor(sorted[0])) {
             const control = getControl(TRAJECTORY_TYPE_TO_CONTROL[this._featureType]);
             if (control?.updateFeatures) {
+                // Este ramo já era desfazível: `updateFeatures(…, true)` chama `updateFeature`,
+                // que registra a ação sozinho. Ele não tem (nem precisa de) a opção.
                 control.updateFeatures([this._feature], true);
             } else {
                 // updateFeatureProperty keys by STORAGE type — convert the source type.
-                updateFeatureProperty(getStorageTypeFromSource(this._featureType), props.id, 'trajetoria', sorted);
+                updateFeatureProperty(
+                    getStorageTypeFromSource(this._featureType), props.id, 'trajetoria', sorted,
+                    null, { recordUndo },
+                );
             }
             getControl('TemporalControl')?.sync();
             return;
@@ -760,7 +935,10 @@ export class TrajectoryEditControl {
         }
         // updateFeatureProperty keys by STORAGE type ('points'), not the source type
         // ('point') held in _featureType — convert or the store write silently fails.
-        updateFeatureProperty(getStorageTypeFromSource(this._featureType), props.id, 'trajetoria', sorted);
+        updateFeatureProperty(
+            getStorageTypeFromSource(this._featureType), props.id, 'trajetoria', sorted,
+            null, { recordUndo },
+        );
         getControl('TemporalControl')?.sync();
     }
 
