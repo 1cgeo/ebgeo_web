@@ -38,6 +38,7 @@ import { readEbgeoArchive, isV1Format, importVersionRefusal, xorMask } from './e
 import { EventTypes } from '@events/event_types.js';
 import { showExportModal } from '@modals/export.modal.js';
 import { showConfirm } from '@modals/confirm.modal.js';
+import { requiredImagesOf, missingImagesConfirm } from './ebgeo-missing-images.js';
 // A PODA DE SAÍDA. Módulos diretos, não o barrel de `@catalog`: este arquivo já é pesado e
 // o podador é puro de propósito.
 import { podarDocumentoDeExportacao } from '@catalog/private-reference-pruner.js';
@@ -451,32 +452,47 @@ export class ExportImportService {
             const usedImages = this.collectUsedImageIds(data);
             if (!isCurrent()) throw new Error('O atlas mudou durante a exportação. Tente novamente.');
 
+            // THE BLOBS ARE READ BEFORE THE FILE IS WRITTEN, so a missing one is a QUESTION and not a
+            // failure halfway (2026-09-21). An image feature or a custom icon with no blob used to be
+            // skipped in silence; since 2026-09-19 it threw, which closed the silent loss and made ONE
+            // orphan image block the export of the WHOLE atlas, forever, with a sentence ("wait for the
+            // connection") that on a local atlas names a way out that does not exist. The loss is now
+            // counted, named and confirmed: never silent, never a trap. See `ebgeo-missing-images.js`.
+            const blobs = new Map();
+            for (const imageId of usedImages) {
+                try {
+                    const blob = await getImage(imageId);
+                    if (blob) blobs.set(imageId, blob);
+                } catch (error) {
+                    console.warn('Image not available for export:', imageId, error?.message);
+                }
+            }
+            if (!isCurrent()) throw new Error('O atlas mudou durante a exportação. Tente novamente.');
+
+            const semArquivo = requiredImagesOf(data).filter(imagem => !blobs.has(imagem.id));
+            const pergunta = missingImagesConfirm(semArquivo, { remote: writingIntoServerAtlas() });
+            if (pergunta) {
+                const seguir = await showConfirm(pergunta.title, {
+                    message: pergunta.message,
+                    confirmText: pergunta.confirmText,
+                    cancelText: pergunta.cancelText,
+                });
+                if (!seguir) return;
+                if (!isCurrent()) throw new Error('O atlas mudou durante a exportação. Tente novamente.');
+            }
+
             zip.file('data.json', JSON.stringify(data), {
                 compression: 'DEFLATE',
                 compressionOptions: { level: 9 }
             });
 
-            const requiredImages = new Set((data.customIcons || []).map(icon => icon.id));
-            for (const map of Object.values(data.maps || {})) {
-                for (const feature of map.features?.images || []) requiredImages.add(feature.properties.id);
-            }
-
             // Add images to ZIP with correct extension based on MIME type
-            for (const imageId of usedImages) {
-                try {
-                    const blob = await getImage(imageId);
-                    if (!blob && requiredImages.has(imageId)) throw new Error(`Imagem ${imageId} indisponível. Aguarde a conexão e tente exportar novamente.`);
-                    if (blob) {
-                        const extension = this.getBlobExtension(blob);
-                        zip.file(`images/${imageId}.${extension}`, blob, {
-                            compression: 'DEFLATE',
-                            compressionOptions: { level: 9 }
-                        });
-                    }
-                } catch (error) {
-                    if (requiredImages.has(imageId)) throw error;
-                    console.warn('Image not found:', imageId);
-                }
+            for (const [imageId, blob] of blobs) {
+                const extension = this.getBlobExtension(blob);
+                zip.file(`images/${imageId}.${extension}`, blob, {
+                    compression: 'DEFLATE',
+                    compressionOptions: { level: 9 }
+                });
             }
 
             // Generate ZIP file

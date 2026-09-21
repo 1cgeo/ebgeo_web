@@ -280,6 +280,23 @@ describeOrSkip('.ebgeo: o ciclo completo pelo disco', () => {
             .toHaveText('Este arquivo sai sem parte do catálogo');
         await avisoDePoda.locator('.confirm-modal-btn-confirm').click();
 
+        // A SEGUNDA PERGUNTA, E ELA TAMBEM E ESPERADA: A FIXTURE TRAZ UMA IMAGEM ORFA. O arquivo
+        // declara QUATRO feicoes de imagem e carrega o blob de TRES (conferido abrindo o zip em
+        // 2026-09-21): a do mapa "Principal" nao tem figura, e isso e' dado real da outra linha do
+        // produto, nao defeito da fixture. De 2026-09-19 a 2026-09-21 o exportador LANCAVA nesse
+        // caso ("Imagem ... indisponivel. Aguarde a conexao"), e este caso ficou vermelho no HEAD
+        // limpo: uma unica orfa tornava o atlas inteiro impossivel de exportar, para sempre, com
+        // uma frase que em atlas local promete uma saida que nao existe. Hoje a perda e' contada,
+        // nomeada e confirmada (`src/js/import_export/ebgeo-missing-images.js`). Esperar o titulo
+        // EXATO e' o que distingue "perguntou" de "exportou calado", que era o defeito de antes.
+        const avisoDeFigura = page.locator('.confirm-modal-container');
+        await expect(avisoDeFigura.locator('.confirm-modal-title'))
+            .toHaveText('Este arquivo sai sem 1 figura', { timeout: 60000 });
+        await expect(avisoDeFigura).toContainText('1 imagem (no mapa "Principal")');
+        // Atlas LOCAL: a frase nao pode prometer conexao.
+        await expect(avisoDeFigura).not.toContainText('conexão');
+        await avisoDeFigura.locator('.confirm-modal-btn-confirm').click();
+
         const download = await baixado;
         dirTemporario = await mkdtemp(join(tmpdir(), 'ebgeo-round-trip-'));
         const nomeBaixado = download.suggestedFilename();

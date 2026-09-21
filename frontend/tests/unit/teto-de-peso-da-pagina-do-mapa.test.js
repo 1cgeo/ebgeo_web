@@ -286,7 +286,12 @@ const ORCAMENTO = Object.freeze({
     // `await import()`, e portanto não conta aqui). O módulo novo é o único peso: os três imports
     // dele (JSZip, `atlas.entity.js` e `repository.utils.js`) já estavam no grafo ansioso desta
     // página pelo próprio serviço, então subiram 5,7 kB de fonte e nenhum pacote externo novo.
-    import_export: 15,
+    //
+    // 16 desde 2026-09-21, medido pela reprovação deste caso (16 contra 15 com UM arquivo novo):
+    // `ebgeo-missing-images.js`, folha de ZERO imports com a lista das imagens que um `.ebgeo` não
+    // pode perder calado e a pergunta que o exportador faz quando uma delas não tem arquivo. Saiu de
+    // dentro de `export-import.service.js` para ser testável em node, e é ansioso porque o serviço é.
+    import_export: 16,
     // 16 em 2026-09-21, com as QUATRO folhas puras que a execução da auditoria temporal tirou de
     // dentro de componentes de DOM para que a regra fosse testável em node: `temporal-attributes.model.js`
     // (janela invertida, troca de âncora, GDH derivado), `temporal-bar.model.js` (arraste e teclas da
@@ -703,7 +708,11 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // desfecho de uma transferência de camada, que saiu de dentro da aba de feições para dizer os
         // três desfechos da origem e ser testável em node. No mesmo dia entrou `store/mapa-inexistente.js`
         // e saiu `sidebar/tabs/remote-map-redirect.js`, um pelo outro, e por isso o 746 não se mexeu ali.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(747);
+        //
+        // 2026-09-21, décimo quinto lote: 748, medido pela reprovação deste caso (748 contra 747 com UM
+        // arquivo novo): `import_export/ebgeo-missing-images.js`, a folha descrita no orçamento de
+        // `import_export` acima.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(748);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);

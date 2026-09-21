@@ -23,6 +23,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const armazenadas = new Map();
 
+// THE ANSWER TO "this file goes out without N pictures", case by case. The real modal needs a DOM;
+// what this file measures is what the exporter DOES with the answer.
+const dialogo = vi.hoisted(() => ({ resposta: false, perguntas: [] }));
+vi.mock('@modals/confirm.modal.js', () => ({
+    showConfirm: vi.fn(async (title, options) => {
+        dialogo.perguntas.push({ title, message: options?.message });
+        return dialogo.resposta;
+    })
+}));
+
 vi.mock('@utils/toast_service.js', () => ({ showError: vi.fn(), showWarning: vi.fn(), showToast: vi.fn(), showSuccess: vi.fn(), showInChannel: vi.fn() }));
 
 vi.mock('@store', () => ({
@@ -83,6 +93,18 @@ if (typeof globalThis.FileReader === 'undefined') {
                 this.result = `data:${blob.type || 'application/octet-stream'};base64,${btoa(binario)}`;
                 this.onloadend?.();
             }).catch((e) => { this.error = e; this.onerror?.(); });
+        }
+
+        // JSZip reads a Blob it is asked to pack through THIS method. Without it the exporter's
+        // `generateAsync` rejects in node with "readAsArrayBuffer is not a function", and a case
+        // that exports a picture that HAS its file would fail for a reason that is not the product.
+        // Reads the blob for real; JSZip listens on `onload` and reads `e.target.result`.
+        readAsArrayBuffer(blob) {
+            blob.arrayBuffer().then((buf) => {
+                this.result = buf;
+                this.onload?.({ target: this });
+                this.onloadend?.();
+            }).catch((e) => { this.error = e; this.onerror?.({ target: this }); });
         }
     };
 }
@@ -255,16 +277,61 @@ it('a storage failure rejects image import instead of reporting success', async 
 });
 
 
-it('refuses to download an export whose original photo is unavailable', async () => {
+// UNTIL 2026-09-21 this case was "refuses to download an export whose original photo is unavailable":
+// the exporter THREW, and one orphan image made the whole atlas impossible to export, forever (on a
+// local atlas no connection will ever bring the blob back). What the case guarded is still true and is
+// what stays pinned: a file with a hole is NEVER downloaded without the person knowing. The decision
+// moved from the exporter to the person.
+const comFotoOrfa = (svc) => vi.spyOn(svc, 'buildPrunedExportData').mockResolvedValue({
+    data: { maps: { Map: { features: { images: [{ properties: { id: 'missing-photo', source: 'image' } }] } } } }, relatorio: null
+});
+
+it('asks before exporting a photo that has no file, and CANCEL downloads nothing', async () => {
     const svc = servico();
-    vi.spyOn(svc, 'buildPrunedExportData').mockResolvedValue({
-        data: { maps: { Map: { features: { images: [{ properties: { id: 'missing-photo', source: 'image' } }] } } } }, relatorio: null
-    });
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    comFotoOrfa(svc);
+    dialogo.resposta = false;
+    dialogo.perguntas.length = 0;
     const download = vi.spyOn(URL, 'createObjectURL');
+
     await svc.handleExport(['Map']);
+
+    expect(dialogo.perguntas).toHaveLength(1);
+    expect(dialogo.perguntas[0].title).toBe('Este arquivo sai sem 1 figura');
+    expect(dialogo.perguntas[0].message).toContain('1 imagem (no mapa "Map")');
     expect(download).not.toHaveBeenCalled();
-    expect(error).toHaveBeenCalledWith('Erro ao exportar dados:', expect.objectContaining({ message: expect.stringContaining('missing-photo') }));
+    download.mockRestore();
+});
+
+it('CONFIRM exports the rest of the atlas instead of trapping it behind one orphan', async () => {
+    const svc = servico();
+    comFotoOrfa(svc);
+    dialogo.resposta = true;
+    dialogo.perguntas.length = 0;
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const download = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:teste');
+
+    await svc.handleExport(['Map']);
+
+    expect(dialogo.perguntas).toHaveLength(1);
+    // The old refusal, by name: it must not come back through the error path either.
+    expect(error).not.toHaveBeenCalledWith('Erro ao exportar dados:', expect.objectContaining({ message: expect.stringContaining('missing-photo') }));
+    expect(download).toHaveBeenCalledTimes(1);
     error.mockRestore();
+    download.mockRestore();
+});
+
+it('a photo that HAS its file is exported with no question asked', async () => {
+    const svc = servico();
+    comFotoOrfa(svc);
+    armazenadas.set('missing-photo', new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' }));
+    dialogo.resposta = false;
+    dialogo.perguntas.length = 0;
+    const download = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:teste');
+
+    await svc.handleExport(['Map']);
+
+    expect(dialogo.perguntas).toEqual([]);
+    expect(download).toHaveBeenCalledTimes(1);
+    armazenadas.delete('missing-photo');
     download.mockRestore();
 });
