@@ -3077,8 +3077,10 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
   do mesmo payload. (c) a tela mostrava e copiava o token cru de 32 caracteres. (d) com sessão, o
   link era engolido na primeira linha de `openPublicAtlasFromUrl` e o navegador terminava em
   `atlas.html`, sem pedido a `/atlas/public/` e sem aviso. (f) numa visita, o clique desenhava as
-  alças, o arrasto MOVIA o polígono na tela, o store recusava e a tela ficava divergente do dado,
-  que é o que o dono descreveu como "o mapa some as feições".
+  alças, o arrasto MOVIA o polígono na tela, o store recusava e a tela ficava divergente do dado.
+  (Esta linha atribuía a isso o relato "o mapa some as feições", e a atribuição estava ERRADA: a
+  causa daquele sintoma era uma corrida no boot da visita, achada e corrigida em 2026-09-21, com
+  registro no livro-razão. O defeito do arrasto era real e vizinho, não a causa.)
 - **Onde cada uma mora:** `displayName` em `frontend/src/js/store/sync/session-context.js`,
   preservado quando o papel por atlas é re-posto sem dizer nada sobre a pessoa; `peoplePickOutcome`
   e `alreadyHoldsAtlas` em `frontend/src/js/catalog/grant-tree.js`, mais o 409 de `addUserShare`;

@@ -32,6 +32,7 @@ import { apiClient } from '@store/sync/api-client.js';
 import { cleanup3DFeatures } from './3d_models_viewer_tool/index.js';
 import { cleanupFirstPersonFeatures } from '@js/first_person_3d_tool/index.js';
 import { initServices, loadStoreOrigin, markStoreRemote, clearAllDataStore, activateAtlasInitialMap, activateRemoteAtlas, getControl, getEventBus } from './store';
+import { reapplyAtlasAppearance } from './store/atlas-appearance.service.js';
 import { installTabLockSyncBrake } from '@store/sync/tab-lock-sync-brake.js';
 import { EventTypes } from '@events/event_types.js';
 import { sessionContext, sessionUserInfoFromMe } from '@store/sync/session-context.js';
@@ -775,13 +776,16 @@ async function openPublicAtlasFromUrl(link = new URLSearchParams(window.location
         await markStoreRemote(atlas.id);
         await syncEngine.connectPublic(atlas.id);
         await activateAtlasInitialMap();
-        // A FAIXA SUBSTITUI O TOAST, e não se soma a ele.
-        //
-        // O toast anterior ('Visualização pública, somente leitura') era o ÚNICO anúncio da visita
-        // e durava três segundos; depois deles a única diferença visível era a ausência das barras
-        // de ferramenta, que se lê como "ainda está carregando" ou como defeito (achado A2). A
-        // faixa diz as mesmas coisas e continua dizendo, mais o NOME do atlas e uma saída.
-        //
+        // PINTA O MAPA QUE ACABOU DE VIRAR O ATIVO, como `openRemoteAtlas` faz no mesmo ponto. Esta
+        // linha FALTAVA aqui, e a visita só desenhava por sorte de relógio: `activateAtlasInitialMap`
+        // troca o mapa corrente e não pinta nada, e quem pintava era a PRIMEIRA pintura do boot,
+        // quando ela acontecia DEPOIS da chegada do retrato. Com o retrato chegando depois (atlas de
+        // dois mapas, rede mais lenta, F5 com o estilo em cache), o boot pintava o `Principal` vazio,
+        // a barra lateral passava a mostrar `Mapa 1` como ativo e nenhuma feição aparecia, até uma
+        // troca de mapa ou uma op remota repintar a fonte. Medido em 2026-09-21: 4 cargas em 4 sem
+        // feição num atlas de dois mapas cujo mapa ativo tinha cinco.
+        await getControl('BaseLayerControl')?.switchMap?.(false);
+        await reapplyAtlasAppearance(getControl('TerrainControl'), globalThis.__ebgeoMap);
         // A FAIXA PERSISTENTE DE VISITA SAIU (dono, 2026-09-20): ela cobria o topo do mapa durante a
         // visita inteira para dizer o que cabe num aviso de chegada. O que fica é este anúncio, uma
         // vez, e a recusa de cada gesto de edição, que nomeia o motivo quando a pessoa tenta.
