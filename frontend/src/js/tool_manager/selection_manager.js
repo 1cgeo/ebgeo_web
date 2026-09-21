@@ -10,7 +10,6 @@ import {
     getFeatureGroup,
     getVisibleLayerIds,
     isFeatureEffectivelyLocked,
-    isCurrentMapLockedSync,
     getStateManager,
     getControl,
     startBatchUndo,
@@ -20,6 +19,8 @@ import {
     getFeatureById,
     getStorageTypeFromSource
 } from '../store';
+import { isEditSurfaceInert } from './edit-surface.js';
+import { isDragEndClick } from './click-after-drag.js';
 import { getActiveScope } from '@store/atlas-namespace.js';
 import { whenStoreWritesResume, STORE_RECOVERY_NOTICE } from '@store/write-coordinator.js';
 import { StoreErrorEvents, emitStoreError } from '@store/store-errors.js';
@@ -217,9 +218,32 @@ class SelectionManager {
 
             stateManager.addToSelection(type, featureIdStr, featureToStore);
 
-            if (control?.onFeatureSelected) {
-                control.onFeatureSelected(featureToStore);
-            }
+            this._notifySelected(control, featureToStore);
+        }
+    }
+
+    /**
+     * Hands a selected feature to its control, SIGNALLING THE INERT STATE around the call so the
+     * control skips edit handle creation (`_mapLocked`, read by every `createEditHandles`).
+     *
+     * ONE PLACE FOR THE THREE SELECTION PATHS (single, multi-select toggle, whole group). Until
+     * 2026-09-20 only the single path raised the flag, so a shift-click or a grouped feature drew
+     * handles on a locked map, and none of the three knew about a level that cannot edit.
+     *
+     * SYNCHRONOUS ON PURPOSE: an await between raising and lowering the flag would return control
+     * with the flag already lowered, and the inert map would get its handles.
+     * @private
+     * @param {Object|null|undefined} control
+     * @param {Object} feature
+     */
+    _notifySelected(control, feature) {
+        if (!control?.onFeatureSelected) return;
+        const inert = isEditSurfaceInert();
+        if (inert) control._mapLocked = true;
+        try {
+            control.onFeatureSelected(feature);
+        } finally {
+            if (inert) control._mapLocked = false;
         }
     }
 
@@ -271,15 +295,8 @@ class SelectionManager {
         // dele devolveria o controle com o flag ja limpo, e um mapa bloqueado ganharia alcas
         // de edicao.
         const control = await this.ensureControlFor(type);
-        if (control?.onFeatureSelected) {
-            // Signal locked state so controls skip edit handle creation
-            const locked = isCurrentMapLockedSync();
-            if (locked) control._mapLocked = true;
-
-            control.onFeatureSelected(featureToStore);
-
-            if (locked) control._mapLocked = false;
-        }
+        // The inert state (map lock, or a level that cannot edit) travels inside `_notifySelected`.
+        this._notifySelected(control, featureToStore);
 
         this.updateUI();
     }
@@ -472,6 +489,16 @@ class SelectionManager {
     _setupEventListeners() {
         this.map.on('click', this._handleMapClick);
 
+        // WHERE THE POINTER WENT DOWN, read off the pointer event itself and in the CAPTURE phase, so it
+        // is recorded whatever a control does with `preventDefault` afterwards. It is what lets
+        // `_handleMapClick` tell a click from the end of a handle drag. See `click-after-drag.js`.
+        this._handlePointerDown = (e) => {
+            if (e.isPrimary === false) return;
+            const rect = this.map.getCanvasContainer().getBoundingClientRect();
+            this._lastPointerDown = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        };
+        this.map.getCanvasContainer().addEventListener('pointerdown', this._handlePointerDown, true);
+
         // Store bound handlers for cleanup
         this._handleKeydown = (e) => {
             if (e.key === 'Escape' && this.contextMenu) {
@@ -560,6 +587,13 @@ class SelectionManager {
      * @private
      */
     _handleMapClick = (e) => {
+        // THE CLICK THAT ENDS A DRAG IS NOT A CLICK. MapLibre used to say so itself; it cannot since
+        // the handle drag became a pointer drag that prevents the `mousedown` it compares against.
+        // Consumed once: the next click is judged against its own pointerdown.
+        const down = this._lastPointerDown;
+        this._lastPointerDown = null;
+        if (isDragEndClick(down, e.point)) return;
+
         // Skip if special tools are active
         if (this.vectorTileInfoControl?.isActive) return;
         if (this.rectangleSelectionControl?.isActive) return;
@@ -781,9 +815,7 @@ class SelectionManager {
             if (completeFeature) {
                 stateManager.addToSelection(featureRef.type, String(featureRef.id), completeFeature);
                 const control = await this.ensureControlFor(featureRef.type);
-                if (control?.onFeatureSelected) {
-                    control.onFeatureSelected(completeFeature);
-                }
+                this._notifySelected(control, completeFeature);
             }
         }
     }
@@ -1227,6 +1259,10 @@ class SelectionManager {
 
         // Cleanup map event listeners
         this.map.off('click', this._handleMapClick);
+        if (this._handlePointerDown) {
+            this.map.getCanvasContainer().removeEventListener('pointerdown', this._handlePointerDown, true);
+            this._handlePointerDown = null;
+        }
 
         if (this._handleMapInteraction) {
             this.map.off('movestart', this._handleMapInteraction);

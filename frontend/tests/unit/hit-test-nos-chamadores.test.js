@@ -75,8 +75,10 @@ describe('the click path goes through the shared hit-test', () => {
 
     it('drag-start uses the same query, gates the handle first and drops locked rows', () => {
         const body = methodBody(MOVE, '_startDrag(e) {');
-        // CONTROL: the method is still the one that refuses to drag on a locked map.
-        expect(body).toContain('isCurrentMapLockedSync()');
+        // CONTROL: the method is still the one that refuses to drag on a locked map. Since 2026-09-20
+        // the question is asked through `isEditSurfaceInert`, which answers for the lock AND for a level
+        // that cannot edit (`tests/unit/leitor-nao-ganha-alca-nem-arrasta.test.js` holds both halves).
+        expect(body).toContain('isEditSurfaceInert()');
 
         expect(body).toContain('queryFeaturesAtPoint(this.map, e.point)');
         expect(body).not.toContain('queryRenderedFeatures');

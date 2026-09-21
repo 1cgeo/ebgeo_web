@@ -5,7 +5,8 @@
  * Implements tool-centric architecture for feature movement calculations.
  */
 
-import { getStateManager, isCurrentMapLockedSync, isFeatureEffectivelyLocked } from '../store';
+import { getStateManager, isFeatureEffectivelyLocked } from '../store';
+import { isEditSurfaceInert } from './edit-surface.js';
 import { queryFeaturesAtPoint, rankHitRows } from './helpers/feature-hit-test.helpers.js';
 
 class MoveHandler {
@@ -378,7 +379,9 @@ class MoveHandler {
      * @private
      */
     _startDrag(e) {
-        if (isCurrentMapLockedSync()) return;
+        // Lock OR a level that cannot edit: the drag painted the move and the store refused the write,
+        // leaving on screen a geometry that exists nowhere. See `edit-surface.js`.
+        if (isEditSurfaceInert()) return;
 
         const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
         if (allSelectedFeatures.length === 0) return;

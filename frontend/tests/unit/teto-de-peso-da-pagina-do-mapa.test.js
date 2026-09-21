@@ -672,7 +672,16 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // frase para a tela de carga da cena caminhável (a barra dela era um `@keyframes` de dois
         // segundos que terminava cheia com 18 MB ainda por vir). Folha de ZERO imports, medida
         // pela reprovação deste caso: 737 contra 736 com um arquivo novo.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(737);
+        //
+        // 2026-09-20, décimo segundo lote: 739, com DOIS folhas do gerente de seleção, medidos pela
+        // reprovação deste caso (739 contra 737 com dois arquivos novos). `tool_manager/edit-surface.js`
+        // é o predicado que deixa a superfície inerte para quem não pode editar, como a trava do mapa
+        // já deixava (o visitante de link público ganhava alça e arrastava feição);
+        // `tool_manager/click-after-drag.js`, de zero imports, devolve a regra de que o clique que
+        // encerra um arrasto não é clique, perdida quando o arrasto de alça virou de ponteiro. Os
+        // dois módulos da faixa de visita, removidos no mesmo lote, NÃO descontam daqui: entravam
+        // por `index.js`, e este grafo parte de `map_sig.js`.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(739);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);
