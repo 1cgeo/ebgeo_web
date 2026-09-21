@@ -1234,7 +1234,7 @@ metade ficou guardada à parte.
 ### 2026-08-28: o import não-aditivo descarta os mapas do escopo antes da primeira escrita
 
 - **Contexto:** abrir um `.ebgeo` pela tela de atlas cria um slot local novo, cujo boot semeia um mapa "Principal" em branco por `seedBlankDefaultMap`, chaveado pelo NOME. O import não-aditivo então grava os mapas do arquivo, e `addMap` os chaveia por UUID sempre que o log de operações está ligado, que é o padrão desde `initServices()`. Ficavam DOIS registros chamados "Principal". A lista de mapas de-duplica por nome e desenha um cartão só; `getMap('Principal')` acerta o em branco por lookup DIRETO, antes do resolver. Medido com `_ebgeo_dados_teste/01-completo.ebgeo`: as 18 feições do mapa "Principal" chegavam ao IndexedDB e ficavam fora do alcance da pessoa, nem pelo cartão nem pela busca (`linha de visada`, que só existe naquele mapa, devolvia "Nenhum resultado encontrado"). Sem erro em ponto nenhum. As outras 244 feições, em mapas de nome próprio, chegavam inteiras.
-- **Decisão:** `discardMapsForReplacingImport` (`store/map.operations.js`), chamada pelo ramo não-aditivo de `handleImport` ANTES da primeira escrita, apaga por CHAVE de armazenamento todo registro de mapa que sobrou no escopo e limpa o resolver. O chamador guarda o caso vazio: um arquivo sem mapa nenhum não passa por ela, senão o escopo fica sem mapa para abrir.
+- **Decisão:** uma função de descarte dos mapas do escopo (chamava-se discardMapsForReplacingImport, em `store/map.operations.js`; APAGADA em 2026-09-21, por ter ficado sem chamador quando a substituição de atlas por import virou atômica em `replaceAtlasFromImport`), chamada pelo ramo não-aditivo de `handleImport` ANTES da primeira escrita, apaga por CHAVE de armazenamento todo registro de mapa que sobrou no escopo e limpa o resolver. O chamador guarda o caso vazio: um arquivo sem mapa nenhum não passa por ela, senão o escopo fica sem mapa para abrir.
 - **Alternativas rejeitadas:**
   - *Apagar só o homônimo*: fecharia o sombreamento e deixaria o mapa em branco ao lado do projeto sempre que o arquivo não trouxesse um mapa com o nome padrão, que é ruído sem dono na lista.
   - *Fazer `addMap` remover o registro name-keyed de mesmo nome*: mais geral e mais arriscado. Aquele caminho é o mesmo que aplica op de par remoto, onde a colisão por nome tem outro dono (`activateAtlasInitialMap`) e outra regra.
@@ -3329,8 +3329,63 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
   classificado, e a regra é CHAMAR a porta, não citá-la),
   `frontend/tests/unit/recusa-de-mapa-inexistente-fala.test.js` e
   `frontend/tests/unit/visualizador-le-a-resposta-da-store.test.js`.
-- **Aberto, declarado.** `discardMapsForReplacingImport` limpa o resolvedor sem repor a marca, no
-  caminho de import LOCAL, que não foi medido. A contagem de cores continua existindo TAMBÉM sob o
+- **Aberto, declarado** (os quatro foram fechados no mesmo dia, na entrada seguinte; o primeiro
+  deles estava descrito ERRADO aqui). A função de descarte do import substitutivo limpa o resolvedor
+  sem repor a marca, no caminho de import LOCAL, que não foi medido. A contagem de cores continua existindo TAMBÉM sob o
   nome, porque o ajuste de atlas que a sincroniza usa o nome como chave e é reidratado a cada
   retrato. Os laterais de camada e de grupo ainda deixam entrada órfã num mapa inexistente (classe
   derivada, sem registro de mapa nem op). Existem duas cópias vivas de `getEmptyMapData`.
+
+### 2026-09-21: os quatro pontos que o mapa fantasma deixou abertos, conferidos um a um, e dois estavam descritos errado
+
+- **A lição antes dos consertos:** os quatro vinham de relato de agente e foram para o diário de
+  decisões sem conferência própria. Lidos no código, um não existia, um era mais sério do que o
+  descrito, e só dois eram o que o relato dizia.
+- **P1, o import substitutivo: a premissa caiu.** A função que limparia o resolvedor sem repor a
+  marca não tinha chamador desde que a substituição de atlas por import virou atômica
+  (`replaceAtlasFromImport`, `frontend/src/js/account/open-atlas.service.js`), que importa para um
+  escopo preparado e monta pelo caminho normal. Era código morto, reexportado pelo barril e dublado
+  em dois testes, com duas asserções de que ela "não foi chamada", que passavam por construção. Saiu
+  tudo.
+- **P2, a contagem de cores DEIXA DE SER SINCRONIZADA (decisão do dono).** Ela tinha duas chaves que
+  nunca se entendiam: a escrita local gravava por id e sincronizava para os ajustes do atlas com o
+  NOME do mapa como chave; o retrato regravava por nome; e o leitor, achando a chave por id, ignorava
+  a por nome (a atualização do colega nunca chegava), ou a migrava e apagava, para o retrato seguinte
+  recriá-la. O mapa renomeado ou excluído deixava o nome velho nos ajustes do atlas para sempre. O
+  dado é DERIVADO: soma e subtrai a cada mudança de cor de feição, e é recalculado do zero quando
+  falta. Saíram o envio (`setColorUsageCompat`, e o payload de enviar atlas local), a reidratação e a
+  chave da lista de objetos mesclados do servidor. Cliente antigo que ainda mande a chave é ACEITO
+  e a chave é descartada em silêncio, porque op recusada congela a fila de saída dele. O valor já
+  gravado fica inerte na coluna, sem migração. O irmão `mapBadgeColors`, que é escolha do usuário,
+  continua viajando, e um teste prende isso. O `.ebgeo` continua levando a contagem como seção
+  opcional. Alternativa recusada: chavear o sync por id, que conserta o vaivém e mantém em trânsito
+  um dado que cada cliente sabe calcular. Guardas:
+  `frontend/tests/unit/contagem-de-cores-nao-sincroniza.test.js`,
+  `frontend/tests/integration/remote-app-state-setting.test.js` e
+  `backend/tests/integration/sync-atlas-settings-app-state.test.js`.
+- **P3, camada e grupo: era a MESMA classe do mapa fantasma, e o inventário a tinha classificado
+  errado.** A escrita de camada constava como derivada por causa de um comentário sobre uma
+  persistência adiada que saiu da árvore em 2026-09-13. Ela é GESTO, em transação e com op de sync, e
+  a de grupo também. Os dois funis fabricavam a estrutura do mapa inexistente e resolviam o id pelo
+  próprio nome: em atlas de servidor, criar, renomear, travar ou reordenar camada, e agrupar
+  feições, num mapa que o atlas não tem mais, era aceito e jogado fora. A pergunta de existência
+  entrou nos dois funis, DENTRO da transação e antes da fabricação, e a resolução do nome nas
+  escritas de camada deixou de fabricar o balde em memória. A transferência de camada recusa o
+  destino inexistente antes de escrever: o "guardado pelo rollback" do inventário anterior era falso
+  para a camada VAZIA, que voltava com sucesso deixando lateral órfão. O censo passou a varrer
+  `frontend/src/js/` inteiro, e não só a pasta da store, com o barril como segunda âncora de import.
+  Guardas: `frontend/tests/store/escrita-de-camada-e-grupo-em-mapa-inexistente.repro.test.js` e o
+  censo `frontend/tests/unit/escrita-de-conteudo-nao-fabrica-mapa.test.js`.
+- **P4, o documento de mapa vazio tem uma fonte só.** A cópia do repositório local passou a derivar
+  da de `frontend/src/js/store/repository.utils.js`, acrescentando `id`, `name` e `sync`. Conferido
+  antes de apagar: as duas eram idênticas linha a linha fora esses três campos, então nenhum
+  comportamento mudou. Guarda: `frontend/tests/unit/documento-de-mapa-vazio-uma-fonte.test.js`.
+- **Dois falsos sucessos antigos, achados no caminho:** o olho e o cadeado do GRUPO na aba de feições
+  descartavam a resposta da store e pintavam o estado novo no mapa e na linha; e excluir a camada de
+  origem numa transferência lia um valor falso como sucesso. Os dois leem a resposta
+  (`frontend/tests/unit/item-de-grupo-le-a-resposta-da-store.test.js`).
+- **Aberto, declarado, e desta vez conferido:** com o mapa de ORIGEM de uma transferência apagado
+  por um par no meio do gesto e o cache hidratado, a transferência volta com sucesso e as feições
+  ficam duplicadas no destino, que é o "duplicado recuperável" que o desenho daquela composta já
+  declara aceitar. O valor antigo da contagem de cores continua na coluna de ajustes dos atlas
+  existentes, inerte.

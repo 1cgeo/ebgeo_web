@@ -14,7 +14,7 @@ O motivo é o que elas são: as duas dizem como o mapa 2D deste projeto se PAREC
 - **Funcionam em atlas LOCAL**, que não tem rota REST alguma. Era o motivo estrutural: a mesma tela precisa salvar nos dois casos, e só o caminho de sync existe nos dois.
 - **Só `false` tira o globo.** `globeProjection` tem dois estados e o padrão é globo: ausência, `null` ou lixo de um `settings` antigo resolvem para globo (`frontend/src/js/store/atlas-appearance.service.js`). Houve um terceiro estado, "padrão do sistema", herdando `config.map2d.globe_projection` do painel do administrador; foi cortado em 2026-08-16 por decisão do dono, e a config de deploy deixou de decidir a projeção.
 
-Uma armadilha de fila herdada: as duas dividem a chave de compactação `<escopo>:setting:<atlas>` com `customIcons`, `mapOrder`, `colorUsage` e `mapBadgeColors`, e a compactação **substitui** o payload em vez de fundir. Por isso o modal grava as duas num patch só. Ver [[tipos-entidade-sync]].
+Uma armadilha de fila herdada: as duas dividem a chave de compactação `<escopo>:setting:<atlas>` com `customIcons`, `mapOrder` e `mapBadgeColors` (a contagem de cores saiu desta lista em 2026-09-21: é derivada das feições, e cada cliente a recalcula), e a compactação **substitui** o payload em vez de fundir. Por isso o modal grava as duas num patch só. Ver [[tipos-entidade-sync]].
 
 ## Por que settings fica fora do sync
 
