@@ -3619,3 +3619,54 @@ instável, e cada uma foi atribuída antes de ser tocada.
   `node_modules` por junção dos worktrees de agente faz o `new URL` do pré-bundle do Vite sair da
   raiz do servidor), e é por isso que esse spec só mede o produto na árvore principal.
 
+### 2026-09-22: o lote Q, quatro agentes sobre o que sobrou da suíte de tela, e duas premissas do plano caíram na medição
+
+- **O comentário espacial que não chegava ao Postgres em 10 s NÃO era recusa, era a thread
+  principal.** Medido em 18 execuções na árvore principal: o contexto do clique era idêntico ao da
+  abertura (mapa, sessão, permissão), o cartão sempre fechou, zero `STORE_OPERATION_BLOCKED`. A
+  escrita local custa cerca de 3 s e quase não varia; o que varia é a op já enviável esperando o
+  flush, de 0,2 a 11 s, porque a cena de primeira pessoa deixa a página a dois quadros por segundo
+  no harness sem GPU e o ciclo de flush caminha a fila inteira a cada tique de 1,5 s
+  (`hasWorkToFlush` e depois `engine.flush`, cada caminhada de 4 s naquela condição, laço sempre em
+  voo). Não é defeito de produto; é orçamento apertado para uma página nessa condição. Os três
+  eventos de comentário entraram em `FLUSH_TRIGGER_EVENTS` (`frontend/src/js/store/sync/sync-flush.js`),
+  porque têm produtor local e comentar é o gesto em que a pessoa mais espera o colega reagir; o
+  spec passou a esperar por estado em degraus e pelo POST de sync antes do veredito. Prova: 8 de 8
+  em série depois, contra 3 reprovações em 16 antes. **Aberto, declarado:** a caminhada dupla da
+  fila por ciclo de flush é o lead mais forte para um ganho real de produto; e a recusa por mapa ou
+  sessão em `aoEnviar` das superfícies que não são o 2D (primeira pessoa, 360, 3D) é MUDA, porque
+  não passa por `guardComment`, embora não tenha sido exercitada uma vez sequer.
+- **Um Worker que não carrega deixava o motor de primeira pessoa pendurado para sempre, e o teto
+  é nosso.** O motor pinado decide `parseSplatData` só por mensagem do worker, sem `onerror`, e
+  memoiza a URL do blob do worker pelo resto da vida da página (base errado fica errado). O teto de
+  30 s mora em `frontend/src/js/first_person_3d_tool/splat-parse-timeout.js`, folha de zero imports,
+  e é cerca de setenta vezes os 439 ms medidos com o worker de pé. O erro dele NÃO carrega `status`
+  HTTP, contra o enunciado da tarefa e com razão: o servidor respondeu 200 com todos os bytes, e
+  carimbar 504 faria o painel imprimir um código que ninguém observou; viaja `code`. A frase manda
+  recarregar, nunca "tentar de novo". Medido no navegador: 31 195 ms do clique ao toast, e sem o
+  teto nada aparece em 90 s. O worker num worktree por junção responde 403, e não 404 como a nota
+  do lote dizia.
+- **A fresta do memo do `/api/config` desceu para dentro dos semeadores, e o preço não era o
+  suposto.** Só `seedTileset` e `seedBasemap` escrevem em tabela que o payload lê (`tilesets` é
+  lista, `basemaps` é objeto chaveado por id, e nenhuma expõe `access_level`, então presença no
+  payload anônimo é exatamente "pública e ativa": linha pública espera aparecer, privada espera
+  sumir). `seedSv360Photo` e `seedModelo3d` não esperam, por medição. **Duas premissas do plano
+  caíram:** os cinco specs dados como expostos passavam todos com o memo aquecido, porque nenhum
+  resolve o id pelo `config` do cliente (os de Cesium usam o id só como referência de op, e o gate
+  é SQL do servidor; os outros dois semeiam linha privada, que chega por uma rota não memoizada);
+  e o custo não é "uma ida ao `/api/config`", é o RESTO DO TTL, 28 343 ms com o memo quente contra
+  214 ms vencido, e duas semeaduras seguidas custam 58 885 ms porque a primeira rebobina o TTL.
+  Decisão: a espera fica LIGADA por padrão, porque desligá-la reabriria a fresta para o próximo
+  consumidor, que é a classe que o helper fecha; e os nove sítios dos specs de Cesium mais o do
+  360 desligam com `esperarCatalogo: false` e o motivo medido na linha, que é onde o custo tinha
+  consumidor pagando por nada. A espera anuncia no stdout quando de fato esperou. **Aberto,
+  declarado:** o índice de modelos 3D é um memo de 60 s pendurado na mesma invalidação, e o
+  semeador dele não tem porta de espera sem o arquivo em disco.
+- **Os configs de cenário do Playwright passaram a coletar o guarda de verde por pulo, sob censo,
+  e o defeito alcançável era um só.** Detalhe na regra de testes.
+- **Guardas:** `frontend/tests/integration/sync-flush.test.js`,
+  `frontend/tests/unit/teto-de-analise-do-splat.test.js`,
+  `frontend/tests/unit/semeador-de-catalogo-espera-o-servido.test.js`,
+  `frontend/tests/unit/configs-do-playwright-coletam-o-guarda.test.js` e
+  `frontend/tests/e2e-ui/first-person-collaboration.spec.js`.
+

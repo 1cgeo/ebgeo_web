@@ -166,7 +166,7 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   | `test:e2e` (contrato, 3ª perna da raiz) | 3911 | `ebgeo_e2e` | não |
   | `test:e2e:ui` e `test:e2e:mega` (Playwright) | 3912 **e 4321** | `ebgeo_ui_e2e` | não |
   | `test:e2e:tablet` (Playwright, contexto com toque) | as MESMAS 3912 e 4321 | o MESMO | não |
-  | os quatro configs de cenário (Playwright) | as MESMAS 3912 e 4321 | o MESMO | não |
+  | os quatro configs de cenário (Playwright) | as MESMAS 3912 e 4321 (salvo `release-production`, com a 3912 literal) | o MESMO | não |
 
   **A ÚLTIMA LINHA É QUATRO CONFIGS E NÃO UMA CAMADA NOVA, e é por isso que ela não ganha coluna
   própria.** `playwright.atlas-safety.config.js`, `playwright.migration-data.config.js`,
@@ -203,6 +203,17 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   colide**. O conjunto completo é `EBGEO_UI_E2E_APP_PORT`, `EBGEO_UI_E2E_BACKEND_PORT` e
   `EBGEO_UI_E2E_DB_NAME`. Dois agentes na mesma máquina definem os três e param de esperar um
   pelo outro.
+
+  **E A ESPERA DE UM SPEC DE COLABORAÇÃO É DE REDE, NUNCA LEITURA DE FILA POR `page.evaluate`**
+  (medido em 2026-09-22). A cena de primeira pessoa deixa a página a cerca de dois quadros por
+  segundo no harness sem GPU, cada salto de IndexedDB espera um quadro, e o ciclo de flush faz
+  muitos: uma op já enviável esperou de 0,2 a 11 s pelo envio, com o intervalo do auto-flush em
+  1,5 s. Um `expect.poll` de 10 s sobre o Postgres reprovava 3 em 16 sem separar RECUSA de
+  LENTIDÃO. E a primeira sonda lia `operationQueue.countByState()` de dentro da página a cada
+  500 ms, que é a MESMA caminhada que o flush faz, então cada amostra levava de 5 a 11 s: o
+  instrumento disputava com o sujeito. A forma que vale é por degraus de ESTADO (o cartão fechado
+  separa recusa de lentidão) e `waitForResponse` do POST `/sync` como o degrau que antecede o
+  veredito no banco (modelo: `frontend/tests/e2e-ui/first-person-collaboration.spec.js`).
 
   **A CAMADA DO PLAYWRIGHT SE ISOLA POR ENV, e são TRÊS variáveis, não uma.**
   `frontend/tests/e2e-ui/constants.js` lê `EBGEO_UI_E2E_APP_PORT` (Vite, padrão 4321),
@@ -442,10 +453,21 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   zero. Por isso o testMatch daquele config é um ARRAY que recolhe também o guarda (custo
   medido: zero, ele não faz E/S nem usa `page`). E um config derivado que faça spread do base
   herda o testIgnore do pai, e testIgnore vence testMatch: o de tablet passaria a ignorar as
-  próprias specs (medido: `0 tests in 0 files`) se não sobrescrevesse a chave. Os quatro configs
-  de cenário continuam SEM o guarda, e `tests/unit/guarda-de-e2e-nao-pula.test.js` não alcança
-  essa classe: ele afirma que os dois arquivos de guarda existem e não se gateiam, e nunca
-  pergunta se algum config os COLETA.
+  próprias specs (medido: `0 tests in 0 files`) se não sobrescrevesse a chave. **Desde 2026-09-22 os
+  SEIS configs recolhem o guarda, e o que sustenta isso é censo, não lembrança:**
+  `frontend/tests/unit/configs-do-playwright-coletam-o-guarda.test.js` tira o inventário de
+  `git ls-files`, IMPORTA cada config (o objeto RESOLVIDO, depois do spread do base) e cobra as duas
+  metades, que o testMatch case o guarda e que o testIgnore não o case; config novo reprova até ser
+  classificado. **O falso verde, porém, NÃO estava alcançável em três dos quatro cenários, e dizer
+  o contrário é inventar defeito:** cada `*.scenario.js` carrega um `test.beforeAll` escrito à mão
+  que assere `readState().skip === false` e REPROVA em vez de pular (medido com Postgres fora:
+  `playwright.atlas-safety.config.js` já saía com código 1). O beneficiário concreto é
+  `release-production.scenario.js`, a única cena sem essa asserção, protegida hoje só porque o
+  `globalSetup` PRÓPRIO dela (`frontend/tests/e2e-ui/release-production-setup.js`) derruba a rodada
+  em vez de gravar `skip: true`. **E aquele setup chama `startBackend` com a porta 3912 escrita à
+  mão**, enquanto o arquivo de estado que ele grava deriva de `BACKEND_PORT`: a rodada é coerente
+  consigo mesma, mas `EBGEO_UI_E2E_BACKEND_PORT` NÃO a isola, e a linha da tabela acima que diz
+  que os quatro configs de cenário herdam a porta do base vale para três deles.
 
   **E UM CASO SÓ MEDE COM O ASSET APONTADO POR AMBIENTE.**
   `frontend/tests/e2e-ui/vazamento-viewers.spec.js` §30.2 abre e fecha o visualizador 3D
