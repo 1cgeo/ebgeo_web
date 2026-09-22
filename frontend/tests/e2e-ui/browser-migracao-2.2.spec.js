@@ -301,14 +301,83 @@ describeOrSkip('Migração 2.2 para 2.3 em Chromium, com a fixture de produção
             await page.goto('/');
             await expect(page.getByTestId('migration-recovery')).toContainText('espaço');
             expect((await transitionDisk(page)).entries).toHaveLength(0);
+            // DOIS COMANDOS, e só dois (decisão do dono, 2026-09-22). "Tentar novamente" saiu
+            // junto com os reparos que ele existia para repetir; aqui o retomar é recarregar.
+            await expect(page.getByTestId('migration-recovery').getByRole('button'))
+                .toHaveText(['Baixar meus dados', 'Continuar']);
             const downloadPromise = page.waitForEvent('download');
-            await page.getByRole('button', { name: 'Salvar cópia de recuperação' }).click();
-            expect(readFileSync(await (await downloadPromise).path()).length).toBeGreaterThan(1000);
+            await page.getByRole('button', { name: 'Baixar meus dados' }).click();
+            const baixado = await downloadPromise;
+            // O ACERVO AQUI É UM SÓ (a transição nem chegou a registrar atlas), então o arquivo
+            // que a pessoa leva é o que ela mesma reabre.
+            expect(baixado.suggestedFilename()).toMatch(/^ebgeo-\d{4}-\d{2}-\d{2}\.ebgeo$/);
+            expect(readFileSync(await baixado.path()).length).toBeGreaterThan(1000);
+            await expect(page.getByTestId('migration-recovery')).toContainText('Importar atlas');
             await page.evaluate(() => sessionStorage.setItem('quota-test-disabled', 'yes'));
-            await page.getByRole('button', { name: 'Tentar novamente', exact: true }).click();
+            await page.reload();
             await waitForMap(page);
             expect((await transitionDisk(page)).transition.sourceInventory).toEqual(original);
             expect((await readAfterBoot(page)).originalUnchanged).toBe(true);
+        } finally { await ctx.close(); }
+    });
+
+    /**
+     * O SEGUNDO COMANDO, que é o único que destrói (decisão do dono, 2026-09-22): "Continuar"
+     * apaga os bancos desta origem e abre o EBGeo limpo. Ele pergunta UMA vez, e a pergunta nomeia
+     * a contagem que o inventário acabou de ler.
+     *
+     * A QUOTA É SÓ O JEITO DE CHEGAR À TELA com um acervo cheio no disco; ela é desligada ANTES do
+     * ato, para que o que se meça depois seja o produto abrindo, e não a mesma falha de novo.
+     */
+    test('"Continuar" pergunta com o número do disco, apaga o acervo e o EBGeo abre limpo', async ({ browser }) => {
+        test.setTimeout(180000);
+        const { ctx, page, declarado } = await prepareLegacyInstall(browser, '01-completo.ebgeo');
+        try {
+            await page.addInitScript(() => {
+                const put = IDBObjectStore.prototype.put;
+                IDBObjectStore.prototype.put = function (...args) {
+                    if (this.transaction.db.name.includes('__upgrade-') && !sessionStorage.getItem('quota-test-disabled')) {
+                        throw new DOMException('Quota de teste excedida', 'QuotaExceededError');
+                    }
+                    return put.apply(this, args);
+                };
+            });
+            await page.goto('/');
+            const tela = page.getByTestId('migration-recovery');
+            await expect(tela).toContainText('espaço');
+            await page.evaluate(() => sessionStorage.setItem('quota-test-disabled', 'yes'));
+
+            // A PERGUNTA, uma só, com o número. O acervo tem 11 mapas, então a contagem é bem
+            // maior que os mapas: é o total de registros dos dez bancos.
+            await page.getByRole('button', { name: 'Continuar', exact: true }).click();
+            await expect(tela).toContainText(/\d+ registros/);
+            const contagem = Number(/(\d+) registros/.exec(await tela.locator('.ebgeo-unavailable__msg').innerText())[1]);
+            expect(contagem, 'a confirmação nomeia um número do disco, não zero')
+                .toBeGreaterThan(declarado.maps);
+            // CONTROLE: enquanto a pergunta está na tela, o acervo continua lá.
+            expect(await legacyInventory(page), 'perguntar não apaga').toHaveLength(contagem);
+
+            await page.getByRole('button', { name: 'Apagar e abrir o EBGeo' }).click();
+            await waitForMap(page);
+
+            // O ACERVO SUMIU: o que a página reabriu é uma instalação nova, com o mapa padrão e
+            // nenhuma feição, e nenhum dos mapas do arquivo.
+            const depois = await page.evaluate(async () => {
+                const store = await import('/src/js/store/index.js');
+                const nomes = await store.getAllMapNamesStore();
+                let features = 0;
+                for (const nome of nomes) {
+                    for (const lista of Object.values((await store.getCurrentMapFeatures(nome)) ?? {})) {
+                        if (Array.isArray(lista)) features += lista.length;
+                    }
+                }
+                return { nomes, features };
+            });
+            expect(depois.features, 'nenhuma feição do acervo antigo sobreviveu').toBe(0);
+            for (const nome of declarado.mapNames) {
+                if (nome === 'Principal') continue;
+                expect(depois.nomes, `o mapa "${nome}" do acervo antigo não pode ter sobrevivido`).not.toContain(nome);
+            }
         } finally { await ctx.close(); }
     });
 
@@ -358,8 +427,11 @@ describeOrSkip('Migração 2.2 para 2.3 em Chromium, com a fixture de produção
             await page.goto('/');
             await expect(page.getByTestId('migration-recovery')).toContainText('versão antiga');
             expect((await transitionDisk(page)).transition).toBeNull();
+            // A ÚNICA CAUSA EM QUE A TELA NÃO PRECISA DESTRUIR NADA, e a frase diz isso: fechar a
+            // outra janela é o que resolve, e recarregar é o que retoma.
+            await expect(page.getByTestId('migration-recovery')).toContainText('nada precisa ser apagado');
             await old.close();
-            await page.getByRole('button', { name: 'Tentar novamente', exact: true }).click();
+            await page.reload();
             await waitForMap(page);
             expect((await readAfterBoot(page)).originalUnchanged).toBe(true);
         } finally { await ctx.close(); }
@@ -454,9 +526,16 @@ describeOrSkip('Migração 2.2 para 2.3 em Chromium, com a fixture de produção
     });
 
     /**
-     * O OUTRO RAMO DA MESMA REGRA, e o único que ainda desenha a tela: as duas versões mexeram no
-     * MESMO mapa. Sem este caso o ramo da tela ficaria sem cobertura de navegador, porque o caso
-     * acima deixou de alcançá-lo.
+     * O OUTRO RAMO DA MESMA REGRA: as duas versões mexeram no MESMO mapa.
+     *
+     * ELE TAMBÉM DEIXOU DE DESENHAR A TELA, em 2026-09-22, e essa é a segunda metade da decisão do
+     * dono. A regra do plano não mudou (`planLateLegacyChanges` continua respondendo CONFLICT, e
+     * `prepareLegacyTransition` continua lançando `legacy_changes`); o que mudou é o que o portão
+     * faz com a recusa. A saída que a tela oferecia num botão é a única que não perde trabalho,
+     * então ela é TOMADA: o que a versão antiga gravou vai para um atlas local novo, o atlas
+     * atualizado fica intacto, e a pessoa lê um toast que NOMEIA o atlas criado em vez de uma
+     * parede. O que sobra para a tela é o caso em que nem isso deu certo, medido em
+     * `tests/integration/transicao-resiliente.test.js` (registro de atlas cheio).
      *
      * O MAPA EM DISPUTA NÃO É O `Principal`, de propósito: `Principal` é o mapa que o boot abre,
      * e abrir um mapa grava sozinho a contagem de cores dele. Escolher um mapa que o boot NÃO
@@ -468,8 +547,11 @@ describeOrSkip('Migração 2.2 para 2.3 em Chromium, com a fixture de produção
      * gente. A da versão antiga é escrita direto no acervo sem sufixo, como no caso acima, porque
      * a versão antiga não roda aqui.
      */
-    test('main reaberta que grava no MESMO mapa que a versão nova para na tela, e o que ela gravou vai para outro atlas', async ({ browser }) => {
+    test('main reaberta que grava no MESMO mapa que a versão nova NÃO para na tela: o que ela gravou vai sozinho para outro atlas', async ({ browser }) => {
+        test.setTimeout(180000);
         const { ctx, page, declarado } = await prepareLegacyInstall(browser, '01-completo.ebgeo');
+        const avisos = [];
+        page.on('console', m => avisos.push(m.text()));
         try {
             expect(declarado.mapNames, 'a fixture tem o mapa em disputa').toContain(MAPA_EM_DISPUTA);
             await page.goto('/');
@@ -512,22 +594,28 @@ describeOrSkip('Migração 2.2 para 2.3 em Chromium, com a fixture de produção
             await old.close();
             await page.reload();
 
-            // 1. A TELA FICA, e diz o que aconteceu sem nomear uma causa só.
-            await expect(page.getByTestId('migration-recovery')).toContainText('gravou alterações');
-            const parado = await transitionDisk(page);
-            expect(parado.transition.lateConflict, 'a recusa foi lembrada, pela causa certa')
-                .toMatchObject({ reason: 'same_unit' });
+            // 1. A TELA NÃO APARECE, e a espera é pelo PRIMEIRO dos dois desfechos: esperar só o
+            //    toast transformaria a regressão (a tela de volta) num estouro de tempo que não
+            //    nomeia nada.
+            await page.waitForFunction(
+                () => Boolean(document.querySelector('[data-testid="migration-recovery"]'))
+                    || Boolean(document.querySelector('.toast')),
+                { timeout: 120000 });
+            await expect(page.getByTestId('migration-recovery'),
+                'o conflito da junção tardia não pode mais parar o boot na tela').toHaveCount(0);
 
-            // 2. NADA FOI ESCRITO no atlas atualizado: nem o ponto da versão antiga entrou, nem
+            // 2. A PESSOA É AVISADA, e o aviso NOMEIA o atlas em que o trabalho dela foi parar.
+            await expect(page.locator('.toast', { hasText: 'foram guardadas no atlas' })).toBeVisible();
+            await expect(page.locator('.toast', { hasText: 'Recuperado' })).toBeVisible();
+
+            // 3. NADA FOI ESCRITO no atlas atualizado: nem o ponto da versão antiga entrou, nem
             //    a nota da versão nova foi substituída.
             expect(await featureCount(page, destino, MAPA_EM_DISPUTA, 'points')).toBe(pontosAntes);
             expect(await destinationSetting(page, before.transition, `map_notes_${MAPA_EM_DISPUTA}`))
                 .toMatchObject({ title: 'Nota da versão nova' });
 
-            // 3. A SAÍDA QUE A TELA OFERECE FUNCIONA: o que a versão antiga gravou vai para OUTRO
-            //    atlas, sem substituir o atualizado.
-            await page.getByRole('button', { name: 'Recuperar alterações em outro atlas' }).click();
-            await expect(page.getByTestId('migration-recovery')).toContainText('foi recuperado');
+            // 4. E O QUE A VERSÃO ANTIGA GRAVOU ESTÁ NUM SEGUNDO ATLAS DO REGISTRO, com o
+            //    desenho dela dentro.
             const after = await transitionDisk(page);
             expect(after.entries).toHaveLength(2);
             expect(after.transition.destination).toBe(before.transition.destination);
@@ -535,30 +623,78 @@ describeOrSkip('Migração 2.2 para 2.3 em Chromium, com a fixture de produção
             expect(recuperado.name).toContain('Recuperado');
             expect(await featureCount(page, { id: recuperado.id, suffix: recuperado.dbSuffix }, MAPA_EM_DISPUTA, 'points'),
                 'o atlas recuperado tem o que a versão antiga desenhou').toBe(pontosAntes + 1);
-            expect(await featureCount(page, destino, MAPA_EM_DISPUTA, 'points'),
-                'o atlas atualizado continua sem o desenho da versão antiga').toBe(pontosAntes);
 
-            // 4. E O BOOT VOLTA A PASSAR, porque a decisão já foi tomada.
-            await page.getByRole('button', { name: 'Tentar novamente', exact: true }).click();
+            // 5. O PRODUTO DIZ O MESMO PELO CONSOLE, que é um caminho independente do DOM.
+            expect(avisos.filter(t => /alterações da versão antiga guardadas em/.test(t)).length).toBe(1);
+
+            // 6. E O BOOT CHEGA AO MAPA, sem gesto nenhum da pessoa.
             await waitForMap(page);
         } finally { await ctx.close(); }
     });
 
-    test('API indisponível oferece download e restauração da cópia bruta', async ({ browser }) => {
-        const { ctx, page } = await prepareLegacyInstall(browser, '01-completo.ebgeo');
+    /**
+     * A MESMA TELA, PELA OUTRA PORTA: servidor fora do ar. O portão de migração roda ANTES do
+     * `GET /api/config` (`index.js`), então aqui a atualização já terminou e o acervo é UM SÓ (o
+     * atlas registrado; a origem sem sufixo é a cópia pré-atualização dele, não um segundo
+     * acervo). É por isso que este caso mede o ramo do `.ebgeo` com dado de verdade, imagens
+     * inclusive, que é o que o harness de nó não pode fazer (sem `FileReader`, nada de Blob).
+     *
+     * A RESTAURAÇÃO PELA TELA SAIU, e o dono foi avisado do preço: a cópia bruta continua a
+     * existir como saída, mas reabri-la deixou de ser auto-serviço. Este caso afirma a ausência,
+     * porque um comando que some sem guarda volta sozinho na revisão seguinte.
+     */
+    test('API indisponível: a tela tem dois comandos e o download é um .ebgeo que o leitor do produto abre', async ({ browser }) => {
+        test.setTimeout(180000);
+        const { ctx, page, declarado, fixture } = await prepareLegacyInstall(browser, '01-completo.ebgeo');
         try {
             await page.route(/\/config(\?|$)/, route => route.abort('failed'));
             await page.goto('/');
             await page.getByRole('button', { name: 'Recuperar dados deste computador' }).click();
+
+            const tela = page.getByTestId('migration-recovery');
+            await expect(tela.getByRole('button')).toHaveText(['Baixar meus dados', 'Continuar']);
+            await expect(tela).toContainText('servidor do EBGeo não respondeu');
+            expect(await tela.locator('input[type=file]').count(),
+                'a restauração pela tela saiu em 2026-09-22').toBe(0);
+
             const downloadPromise = page.waitForEvent('download');
-            await page.getByRole('button', { name: 'Salvar cópia de recuperação' }).click();
+            await page.getByRole('button', { name: 'Baixar meus dados' }).click();
             const download = await downloadPromise;
-            const path = await download.path();
-            expect(readFileSync(path).length).toBeGreaterThan(1000);
-            await page.locator('input[type=file]').setInputFiles(path);
-            await page.getByRole('button', { name: 'Restaurar como outro atlas' }).click();
-            await expect(page.getByTestId('migration-recovery')).toContainText('foi restaurado');
-            expect((await transitionDisk(page)).entries).toHaveLength(2);
+            expect(download.suggestedFilename()).toMatch(/^ebgeo-\d{4}-\d{2}-\d{2}\.ebgeo$/);
+            await expect(tela).toContainText('Importar atlas');
+            const bytes = readFileSync(await download.path());
+            expect(bytes.length).toBeGreaterThan(1000);
+
+            // O LEITOR DO PRODUTO, dentro da página: é ele que decide se o arquivo pode ser
+            // importado (ele confere o CRC32 de cada entrada e recusa id de imagem ambíguo), e um
+            // `.ebgeo` que só este teste soubesse ler não serviria de recuperação.
+            const lido = await page.evaluate(async (array) => {
+                const gate = await import('/src/js/import_export/ebgeo-file-gate.js');
+                const { data, zip } = await gate.readEbgeoArchive(new Blob([new Uint8Array(array)]));
+                let features = 0;
+                for (const mapa of Object.values(data.maps)) {
+                    for (const lista of Object.values(mapa.features || {})) {
+                        if (Array.isArray(lista)) features += lista.length;
+                    }
+                }
+                return {
+                    version: data.version,
+                    mapNames: Object.keys(data.maps).sort(),
+                    features,
+                    imagens: Object.keys(zip.files).filter(n => n.startsWith('images/') && !zip.files[n].dir).length,
+                };
+            }, Array.from(bytes));
+
+            expect(lido.version).toBe('3.0');
+            expect(lido.mapNames, 'o arquivo leva todos os mapas').toEqual(declarado.mapNames.slice().sort());
+            expect(lido.features, 'o arquivo leva todas as feições').toBe(DECLARADO.features);
+            // AS IMAGENS VIAJAM, e são pelo menos as do arquivo: o ramo de Blob e a tabela de
+            // extensão só existem aqui. O excedente é o cache de render da declinação magnética,
+            // pelo mesmo motivo declarado no caso do acervo completo.
+            expect(lido.imagens).toBeGreaterThanOrEqual(fixture.images.size);
+
+            expect((await transitionDisk(page)).entries,
+                'nada foi restaurado nem criado: baixar não escreve').toHaveLength(1);
         } finally { await ctx.close(); }
     });
 

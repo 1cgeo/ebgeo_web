@@ -65,3 +65,16 @@
     background: var(--primary-hover);
     border-color: var(--primary-hover);
 }
+
+/* The one command of the recovery screen that destroys data ("Continuar", which empties this
+   computer so the product can open). It is last on the card and it is the only one painted in the
+   error colour: the person is reading a screen where every other button saves their work. */
+.ebgeo-unavailable__btn--danger {
+    background: var(--color-error);
+    border-color: var(--color-error);
+}
+
+.ebgeo-unavailable__btn--danger:hover {
+    background: var(--color-error-strong);
+    border-color: var(--color-error-strong);
+}

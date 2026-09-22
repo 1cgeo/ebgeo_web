@@ -5,15 +5,17 @@ import { relatarErro } from '@js/session/erro-telemetria.js';
 import { OrigemDeErro } from '@js/session/origens-de-erro.js';
 import { instalarMonitoramentoDePendencias } from '@js/session/pendencias-monitoramento.js';
 import { createTabLock, noneKey } from '../utilities/tab-lock.js';
+import { LateResult, absorbLateLegacyChangesNow, legacyHasChanged } from '../store/migration/legacy-transition.js';
 import {
-    LateResult, absorbLateLegacyChangesNow, prepareLegacyTransition, legacyHasChanged, restartLegacyCopy
-} from '../store/migration/legacy-transition.js';
+    ReparoAutomatico, prepareLegacyTransitionResiliente, recuperarAlteracoesTardias
+} from '../store/migration/transicao-resiliente.js';
 // Direct, never through `@utils`: the barrel drags the store into the three pages that boot without it.
 import { showToast } from '../utilities/toast_service.js';
-import { describeLegacySource, dropLegacySource, pruneAbandonedCopies } from '../store/migration/legacy-cleanup.js';
+import { pruneAbandonedCopies } from '../store/migration/legacy-cleanup.js';
 import {
-    DROP_SOURCE_CANCEL_LABEL, DROP_SOURCE_CONFIRM_LABEL, DROP_SOURCE_LABEL, DROP_SOURCE_RUNNING,
-    dropSourceConfirmation, dropSourceDenial, dropSourceDone
+    APAGANDO, BAIXANDO, BAIXAR_LABEL, CONTINUAR_CANCELAR_LABEL, CONTINUAR_CONFIRMAR_LABEL,
+    CONTINUAR_LABEL, SAIDAS, alteracoesGuardadasEm, apagarBloqueado, apagarConcluido,
+    apagarConfirmacao, baixarFalhou, baixouComoCopiaBruta, baixouComoEbgeo, causaDaFalha
 } from './migration-recovery-phrases.js';
 import { MigrationRecoveryError } from '../store/migration/transition-state.js';
 import { createDeferredScreen } from './deferred-screen.js';
@@ -21,6 +23,17 @@ import { createDeferredScreen } from './deferred-screen.js';
 let screen = null;
 let covered = [];
 let watching = false;
+
+/**
+ * How long the notice about a rescued atlas stays on screen.
+ *
+ * FOUR TIMES THE DEFAULT, and the number comes from what it replaced: until 2026-09-22 this fact
+ * was a screen that stopped the boot until the person acted on it. A toast that says where their
+ * work went has to outlive the map finishing its first draw, or the one thing they needed to read
+ * is gone before there is anything to read it against.
+ * @type {number}
+ */
+const AVISO_DE_RESGATE_MS = 12000;
 
 function closeScreen() {
     screen?.remove();
@@ -54,10 +67,10 @@ function makeScreen(title, message) {
     return { card, text };
 }
 
-function button(card, label, action, text) {
+function button(card, label, action, text, extraClass = '') {
     const element = document.createElement('button');
     element.type = 'button';
-    element.className = 'ebgeo-unavailable__btn';
+    element.className = extraClass ? `ebgeo-unavailable__btn ${extraClass}` : 'ebgeo-unavailable__btn';
     element.textContent = label;
     element.addEventListener('click', async () => {
         element.disabled = true;
@@ -68,54 +81,102 @@ function button(card, label, action, text) {
 }
 
 /**
- * Draws the one destructive command of this screen: deleting the copy the previous version left.
+ * Hands a blob to the browser as a download, from inside the card.
+ * @param {HTMLElement} card - Card of the recovery screen.
+ * @param {Blob} blob - Bytes to save.
+ * @param {string} nome - File name, which is what tells the person WHICH of the two they got.
+ */
+function entregarArquivo(card, blob, nome) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = nome;
+    card.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+/**
+ * "Baixar meus dados": the `.ebgeo` when this computer holds one atlas, the raw copy otherwise.
+ *
+ * THE ORDER IS THE DECISION, and it is the half of the owner's rule that is easy to lose. The
+ * `.ebgeo` is a file the person can reopen by themselves, in Importar atlas; the raw copy is not,
+ * and since this screen stopped offering to restore one, handing it over silently would leave
+ * them holding a file only the EBGeo team can read. So the `.ebgeo` is tried FIRST, and when it
+ * is not possible the sentence says which one arrived and why the other did not.
+ *
+ * @param {HTMLElement} card - Card of the recovery screen.
+ * @param {HTMLElement} text - Paragraph the screen speaks through.
+ * @returns {Promise<void>}
+ */
+async function baixarMeusDados(card, text) {
+    text.textContent = BAIXANDO;
+    let motivo = 'leitura_falhou';
+    try {
+        const { construirEbgeoDeRecuperacao } = await import('../store/migration/ebgeo-de-recuperacao.js');
+        const { blob, nome } = await construirEbgeoDeRecuperacao();
+        entregarArquivo(card, blob, nome);
+        text.textContent = baixouComoEbgeo(nome);
+        return;
+    } catch (falha) {
+        motivo = falha?.code ?? 'leitura_falhou';
+        console.warn('Recuperação: o arquivo .ebgeo não pôde ser montado.', motivo, falha?.message);
+    }
+    try {
+        const { buildRecoveryArchive } = await import('../store/migration/recovery-archive.js');
+        const blob = await buildRecoveryArchive();
+        const nome = `ebgeo-recuperacao-${new Date().toISOString().slice(0, 10)}.zip`;
+        entregarArquivo(card, blob, nome);
+        text.textContent = baixouComoCopiaBruta(nome, motivo);
+    } catch (falha) {
+        text.textContent = baixarFalhou(falha?.message ?? String(falha));
+    }
+}
+
+/**
+ * Draws the one destructive command of this screen: emptying this computer so the product opens.
  *
  * THE COMMAND IS ALWAYS DRAWN AND THE CLICK IS WHAT REFUSES, which is the house rule for a block
- * by STATE (`.claude/rules/architecture.md`, §UI Architecture): every reason it can refuse is
- * reversible, and the person reading the refusal is usually the one who reverses it. So it
- * carries `aria-disabled` and NEVER the `disabled` property, because a disabled button fires no
- * click and the click is how the reason reaches the person.
+ * by STATE (`.claude/rules/architecture.md`, §UI Architecture): the only reason it can refuse is
+ * another window holding a database open, which is reversible by the person reading the refusal.
+ * So it never carries the `disabled` property as a gate, because a disabled button fires no click
+ * and the click is how the reason reaches the person.
  *
- * IT ASKS TWICE, and the second question names the SIZE. The count comes from the inventory read
- * at that instant, not from the journal, so the number on the screen is the number on the disk.
+ * IT ASKS ONCE, and the question names the SIZE. The count comes from the inventory read at that
+ * instant, not from the journal, so the number on the screen is the number on the disk. It used to
+ * ask twice, for a gesture that deleted only the old copy; the owner's rule of 2026-09-22 made it
+ * the whole origin and a single question, because two questions in front of the only way forward
+ * is a toll, not a safeguard.
  *
  * @param {HTMLElement} card - Card of the recovery screen.
  * @param {HTMLElement} text - Paragraph the screen speaks through.
  * @returns {HTMLButtonElement} The command, for a caller that wants to observe it.
  */
-function dropSourceCommand(card, text) {
+function continuarCommand(card, text) {
     const element = document.createElement('button');
     element.type = 'button';
-    element.className = 'ebgeo-unavailable__btn';
-    element.dataset.testid = 'drop-legacy-source';
-    element.textContent = DROP_SOURCE_LABEL;
-    element.setAttribute('aria-disabled', 'true');
+    element.className = 'ebgeo-unavailable__btn ebgeo-unavailable__btn--danger';
+    element.dataset.testid = 'migration-continue';
+    element.textContent = CONTINUAR_LABEL;
     let asking = null;
-
-    const refresh = async () => {
-        const { reason } = await describeLegacySource();
-        element.setAttribute('aria-disabled', reason === 'ok' ? 'false' : 'true');
-        return reason;
-    };
 
     element.addEventListener('click', async () => {
         if (asking) return;
+        // WHILE THE QUESTION IS ON SCREEN THE COMMAND STEPS ASIDE: the confirmation row draws its
+        // own red button, and two red buttons one above the other read as two different acts
+        // (seen on the 2026-09-22 capture). Hidden, not removed, so the cancel puts it back.
+        element.hidden = true;
         try {
-            // ASKED AGAIN AT THE MOMENT OF THE ACT: a legacy window can write between the read
-            // that decided how this button looks and the click that acts on it.
-            const reason = await refresh();
-            if (reason !== 'ok') {
-                text.textContent = dropSourceDenial(reason) ?? DROP_SOURCE_LABEL;
-                return;
-            }
-            asking = await askToDropSource(card, text, element, () => { asking = null; });
+            asking = await askToWipe(card, text, () => { asking = null; element.hidden = false; });
         } catch (failure) {
-            text.textContent = dropSourceDenial(failure.code) ?? failure.message;
+            asking = null;
+            element.hidden = false;
+            text.textContent = failure.message;
         }
     });
 
     card.append(element);
-    refresh().catch(() => element.setAttribute('aria-disabled', 'true'));
     return element;
 }
 
@@ -124,101 +185,66 @@ function dropSourceCommand(card, text) {
  *
  * @param {HTMLElement} card - Card of the recovery screen.
  * @param {HTMLElement} text - Paragraph the screen speaks through.
- * @param {HTMLButtonElement} command - The command that opened this step.
  * @param {() => void} done - Called when the step closes, either way.
  * @returns {Promise<HTMLElement>} The row holding the two buttons.
  */
-async function askToDropSource(card, text, command, done) {
-    const { records } = await describeLegacySource();
+async function askToWipe(card, text, done) {
+    const { inventarioParaApagar } = await import('../store/migration/apagar-acervo-local.js');
+    const inventario = await inventarioParaApagar();
     const previous = text.textContent;
-    text.textContent = dropSourceConfirmation(records);
+    text.textContent = apagarConfirmacao(inventario);
     const row = document.createElement('div');
-    row.dataset.testid = 'drop-legacy-source-confirm';
+    row.dataset.testid = 'migration-continue-confirm';
     card.append(row);
     const close = () => { row.remove(); done(); };
 
-    button(row, DROP_SOURCE_CONFIRM_LABEL, async () => {
-        text.textContent = DROP_SOURCE_RUNNING;
+    button(row, CONTINUAR_CONFIRMAR_LABEL, async () => {
+        text.textContent = APAGANDO;
         try {
-            const result = await dropLegacySource();
-            text.textContent = dropSourceDone(result.records);
-            command.setAttribute('aria-disabled', 'true');
+            const { apagarAcervoLocal } = await import('../store/migration/apagar-acervo-local.js');
+            const resultado = await apagarAcervoLocal();
+            if (resultado.bloqueados.length > 0) {
+                text.textContent = apagarBloqueado(resultado.bloqueados.length);
+                close();
+                return;
+            }
+            text.textContent = apagarConcluido(resultado);
+            close();
+            window.location.reload();
         } catch (failure) {
-            text.textContent = dropSourceDenial(failure.code) ?? failure.message;
+            text.textContent = failure.message;
+            close();
         }
-        close();
-    }, text);
-    button(row, DROP_SOURCE_CANCEL_LABEL, () => {
+    }, text, 'ebgeo-unavailable__btn--danger');
+    button(row, CONTINUAR_CANCELAR_LABEL, () => {
         text.textContent = previous;
         close();
     }, text);
     return row;
 }
 
+/**
+ * THE SCREEN IS ONE AND HAS TWO COMMANDS (owner's decision, 2026-09-22).
+ *
+ * Every `code` keeps its own cause sentence, because what happened is the only part the person can
+ * act on; what they may DO is always the same two things. What left: "Tentar novamente" (the
+ * repairs it stood for are now automatic, so a retry that changes nothing is a button that teaches
+ * people to press buttons), "Preparar uma nova cópia" and "Recuperar alterações em outro atlas"
+ * (taken by the code, before this screen is drawn), "Salvar cópia de recuperação" (absorbed by
+ * "Baixar meus dados", which tries the `.ebgeo` first), and "Abrir cópia de recuperação" with
+ * "Restaurar como outro atlas" (the owner was told the price: restoring a raw copy is no longer
+ * self-service).
+ *
+ * @param {{ code?: string, name?: string, cause?: { name?: string } }} [error] - What sent us here.
+ */
 export function showMigrationRecovery(error = {}) {
-    const code = error.code;
-    const message = code === 'legacy_tab'
-        ? 'Salve o trabalho e feche a janela que está usando a versão antiga. Depois, tente novamente aqui.'
-        : code === 'legacy_changes'
-            // Generic on purpose: the screen is reached by several reasons (`planLateLegacyChanges`),
-            // and naming one of them would be false for the others.
-            ? 'A versão antiga gravou alterações que não podem entrar sozinhas neste atlas sem risco de perder trabalho. Você pode recuperá-las em outro atlas sem substituir o trabalho atualizado.'
-            : error.name === 'QuotaExceededError' || error.cause?.name === 'QuotaExceededError'
-                ? 'Não há espaço para concluir a atualização. Salve uma cópia de recuperação; não apague os dados deste site.'
-                : 'Não foi possível abrir o acervo com segurança. Os dados disponíveis continuam neste computador. Você pode tentar novamente ou salvar uma cópia de recuperação.';
-    const { card, text } = makeScreen('Recuperar seus dados', message);
-    button(card, 'Tentar novamente', () => window.location.reload(), text);
-    button(card, 'Salvar cópia de recuperação', async () => {
-        text.textContent = 'Preparando a cópia dos dados locais…';
-        const { buildRecoveryArchive } = await import('../store/migration/recovery-archive.js');
-        const blob = await buildRecoveryArchive();
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `ebgeo-recuperacao-${new Date().toISOString().slice(0, 10)}.zip`;
-        card.append(link); link.click(); link.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
-        text.textContent = 'Cópia preparada para download. Guarde o arquivo; seus dados locais continuam preservados.';
-    }, text);
-    if (code === 'source_changed' || code === 'copy_failed') {
-        button(card, 'Preparar uma nova cópia', async () => {
-            await restartLegacyCopy();
-            window.location.reload();
-        }, text);
-    }
-    if (code === 'legacy_changes') {
-        button(card, 'Recuperar alterações em outro atlas', async () => {
-            const { recoverLateLegacyChanges } = await import('../store/migration/recovery-archive.js');
-            const entry = await recoverLateLegacyChanges();
-            text.textContent = `O atlas “${entry.name}” foi recuperado. Reabra o EBGeo para acessá-lo em Meus Atlas.`;
-        }, text);
-    }
-    const file = document.createElement('input');
-    file.type = 'file'; file.accept = '.zip'; file.hidden = true;
-    card.append(file);
-    button(card, 'Abrir cópia de recuperação', () => file.click(), text);
-    // LAST, AND DELIBERATELY: it is the only command here that destroys anything, so every way
-    // of saving the data comes before it on the screen.
-    dropSourceCommand(card, text);
-    file.addEventListener('change', async () => {
-        if (!file.files?.[0]) return;
-        try {
-            const { readRecoveryArchive, restoreRecoveryArchive } = await import('../store/migration/recovery-archive.js');
-            const archive = await readRecoveryArchive(file.files[0]);
-            const select = document.createElement('select');
-            select.setAttribute('aria-label', 'Acervo para recuperar');
-            archive.scopes.forEach((scope, index) => {
-                const option = document.createElement('option');
-                option.value = String(index); option.textContent = scope.label;
-                select.append(option);
-            });
-            card.append(select);
-            button(card, 'Restaurar como outro atlas', async () => {
-                const entry = await restoreRecoveryArchive(archive, Number(select.value));
-                text.textContent = `O atlas “${entry.name}” foi restaurado. Reabra o EBGeo para acessá-lo em Meus Atlas.`;
-            }, text);
-        } catch (failure) { text.textContent = failure.message; }
-    });
+    const quota = error.name === 'QuotaExceededError' || error.cause?.name === 'QuotaExceededError';
+    const causa = causaDaFalha(quota ? 'quota' : error.code);
+    const { card, text } = makeScreen('Recuperar seus dados', `${causa} ${SAIDAS}`);
+    button(card, BAIXAR_LABEL, () => baixarMeusDados(card, text), text);
+    // LAST, AND DELIBERATELY: it is the only command here that destroys anything, so the way of
+    // saving the data comes before it on the screen.
+    continuarCommand(card, text);
 }
 
 /**
@@ -241,6 +267,24 @@ async function sweepAbandonedCopies() {
     }
 }
 
+/**
+ * Says what an automatic repair did, once the boot is through.
+ *
+ * ONLY THE RESCUE SPEAKS. A copy that was redone by itself is not news: the person asked for the
+ * product to open and it opened, with nothing moved and nothing named differently. A rescue IS
+ * news, because their work is safe somewhere they did not put it.
+ *
+ * @param {Array<{ kind: string, entry?: { name?: string } }>|undefined} reparos - What was repaired.
+ */
+function reportRepairs(reparos) {
+    for (const reparo of reparos || []) {
+        if (reparo.kind !== ReparoAutomatico.ALTERACOES_RECUPERADAS) continue;
+        registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_CONFLITO);
+        descarregarUso();
+        showToast(alteracoesGuardadasEm(reparo.entry?.name ?? 'recuperado'), 'info', { duration: AVISO_DE_RESGATE_MS });
+    }
+}
+
 export async function runLegacyUpgradeGate() {
     registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_INICIO);
     descarregarUso();
@@ -254,7 +298,10 @@ export async function runLegacyUpgradeGate() {
     try {
         await probe.acquire(noneKey(), { settleMs: 100 });
         if (probe.legacyPeerDetected) throw new MigrationRecoveryError('legacy_tab', 'Há uma janela da versão antiga aberta.');
-        const result = await prepareLegacyTransition({ onProgress: ({ copied, total }) => {
+        // RESILIENTE: the repairs this screen used to ask the person to choose are taken here,
+        // within a budget, and the screen below is what is left when they did not work. See
+        // `store/migration/transicao-resiliente.js`.
+        const result = await prepareLegacyTransitionResiliente({ onProgress: ({ copied, total }) => {
             progress.setText(`Copiando e verificando seus dados: ${copied} de ${total} registros. Aguarde a conclusão.`);
             // A copy tick means the wait is REAL: the person's data is being rewritten, so say so now.
             progress.showNow();
@@ -263,6 +310,7 @@ export async function runLegacyUpgradeGate() {
         // progress card over a boot that already succeeded.
         progress.cancel();
         closeScreen();
+        reportRepairs(result?.reparos);
         reportLateOutcome(result?.late);
         registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_SUCESSO);
         descarregarUso();
@@ -324,9 +372,18 @@ export function watchLegacyChanges() {
             if (!await legacyHasChanged()) return;
             const late = await absorbLateLegacyChangesNow();
             if (late.outcome === LateResult.CONFLICT) {
+                // THE SAME REPAIR THE BOOT TAKES, and for the same reason: the conservative answer
+                // is the only one that never loses work, so it is taken instead of offered. The
+                // screen is what is left when taking it did not work.
                 registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_CONFLITO);
                 descarregarUso();
-                showMigrationRecovery({ code: 'legacy_changes' });
+                try {
+                    const entry = await recuperarAlteracoesTardias();
+                    showToast(alteracoesGuardadasEm(entry?.name ?? 'recuperado'), 'info', { duration: AVISO_DE_RESGATE_MS });
+                } catch (falha) {
+                    console.warn('Atualização local: não foi possível guardar as alterações da versão antiga.', falha?.message);
+                    showMigrationRecovery({ code: 'legacy_changes' });
+                }
                 return;
             }
             reportLateOutcome(late);
