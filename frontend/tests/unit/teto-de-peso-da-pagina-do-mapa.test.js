@@ -327,7 +327,26 @@ const ORCAMENTO = Object.freeze({
     // cartao. Ele nao traz peso novo ao grafo ansioso: as dependencias dele (store, sessao, guarda
     // de permissao, cores de presenca) sao as que o proprio overlay ja carregava.
     comment_tool: 4,
-    selection_tools: 2
+    selection_tools: 2,
+    // AS DUAS ÚLTIMAS NÃO SÃO PASTA DE FERRAMENTA, e entraram em 2026-09-21 com o lote que tirou
+    // do boot do mapa os três diálogos do menu da conta. Elas estão aqui pela mesma definição que
+    // trouxe `import_export` e `briefing`: são carga que a página do mapa paga por uma porta que
+    // só se abre depois de um clique, e portanto são alvo da mesma onda de `await import()`.
+    //
+    // `modals`: 20 antes do lote, 14 depois, medidos pelo caminhador com a versão do HEAD ao lado
+    // (controle por cópia de arquivo). Os SEIS que saíram são `login.modal.js`,
+    // `create-atlas.modal.js`, `sharing.modal.js`, `sharing.modal.core.js`,
+    // `login-failure.model.js` (só o login o lê), `link-publico-phrases.js` (só o núcleo de
+    // compartilhamento o lê) e `password-recovery.model.js` (idem, o login), menos o lançador
+    // novo, que ENTRA: 20 - 7 + 1 = 14. Esta linha é o recibo: um import estático de qualquer um
+    // deles voltando a `account/account.control.js` reprova aqui nomeando a cadeia, muito antes de
+    // os 66 kB reaparecerem na metade (b), onde eles cabem na folga do teto.
+    modals: 14,
+    // `account`: 6, e o lote NÃO a moveu. Ela ganha linha porque é a pasta do `IControl` que
+    // `map_sig.js` instancia, ou seja, a porta por onde este peso entrou: o painel de pendências
+    // (`account/pendencias/`, cinco módulos) já é sob demanda, e um import estático dele passaria
+    // despercebido em qualquer outro número deste arquivo.
+    account: 6
 });
 
 /**
@@ -488,6 +507,15 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // seis dias, entrados pelos commits do plano de lançamento sem que ninguém remedisse, e o
         // HEAD já estava a 22 kB do teto. É a quarta vez que a banda reprova o PRÓXIMO arquivo em
         // vez de uma pasta voltando. A banda nova é de ~8% em torno de 529 e 7437.
+        //
+        // 2026-09-21: a medida CAIU e a banda NÃO se mexeu, de propósito. O lote dos três diálogos
+        // do menu da conta levou o grafo ansioso de 548 módulos / 7867 kB para 539 / 7647, medido
+        // dos dois lados com a versão do HEAD ao lado por CÓPIA DE ARQUIVO. Recentrar em ~8% sobre
+        // 7647 daria teto perto de 8260, isto é, SUBIRIA o teto em cima de um ganho, que é o
+        // oposto do que este número serve para fazer. Quem passou a guardar este ganho com
+        // exatidão são as duas linhas novas do ORCAMENTO por pasta (`modals` e `account`),
+        // fechadas nos dois sentidos. O que sobra aqui é a leitura honesta: o teto de 8030 ficou
+        // com 383 kB de folga, e quem remedir a deriva de fundo é que o desce.
         expect(ansioso.arquivos.size).toBeGreaterThanOrEqual(487);
         expect(ansioso.arquivos.size).toBeLessThanOrEqual(571);
         const kb = kbDe(ansioso.arquivos);
@@ -712,7 +740,19 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // 2026-09-21, décimo quinto lote: 748, medido pela reprovação deste caso (748 contra 747 com UM
         // arquivo novo): `import_export/ebgeo-missing-images.js`, a folha descrita no orçamento de
         // `import_export` acima.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(748);
+        //
+        // 2026-09-21, décimo sexto lote: 749, com `modals/account-modals-launcher.js`, a folha que
+        // carrega sob demanda os TRÊS diálogos do menu da conta (login, "novo atlas" e
+        // compartilhar). Medido pela reprovação deste próprio caso (749 contra 748 com um arquivo
+        // novo). O grafo COMPLETO ganha um módulo, e o ANSIOSO perde NOVE, que é o outro lado do
+        // mesmo commit: 548 módulos / 7867 kB de fonte antes, 539 / 7647 depois, medidos pelo mesmo
+        // caminhador com a versão do HEAD ao lado por CÓPIA DE ARQUIVO. Os dez que saíram do
+        // ansioso são `modals/login.modal.js`, `modals/create-atlas.modal.js`,
+        // `modals/sharing.modal.js`, `modals/sharing.modal.core.js`, `modals/login-failure.model.js`,
+        // `modals/link-publico-phrases.js`, `modals/password-recovery.model.js`,
+        // `presence/sharing-presence.source.js`, `ui/password-visibility.js` e
+        // `utilities/request-failure.js`.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(749);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);
@@ -753,8 +793,51 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         }
         // O carregador, esse sim, é ansioso, e é ele que guarda a aresta dinâmica.
         expect(tem(ansioso, 'src/js/modals/signup-launcher.js')).toBe(true);
-        // E o olho FICA: o diálogo de login também o usa.
-        expect(tem(ansioso, 'src/js/ui/password-visibility.js')).toBe(true);
+        // O OLHO DEIXOU DE FICAR EM 2026-09-21, e a troca de lado é consequência e não descuido.
+        // A linha anterior dizia "E o olho FICA: o diálogo de login também o usa", e era verdade
+        // enquanto `modals/login.modal.js` era import ESTÁTICO de `account/account.control.js`.
+        // No dia em que o login passou a ser buscado no clique (ver o caso dos três diálogos
+        // abaixo), os DOIS únicos consumidores de `ui/password-visibility.js` no grafo do mapa
+        // ficaram sob `import()`, e o olho saiu junto. Ele continua ANSIOSO em `atlas.html`, que
+        // importa o login de forma estática, e isso não é medido aqui: este arquivo mede o mapa.
+        expect(tem(ansioso, 'src/js/ui/password-visibility.js')).toBe(false);
+        expect(tem(completo, 'src/js/ui/password-visibility.js')).toBe(true);
+    });
+
+    it('os TRÊS diálogos do menu da conta entram só por `import()`', () => {
+        // O lote de 2026-09-21. `account/account.control.js` é um `IControl` que `map_sig.js`
+        // instancia, então todo import estático dele viaja no BOOT do mapa; três dos seus imports
+        // eram telas que só existem depois de um clique E só fazem sentido com servidor. Elas
+        // passaram a ser buscadas no clique, por `modals/account-modals-launcher.js`.
+        //
+        // OS DOIS LADOS, pela mesma razão do cadastro acima: ausentes do grafo ansioso e
+        // PRESENTES no completo. Só o primeiro lado seria satisfeito por um caminhador cego.
+        //
+        // O QUE ESTE CASO MEDE E O TETO DE kB NÃO MEDIRIA: `modals/login.modal.js` e
+        // `modals/create-atlas.modal.js` continuam imports ESTÁTICOS de `projects/projects-page.js`
+        // e de `projects/atlas-drive.js`, de propósito, porque `atlas.html` é outra entrada e lá o
+        // formulário de login é a primeira coisa que o visitante vê. Medido no `dist/` daquele
+        // build: os chunks deles seguem referenciados por `atlas.html` e saíram de `index.html`.
+        const sobDemanda = [
+            'src/js/modals/login.modal.js',
+            'src/js/modals/create-atlas.modal.js',
+            'src/js/modals/sharing.modal.js',
+            'src/js/modals/sharing.modal.core.js',
+            // Ela só é importada por `modals/sharing.modal.js`, então acompanha o vizinho. É o
+            // módulo que liga a presença viva, e o cabeçalho dele avisa que só o mapa o alcança.
+            'src/js/presence/sharing-presence.source.js',
+        ];
+        const tem = (grafo, sufixo) => [...grafo.arquivos]
+            .some((f) => f.replace(/\\/g, '/').endsWith(sufixo));
+        for (const modulo of sobDemanda) {
+            expect(tem(ansioso, modulo), `${modulo} voltou para o payload ansioso do mapa`)
+                .toBe(false);
+            expect(tem(completo, modulo), `${modulo} sumiu do grafo: a afirmação virou vazia`)
+                .toBe(true);
+        }
+        // O lançador é ansioso, e é ele que guarda as três arestas dinâmicas. Sem esta linha, um
+        // arquivo apagado deixaria as cinco afirmações acima verdes e vazias.
+        expect(tem(ansioso, 'src/js/modals/account-modals-launcher.js')).toBe(true);
     });
 
     for (const pacote of EXTERNOS_SO_DINAMICOS) {
@@ -1070,7 +1153,30 @@ const PAGINAS_DIST = Object.freeze([
     // fronteira entre chunks. Estimar peso construído somando o minificado dos módulos ignora que
     // o bundler redesenha as fronteiras: o número só existe depois do build. O teto NÃO desceu
     // por isso, de propósito: 4151 já é maior que o teto antigo de 4150, e a folga é a de sempre.
-    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 86, minKb: 3600, maxKb: 4220 },
+    //
+    // index.html: 4220 -> 4170 em 2026-09-21, E O TETO DESCEU, que é o sentido que este número
+    // quase nunca anda. MEDIDO DOS DOIS LADOS, com build fresco em cada um e esta mesma régua
+    // (`payloadDe`): 78 arquivos e 4286417 bytes (4186 kB) antes, 77 e 4218590 bytes (4120 kB)
+    // depois, ou seja 67827 bytes a menos no payload ANSIOSO do mapa, ~66 kB. Em gzip, 1102 ->
+    // 1085 kB. O lote é a carga sob demanda dos três diálogos do menu da conta.
+    //
+    // A CONTA FECHA COM OS CHUNKS, e é por isso que ela é atribuída e não estimada. No `dist/`
+    // novo, os quatro chunks que saíram da lista de `index.html` somam 66439 bytes: o do login
+    // (17958), o do "novo atlas" (15340), o do núcleo de compartilhamento (31162) e o par
+    // invólucro-mais-presença (1153); mais 1826 do olho de senha, que acompanhou os dois diálogos
+    // que o liam. Os dois primeiros continuam referenciados por `atlas.html`, que importa aqueles
+    // modais de forma estática; os três últimos não são referenciados por HTML nenhum, porque
+    // agora só se alcançam por `import()`.
+    //
+    // O PISO NÃO SE MEXE, pela disciplina já escrita acima: ele é controle de vácuo contra um HTML
+    // que perdesse as referências, não registro de conquista. Quem registra a conquista com
+    // exatidão é o ORCAMENTO por pasta da metade (a) (`modals: 14`), fechado nos dois sentidos.
+    // 4170 deixa 50 kB de folga sobre 4120, pouco de propósito, como as subidas anteriores.
+    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 86, minKb: 3600, maxKb: 4170 },
+    // atlas.html: MEDIDA dos dois lados do mesmo lote, 36 arquivos / 663 kB antes e 40 / 664
+    // depois. Os quatro arquivos a mais são repartição de chunk e não conteúdo (os modais que o
+    // mapa deixou de alcançar estaticamente deixaram de dividir chunk com ele e viraram chunks
+    // próprios desta página); o kB a mais é o arredondamento disso. A banda não se mexe.
     { html: 'atlas.html', entrada: 'atlas', minArq: 18, maxArq: 44, minKb: 320, maxKb: 700 },
     // admin.html: 800 -> 950 -> 720 em 2026-09-02, com a medida na mao: 670 kB em 24 arquivos, build
     // fresco. As abas Diagnostico e Uso (com os folhas de frase) tinham levado a pagina a 882 kB
@@ -1081,7 +1187,14 @@ const PAGINAS_DIST = Object.freeze([
     // quatro chunks que o HTML nao referencia (diag-tab 61 kB + legado 61 kB, uso-tab 45 kB + legado
     // 45 kB), e e por isso que a contagem de arquivos NAO mudou: 24 antes e 24 depois. O piso subiu
     // junto, para o proximo ganho aparecer na tabela em vez de passar calado.
-    { html: 'admin.html', entrada: 'admin', minArq: 14, maxArq: 38, minKb: 600, maxKb: 790 },
+    // 790 -> 830 em 2026-09-21, ATRIBUIDO com build fresco em tres commits e o grafo de imports do
+    // entry medido nos dois lados: 758 kB em 2026-09-13, 784 kB na manha de 2026-09-21 e 803 kB a
+    // tarde. Os 19 kB do dia sao os tres commits de migracao tardia (`store/migration/late-legacy-plan.js`
+    // novo, 14 kB, e `legacy-transition.js` +15 kB de fonte, que entram pelo portao de migracao das
+    // quatro paginas que tocam o acervo) mais o seletor pesquisavel novo do admin
+    // (`ui/searchable-select.js` e o modelo dele, 24 kB de fonte). A suite passou verde o dia inteiro
+    // porque o dist/ era de 2026-09-20: dist velho da verde velho, como o comentario acima ja dizia.
+    { html: 'admin.html', entrada: 'admin', minArq: 14, maxArq: 38, minKb: 600, maxKb: 830 },
     // calibracao.html: 1100 -> 1980 em 2026-09-04, pela MESMA troca de balcão de `index.html` e
     // pelo MESMO arquivo. Esta página carregava o `<script src="/vendors/maplibre-gl.js">` para
     // desenhar o mapa de projeto e o minimapa; agora ela alcança o chunk de MapLibre pelo grafo,
@@ -1091,7 +1204,9 @@ const PAGINAS_DIST = Object.freeze([
     // Ela é a única das três páginas sem mapa que sobe, e isso é uma propriedade e não um acaso:
     // `atlas.html` e `admin.html` não instanciam mapa nenhum, não alcançam o ponto único, e as
     // medidas delas ficaram idênticas (521 e 673 kB) do outro lado da migração.
-    { html: 'calibracao.html', entrada: 'calibracao', minArq: 12, maxArq: 38, minKb: 1700, maxKb: 1980 },
+    // 1980 -> 2020 em 2026-09-21, pela MESMA causa do admin acima: 1955 kB em 2026-09-13, 1977 na
+    // manha e 1987 a tarde, com os mesmos modulos de migracao tardia entrando pelo portao.
+    { html: 'calibracao.html', entrada: 'calibracao', minArq: 12, maxArq: 38, minKb: 1700, maxKb: 2020 },
     // tutorial.html: a QUINTA página, medida na estreia, 2026-09-15, build fresco: 7 arquivos e
     // 499 kB. Ela é a mais LEVE das cinco por uma margem grande, e vale entender de que os 499 são
     // feitos, porque a leitura ingênua é que uma página de documentação deveria custar dezenas de

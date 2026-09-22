@@ -1,10 +1,21 @@
 // Path: js/account/account.control.js
 import { confirmLogoutWithPendingWork } from '@js/session/confirm-logout.js';
-import { showLoginModal } from '@modals/login.modal.js';
 // NOT `@modals/signup.modal.js` ITSELF since 2026-09-20: the signup dialog is a screen of one
 // visit, so it is fetched on the click. The launcher is a leaf with zero static imports; what used
 // to ride here was the modal plus the searchable select, its model and the password-match model.
 import { abrirCadastro } from '@modals/signup-launcher.js';
+// AND THE OTHER THREE DIALOGS OF THIS MENU SINCE 2026-09-21, by the same rule and through one
+// launcher: login, "novo atlas" and sharing only exist after a click and only mean anything with a
+// reachable server, so `@modals/login.modal.js`, `@modals/create-atlas.modal.js` and
+// `@modals/sharing.modal.js` stopped riding in the map's boot payload. The failure of a load is
+// SAID (see `telaIndisponivelTexto`), because an `import()` that fails stays poisoned for the life
+// of the page and a silent one would leave a menu item that does nothing.
+import {
+    abrirLogin,
+    abrirCriarAtlas,
+    abrirCompartilhamento,
+    telaIndisponivelTexto,
+} from '@modals/account-modals-launcher.js';
 import config from '@js/config.js';
 import { showConfirm, showChoice } from '@modals/index.js';
 import { clearLocalMapIntent } from '@js/deep-link/local-intent.js';
@@ -54,7 +65,6 @@ import {
 } from '@js/account/open-atlas.service.js';
 import { acquireTabLock, remoteAtlasKey } from '@utils/tab-lock.js';
 import { consumePendingAtlasLink } from '@js/deep-link/atlas-link.js';
-import { showCreateAtlasModal } from '@modals/create-atlas.modal.js';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
 import { sessionContext } from '@store/sync/session-context.js';
@@ -76,7 +86,6 @@ import {
 import { orgLabel } from '@js/admin/org-options.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
 import { presenceStore } from '@js/presence/presence-store.js';
-import { showSharingModal } from '@modals/sharing.modal.js';
 import { showSuccess, showError, showWarning, showToast } from '@utils';
 import {
     setupCleanup,
@@ -816,6 +825,12 @@ export class AccountControl {
     /**
      * Opens the sharing modal for the connected atlas. The display name comes from the
      * lazily-cached project list (cosmetic — the modal re-reads the canonical config).
+     *
+     * THE SCREEN IS FETCHED ON THIS CLICK since 2026-09-21 (`@modals/account-modals-launcher.js`),
+     * and it was the cheapest of the three: `sidebar/tabs/maps.tab.js` already fetched the same
+     * specifier on ITS click, so the static import here was the only thing keeping the chunk in
+     * the map's boot payload. The `catch` is not decoration: a failed `import()` is poisoned for
+     * the life of the page, so the way out has to be said, and it is reloading.
      * @private
      */
     async _handleShareAtlas() {
@@ -830,7 +845,19 @@ export class AccountControl {
                 // Name is cosmetic; the modal works without it.
             }
         }
-        showSharingModal(atlasId, { atlasName });
+        try {
+            // The atlas can be closed, swapped or deleted by an owner while the module travels;
+            // opening the screen then would be a sharing dialog over an atlas nobody is in.
+            await abrirCompartilhamento(atlasId, { atlasName }, {
+                aindaQuerido: () => syncEngine.atlasId === atlasId,
+            });
+        } catch (error) {
+            showError(
+                telaIndisponivelTexto('compartilhamento', globalThis.navigator?.onLine),
+                { duration: 10000 }
+            );
+            console.error('[AccountControl] sharing modal load failed:', error);
+        }
     }
 
     /**
@@ -907,7 +934,11 @@ export class AccountControl {
         // a sibling tab has a DIFFERENT project open would deny a legitimate save. The claim taken
         // below, right before the wipe, is the whole check now.
         this._closeMenu();
-        showCreateAtlasModal({
+        // O DIÁLOGO É BUSCADO NESTE CLIQUE desde 2026-09-21 (`@modals/account-modals-launcher.js`).
+        // O `.catch` fica NA CHAMADA e não envolve o `onCreate`, de propósito: o que pode faltar
+        // aqui é o CÓDIGO da tela, e o desfecho do envio (que já tem tratamento próprio lá dentro)
+        // acontece muito depois, num clique que só existe se a tela chegou.
+        await abrirCriarAtlas({
             // O atlas local ja tem nome, e ele e o que a pessoa acabou de ver na aba Mapas: sugerir
             // outra coisa (ou nada) faz digitar de novo o que a tela ja sabia.
             defaultName: nomeSugerido,
@@ -1024,6 +1055,12 @@ export class AccountControl {
                     throw error;
                 }
             }
+        }).catch((error) => {
+            showError(
+                telaIndisponivelTexto('criarAtlas', globalThis.navigator?.onLine),
+                { duration: 10000 }
+            );
+            console.error('[AccountControl] create-atlas modal load failed:', error);
         });
     }
 
@@ -1108,6 +1145,15 @@ export class AccountControl {
     /**
      * Open the login modal, authenticate, then advance to the project picker (or, when a `?atlas=`
      * deep link is pending, straight to that atlas).
+     *
+     * O FORMULÁRIO É BUSCADO NESTE CLIQUE desde 2026-09-21
+     * (`@modals/account-modals-launcher.js`), pela mesma razão que o cadastro em 2026-09-20: é
+     * tela de depois de um clique, e só faz sentido com servidor. Ele NÃO sai do payload ansioso
+     * de `atlas.html`, que continua importando-o de forma estática, porque lá o formulário é a
+     * primeira coisa que o visitante vê.
+     *
+     * O `catch` é o preço declarado da troca: um `import()` que falha fica envenenado pelo resto
+     * da vida da página, então a saída é recarregar, e a frase diz isso em vez de calar.
      * @private
      */
     async _handleLogin() {
@@ -1122,7 +1168,7 @@ export class AccountControl {
         // Only offer "Criar conta" where self-registration is enabled server-side (the /auth/register
         // route is unmounted otherwise — showing the button would be a 404 dead-end).
         const signupEnabled = config?.features?.self_registration === true;
-        showLoginModal({
+        await abrirLogin({
             onSubmit: async (credentials) => {
                 await syncEngine.login(credentials);
                 // Login resolved: remember the display name and refresh the UI.
@@ -1173,6 +1219,12 @@ export class AccountControl {
                 await this.openProjectPicker();
             },
             onRegister: signupEnabled ? (abertura) => this._handleRegister(abertura) : undefined
+        }).catch((error) => {
+            showError(
+                telaIndisponivelTexto('login', globalThis.navigator?.onLine),
+                { duration: 10000 }
+            );
+            console.error('[AccountControl] login modal load failed:', error);
         });
     }
 
