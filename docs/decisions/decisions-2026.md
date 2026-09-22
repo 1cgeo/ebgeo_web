@@ -3670,3 +3670,110 @@ instável, e cada uma foi atribuída antes de ser tocada.
   `frontend/tests/unit/configs-do-playwright-coletam-o-guarda.test.js` e
   `frontend/tests/e2e-ui/first-person-collaboration.spec.js`.
 
+### 2026-09-22: a atualização se conserta sozinha, e a tela de recuperação fica com duas saídas
+
+- **Decisão (dono):** "A migração deve ser o mais resiliente possível e, se falhar, a tela deve ter
+  apenas duas opções: baixar o `.ebgeo` atual (ou o arquivo de restauração, se não for possível) e
+  o botão de continuar, que zera o IndexedDB e abre." O dono foi avisado dos dois preços antes de
+  mandar seguir: perde-se a escolha manual de recuperar as alterações tardias em outro atlas, e
+  sai a restauração pela tela (a cópia bruta continua existindo como saída, mas reabri-la deixou de
+  ser auto-serviço).
+- **O que isto SUPERA:** a segunda metade da decisão de 2026-09-21 sobre a gravação tardia ("a tela
+  fica para o conflito"). A primeira metade continua inteira: o caso trivial é absorvido pelo
+  portão. O que mudou é o conflito: a saída conservadora que a tela oferecia num botão passou a ser
+  TOMADA, não oferecida, porque ela é a única que não perde trabalho e não há como a pessoa julgar
+  a outra. A regra do plano (`planLateLegacyChanges`) não foi tocada e os testes dela passam sem
+  uma linha alterada; `prepareLegacyTransition` continua lançando `legacy_changes`. Mudou só o que
+  o chamador faz com o lançamento.
+- **Os dois reparos, e por que cada um tem orçamento** (`prepareLegacyTransitionResiliente`,
+  `frontend/src/js/store/migration/transicao-resiliente.js`, fora de `ui/` para o orçamento ser
+  medido em node). `source_changed` e `copy_failed`: a cópia é refeita do zero DUAS vezes, porque a
+  causa quase sempre é outra janela gravando durante a cópia, e uma janela que grava uma vez tende
+  a gravar de novo; a origem nunca é escrita, então cópia abandonada custa disco e a poda de boot a
+  recolhe. `legacy_changes`: o que a versão antiga gravou vai para um atlas local NOVO
+  (`recoverLateLegacyChanges`), UMA vez, porque cada execução cunha outro atlas, o registro guarda
+  dez, e uma janela antiga que continue gravando gastaria os dez num boot só. O reparo que falha
+  NÃO substitui a causa: a tela nomeia o erro original. O reparo vale nos DOIS sítios, o portão de
+  boot e o vigia em sessão, senão a mesma pessoa veria a tela ou o toast conforme a janela.
+- **A tela: uma, com duas saídas e treze causas.** Cada `code` mantém a frase dele, porque "o que
+  aconteceu" é a única parte sobre a qual a pessoa pode agir; o que ela pode fazer é sempre o
+  mesmo. "Baixar meus dados" tenta o `.ebgeo` primeiro e cai para a cópia bruta dizendo qual
+  entregou e por que o outro não foi possível. "Continuar" pergunta uma vez, nomeando a contagem
+  que o inventário acabou de ler, e apaga tudo o que esta origem conhece, com o banco global por
+  último, porque até ali ele é a única coisa que nomeia o resto; um delete que não confirma para o
+  gesto inteiro, e a frase diz que nada foi apagado. Enquanto a pergunta está na tela o comando
+  se esconde, porque dois botões vermelhos um sobre o outro liam como dois atos (visto na
+  captura). O `.ebgeo` da tela não passa pelo exportador normal, que lê o barril da store ainda não
+  hidratado e devolveria um atlas VAZIO sem falhar: a folha nova lê os bancos de um escopo e tenta
+  cada endereço que o mapa já teve, porque a regra de chave das lojas laterais mudou ao longo da
+  vida do produto. Um `.ebgeo` é um atlas, então com mais de um acervo vivo a saída é a cópia bruta.
+- **Um caso em que "Continuar" não resolve, declarado:** `api_unavailable`. Ali o portão já
+  concluiu a migração (ele roda antes do `GET /api/config`), o "Baixar" entrega um `.ebgeo` do atlas
+  inteiro, e "Continuar" apaga tudo e recarrega para a mesma tela de servidor fora do ar. A
+  confirmação com a contagem é a única proteção; a frase daquela causa não avisa que continuar não
+  abre o mapa enquanto o servidor não responder. Decisão do dono, se quiser a frase.
+- **Alternativas recusadas:** deixar "Tentar novamente" (os reparos que ele existia para repetir
+  são automáticos, e ele seria um botão que não muda nada); apagar só a origem sem sufixo, como
+  fazia a D8 (enquanto qualquer banco de um acervo quebrado estiver no disco o portão volta à
+  mesma tela, e "continuar" só é verdade se o produto abre); baixar sempre a cópia bruta (completa,
+  mas desde que a restauração saiu só a equipe a reabre).
+- **Aberto, declarado:** `dropLegacySource` e `describeLegacySource` perderam o chamador de
+  produção e continuam por causa dos testes e do estado `DROPPING_SOURCE` que só eles escrevem; e
+  o apagar confia em `dropAtlasDatabases` para esquecer geração e cerca de escrita, sem cenário de
+  ponta a ponta com geração ativa.
+- **Onde ficou preso:** `frontend/tests/integration/transicao-resiliente.test.js`,
+  `frontend/tests/integration/tela-de-recuperacao-duas-saidas.test.js`,
+  `frontend/tests/unit/migracao-frases-de-apagar-origem.test.js` e
+  `frontend/tests/e2e-ui/browser-migracao-2.2.spec.js` (o conflito que não para mais o boot, o
+  toast que nomeia o atlas, o `.ebgeo` com 11 mapas e 262 feições lido pelo leitor do produto, e
+  "Continuar" apagando 40 registros e abrindo limpo). Controles negativos por cópia de arquivo:
+  quatro do agente, com 4 de 7, 16 de 20, 3 de 20 e 1 de 8 reprovando, mais o do comando que se
+  esconde. Navegador: 20 de 20 em duas passadas no worktree, 10 de 10 na árvore principal, e a tela
+  lida como imagem.
+
+### 2026-09-22: o cenário de ida e volta do dono passou a ser medido com a main de verdade
+
+- **Contexto (do dono):** "1) Criar feições na versão do branch main 2) migrar para versão do
+  integração backend 3) abrir na versão do branch main novamente e editar 4) abrir no integração
+  backend novamente." `frontend/tests/e2e-ui/browser-migracao-2.2.spec.js` encena a linha anterior
+  ESCREVENDO o disco dela (fixture 2.2 mais o tab-lock do commit 8b611113 importado numa página em
+  branco) e nunca roda uma linha do app da main, então não responde a essa pergunta.
+- **O instrumento:** `frontend/tests/helpers/main-round-trip.mjs` (script `test:e2e:ida-e-volta`
+  do pacote web). Sobe o backend real pelo mesmo `global-setup` do Playwright, serve o `dist/` da
+  main e o da integração ALTERNADOS na mesma porta com `/api` em proxy, e dirige um perfil
+  Chromium persistente pelos quatro passos, em duas variantes com perfis separados: `trivial` (a
+  integração só abre no passo 2) e `conflito` (a integração edita a nota do MESMO mapa no passo 2,
+  que é `same_unit` na regra do plano). As feições nascem de gesto na barra da main, o IndexedDB
+  é lido nativamente e nunca escrito (harness que semeia o disco mede a si mesmo), e o chunk de
+  entrada do `index.html` de cada `dist/` é o que prova QUAL build a página executou, independente
+  do que o script serviu. Ele é irmão de `frontend/tests/helpers/main-profile-upgrade.mjs`, que
+  exige o acervo externo (`EBGEO_MIGRATION_DATA_DIR`) e por isso não roda na maioria das máquinas.
+- **O que ele mediu, e a main de 2026-09-11 boota contra o backend de hoje** (zero `pageerror` nos
+  oito boots de uma rodada; o único ruído é o 404 do preflight do 360, que não impede nada).
+  Trivial: 3 feições nascem na main nos bancos sem sufixo; a integração as vê no atlas atualizado
+  e na árvore de camadas, com `schemaVersion` 3.0 e UM atlas registrado; a main reabre o próprio
+  acervo, vê as 3 e cria mais 2, sem alcançar o destino; a integração volta SEM tela com as 5, uma
+  cada, zero duplicata, um atlas. Conflito, sob a regra de duas saídas do mesmo dia: a nota da
+  integração não vaza para a main, a main reescreve a mesma nota, e no passo 4 o mapa abre sem
+  tela, com o toast nomeando o atlas de recuperação, DOIS atlas (o atualizado com as 3 e a nota
+  da integração, o recuperado com as 5 e a nota tardia da main) e a união por nome igual às 5.
+  Três rodadas em série na árvore principal, 31 de 31 e 38 de 38 por rodada, e a captura do
+  passo 4 lida como imagem: o mapa da integração com os pontos e o toast por cima. Controles
+  negativos do agente, por cópia de arquivo sobre `planLateLegacyChanges`: sempre CONFLICT reprova
+  em "a gravação tardia trivial não para o boot" e sempre NOTHING reprova em "as CINCO feições
+  estão no atlas atualizado", asserções distintas e opostas.
+- **Um fato sobre a MAIN, não sobre a integração, que custou três rodadas vermelhas.** Na main o
+  nome de feição não vai ao store no Enter: `updateFeaturesProperty` toca só a fonte do MapLibre e
+  a feição em memória, e quem grava é `saveFeatures`, disparada pelo botão Salvar que o painel só
+  tem depois de renderizar por inteiro. Um deselect que chega antes do botão existir perde a
+  edição em silêncio (medido: painel com o nome novo, disco com `Ponto #3`, quarenta iterações
+  depois ainda o mesmo). É caminho real de perda de edição na main, fora do alcance desta linha do
+  produto, e fica declarado para quem ainda a usa.
+- **O que NÃO mede, declarado:** só ponto (linha e polígono fecham por gesto próprio na main, com
+  modo de falha próprio, e cinco pontos determinísticos valeram mais que uma geometria a mais);
+  nem link público nem login, porque o cenário do dono é local e anônimo nas duas pontas. E ele
+  depende de dois `dist/` que o git não versiona: o da main, no worktree que o script aponta por
+  padrão (ou `EBGEO_MAIN_CHECKOUT`), e o da integração, que tem de ser reconstruído depois da
+  última escrita, senão a medição é do build velho.
+- **Status:** aceita.
+
