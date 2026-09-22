@@ -166,7 +166,7 @@ describe('revokeBlockedNotice — a nota que ocupa o lugar do botão', () => {
 
 describe('a tela consome a regra, e a linha continua inteira', () => {
     const MODAL = readFileSync(
-        fileURLToPath(new URL('../../src/js/catalog/resource-share.modal.js', import.meta.url)),
+        fileURLToPath(new URL('../../src/js/catalog/resource-share.modal.core.js', import.meta.url)),
         'utf8',
     );
 

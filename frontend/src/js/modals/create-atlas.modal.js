@@ -317,7 +317,7 @@ export class CreateAtlasModal extends ModalBase {
                 isProducer: sessionContext.isProducer(),
             });
             const onde = typeof porta === 'string' && porta.trim()
-                ? ` Crie um em ${escapeHtml(porta.trim())}.`
+                ? ` Crie um em ${escapeHtml(porta.trim())}, na aba Grupos.`
                 : '';
             return `<div class="sharing__empty">Você não administra nenhum grupo.${onde}</div>`;
         }

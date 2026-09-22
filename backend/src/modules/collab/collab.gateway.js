@@ -8,7 +8,10 @@ import config from '../../config.js';
 import logger from '../../utils/logger.js';
 import { query } from '../../database/index.js';
 import { orgIsActive, getLiveAuthState, tokenPredatesSessionCut } from '../../utils/org-status.js';
-import { joinRoom, leaveRoom, getRoomUsers, getRoomClients } from './collab.rooms.js';
+import {
+  joinRoom, leaveRoom, getRoomUsers, getRoomClients, descartarCursorPendente,
+} from './collab.rooms.js';
+import { enviarContextosAoRecemChegado } from './collab.viewer.js';
 import { toFrontendRole } from '../../utils/roles.js';
 import * as collabService from './collab.service.js';
 import * as handlers from './collab.handlers.js';
@@ -628,6 +631,18 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
   // não. O vizinho `selectedFeatures` já tinha default; este faltava, e um contrato
   // congelado que só às vezes traz o campo não está congelado.
   ws.selectionContext = null;
+  // Os dois vizinhos pelo MESMO motivo: `getRoomUsers` serializa os dois em toda entrada, e um
+  // `undefined` some do JSON. O `cursorContext` era o que faltava desde 2026-09-16 (o retrato só o
+  // trazia depois do primeiro cursor, e `collab-users-online-shape` passava por não mandar
+  // cursor nenhum); o `viewerContext` nasce aqui em 2026-09-22 (`collab.viewer.js`). `null` é
+  // "no mapa, sem visualizador aberto".
+  ws.cursorContext = null;
+  ws.viewerContext = null;
+  // O RECURSO do escopo do cursor e da seleção, resolvido no catálogo (`collab.recorte.js`). Fica
+  // só no servidor: é ele que decide o que o retrato de entrada mostra a todos e quem recebe o
+  // quadro inteiro. `null` é "sem escopo" (o mapa).
+  ws.cursorRecurso = null;
+  ws.selectionRecurso = null;
 
   // NOTHING IS WRITTEN TO THE DATABASE HERE, by decision of 2026-07-25, and since 2026-08-23
   // there is not even a table to write to.
@@ -676,6 +691,14 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
 
   // Broadcast user joined to others
   collabService.broadcastUserJoined(atlasId, user, ws, ws.clientId ?? null);
+
+  // O retrato acima leva só o visualizador que TODO membro pode ler. O de recurso privado chega a
+  // este recém-chegado num quadro à parte, depois de o servidor perguntar se ELE pode lê-lo
+  // (`collab.viewer.js`). Sem `await`, porque este caminho é síncrono e o quadro é enfeite:
+  // falhar aqui deixa o colega listado como "no visualizador 3D", sem o nome, nunca fora da lista.
+  enviarContextosAoRecemChegado(ws).catch((err) => {
+    logger.warn({ err, userId: user.id, atlasId }, 'presença: contextos privados não enviados ao recém-chegado');
+  });
 
   logger.info({ userId: user.id, atlasId, permission }, 'WebSocket connected');
 
@@ -762,7 +785,9 @@ async function handleMessage(ws, data) {
       break;
 
     case 'cursor':
-      handlers.handleCursor(ws, data);
+      // Awaited since 2026-09-22: the scope of a 3D/360 cursor is resolved against the catalog
+      // before the per-recipient cut, and the frames of one socket must not overtake each other.
+      await handlers.handleCursor(ws, data);
       break;
 
     // NÃO HÁ RAMO PARA O QUADRO DA LINHA DO TEMPO, e a ausência é o contrato (dono, 2026-09-21):
@@ -772,7 +797,11 @@ async function handleMessage(ws, data) {
     // jeito e voltaria a sugerir que existe um tratador a escrever.
 
     case 'selection':
-      handlers.handleSelection(ws, data);
+      await handlers.handleSelection(ws, data);
+      break;
+
+    case 'viewer_context':
+      await handlers.handleViewer(ws, data);
       break;
 
     case 'operation':
@@ -874,7 +903,31 @@ function removeConnection(ws) {
     // cai no comportamento antigo, por usuário, que é o seguro nesse caso.
     if ((!client.clientId || !ws.clientId) && client.userId === ws.userId) return;
   }
+  // O CURSOR PENDENTE DE QUEM SAI MORRE AQUI, antes do anúncio. O lote de cursor sai no próximo
+  // tique de `cursorBatchMs`, DEPOIS deste `user_left`, e o par que o recebesse recriaria a
+  // pessoa no roster (sem nome, e para sempre). Ver `descartarCursorPendente`, collab.rooms.js.
+  descartarCursorPendente(ws.atlasId, ws.clientId ?? ws.userId);
   collabService.broadcastUserLeft(ws.atlasId, ws.userId, ws.clientId ?? null);
+}
+
+/**
+ * Whether ANOTHER live socket of the same (user, client) pair is in this socket's room.
+ *
+ * It is the situation of a HALF-OPEN connection: the laptop sleeps or the network changes, the
+ * client notices first (its own heartbeat closes the dead socket, which sends nothing), reconnects
+ * with the SAME clientId, and the server only terminates the old socket at the next sweep. That late
+ * 1006 is not the person leaving, the person is right there on the new socket.
+ * @param {import('ws').WebSocket} ws
+ * @returns {boolean}
+ */
+function temGemeoVivo(ws) {
+  if (!ws.clientId) return false;
+  for (const client of getRoomClients(ws.atlasId)) {
+    if (client === ws || client.away) continue;
+    if (client.readyState !== WebSocket.OPEN) continue;
+    if (client.clientId === ws.clientId && client.userId === ws.userId) return true;
+  }
+  return false;
 }
 
 /**
@@ -899,6 +952,17 @@ function onClose(ws, code) {
       awayTimers.delete(key);
     }
     removeConnection(ws);
+    return;
+  }
+
+  // THE ZOMBIE OF A RECONNECTED CLIENT IS NOT AN ABSENCE (2026-09-22). With a live twin in the room
+  // the drop is silent: announcing `user_away` marked a person who is online as "ausente" on every
+  // peer, and nothing would ever clear it, because the twin never passes through the reconnect
+  // path that emits `user_back` (there was no pending away slot when it arrived). And the removal
+  // after the grace window was silent too, since `removeConnection` sees the survivor. The peers
+  // kept the badge until the person really left.
+  if (temGemeoVivo(ws)) {
+    leaveRoom(ws.atlasId, ws);
     return;
   }
 

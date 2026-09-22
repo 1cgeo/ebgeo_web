@@ -110,8 +110,8 @@ export function causaDeErroLancado({ status, definitiva }) {
  * The one case whose sentence is also written outside {@link fraseDeFalhaDeBlob}: the record whose
  * bytes vanished is closed without a transfer, so it never builds a verdict.
  */
-export const FALHA_SEM_BYTES = 'Os bytes desta imagem não estão mais neste computador. '
-    + 'Não há o que reenviar, e a pendência fica registrada para você decidir.';
+export const FALHA_SEM_BYTES = 'O arquivo desta imagem não está mais neste computador, então '
+    + 'não há o que enviar. A pendência fica registrada para você decidir.';
 
 /**
  * The pt-BR sentence for one failed attempt.

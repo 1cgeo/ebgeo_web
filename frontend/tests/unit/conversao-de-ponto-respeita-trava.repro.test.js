@@ -104,7 +104,7 @@ describe('N2 — a tabela de decisão da conversão de ponto', () => {
             expect(acao.blocked).toBe(LOCKED_MAP_NOTICE);
         }
         // A frase NOMEIA o estado e diz o que a pessoa pode fazer para revertê-lo.
-        expect(LOCKED_MAP_NOTICE).toContain('Destrave');
+        expect(LOCKED_MAP_NOTICE).toContain('Desbloqueie');
     });
 
     it('FEIÇÃO BLOQUEADA: os comandos são desenhados e o clique recusa nomeando a feição', () => {

@@ -17,6 +17,7 @@
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
 import { checkPermission } from '@store/sync/permission-guard.js';
+import { denialNotice } from '@store/denial-phrases.js';
 import { syncEngine } from '@store/sync/sync-engine.js';
 import { showToast } from '@utils';
 
@@ -75,7 +76,9 @@ class ViewModeController {
      */
     toggleManualView() {
         if (!this.canEdit()) {
-            showToast('Acesso somente leitura — você não pode editar este projeto.', 'info');
+            // Phrased by the CAPABILITY the gate refused, never by role: "somente leitura" was the
+            // exact sentence `denial-phrases.js` exists to retire, and it was false for a Comentarista.
+            showToast(denialNotice(checkPermission('UPDATE_FEATURE').required), 'info');
             return true;
         }
         this._manualView = !this._manualView;

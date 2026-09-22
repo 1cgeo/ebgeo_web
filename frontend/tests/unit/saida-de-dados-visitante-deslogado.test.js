@@ -77,7 +77,7 @@ const ARQUIVOS_DE_UI = Object.freeze([
 ]);
 
 const CABECALHO_RESTRITO = 'Por restrição de acesso:';
-const CABECALHO_DESCONHECIDO = 'Por não dar para confirmar, fora do servidor, que é público:';
+const CABECALHO_DESCONHECIDO = 'Fora do servidor, não dá para confirmar que são públicos:';
 const NOTA_360 = 'Toda foto 360 entra nesta lista, inclusive a pública.';
 
 // ============================================================================
@@ -229,11 +229,11 @@ describe('M8: o aviso de poda separa "restrito" de "não classificável"', () =>
 
         expect(texto).toBe(
             `${CABECALHO_RESTRITO}\n`
-            + '• 1 camada(s) de catálogo (Hidrografia)\n'
+            + '• 1 camada de catálogo (Hidrografia)\n'
             + '\n'
             + `${CABECALHO_DESCONHECIDO}\n`
-            + '• 1 camada(s) de catálogo\n'
-            + '• 2 marcador(es) em foto 360\n'
+            + '• 1 camada de catálogo\n'
+            + '• 2 marcadores em foto 360\n'
             + NOTA_360
         );
     });
@@ -253,8 +253,8 @@ describe('M8: o aviso de poda separa "restrito" de "não classificável"', () =>
 
         // CONTROLE POSITIVO: ele PERDE coisa, e a contagem continua inteira.
         expect(relatorio.total).toBe(4);
-        expect(texto).toContain('• 2 camada(s) de catálogo');
-        expect(texto).toContain('• 2 marcador(es) em foto 360');
+        expect(texto).toContain('• 2 camadas de catálogo');
+        expect(texto).toContain('• 2 marcadores em foto 360');
 
         // E nenhum id cru vaza, o nome do arquivo da foto inclusive.
         for (const id of ['foto-alfa.jpg', 'foto-beta.jpg', 'dl-9999-nao-listada', 'dl-0001']) {
@@ -271,7 +271,7 @@ describe('M8: o aviso de poda separa "restrito" de "não classificável"', () =>
                 id: 'dl-9999', veredito: RefVerdict.UNKNOWN,
             }],
         });
-        expect(semTrezentosESessenta).toBe(`${CABECALHO_DESCONHECIDO}\n• 1 camada(s) de catálogo`);
+        expect(semTrezentosESessenta).toBe(`${CABECALHO_DESCONHECIDO}\n• 1 camada de catálogo`);
         expect(semTrezentosESessenta).not.toContain(NOTA_360);
 
         // DISCRIMINAÇÃO: 360 no bloco RESTRITO (impossível hoje, e é o ponto) não puxa a nota,
@@ -296,7 +296,7 @@ describe('M8: o aviso de poda separa "restrito" de "não classificável"', () =>
                 { superficie: 'cesium3d.markers', grupo: 'tilesets', id: 'ts-0002', veredito: RefVerdict.PRIVATE },
             ],
         });
-        expect(soRestrito).toBe(`${CABECALHO_RESTRITO}\n• 2 marcador(es) 3D (Cidade 3D)`);
+        expect(soRestrito).toBe(`${CABECALHO_RESTRITO}\n• 2 marcadores 3D (Cidade 3D)`);
     });
 
     it('TUDO OU NADA: relatório com veredito faltando ou desconhecido volta à lista única', () => {
@@ -310,7 +310,7 @@ describe('M8: o aviso de poda separa "restrito" de "não classificável"', () =>
                 { superficie: 'mapa.catalogLayers', grupo: 'dataLayers', id: 'dl-0002' },
             ],
         });
-        expect(meioClassificado).toBe('• 2 camada(s) de catálogo (Hidrografia, Rodovias)');
+        expect(meioClassificado).toBe('• 2 camadas de catálogo (Hidrografia, Rodovias)');
         expect(meioClassificado).not.toContain(CABECALHO_RESTRITO);
 
         // Veredito fora do vocabulário conta como ausente.
@@ -319,7 +319,7 @@ describe('M8: o aviso de poda separa "restrito" de "não classificável"', () =>
             porSuperficie: { 'mapa.catalogLayers': 1 },
             nomeados: [{ superficie: 'mapa.catalogLayers', grupo: 'dataLayers', id: 'dl-0001', veredito: 'talvez' }],
         });
-        expect(vereditoEstranho).toBe('• 1 camada(s) de catálogo (Hidrografia)');
+        expect(vereditoEstranho).toBe('• 1 camada de catálogo (Hidrografia)');
     });
 
     it('o relatório do SERVIDOR continua sem blocos: ele não manda veredito', () => {
@@ -327,7 +327,7 @@ describe('M8: o aviso de poda separa "restrito" de "não classificável"', () =>
         // contagem por superfície de propósito. Inventar natureza ali seria afirmar o que
         // ninguém mediu.
         const texto = descreverPerdasDoServidor({ 'mapa.catalogLayers': 3, 'sv360.markers': 1 });
-        expect(texto).toBe('• 3 camada(s) de catálogo\n• 1 marcador(es) em foto 360');
+        expect(texto).toBe('• 3 camadas de catálogo\n• 1 marcador em foto 360');
         expect(texto).not.toContain(CABECALHO_RESTRITO);
         expect(texto).not.toContain(CABECALHO_DESCONHECIDO);
         expect(texto).not.toContain(NOTA_360);
@@ -336,10 +336,14 @@ describe('M8: o aviso de poda separa "restrito" de "não classificável"', () =>
     it('SUJO: sem perda não há aviso, com veredito ou sem ele', () => {
         expect(descreverPerdas({ total: 0, porSuperficie: {}, nomeados: [] })).toBeNull();
         expect(descreverPerdas(null)).toBeNull();
+        // A superfície 'x' não está na tabela de rótulos. Até 2026-09-22 a linha saía com a
+        // chave crua ("• 1 x"); desde então sai com o rótulo genérico, porque a chave do
+        // documento não é nome que a pessoa reconheça. A linha CONTINUA saindo: perda contada é
+        // perda avisada, e é essa metade que o caso segura.
         expect(descreverPerdas({ total: 2, porSuperficie: {}, nomeados: [
             { superficie: 'x', grupo: 'dataLayers', id: 'a', veredito: RefVerdict.PRIVATE },
             { superficie: 'x', grupo: 'dataLayers', id: 'b', veredito: RefVerdict.UNKNOWN },
-        ] })).toBe(`${CABECALHO_RESTRITO}\n• 1 x\n\n${CABECALHO_DESCONHECIDO}\n• 1 x`);
+        ] })).toBe(`${CABECALHO_RESTRITO}\n• 1 item de outro tipo\n\n${CABECALHO_DESCONHECIDO}\n• 1 item de outro tipo`);
     });
 });
 

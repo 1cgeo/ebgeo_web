@@ -72,23 +72,24 @@ export function toPendingCount(value) {
 }
 
 /**
- * "1 operação" / "12 operações", and a phrase instead of a number when it could not be counted.
+ * "1 alteração" / "12 alterações" (the count of queued operations, in the person's word), and a
+ * phrase instead of a number when it could not be counted.
  * @param {*} value
  * @returns {string}
  */
 export function pendingOpsLabel(value) {
     const n = toPendingCount(value);
-    if (Number.isNaN(n)) return 'um número desconhecido de operações';
-    return `${n} ${n === 1 ? 'operação' : 'operações'}`;
+    if (Number.isNaN(n)) return 'um número desconhecido de alterações';
+    return `${n} ${n === 1 ? 'alteração' : 'alterações'}`;
 }
 
 /**
- * "1 alteração" / "12 alterações", the word the exit DIALOG uses, next to {@link pendingOpsLabel},
- * which counts OPERATIONS.
+ * "1 alteração" / "12 alterações", the word the exit DIALOG uses.
  *
- * The two are not interchangeable and the split is deliberate: "operação" is the unit the queue
- * and the diagnostics speak in, and it is right where the number is about the queue; "alteração"
- * is what the person made, and it is right in the sentence that asks them to give something up.
+ * Since 2026-09-22 {@link pendingOpsLabel} says the same word: "operação" is the unit the queue and
+ * the diagnostics speak in, and on a toast or a dialog it was jargon the person could not map to
+ * anything they did. The count is still the queue's; only the word changed. This helper stays
+ * separate because it takes an already-validated integer and has no "unknown" branch.
  * @param {number} n - A non-negative integer.
  * @returns {string}
  */
@@ -122,13 +123,16 @@ function alteracoes(n) {
 export function pendingWorkSummary(total, quarantined) {
     const t = toPendingCount(total);
     if (Number.isNaN(t)) {
-        return 'Não foi possível verificar se existem alterações ainda não enviadas ao servidor.';
+        return 'Não foi possível verificar se há alterações ainda não enviadas ao servidor.';
     }
     const q = toPendingCount(quarantined);
-    if (Number.isNaN(q) || q === 0) return `Há ${pendingOpsLabel(t)} com envio pendente ao servidor.`;
+    if (Number.isNaN(q) || q === 0) {
+        return `Há ${pendingOpsLabel(t)} que ainda não ${t === 1 ? 'chegou' : 'chegaram'} ao servidor.`;
+    }
     const aguardando = Math.max(0, t - q);
     if (aguardando === 0) {
-        return `Há ${alteracoes(q)} guardadas para revisão e nada aguardando envio ao servidor.`;
+        return `Há ${alteracoes(q)} ${q === 1 ? 'guardada' : 'guardadas'} para revisão e nada `
+            + 'aguardando envio ao servidor.';
     }
     return `Há ${alteracoes(aguardando)} aguardando envio ao servidor e `
         + `${q} ${q === 1 ? 'guardada' : 'guardadas'} para revisão.`;
@@ -191,14 +195,14 @@ export function exitPreservedSummary(atlasName) {
  * @returns {string}
  */
 export function exitPreserveFailedNotice({ retained = false, graceMs = null } = {}) {
-    const cabeca = 'Você saiu da conta, mas NÃO foi possível guardar o trabalho pendente como '
+    const cabeca = 'Você saiu da conta, mas NÃO foi possível guardar o trabalho não enviado como '
         + 'atlas local.';
     if (!retained) {
-        return `${cabeca} Não feche esta aba: entre novamente para que ele seja enviado ao servidor.`;
+        return `${cabeca} Não feche esta aba: entre de novo para que ele seja enviado ao servidor.`;
     }
     const prazo = prazoEmHoras(graceMs);
-    return `${cabeca} Ele continua neste computador por ${prazo}: entre novamente dentro desse `
-        + 'prazo para que seja enviado ao servidor.';
+    return `${cabeca} Ele fica neste computador por ${prazo}: entre de novo nesse prazo para `
+        + 'enviá-lo ao servidor.';
 }
 
 /**
@@ -248,12 +252,12 @@ function prazoEmHoras(graceMs) {
 export function exitOutcomeNotice(outcome, pendingOps) {
     const n = toPendingCount(pendingOps);
     const quantas = !Number.isNaN(n) && n > 0 ? ` (${pendingOpsLabel(n)})` : '';
-    const oTrabalho = `O trabalho que ainda não tinha sido enviado ao servidor${quantas}`;
+    const oTrabalho = `O trabalho não enviado ao servidor${quantas}`;
 
     if (outcome === ExitOutcome.GUARDADO) {
         return {
-            message: `${oTrabalho} ficou neste computador como um atlas local. `
-                + 'Entre novamente e use "Enviar ao servidor" para concluir o envio.',
+            message: `${oTrabalho} foi guardado neste computador como atlas local. `
+                + 'Entre de novo e use "Enviar ao servidor".',
             tone: 'warning',
         };
     }
@@ -262,9 +266,8 @@ export function exitOutcomeNotice(outcome, pendingOps) {
         // não deu certo, e a única ação que ainda recupera o trabalho é entrar de novo. A frase não
         // promete guarda nenhuma, porque não há veto medido deste lado da navegação.
         return {
-            message: `NÃO foi possível guardar neste computador o trabalho que ainda não tinha `
-                + `sido enviado ao servidor${quantas}. Entre novamente o quanto antes para que ele `
-                + 'seja enviado.',
+            message: `NÃO foi possível guardar neste computador o trabalho não enviado ao `
+                + `servidor${quantas}. Entre novamente o quanto antes para enviá-lo.`,
             tone: 'error',
         };
     }

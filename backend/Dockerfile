@@ -101,8 +101,16 @@ COPY scripts/sv360-import.js \
      scripts/sv360-survey-clock.js \
      ./scripts/
 
-# Image storage dir (mount a volume here in production)
-RUN mkdir -p /app/data/images && chown -R ebgeo:ebgeo /app/data
+# EVERY data directory this process WRITES, created here and owned by the runtime user
+# (the list is `diretoriosQueOProcessoEscreve` in src/utils/sonda-de-escrita.js, at the
+# default paths). A NEW named volume mounted over one of them inherits this owner, because
+# Docker copies the image directory, ownership included, into an empty volume; a directory
+# missing from the image makes the volume root come up owned by root, and the boot write probe
+# then refuses to start. This was the case of `ebgeo_logs` in docker-compose.yml, whose mount
+# point did not exist here. A BIND MOUNT (`./data:/app/data`) is the other case: it brings the
+# HOST owner and masks all of this, and the probe's message says how to fix it on the host.
+RUN mkdir -p /app/data/images /app/data/logs /app/data/catalog-videos /app/data/sv360 /app/data/sv360-tmp \
+  && chown -R ebgeo:ebgeo /app/data
 
 USER ebgeo
 EXPOSE 3000

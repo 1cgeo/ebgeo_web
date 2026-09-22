@@ -197,3 +197,11 @@ que envelheceu na decisão seguinte.)
 - 2026-09-16: o cursor de presença ganha SUPERFÍCIE, e o apply remoto de documento lateral passa a tomar a trava, [registro](decisions-2026.md).
 - 2026-09-17: o botão do meio gira e inclina o mapa, sem tecla nenhuma, [registro](decisions-2026.md).
 - 2026-09-21: o que a versão anterior grava depois da transição entra sozinho, e a tela fica para o conflito, [registro](decisions-2026.md).
+- 2026-09-22: o snap some para quem não desenha, e some também no mapa travado, [registro](decisions-2026.md).
+- 2026-09-22: o menu do clique direito deixa de oferecer "Exportar QAN", para geometria nenhuma, [registro](decisions-2026.md).
+- 2026-09-22: a caixa "Projeção globo" sai da Administração, e a chave de deploy é podada de ponta a ponta, [registro](decisions-2026.md).
+- 2026-09-22: a vista da pessoa passa a ser LEMBRADA neste computador, por mapa, e continua sem viajar, [registro](decisions-2026.md).
+- 2026-09-22: a presença sai quando a pessoa sai (lista do mapa e painel do administrador), e a lista diz em qual visualizador cada colega está, com o nome decidido por destinatário; o escopo 3D/360 do cursor e da seleção passa pelo mesmo recorte, [registro](decisions-2026.md).
+- 2026-09-22: os endereços IP distintos entram no monitoramento, lidos do log que já os gravava, só para o administrador e com a retenção do log, [registro](decisions-2026.md).
+- 2026-09-22: a porta "Acessos" abre em Concessões, concede-se pela aba Concessões com o mesmo modal do mapa (partido em núcleo sem store), e cada um vê só as concessões que fez; supera o item 6 da decisão do perfil produtor de 2026-08-24, [registro](decisions-2026.md).
+- 2026-09-22: o boot recusa subir com diretório de dados sem escrita (sonda de escrita antes do listen, junto dos erros de ambiente), o log desligado em runtime deixa rastro no diagnóstico e vira defeito, e o `/health` não reprova por ele, [registro](decisions-2026.md).

@@ -143,7 +143,7 @@ describe('grant-phrases — o nível, e o que ele autoriza', () => {
     it('só o view_share anuncia a consequência do repasse', () => {
         expect(grantLevelDescription('view')).toMatch(/não pode repassá-lo/);
         expect(grantLevelDescription('view_share')).toMatch(/cai junto/);
-        expect(grantLevelDescription('view_edit')).toMatch(/não sabe descrevê-lo/);
+        expect(grantLevelDescription('view_edit')).toMatch(/sem descrição/);
         expect(grantLevelDescription('view_edit')).toContain('view_edit');
         expect(grantLevelDescription(null)).toBe('');
     });
@@ -341,7 +341,7 @@ describe('grant-phrases — revogar daqui', () => {
         });
         expect(aviso).toContain('Ortofoto Sul');
         expect(aviso).toContain('Ana');
-        expect(aviso).toMatch(/não sabe quantos acessos caem/);
+        expect(aviso).toMatch(/Quantos acessos caem só se sabe depois/);
         // Fabricar aritmética é o defeito exato que o irmão `leaveGroupWarning` evita: esta lista
         // é de recursos diferentes e não carrega árvore nenhuma.
         expect(aviso).not.toMatch(/\d+ concess/);

@@ -77,7 +77,7 @@ export async function takeScreenshot360() {
         const dataUrl = await captureCleanCanvas();
 
         if (!dataUrl) {
-            showError('Visualizador 360 não está pronto');
+            showError('O visualizador 360 ainda está carregando. Tente de novo em instantes.');
             return false;
         }
 
@@ -88,11 +88,11 @@ export async function takeScreenshot360() {
         link.href = dataUrl;
         link.click();
 
-        showSuccess('Captura de tela salva');
+        showSuccess('Imagem do 360 salva.');
         return true;
     } catch (error) {
         console.error('Failed to take screenshot:', error);
-        showError('Erro ao capturar tela');
+        showError('Não foi possível capturar a imagem do 360. Tente de novo.');
         return false;
     }
 }

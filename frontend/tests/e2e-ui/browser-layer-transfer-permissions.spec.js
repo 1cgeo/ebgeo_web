@@ -209,8 +209,9 @@ collabTest.describe('Menu da camada — o ESTADO desenha e recusa o clique', () 
         await mover.dispatchEvent('click');
         const aviso = A.locator('.toast--warning');
         await expect(aviso).toBeVisible({ timeout: 5000 });
-        // A frase NOMEIA o estado (a trava) e a saída (copiar), em vez de falar de papel.
-        await expect(aviso).toContainText('travado');
+        // A frase NOMEIA o estado (a trava) e a saída (copiar), em vez de falar de papel. A
+        // palavra na tela é "bloqueado", a da casa (até 2026-09-22 esta frase dizia "travado").
+        await expect(aviso).toContainText('bloqueado');
 
         // E nada aconteceu: o modal de destino não abriu.
         await expect(A.locator('#layer-transfer-modal')).toHaveCount(0);

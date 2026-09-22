@@ -37,6 +37,7 @@ import {
     PASSWORD_RULE_TEXT,
     validatePasswordForm,
 } from '../../src/js/admin/account-model.js';
+import { PASSWORD_HEAVY_TEXT } from '../../src/js/modals/password-recovery.model.js';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const SCHEMAS = resolve(RAIZ, 'backend/src/modules/users/users.schemas.js');
@@ -144,7 +145,20 @@ describe('a regra de senha do cliente espelha updatePasswordSchema', () => {
         });
         expect(resultado.valid).toBe(false);
         expect(resultado.message).toBe(PASSWORD_BYTES_TEXT);
-        expect(PASSWORD_BYTES_TEXT).toContain(String(MAX_PASSWORD_BYTES));
+        // A RECUSA NÃO CITA O 72, desde a reescrita de 2026-09-22, e a asserção que exigia o
+        // número saiu pela mesma razão que já valia na tela de recuperação desde 2026-09-20
+        // (`PASSWORD_HEAVY_TEXT`, `modals/password-recovery.model.js`): o teto em bytes morde
+        // numa contagem de caracteres diferente para cada senha, e esta tem 37 caracteres, de
+        // modo que "no máximo 72" anunciaria um limite que a pessoa acabou de desmentir.
+        expect(PASSWORD_BYTES_TEXT).not.toContain(String(MAX_PASSWORD_BYTES));
+        expect(PASSWORD_BYTES_TEXT).not.toMatch(/byte/i);
+        // O que o espelho cobra no lugar é a FRASE do servidor: a tela recusa antes de mandar
+        // com as mesmas palavras que o servidor usaria se a senha chegasse lá, e com as da
+        // tela irmã. Piso primeiro, senão uma constante renomeada compararia vazio.
+        const doServidor = /export const PASSWORD_BYTES_MESSAGE =\s*'([^']+)';/.exec(FONTE_DA_REGRA);
+        expect(doServidor, 'PASSWORD_BYTES_MESSAGE sumiu da regra do servidor').not.toBeNull();
+        expect(PASSWORD_BYTES_TEXT).toBe(doServidor[1]);
+        expect(PASSWORD_BYTES_TEXT).toBe(PASSWORD_HEAVY_TEXT);
     });
 
     it('a frase mostrada ao usuário cita os DOIS limites, em número', () => {

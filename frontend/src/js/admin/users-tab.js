@@ -19,7 +19,7 @@ import { montarPresenca } from '@js/admin/presenca-panel.js';
 import { apiClient } from '@store/sync/api-client.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { showConfirm } from '@modals/confirm.modal.js';
-import { showSuccess, showError } from '@utils/toast_service.js';
+import { showSuccess, showError, showWarning } from '@utils/toast_service.js';
 import config from '@js/config.js';
 import { sectionHeader, card, avatar, emptyState, ICON_USERS, failureState } from './admin-dom.js';
 import { orgLabel, buildDomainOptions, buildOrgSearchItems } from './org-options.js';
@@ -36,6 +36,14 @@ import {
 import {
     deactivationWarning, deactivationConfirmLabel, deactivationSummary, reactivationNotice,
 } from './user-deactivation-phrases.js';
+// O CAMPO DE E-MAIL do formulário (criar e editar): regra e frase num folha de UM import, também
+// folha (`account-model.js`). E o predicado de entrega de e-mail do servidor, zero imports, o
+// mesmo que "Minha conta" lê: só onde ele vale a conta pendente recebe link de confirmação.
+import {
+    EMAIL_VERIFIED_LABEL, validateAdminEmail, verifiedBoxState, adminEmailPayload,
+    adminEmailHint, createdUserNotice,
+} from './user-email-model.js';
+import { emailRecoveryEnabled } from '@modals/password-recovery.model.js';
 import {
     GLOBAL_ROLE_LABELS, getGlobalRoleLabel, getGlobalRoleDescription, isKnownGlobalRole,
 } from '@ui/role-labels.js';
@@ -48,6 +56,11 @@ import {
 // O compositor do rótulo militar (`Cap Silva`), folha de ZERO imports, por ARQUIVO. Aqui ele
 // entra como informação SECUNDÁRIA e nunca no lugar do nome civil: ver `_renderTable`.
 import { militaryPersonLabel } from '@utils/person-label.js';
+// O OLHO DA SENHA, o mesmo do "Entrar" e do "Criar conta", folha de ZERO imports por ARQUIVO.
+import { attachPasswordVisibility } from '@ui/password-visibility.js';
+// Os botões de ÍCONE da linha da tabela, folha de ZERO imports. Ver o `fileoverview` dele.
+import { USER_ROW_ACTION, createIconButton } from './admin-icon-button.js';
+import { serverMessageOr } from '@utils/request-failure.js';
 
 /**
  * O papel global de que o par (papel, OM de produção) é exigido pelo banco.
@@ -371,7 +384,7 @@ class UsersTab {
             // silenciosa que o `fileoverview` de `@ui/role-labels.js` nomeia, e o pior lugar
             // possível para ela, porque é a tela em que alguém decide o papel de outra pessoa.
             // O padrão certo já existia naquele arquivo e é o que se usa aqui: o valor CRU vira o
-            // rótulo e a frase diz que o aplicativo não sabe descrevê-lo. `ROLE_CHIP` continua
+            // rótulo e a frase diz que ele não tem descrição nesta versão. `ROLE_CHIP` continua
             // sendo quem dá a `variante`, porque ela é nome de classe CSS desta aba e só existe
             // para os quatro papéis com cor própria.
             const conhecido = isKnownGlobalRole(u.role);
@@ -416,20 +429,21 @@ class UsersTab {
             }
             tr.appendChild(statusCell);
 
+            // BOTÕES DE ÍCONE desde 2026-09-22 (pedido do dono): os de texto alargavam a coluna de
+            // ações, que é dimensionada pela linha mais larga, e espremiam PAPEL. O verbo continua
+            // sendo o nome acessível e o `title`, e os `data-testid` são os de antes. O modificador
+            // `--icons` é só desta aba: as outras que reusam a célula seguem com botão de texto.
             const actions = document.createElement('td');
-            actions.className = 'admin-users__actions';
-            actions.appendChild(button('Editar', 'admin-btn admin-btn--ghost admin-btn--sm', 'admin-user-edit',
-                () => this._renderForm(u)));
-            actions.appendChild(button('Senha', 'admin-btn admin-btn--ghost admin-btn--sm', 'admin-user-password',
-                () => this._renderPasswordForm(u)));
+            actions.className = 'admin-users__actions admin-users__actions--icons';
+            actions.appendChild(createIconButton(USER_ROW_ACTION.EDIT, () => this._renderForm(u)));
+            actions.appendChild(createIconButton(USER_ROW_ACTION.PASSWORD, () => this._renderPasswordForm(u)));
             // APROVAR NA LINHA, e não escondido no fim do formulário de edição. A conta pendente é
             // a única que o desbloqueio da cláusula 10.6 alcança, e até agora aprová-la exigia
             // abrir Editar, rolar até o fim e marcar uma caixa que só é montada quando a conta já
             // tem endereço. A ação aparece SÓ na linha pendente, que é o que a torna uma ação e
             // não mais um campo.
             if (u.email && u.email_verified === false) {
-                actions.appendChild(button('Aprovar', 'admin-btn admin-btn--ghost admin-btn--sm',
-                    'admin-user-approve', () => this._approve(u)));
+                actions.appendChild(createIconButton(USER_ROW_ACTION.APPROVE, () => this._approve(u)));
             }
             // "REVOGAR CHAVE" SAIU DAQUI EM 2026-08-25, por decisão do chefe, junto com a seção de
             // chave de "Minha conta". A chave de API é credencial INTERNA, que o sistema gerencia
@@ -437,16 +451,16 @@ class UsersTab {
             // ninguém a lê e ninguém a revoga pela tela. As rotas do servidor continuam de pé,
             // porque a integração máquina a máquina depende delas.
             if (u.is_active) {
-                const deBtn = button('Desativar', 'admin-btn admin-btn--danger admin-btn--sm', 'admin-user-deactivate',
-                    () => this._deactivate(u));
+                const deBtn = createIconButton(USER_ROW_ACTION.DEACTIVATE, () => this._deactivate(u));
                 if (u.id === myId) {
                     deBtn.disabled = true;
+                    // O `title` troca de verbo para motivo; o nome acessível continua "Desativar",
+                    // e o motivo chega ao leitor de tela como descrição.
                     deBtn.title = 'Você não pode desativar a própria conta';
                 }
                 actions.appendChild(deBtn);
             } else {
-                actions.appendChild(button('Reativar', 'admin-btn admin-btn--ghost admin-btn--sm', 'admin-user-reactivate',
-                    () => this._reactivate(u)));
+                actions.appendChild(createIconButton(USER_ROW_ACTION.REACTIVATE, () => this._reactivate(u)));
             }
             tr.appendChild(actions);
             tbody.appendChild(tr);
@@ -487,13 +501,35 @@ class UsersTab {
         // (`updateUserAdminSchema` aceita `email`, e `resolveAdminEmail` derruba a confirmação
         // quando o endereço muda); o que não existia era a porta.
         //
-        // Só na EDIÇÃO: `POST /users` não tem campo de e-mail, e a conta que ele cria entra
-        // logando na hora, de propósito.
-        const email = isEdit
-            ? textField(form, 'E-mail', 'admin-userform-email', user?.email || '', 'email')
-            : null;
+        // NA CRIAÇÃO TAMBÉM desde 2026-09-22 (pedido do dono), e opcional ali: sem endereço a
+        // conta nasce como sempre nasceu e entra na hora; com endereço ela nasce PENDENTE, salvo
+        // a marca abaixo (`resolveCreationEmail`, `backend/src/modules/users/users.service.js`).
+        // As regras que a tela espelha, e por que a caixa começa desmarcada para endereço novo,
+        // estão no `fileoverview` de `admin/user-email-model.js`.
+        const email = textField(form, 'E-mail', 'admin-userform-email', user?.email || '', 'email');
+        email.autocomplete = 'off';
+        form.appendChild(hint(adminEmailHint({ isEdit, canDeliver: emailRecoveryEnabled(config) })));
+        // A CAIXA VIVE AO LADO DO CAMPO, nas duas telas, e aparece SÓ com endereço no campo: antes
+        // ela era montada no fim da edição e só quando a linha já tinha endereço, então quem dava
+        // o primeiro endereço a uma conta não via a caixa, e a conta ficava pendente sem aviso.
+        const emailVerified = checkboxField(form, EMAIL_VERIFIED_LABEL, 'admin-userform-emailverified', false);
+        const emailVerifiedField = emailVerified.parentElement;
+        const syncEmailVerified = () => {
+            const estado = verifiedBoxState({
+                originalEmail: user?.email || '',
+                originalVerified: user?.email_verified === true,
+                typedEmail: email.value,
+            });
+            if (emailVerifiedField) emailVerifiedField.hidden = !estado.visible;
+            emailVerified.checked = estado.checked;
+        };
+        email.addEventListener('input', syncEmailVerified);
+        syncEmailVerified();
         const password = isEdit ? null
             : textField(form, 'Senha', 'admin-userform-password', '', 'password');
+        // O OLHO (pedido do dono, 2026-09-22): quem cria a conta digita a senha que vai repassar,
+        // e sem ver o que digitou só descobre o erro quando a pessoa não consegue entrar.
+        if (password) attachPasswordVisibility(password, { testid: 'admin-userform-password-reveal' });
         // O posto se escreve ABREVIADO, como em todo o resto da tela: o catálogo traz as duas
         // formas (`name` e `abrev`), e a queda para o nome cobre um posto sem abreviatura.
         const posto = selectField(form, 'Posto/Graduação', 'admin-userform-posto',
@@ -504,8 +540,8 @@ class UsersTab {
         // que casa pelo nome e pela sigla.
         const om = this._comboField(form, 'Organização Militar (lotação)', 'admin-userform-om',
             buildOrgSearchItems(user?.organization_id, user?.organizacao_militar), user?.organization_id || '');
-        form.appendChild(hint('Lotação: rótulo institucional da pessoa, declarado por ela no '
-            + 'auto-cadastro. NÃO autoriza nada — quem autoriza é o par Papel + OM produtora abaixo.'));
+        form.appendChild(hint('Lotação: a OM que a pessoa declarou no cadastro. Ela não dá '
+            + 'permissão nenhuma; quem dá é o par Papel e OM produtora, abaixo.'));
 
         // OS QUATRO PAPÉIS GLOBAIS. Ver ROLE_OPTIONS: não são uma escada, e o rótulo de cada
         // um diz o que ele é para que ninguém escolha um achando que está dando outro.
@@ -542,7 +578,6 @@ class UsersTab {
         // acima, no par Papel + OM produtora.
 
         let active = null;
-        let emailVerified = null;
         if (isEdit) {
             active = checkboxField(form, 'Ativo', 'admin-userform-active', user.is_active !== false);
             // Deactivation is NOT a plain edit: it must transfer owned atlases and end the user's
@@ -553,14 +588,11 @@ class UsersTab {
                 active.disabled = true;
                 const activeHint = document.createElement('p');
                 activeHint.className = 'admin-form__hint';
-                activeHint.textContent = 'Para desativar, use o botão "Desativar" na lista — ele transfere os atlas do usuário e encerra as sessões dele.';
+                activeHint.textContent = 'Para desativar, use o botão "Desativar" na lista: ele transfere os atlas do usuário e encerra as sessões dele.';
                 form.appendChild(activeHint);
             }
-            // Admin approval of a pending e-mail account (the no-SMTP fallback path).
-            if (user.email) {
-                emailVerified = checkboxField(form, 'E-mail verificado (aprovar acesso)',
-                    'admin-userform-emailverified', user.email_verified !== false);
-            }
+            // A caixa "E-mail verificado" (aprovar a conta pendente, o caminho sem relay) saiu
+            // daqui: ela mora ao lado do campo de e-mail, acima, e vale para criar e editar.
         }
 
         // Self-guard: an admin must NOT demote or deactivate their OWN account via this form (the
@@ -626,20 +658,29 @@ class UsersTab {
                 showFormError(error, 'Escolha a OM que este produtor mantém.');
                 return;
             }
+            // O ENDEREÇO, nas duas telas pela mesma regra. Conferido aqui para a recusa chegar
+            // antes de qualquer ida à rede; a autoridade continua sendo o Joi do servidor.
+            const checagemEmail = validateAdminEmail(email.value, isEdit ? user?.email : '');
+            if (!checagemEmail.valid) {
+                showFormError(error, checagemEmail.message);
+                email.focus();
+                return;
+            }
+            // SÓ VIAJA O QUE MUDOU, e a marca só viaja com endereço: ver `adminEmailPayload`.
+            // Reenviar o mesmo endereço faria `resolveAdminEmail` tratar a edição como troca e
+            // derrubar a confirmação de uma conta que ninguém quis mexer.
+            Object.assign(payload, adminEmailPayload({
+                isEdit,
+                originalEmail: user?.email || '',
+                typedEmail: email.value,
+                verifiedChecked: emailVerified.checked,
+            }));
             saveBtn.disabled = true;
             try {
                 if (isEdit) {
                     // Only the inactive→active transition travels: the backend refuses the reverse
                     // one, and resending `false` for an already-inactive user is a no-op edit.
                     if (user.is_active === false && active.checked) payload.is_active = true;
-                    // SÓ VIAJA SE MUDOU. Reenviar o mesmo endereço faria `resolveAdminEmail`
-                    // tratar a edição como troca e derrubar a confirmação de uma conta que
-                    // ninguém quis mexer: salvar o posto apagaria o e-mail verificado.
-                    const emailDigitado = email ? email.value.trim() : '';
-                    if (email && emailDigitado !== (user.email || '')) {
-                        payload.email = emailDigitado;
-                    }
-                    if (emailVerified) payload.email_verified = emailVerified.checked;
 
                     // ESTE SALVAMENTO PODE DESTRUIR ACESSO, e até 2026-08-23 a tela não dizia
                     // nada. Trocar o papel global, ou a OM produtora, apaga o FUNDAMENTO das
@@ -683,12 +724,17 @@ class UsersTab {
                         saveBtn.disabled = false;
                         return;
                     }
-                    await apiClient.createUser(payload);
-                    showSuccess('Usuário criado.');
+                    // O AVISO DIZ O QUE O SERVIDOR GRAVOU (a linha criada traz `email` e
+                    // `email_verified`), e o tom de atenção é o da conta que nasceu sem poder
+                    // entrar e sem link a caminho.
+                    const criado = await apiClient.createUser(payload);
+                    const aviso = createdUserNotice(criado, { canDeliver: emailRecoveryEnabled(config) });
+                    if (aviso.tone === 'warning') showWarning(aviso.text);
+                    else showSuccess(aviso.text);
                 }
                 if (this._alive) this._renderList();
             } catch (err) {
-                showFormError(error, err?.message || 'Falha ao salvar o usuário.');
+                showFormError(error, serverMessageOr(err, 'Falha ao salvar o usuário.'));
                 saveBtn.disabled = false;
             }
         });
@@ -722,6 +768,10 @@ class UsersTab {
 
         const pw = textField(form, 'Nova senha', 'admin-pwform-new', '', 'password');
         const pwConfirm = textField(form, 'Confirmar nova senha', 'admin-pwform-confirm', '', 'password');
+        // UM OLHO POR CAMPO, como no "Criar conta" (`modals/signup.modal.js`): cada um revela só
+        // o seu, e a pessoa confere a confirmação sem deixar as duas senhas abertas na tela.
+        attachPasswordVisibility(pw, { testid: 'admin-pwform-new-reveal' });
+        attachPasswordVisibility(pwConfirm, { testid: 'admin-pwform-confirm-reveal' });
 
         const error = document.createElement('div');
         error.className = 'admin-form__error';
@@ -756,7 +806,7 @@ class UsersTab {
                 showSuccess('Senha redefinida.');
                 if (this._alive) this._renderList();
             } catch (err) {
-                showFormError(error, err?.message || 'Falha ao redefinir a senha.');
+                showFormError(error, serverMessageOr(err, 'Falha ao redefinir a senha.'));
                 saveBtn.disabled = false;
             }
         });
@@ -799,7 +849,7 @@ class UsersTab {
                 this._renderTransfer(user);
                 return;
             }
-            showError(err?.message || 'Falha ao desativar o usuário.');
+            showError(serverMessageOr(err, 'Falha ao desativar o usuário.'));
         }
     }
 
@@ -815,10 +865,9 @@ class UsersTab {
      */
     async _approve(user) {
         const ok = await showConfirm(`Aprovar o acesso de "${user.username}"?`, {
-            message: `Isto declara confirmado o endereço ${user.email} sem que a pessoa tenha `
-                + 'clicado no link de confirmação, e libera a entrada dela. Se o endereço estiver '
-                + 'errado, corrija-o em Editar antes de aprovar: aprovar o endereço errado entrega '
-                + 'a conta a quem controla aquela caixa.',
+            message: `Isto confirma o endereço ${user.email} sem o clique no link e libera a `
+                + 'entrada da pessoa. Se o endereço estiver errado, corrija-o em Editar antes: '
+                + 'aprovar um endereço errado entrega a conta a quem controla aquela caixa.',
             confirmText: 'Aprovar',
         });
         if (!ok) return;
@@ -827,7 +876,7 @@ class UsersTab {
             showSuccess('Acesso aprovado.');
             if (this._alive) this._renderList();
         } catch (err) {
-            showError(err?.message || 'Falha ao aprovar o acesso.');
+            showError(serverMessageOr(err, 'Falha ao aprovar o acesso.'));
         }
     }
 
@@ -848,10 +897,10 @@ class UsersTab {
         if (!ok) return;
         try {
             await apiClient.reactivateUser(user.id);
-            showSuccess('Usuário reativado. As concessões derrubadas não voltaram.');
+            showSuccess('Usuário reativado. As concessões revogadas não voltaram.');
             if (this._alive) this._renderList();
         } catch (err) {
-            showError(err?.message || 'Falha ao reativar o usuário.');
+            showError(serverMessageOr(err, 'Falha ao reativar o usuário.'));
         }
     }
 
@@ -909,7 +958,7 @@ class UsersTab {
                     showSuccess(deactivationSummary(resultado));
                     if (this._alive) this._renderList();
                 } catch (err) {
-                    showFormError(error, err?.message || 'Falha ao transferir/desativar.');
+                    showFormError(error, serverMessageOr(err, 'Falha ao transferir/desativar.'));
                     confirmBtn.disabled = false;
                 }
             });

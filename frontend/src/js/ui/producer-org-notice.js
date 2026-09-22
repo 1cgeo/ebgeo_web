@@ -38,9 +38,8 @@ export function producerOrgInactiveNotice({ inativa = false, nome = null } = {})
     // OM ATIVA, então era justamente neste caso que o nome sumia e a tela caía no UUID cru.
     const qual = nome ? `A OM "${nome}"` : 'A OM para a qual você produz';
     return {
-        title: 'Escopo de produção suspenso',
-        message: `${qual} foi desativada, então tudo o que você mantém por ela está fora de `
-            + 'alcance: o servidor recusa cada gravação, e a calibração 360 não abre. Nada foi '
-            + 'apagado, e reativar a OM devolve o acesso. Peça a um administrador.',
+        title: 'Produção suspensa',
+        message: `${qual} foi desativada, e você não pode mais editar o que ela produz nem abrir `
+            + 'a calibração 360. Nada foi apagado: peça a um administrador para reativar a OM.',
     };
 }

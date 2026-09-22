@@ -50,7 +50,7 @@ const CAPABILITY_DENIAL = Object.freeze({
     canDelete: 'Seu nível neste atlas não permite apagar itens.',
     canDeleteMap: 'Apagar ou combinar mapas exige o nível Gestor neste atlas.',
     canComment: 'Seu nível neste atlas não permite comentar.',
-    canLockMaps: 'Travar e destravar o mapa exige o nível Gestor neste atlas.',
+    canLockMaps: 'Bloquear e desbloquear o mapa exige o nível Gestor neste atlas.',
     canManageUsers: 'Gerenciar participantes exige o nível Gestor neste atlas.'
 });
 
@@ -139,4 +139,26 @@ export function stateDenialNotice(reason) {
  */
 export function phrasedStates() {
     return Object.keys(STATE_DENIAL);
+}
+
+/**
+ * The sentence for an answer of `edicaoIndisponivelSync` (`store/edicao-indisponivel.js`), or
+ * `null` when that answer says nothing blocks editing.
+ *
+ * It keeps the two vocabularies apart the same way the listener does: a refusal on the POSTO
+ * axis (`motivo: 'permissao'`) is phrased by the CAPABILITY it carries, and any other `motivo` is
+ * a STATE and is phrased by name. Written here, and not at each surface that re-asks at the moment
+ * of a gesture, because the photo gallery and the drop onto the map both need the two phrases and
+ * would otherwise each grow a copy of this branching.
+ *
+ * It is a PHRASE, not a gate: a missing or malformed answer returns `null`, and a caller that went
+ * ahead on that `null` still meets the store's own guard, which refuses and speaks.
+ *
+ * @param {{bloqueado?: boolean, motivo?: string|null, required?: string|null}|null|undefined} edicao
+ * @returns {string|null}
+ */
+export function unavailableEditNotice(edicao) {
+    if (!edicao || edicao.bloqueado !== true) return null;
+    if (edicao.motivo === 'permissao') return denialNotice(edicao.required);
+    return stateDenialNotice(edicao.motivo) ?? denialNotice(edicao.required);
 }

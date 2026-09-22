@@ -400,6 +400,36 @@ const CENSO = [
             + '`operation-types.js`, agora do lado da tabela que diz quais campos do comentário '
             + 'brigam entre si: `texto` e `resolvido`. Nenhum posto é lido aqui.',
     },
+    // TRÊS HOMÔNIMOS DE 2026-09-22, e nenhum deles é gate. Os dois primeiros são o MESMO desfecho,
+    // dos dois lados: o nome da feição passou a ser gravado ao confirmar o campo, e a folha pura
+    // que decide o que a confirmação faz devolve um dos quatro desfechos
+    // `none`/`stale`/`missing`/`write`. O gate de verdade dessa escrita é o de `updateFeature`
+    // (guarda de papel e de trava dentro da store), e a folha nem sabe que ele existe: por isso o
+    // desfecho é RELIDO depois da escrita (`nameCommitOutcome`) em vez de inferido.
+    {
+        arquivo: 'src/js/sidebar/components/feature-name-commit.model.js',
+        trecho: "? 'none' : 'write'", n: 1, classe: HOMONIMO,
+        motivo: 'O DESFECHO `write` de `nameCommitAction`, que quer dizer "a store tem outro nome, '
+            + 'grave". É o resultado de comparar o nome pedido com o GUARDADO, e não um posto: nenhum '
+            + 'papel é lido nesta folha, que tem zero imports. Quem decide se a pessoa pode gravar é '
+            + 'o guarda de `updateFeature`, depois, e a recusa dele se mede pela releitura.',
+    },
+    {
+        arquivo: 'src/js/sidebar/components/feature-identification.js',
+        trecho: "action !== 'write'", n: 1, classe: HOMONIMO,
+        motivo: 'O consumidor do desfecho acima: `stale` e `missing` restauram o nome anterior sem '
+            + 'repintar, e só `write` segue para a gravação. É o mesmo vocabulário de desfecho da '
+            + 'folha, e não um degrau da escada: trocar por `atlasRoleHasAtLeast` aqui seria ler '
+            + 'um resultado de comparação de nomes como se fosse papel.',
+    },
+    {
+        arquivo: 'src/js/3d_models_viewer_tool/services/viewer-teardown.js',
+        trecho: "step: 'viewer'", n: 1, classe: HOMONIMO,
+        motivo: 'O NOME DO PASSO de desmontagem que falhou, quando quem lançou foi o próprio '
+            + '`viewer.destroy()` do Cesium: ele sai na mensagem do `AggregateError` ao lado dos '
+            + 'nomes dos outros passos. `viewer` aqui é o visualizador 3D, não o Leitor '
+            + '(`UserRole.VIEWER`); a folha tem zero imports e nenhum papel entra nela.',
+    },
 ];
 
 /** O único arquivo que pode escrever uma lista fechada, porque é ele que define a escada. */

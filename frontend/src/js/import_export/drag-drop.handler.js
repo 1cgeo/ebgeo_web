@@ -3,13 +3,27 @@ import { showError, showWarning } from '@utils/toast_service.js';
 // By FILE, not by the `@utils` barrel: that barrel reaches `feature_navigation_utils` and drags
 // the whole store in behind it.
 import { validateImageFile } from '@utils/image_utils.js';
-import { isCurrentMapLockedSync } from '@store';
+// The single account of BOTH axes (role on the atlas and lock of the map), by file and not by the
+// `@store` barrel. Until 2026-09-22 this door asked only about the lock, so a Leitor could drop a
+// picture on the map: the blob went into the upload queue, the server refused it (the image routes
+// require `write`) and only then did the store refuse the feature.
+import { edicaoIndisponivelSync } from '@store/edicao-indisponivel.js';
+import { unavailableEditNotice } from '@store/denial-phrases.js';
 // O diálogo da CASA para uma pergunta de três respostas. Ver `askImportMode`: o modal artesanal que
 // vivia aqui não tinha "Cancelar", não marcava a ação destrutiva e não nomeava o que ela apaga.
 import { showChoice } from '@modals/confirm.modal.js';
 // Só o RENDERIZADOR das contagens é estático (função pura, sem IndexedDB). Quem LÊ o disco entra
 // por `import()` dentro de `describeTarget`, no instante em que alguém solta um `.ebgeo`.
 import { atlasContentsLines } from '@store/atlas-contents.js';
+import { serverMessageOr } from '@utils/request-failure.js';
+
+/**
+ * The capability a drop exercises. EVERY branch writes into the open atlas (an `.ebgeo` or a
+ * geometry file is imported, a picture becomes an image feature), and the gate runs before the
+ * `dataTransfer` is read, so it cannot pick per branch. `IMPORT_DATA` and `CREATE_FEATURE` resolve
+ * to the same capability today; if they ever diverge, the image branch needs its own gate.
+ */
+const DROP_GUARD_ACTION = 'IMPORT_DATA';
 
 /** @type {Record<string, string[]>} */
 const FILE_TYPES = {
@@ -147,6 +161,11 @@ class DragDropHandler {
         this.dragCounter++;
 
         if (this.dragCounter === 1) {
+            // THE POSTO DOES NOT DRAW THE OVERLAY: "Adicionar Imagem" and "Importar" are commands a
+            // Leitor or a Comentarista will never be able to run here. The ESTADO (locked map) still
+            // draws it, and the drop then refuses naming the lock, which is the house rule for a
+            // reversible block. The counter above still counts, so dragleave stays balanced.
+            if (edicaoIndisponivelSync(DROP_GUARD_ACTION)?.motivo === 'permissao') return;
             const file = this.getFirstFile(event);
             if (file) {
                 this.showDropOverlay(classifyFile(file.name), file.name);
@@ -173,8 +192,12 @@ class DragDropHandler {
         this.dragCounter = 0;
         this.hideDropOverlay();
 
-        if (isCurrentMapLockedSync()) {
-            showWarning('Mapa bloqueado');
+        // Both axes, before the `dataTransfer` is even read, and the refusal says which: the lock
+        // by name (reversible, and whoever reads it may be the one to unlock) or the capability
+        // (the person's level on this atlas), never one sentence for both.
+        const refusal = unavailableEditNotice(edicaoIndisponivelSync(DROP_GUARD_ACTION));
+        if (refusal) {
+            showWarning(refusal);
             return;
         }
 
@@ -209,7 +232,7 @@ class DragDropHandler {
             await this.processFile(file, fileType, dropCoordinates);
         } catch (error) {
             console.error('Error processing file via drag & drop:', error);
-            showError(`Erro ao processar arquivo: ${error.message}`);
+            showError(`Não foi possível abrir o arquivo: ${serverMessageOr(error, 'erro inesperado.')}`);
         }
     }
 

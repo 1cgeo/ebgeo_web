@@ -695,7 +695,7 @@ export function createTrajectorySection({ feature, featureType, map }) {
         const waypoints = normalizeTrajectory(feature.properties?.trajetoria);
         info.textContent = waypoints.length === 0
             ? 'Sem trajetória (mudança instantânea). Crie com "Adicionar no mapa" ou arrastando um ponto médio da linha no mapa.'
-            : `${waypoints.length} ponto(s) — clique no nº para ir ao instante; arraste, insira (ponto médio) ou remova (botão direito) vértices no mapa.`;
+            : `${waypoints.length} ${waypoints.length === 1 ? 'ponto' : 'pontos'}. Clique no número para ir ao instante. No mapa, arraste, insira (ponto médio) ou remova (botão direito) vértices.`;
         renderStats(waypoints);
         clearBtn.disabled = waypoints.length === 0;
 
@@ -778,7 +778,7 @@ export function createTrajectorySection({ feature, featureType, map }) {
         // The first keypoint is the feature's start position (its anchor) and can't
         // be removed; clear the whole trajectory with "Limpar" instead.
         if (index === 0) {
-            badge.title = 'Ponto inicial (posição da feição) — não pode ser removido';
+            badge.title = 'Ponto inicial (posição da feição): não pode ser removido';
             const lock = document.createElement('span');
             lock.className = 'temporal-trajectory-row__anchor';
             lock.textContent = '⚓';

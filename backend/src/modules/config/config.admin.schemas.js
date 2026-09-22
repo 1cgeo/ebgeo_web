@@ -72,7 +72,14 @@ export const configOverridesSchema = Joi.object({
     minZoom: Joi.any().forbidden(),
     maxZoom: Joi.any().forbidden(),
     maxPitch: Joi.number().min(0).max(85),
-    globe_projection: Joi.boolean(),
+    // A PROJEÇÃO SAIU DAQUI em 2026-09-22 (decisão do dono): quem decide é o atlas, globo por
+    // padrão, e a chave de deploy ficou um mês gravada e servida sem nenhum leitor. `forbidden()`
+    // pela mesma razão das duas de cima: `map2d` é `.unknown(true)`, e uma chave só apagada
+    // voltaria a ser GRAVADA em silêncio, que é exatamente o defeito podado. Quem ainda a manda
+    // é uma aba do painel aberta antes da atualização, e ela recebe 422 nomeando o campo em vez
+    // de um 200 sobre nada. A linha JÁ gravada não passa por aqui: quem a limpa é
+    // `podarProjecaoDoPainel` (`config.service.js`), na leitura e na escrita.
+    globe_projection: Joi.any().forbidden(),
     // O NÍVEL DE DETALHE DOS TILES COM A CÂMERA INCLINADA (2026-09-04). Declarar não cria a
     // capacidade, dá BORDA a ela: este objeto é `.unknown(true)`, então o editor "Avançado
     // (JSON)" já gravava a chave sem checagem nenhuma, e um `[1, 10]` salvo ali pedia cerca

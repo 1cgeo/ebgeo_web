@@ -709,7 +709,10 @@ describe('isGrantorDead / deadGrantorChip / grantOriginLabel', () => {
         // a conta ou a OM devolve o acesso) vai no `title`, senão o chip é um enigma.
         expect(chip.label).toBe('sem efeito');
         expect(chip.title).toContain('conta ou a OM desativada');
-        expect(chip.title).toContain('revogada');
+        // A linha continua na lista PARA PODER SER REMOVIDA: o verbo seguiu o do botão da mesma
+        // linha ("Remover o acesso ..."), e dizia "revogada" até a reescrita de 2026-09-22.
+        expect(chip.title).toContain('ainda pode removê-lo');
+        expect(chip.title).toContain('reativar a conta ou a OM');
 
         // A FRASE PERDE A AFIRMAÇÃO DE ACESSO E MANTÉM O NOME: quem decide entre revogar e
         // pedir a reativação da OM precisa saber DE QUEM a concessão veio.

@@ -55,6 +55,7 @@ import { denialNotice } from '@store/denial-phrases.js';
 import { atlasRoleHasAtLeast, getPermissionLabel, toAtlasPermission } from '@js/projects/permission-levels.js';
 import { syncEngine } from '@store/sync/sync-engine.js';
 import { apiClient } from '@store/sync/api-client.js';
+import { serverMessageOr } from '@utils/request-failure.js';
 // DIRECT import, not the `@store` barrel: the barrel re-exports only `adoptRemoteAtlasAsLocal`
 // from this module, so the three readers below are simply not reachable through it.
 import {
@@ -616,7 +617,7 @@ export class MapsTab {
             this._atlasNameInput.value = result.atlas.name;
             showSuccess('Atlas renomeado');
         } catch (_error) {
-            showError('Erro ao renomear o atlas');
+            showError('Não foi possível renomear o atlas. Tente de novo.');
             this._atlasNameInput.value = this._atlasName ?? '';
         }
     }
@@ -640,7 +641,7 @@ export class MapsTab {
             showSuccess('Atlas renomeado');
         } catch (error) {
             console.error('Failed to rename the server atlas:', error);
-            showError('Falha ao renomear o atlas no servidor');
+            showError(serverMessageOr(error, 'Não foi possível renomear o atlas no servidor. Tente de novo.'));
             this._atlasNameInput.value = this._atlasName ?? '';
         }
     }
@@ -654,7 +655,7 @@ export class MapsTab {
     async _handleSaveToServer() {
         const accountControl = getControl('account');
         if (!accountControl || typeof accountControl.saveLocalToServer !== 'function') {
-            showError('Integração com o servidor indisponível');
+            showError('O envio ao servidor não está disponível. Recarregue a página e tente de novo.');
             return;
         }
         try {
@@ -738,7 +739,7 @@ export class MapsTab {
         if (!this._currentMapName) return;
 
         if (!mapLockController.canToggleLock()) {
-            showWarning('Apenas o dono ou um gestor pode bloquear ou desbloquear o mapa');
+            showWarning(denialNotice('canLockMaps'));
             return;
         }
 
@@ -948,7 +949,7 @@ export class MapsTab {
             lockBtn.title = readOnly
                 ? 'Somente leitura'
                 : !canToggle
-                    ? 'Apenas o dono ou um gestor pode bloquear'
+                    ? denialNotice('canLockMaps')
                     : locked
                         ? 'Desbloquear mapa'
                         : 'Bloquear mapa';
@@ -1393,7 +1394,7 @@ export class MapsTab {
                 showWarning(result.message);
             }
         } catch (_error) {
-            showError('Erro ao criar mapa');
+            showError('Não foi possível criar o mapa. Tente de novo.');
         }
     }
 
@@ -1412,7 +1413,7 @@ export class MapsTab {
     async _handleOpenProject() {
         const accountControl = getControl('account');
         if (!accountControl || typeof accountControl.openProjectPicker !== 'function') {
-            showError('Tela de atlas indisponível');
+            showError('Não foi possível abrir "Meus Atlas". Recarregue a página e tente de novo.');
             return;
         }
 
@@ -1420,7 +1421,7 @@ export class MapsTab {
             await accountControl.openProjectPicker();
         } catch (error) {
             console.error('Failed to open the atlas screen:', error);
-            showError('Falha ao abrir a tela de atlas');
+            showError('Não foi possível abrir "Meus Atlas". Tente de novo.');
         }
     }
 
@@ -1574,7 +1575,7 @@ export class MapsTab {
 
             this._loadMaps();
         } catch (_error) {
-            showError('Erro ao limpar dados');
+            showError('Não foi possível limpar os dados. Tente de novo.');
         }
     }
 
@@ -1604,7 +1605,7 @@ export class MapsTab {
                 }
             }
         } catch (_error) {
-            showError('Erro ao renomear mapa');
+            showError('Não foi possível renomear o mapa. Tente de novo.');
         }
     }
 
@@ -1627,7 +1628,7 @@ export class MapsTab {
             // (this also triggers _loadMaps via the LAYERS_CHANGED listener)
             this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
         } catch (_error) {
-            showError('Erro ao selecionar mapa');
+            showError('Não foi possível abrir o mapa. Tente de novo.');
         }
     }
 
@@ -1645,14 +1646,16 @@ export class MapsTab {
                 // THE WHOLE SAVED VIEW, not only the camera: base layer and temporal switch are
                 // view state of the person since 2026-09-20, and this icon is the way back to
                 // what was saved with the map. `sameMap` keeps the drawn content.
-                await this._baseLayerControl.switchMap(true, { sameMap: true });
+                // `restoreSavedView`: this is the gesture back to the saved view, so what this person
+                // remembers for the map on this computer is forgotten instead of winning (2026-09-22).
+                await this._baseLayerControl.switchMap(true, { sameMap: true, restoreSavedView: true });
             } else {
                 await setCurrentMap(mapName);
-                await this._baseLayerControl.switchMap();
+                await this._baseLayerControl.switchMap(true, { restoreSavedView: true });
                 this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
             }
         } catch (_error) {
-            showError('Erro ao restaurar posição');
+            showError('Não foi possível restaurar a posição. Tente de novo.');
         }
     }
 
@@ -1677,7 +1680,7 @@ export class MapsTab {
                 showWarning(result.message);
             }
         } catch (_error) {
-            showError('Erro ao duplicar mapa');
+            showError('Não foi possível duplicar o mapa. Tente de novo.');
         }
     }
 
@@ -1704,7 +1707,7 @@ export class MapsTab {
                 showWarning(result.message);
             }
         } catch (_error) {
-            showError('Erro ao deletar mapa');
+            showError('Não foi possível excluir o mapa. Tente de novo.');
         }
     }
 
@@ -1727,7 +1730,7 @@ export class MapsTab {
                 showWarning(result.message);
             }
         } catch (_error) {
-            showError('Erro ao renomear mapa');
+            showError('Não foi possível renomear o mapa. Tente de novo.');
         }
     }
 
@@ -1746,7 +1749,7 @@ export class MapsTab {
                 showWarning(result.message);
             }
         } catch (_error) {
-            showError('Erro ao salvar posição');
+            showError('Não foi possível salvar a posição. Tente de novo.');
         }
     }
 
@@ -1771,7 +1774,7 @@ export class MapsTab {
                 showWarning(result.message);
             }
         } catch (_error) {
-            showError('Erro ao limpar posição');
+            showError('Não foi possível limpar a posição. Tente de novo.');
         }
     }
 
@@ -1807,12 +1810,12 @@ export class MapsTab {
             try {
                 const result = await this._mapManager.combineSelectedMapsIntoTarget(selectedMaps, targetMapName);
                 const message = result.totalFeatures > 0
-                    ? `${selectedMaps.length} mapa(s) combinado(s): ${result.totalFeatures} feições adicionadas a "${targetMapName}"`
-                    : 'Mapas combinados mas nenhuma feição foi encontrada';
+                    ? `${selectedMaps.length === 1 ? '1 mapa combinado' : `${selectedMaps.length} mapas combinados`}: ${result.totalFeatures === 1 ? '1 feição adicionada' : `${result.totalFeatures} feições adicionadas`} a "${targetMapName}"`
+                    : 'Mapas combinados, mas nenhuma feição foi encontrada.';
                 showSuccess(message);
             } catch (error) {
                 console.error('Error combining maps:', error);
-                showError(error.message || 'Erro ao combinar mapas');
+                showError(serverMessageOr(error, 'Não foi possível combinar os mapas. Tente de novo.'));
             }
         });
     }

@@ -35,11 +35,13 @@ import { sessionContext } from '@store/sync/session-context.js';
 import { atlasRoleHasAtLeast } from '@js/projects/permission-levels.js';
 import { isRemoteStoreSync } from '@store/store-origin.js';
 import { showError } from '@utils/index.js';
+import { denialNotice } from '@store/denial-phrases.js';
 import { EventTypes } from '@events/event_types.js';
 import { setupCleanup, subscribe, cleanup } from '@utils/event-cleanup.js';
 
 /** Message shown when a non-privileged online user attempts to toggle the lock. */
-const NO_PERMISSION_MESSAGE = 'Apenas o dono ou um gestor pode bloquear ou desbloquear o mapa';
+// Keyed by the CAPABILITY the gate below consults, never by role names: see `denial-phrases.js`.
+const NO_PERMISSION_MESSAGE = denialNotice('canLockMaps');
 
 /**
  * Lock state + actions for the active map. Singleton; `start()`/`stop()` are

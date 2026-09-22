@@ -160,7 +160,7 @@ function createLayerControls(layer, callbacks) {
         e.stopPropagation();
         showLayerActionsMenu(layer, menuBtn, callbacks).catch((error) => {
             console.error('Error opening layer actions menu:', error);
-            showError('Erro ao abrir o menu da camada: ' + error.message);
+            showError('Não foi possível abrir o menu da camada. Tente de novo.');
         });
     };
 
@@ -509,7 +509,7 @@ export function createLayerOpacityRow(layer) {
     const gravarOpacidade = (valor) => {
         setLayerOpacity(layer.id, valor).catch((error) => {
             console.error('Error saving layer opacity:', error);
-            showError('Erro ao salvar a opacidade da camada: ' + error.message);
+            showError('Não foi possível salvar a opacidade da camada. Tente de novo.');
         });
     };
 
@@ -680,8 +680,8 @@ async function handleDeleteLayer(layerId, callbacks) {
 
     const isLastLayer = layers.length <= 1;
     const message = isLastLayer
-        ? 'Todas as feições desta camada serão PERMANENTEMENTE excluídas!\n\nUma nova camada "Padrão" vazia será criada automaticamente.'
-        : 'Todas as feições desta camada serão PERMANENTEMENTE excluídas!';
+        ? 'Todas as feições desta camada serão excluídas. Esta ação não pode ser desfeita.\n\nUma camada "Padrão" vazia será criada no lugar.'
+        : 'Todas as feições desta camada serão excluídas. Esta ação não pode ser desfeita.';
 
     const confirmed = await showConfirm(`Excluir a camada "${layer.name}"?`, {
         message,
@@ -710,7 +710,7 @@ async function handleDeleteLayer(layerId, callbacks) {
         callbacks.onLayersChanged();
     } catch (error) {
         console.error('Error deleting layer:', error);
-        showError('Erro ao excluir camada: ' + error.message);
+        showError('Não foi possível excluir a camada. Tente de novo.');
     }
 }
 
@@ -734,7 +734,7 @@ export async function handleAddLayer(createLayer, callbacks) {
         callbacks.onLayersChanged();
     } catch (error) {
         console.error('Error creating layer:', error);
-        showError('Erro ao criar camada: ' + error.message);
+        showError('Não foi possível criar a camada. Tente de novo.');
     }
 }
 

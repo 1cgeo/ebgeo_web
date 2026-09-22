@@ -24,6 +24,19 @@ import { STYLE_MINI_MAPA } from './street-view-mini-map-style.js';
 import { estiloDoMiniMapa, faixaDoMiniMapa } from './mini-mapa-base.js';
 import { photo360Failures } from './photo360-failure.js';
 import { maplibregl } from '@js/map/maplibre.js';
+import { installTileExpiryGuard } from '@js/map/tile-expiry-guard.js';
+import { getLayerFailureNotice } from '@js/terrain/layer-failure-notice.js';
+import { carregarSobDemanda } from '@utils/carga-sob-demanda.js';
+
+/**
+ * The 360 viewer module, through the on-demand door (one retry, then the notice with
+ * "Recarregar"). ONE literal for the whole file: every path here asks for the same module, and a
+ * single door is what the census (`tests/unit/carga-sob-demanda-portas.test.js`) can hold.
+ * @param {{avisar?: boolean}} [opcoes] - `avisar: false` on paths that only run with the viewer
+ *   already open (hover, close), where a failure is not something the person asked for.
+ * @returns {Promise<Object>} The `street_view_viewer.js` namespace.
+ */
+const carregarVisualizador360 = (opcoes) => carregarSobDemanda(() => import('./street_view_viewer.js'), opcoes);
 
 // Property carrying the photo id on the 360 photo features.
 //
@@ -34,6 +47,14 @@ import { maplibregl } from '@js/map/maplibre.js';
 // clicked point": opening the viewer from the 2D map was completely dead, and
 // silently, because a missing property is undefined rather than an error.
 const PHOTO_PROPERTY = 'id';
+
+// The failure-notice surface of the trajectory layer. It is a MapLibre source, so the telemetry
+// origin is the default one (`origemDeSuperficie`), and it needs no line of its own there.
+export const TRAJECTORY_SURFACE = 'trajeto360';
+
+// What the notice calls the layer: the label of the bottom-bar toggle that turns it on
+// (`bottom-controls/bottom-controls.constants.js`), so the sentence names something on screen.
+const TRAJECTORY_NAME = 'Imagens 360°';
 
 class AddStreetViewControl {
 
@@ -86,6 +107,13 @@ class AddStreetViewControl {
         this._pointsAtlasId = null;
         this._unsubAtlasScope = null;
 
+        // The tile-load watch of the main map and the guard of the mini-map, both from
+        // `map/tile-expiry-guard.js`; and whether the trajectory is accused right now, so a refused
+        // layer is reported once and not once per tile.
+        this._stopTileLoadWatch = null;
+        this._stopMiniMapGuard = null;
+        this._trajectoryRefused = false;
+
         // Layer definitions
         if (config.features.imagens_panoramicas) {
             // A FONTE DE PONTOS SO EXISTE NO MINIMAPA. O mapa principal carregava
@@ -134,6 +162,22 @@ class AddStreetViewControl {
         // What discovers that a photo did not load is `street_view_viewer.js`, lazily imported
         // and holding no map at all: see `photo360-failure.js`.
         photo360Failures.attach(map);
+
+        // THE TRAJECTORY SPEAKS THROUGH THE SAME PANEL when the server refuses its tiles. A refused
+        // vector tile never reaches `map.on('error')` (MapLibre loads a 404 as an EMPTY tile), so
+        // the panel cannot resolve it from there: `resolveLayerId` answers nothing, and this
+        // control reports and retracts from the tile loads it watches right below.
+        getLayerFailureNotice(map).registerSurface(TRAJECTORY_SURFACE, {
+            resolveLayerId: () => null,
+            layerName: () => TRAJECTORY_NAME,
+            isVisible: () => this.isActive,
+            // The person's gesture, never a timer: one demolition, one request per tile on screen.
+            retry: () => this._retryTrajectory(),
+            // `setStyle` keeps the application's sources (`transformStyle`), so a basemap switch
+            // asks for nothing again and must not absolve the layer.
+            rebuiltByStyle: false,
+        });
+        this._stopTileLoadWatch = installTileExpiryGuard(map, { onTileLoad: this._handleTileLoad });
 
         // Initialize streetview markers manager
         this.streetviewMarkers = new StreetviewMarkers(map, this);
@@ -227,6 +271,8 @@ class AddStreetViewControl {
                 const fonte = this.streetViewLinesLayer['source'];
                 if (rebuildScopedSource(this.map, fonte, sv360TileSource(config.streetView360.linesSource, atual))) {
                     this._linesAtlasId = atual;
+                    // Every tile is asked for again under the new atlas: what they answer decides.
+                    this._forgetTrajectoryRefusal();
                 }
             } catch (error) {
                 console.error('[street-view] could not rescope the trajectory source:', error);
@@ -242,6 +288,67 @@ class AddStreetViewControl {
             } catch (error) {
                 console.error('[street-view] could not rescope the points source:', error);
             }
+        }
+    }
+
+    /**
+     * Reads every vector tile load of the main map and keeps the trajectory's accusation true.
+     *
+     * A tile loaded WITHOUT DATA is a tile the server refused. The 360 MVT route answers an empty
+     * area with 200 and an empty body, so on this source the only way to get no data at all is
+     * MapLibre's 404 path, which is the atlas scope saying no. A tile WITH data (zero features
+     * included) is the server answering again, and that takes the accusation down.
+     *
+     * NOTHING HERE ASKS FOR A TILE. The refused tile stays empty, and the only ways back are the
+     * person's: turning the layer on, switching atlas, or the retry of the notice.
+     * @param {{sourceId: string, withoutData: boolean}} load
+     * @private
+     */
+    _handleTileLoad = ({ sourceId, withoutData }) => {
+        const linhas = this.streetViewLinesLayer?.['source'];
+        if (!linhas || sourceId !== linhas || !this.map) return;
+        if (withoutData) {
+            if (this._trajectoryRefused || !this.isActive) return;
+            this._trajectoryRefused = true;
+            getLayerFailureNotice(this.map).report(TRAJECTORY_SURFACE, linhas);
+        } else if (this._trajectoryRefused) {
+            this._forgetTrajectoryRefusal();
+        }
+    }
+
+    /**
+     * Takes the trajectory's accusation down. A no-op when there is none, so it can run on every
+     * path that asks for the tiles again without creating a notice just to clear it.
+     * @private
+     */
+    _forgetTrajectoryRefusal() {
+        if (!this._trajectoryRefused) return;
+        this._trajectoryRefused = false;
+        const linhas = this.streetViewLinesLayer?.['source'];
+        if (this.map && linhas) getLayerFailureNotice(this.map).clear(TRAJECTORY_SURFACE, linhas);
+    }
+
+    /**
+     * The retry of the failure notice: the trajectory source is demolished and asked for ONCE,
+     * under the atlas in focus now, by the same demolition an atlas switch uses, so a retry and a
+     * switch leave the source in the same state (see `tile-scope.js` for why it is a demolition).
+     *
+     * The panel drops its own entry before calling this, and the flag goes with it, so a fresh
+     * refusal raises the panel's second-failure sentence instead of being swallowed as already
+     * said.
+     * @private
+     */
+    _retryTrajectory() {
+        this._trajectoryRefused = false;
+        if (!this.map || !this.streetViewLinesLayer) return;
+        const atual = sv360AtlasScope();
+        try {
+            const fonte = this.streetViewLinesLayer['source'];
+            if (rebuildScopedSource(this.map, fonte, sv360TileSource(config.streetView360.linesSource, atual))) {
+                this._linesAtlasId = atual;
+            }
+        } catch (error) {
+            console.error('[street-view] could not ask for the trajectory again:', error);
         }
     }
 
@@ -275,6 +382,11 @@ class AddStreetViewControl {
                 // deixaria de bater com o do mapa principal na mesma coordenada.
                 zoomLevelsToOverscale: undefined,
             });
+            // The mini-map is hidden until the viewer opens, and its points source refreshes every
+            // 60 s all the same: the four tiles at 0°,0° of the measured loop were this map's. The
+            // prototype the guard patches is shared, and installing here too is what keeps this map
+            // from depending on the main one having loaded a tile first.
+            this._stopMiniMapGuard = installTileExpiryGuard(this.miniMap);
         }
 
         this.miniMap.on('load', async () => {
@@ -315,7 +427,7 @@ class AddStreetViewControl {
                     const uuid = e.features?.[0]?.properties?.[PHOTO_PROPERTY];
                     if (!uuid) return;
                     try {
-                        const { navigateToTarget } = await import('./street_view_viewer.js');
+                        const { navigateToTarget } = await carregarVisualizador360({ avisar: false });
                         await navigateToTarget(uuid);
                     } catch (error) {
                         console.error('Error navigating from minimap click:', error);
@@ -330,7 +442,7 @@ class AddStreetViewControl {
                     const uuid = e.features?.[0]?.properties?.[PHOTO_PROPERTY] ?? null;
                     if (uuid === this._minimapHoveredUuid) return;
                     this._minimapHoveredUuid = uuid;
-                    const { setHoveredFromMinimap } = await import('./street_view_viewer.js');
+                    const { setHoveredFromMinimap } = await carregarVisualizador360({ avisar: false });
                     setHoveredFromMinimap(uuid);
                 });
 
@@ -338,7 +450,7 @@ class AddStreetViewControl {
                     this.miniMap.getCanvas().style.cursor = '';
                     if (this._minimapHoveredUuid === null) return;
                     this._minimapHoveredUuid = null;
-                    const { setHoveredFromMinimap } = await import('./street_view_viewer.js');
+                    const { setHoveredFromMinimap } = await carregarVisualizador360({ avisar: false });
                     setHoveredFromMinimap(null);
                 });
 
@@ -348,7 +460,7 @@ class AddStreetViewControl {
                 this.miniMap.getCanvas().addEventListener('mouseleave', async () => {
                     if (this._minimapHoveredUuid === null) return;
                     this._minimapHoveredUuid = null;
-                    const { setHoveredFromMinimap } = await import('./street_view_viewer.js');
+                    const { setHoveredFromMinimap } = await carregarVisualizador360({ avisar: false });
                     setHoveredFromMinimap(null);
                 });
 
@@ -525,6 +637,13 @@ class AddStreetViewControl {
         // Paired with the attach in onAdd: a surface left registered keeps the shared notice
         // calling into a control that is gone.
         photo360Failures.detach();
+        // Same pairing for the trajectory surface and for both tile watches.
+        if (this.map) getLayerFailureNotice(this.map).unregisterSurface(TRAJECTORY_SURFACE);
+        this._trajectoryRefused = false;
+        this._stopTileLoadWatch?.();
+        this._stopTileLoadWatch = null;
+        this._stopMiniMapGuard?.();
+        this._stopMiniMapGuard = null;
 
         if (this._unsubBaseLayerChanged) {
             this._unsubBaseLayerChanged();
@@ -668,12 +787,20 @@ class AddStreetViewControl {
             if (photo?.[PHOTO_PROPERTY]) {
                 this.isOpen = true;
 
-                // Import and open viewer dynamically
-                const { openViewer360WithPhoto, isStreetView360Open } = await import('./street_view_viewer.js');
+                // Import and open viewer dynamically, through the on-demand door. A module that
+                // never arrived opened NOTHING, so the flag above is taken back: left on, it would
+                // make the control believe a viewer is open that does not exist.
+                let visualizador;
+                try {
+                    visualizador = await carregarVisualizador360();
+                } catch (erro) {
+                    this.isOpen = false;
+                    throw erro;
+                }
+                const { openViewer360WithPhoto, isStreetView360Open, navigateToTarget } = visualizador;
 
                 // If already open, just navigate to new photo
                 if (isStreetView360Open()) {
-                    const { navigateToTarget } = await import('./street_view_viewer.js');
                     await navigateToTarget(photo[PHOTO_PROPERTY]);
                 } else {
                     await openViewer360WithPhoto(photo[PHOTO_PROPERTY], {
@@ -706,6 +833,9 @@ class AddStreetViewControl {
 
     deactivate = () => {
         this.isActive = false;
+        // A hidden layer asks for nothing, and an accusation about it would be noise. What the tiles
+        // answer after the layer is turned on again decides anew.
+        this._forgetTrajectoryRefusal();
 
         // Viewer overlays coexist with drawing tools; preserve the tool cursor.
         if (this.map?.getCanvas() && !this.toolManager?.activeTool) {
@@ -744,7 +874,7 @@ class AddStreetViewControl {
 
         // Delegate to viewer for cleanup
         try {
-            const { closeViewer360 } = await import('./street_view_viewer.js');
+            const { closeViewer360 } = await carregarVisualizador360({ avisar: false });
             await closeViewer360();
         } catch (error) {
             console.warn('Error closing viewer:', error);

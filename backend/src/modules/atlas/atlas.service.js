@@ -553,16 +553,19 @@ const COVER_SIGNATURES = Object.freeze({
  */
 export async function setAtlasCover(atlasId, payload, userId) {
   const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(payload.image);
-  if (!match) throw new BadRequestError('Cover must be a base64 data URI (png, jpeg or webp)');
+  if (!match) throw new BadRequestError('A capa precisa ser uma imagem PNG, JPEG ou WebP.');
 
   const [, mimeType, base64] = match;
   const bytes = Buffer.from(base64, 'base64');
-  if (bytes.length === 0) throw new BadRequestError('Cover image is empty');
+  if (bytes.length === 0) throw new BadRequestError('A imagem da capa está vazia.');
   if (bytes.length > COVER_MAX_BYTES) {
-    throw new BadRequestError(`Cover image too large (max ${Math.round(COVER_MAX_BYTES / 1024)} kB)`);
+    throw new BadRequestError(`A imagem da capa é grande demais (máximo de ${Math.round(COVER_MAX_BYTES / 1024)} kB).`);
   }
   if (!COVER_SIGNATURES[mimeType](bytes)) {
-    throw new BadRequestError(`Cover image is not a valid ${mimeType} file`);
+    // Names the ANNOUNCED format in the user's words (the file says it is WebP and is not),
+    // which is the one thing the person can act on; the MIME string itself is jargon.
+    const formato = { 'image/png': 'PNG', 'image/jpeg': 'JPEG', 'image/webp': 'WebP' }[mimeType];
+    throw new BadRequestError(`O arquivo da capa não é uma imagem ${formato} válida.`);
   }
 
   const { rows } = await query(Q.UPSERT_ATLAS_COVER, [

@@ -213,7 +213,7 @@ export class GarminKmzExport {
         this._tileGrid = this._calculateTileGrid(this._bbox);
 
         if (!this._tileGrid) {
-            showError('Area muito grande para exportacao Garmin. Desenhe uma area menor.');
+            showError('Área muito grande para exportação Garmin. Desenhe uma área menor.');
             this._bbox = null;
             this._hidePreview();
             return;
@@ -510,7 +510,7 @@ export class GarminKmzExport {
      */
     async exportKmz() {
         if (!this._bbox || !this._tileGrid) {
-            showError('Selecione uma area no mapa primeiro');
+            showError('Selecione uma área no mapa primeiro');
             return;
         }
         if (this._exporting) return;
@@ -667,7 +667,7 @@ export class GarminKmzExport {
         } catch (error) {
             if (!this._exportCancelled) {
                 console.error('Error exporting Garmin KMZ:', error);
-                showError('Erro ao exportar KMZ: ' + error.message);
+                showError('Não foi possível exportar o KMZ. Tente de novo.');
             }
             progress?.remove();
         } finally {

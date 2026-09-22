@@ -5,9 +5,16 @@
  * Displays feature icon, name, type, layer information, and description.
  */
 
-import { getLayers, getFeatureIcon, getFeatureDisplayName, getFeatureById, updateFeature, getStorageTypeFromSource, isCurrentMapLockedSync } from '@store/index.js';
+import { getLayers, getFeatureIcon, getFeatureDisplayName, getFeatureById, updateFeature, getStorageTypeFromSource, isCurrentMapLockedSync, getCurrentMapNameSync } from '@store/index.js';
 import { createFeatureOptionsButton } from '@tools/helpers/feature-header.helpers.js';
 import { calculatePolygonMetrics } from '../../measurement_tool/measurement-geometry.js';
+import {
+    requestedFeatureName,
+    displayedFeatureName,
+    nameCommitAction,
+    nameCommitOutcome
+} from './feature-name-commit.model.js';
+import { PENDING_NAME_COMMIT } from '../panels/feature-panel-flush.js';
 
 /**
  * Feature type configuration with labels.
@@ -89,7 +96,7 @@ export async function createFeatureIdentification(options) {
 
     const nameDisplay = document.createElement('div');
     nameDisplay.className = 'feature-identification-name';
-    nameDisplay.textContent = feature.properties?.nome || 'Sem nome';
+    nameDisplay.textContent = displayedFeatureName(feature.properties?.nome);
 
     const mapLocked = isCurrentMapLockedSync();
 
@@ -101,23 +108,124 @@ export async function createFeatureIdentification(options) {
         nameInput.className = 'feature-identification-name-input feature-identification-name-input--hidden';
         nameInput.value = feature.properties?.nome || '';
 
+        // CONFIRMING THE FIELD IS A STORE WRITE OF ITS OWN (Enter or blur), like the description's
+        // "Salvar" below. Until 2026-09-22 it only staged the name for the panel's "Salvar", and
+        // the staged name was lost whenever the panel holding it was replaced before anything
+        // saved it. The decisions, and why they are taken against the STORE, are in
+        // `feature-name-commit.model.js`.
+        const storageType = getStorageTypeFromSource(featureType);
+        const featureId = feature.properties?.id;
+        // The map this panel was built on: a commit that finds another map current writes nothing.
+        const mapAtBuild = getCurrentMapNameSync();
+        let editing = false;
+        let commitSequence = 0;
+
+        const onBuildMap = () => getCurrentMapNameSync() === mapAtBuild;
+
+        const showName = (name) => {
+            nameDisplay.textContent = displayedFeatureName(name);
+            nameInput.value = name ? String(name) : '';
+        };
+
+        /**
+         * Puts the field, and the in-memory copy every save of this panel reads, back on `name`.
+         * The tool's source is asked too only while the feature is still there to be painted.
+         */
+        const restoreName = (name, { repaint }) => {
+            showName(name);
+            if (feature.properties) feature.properties.nome = name;
+            if (repaint && onNameChange) onNameChange(name);
+        };
+
         nameDisplay.addEventListener('click', () => {
+            editing = true;
             nameDisplay.classList.add('feature-identification-name--hidden');
             nameInput.classList.remove('feature-identification-name-input--hidden');
             nameInput.focus();
             nameInput.select();
         });
 
+        /**
+         * Writes a confirmed name to the store, reads it back, and puts the screen back on the
+         * store's value when the write did not land (rank or lock refusal, which already spoke
+         * through STORE_OPERATION_BLOCKED; a feature deleted meanwhile; another map current).
+         * @param {string} requested
+         * @param {*} previousName - The in-memory name before this confirmation.
+         */
+        const commitName = async (requested, previousName) => {
+            const sequence = ++commitSequence;
+
+            let stored = null;
+            if (onBuildMap() && storageType && featureId) {
+                try {
+                    stored = await getFeatureById(storageType, featureId);
+                } catch (error) {
+                    console.error('Error reading feature before saving its name:', error);
+                }
+            }
+
+            const action = nameCommitAction({ requested, stored, sameMap: onBuildMap() });
+            if (action === 'none') return;
+
+            if (action !== 'write') {
+                // Stale map or gone feature: the source in front of us is not this feature's any
+                // more, so it is not repainted.
+                if (sequence === commitSequence) restoreName(previousName, { repaint: false });
+                return;
+            }
+
+            let reread = null;
+            let outcome;
+            try {
+                await updateFeature(storageType, {
+                    ...stored,
+                    properties: { ...stored.properties, nome: requested }
+                });
+                reread = await getFeatureById(storageType, featureId);
+                outcome = nameCommitOutcome(requested, reread, previousName);
+            } catch (error) {
+                console.error('Error saving feature name:', error);
+                reread = stored;
+                outcome = { committed: false, name: stored.properties?.nome };
+            }
+
+            // A newer confirmation owns the field; its own commit decides what it shows.
+            if (outcome.committed || sequence !== commitSequence) return;
+
+            restoreName(outcome.name, { repaint: Boolean(reread) });
+        };
+
         const saveEdit = () => {
-            const newName = nameInput.value.trim() || 'Sem nome';
-            nameDisplay.textContent = newName;
+            if (!editing) return;
+            editing = false;
             nameDisplay.classList.remove('feature-identification-name--hidden');
             nameInput.classList.add('feature-identification-name-input--hidden');
 
-            if (onNameChange && newName !== feature.properties?.nome) {
-                onNameChange(newName);
+            const previousName = feature.properties?.nome;
+            const requested = requestedFeatureName(nameInput.value, previousName);
+            // Nothing asked, or another map is current already: staging would paint the source of
+            // a map this panel does not describe.
+            if (requested === null || !onBuildMap()) {
+                showName(previousName);
+                return;
             }
+            nameDisplay.textContent = displayedFeatureName(requested);
+
+            // STAGED IN MEMORY FIRST, AND SYNCHRONOUSLY. Most tools' `updateFeaturesProperty`
+            // mutate the feature only after awaiting their source, and a panel save that runs in
+            // between (a deselect right after Enter) would persist the source's OLD name on top of
+            // this commit. Written here, every save of this panel carries the new name.
+            if (requested !== previousName) {
+                if (feature.properties) feature.properties.nome = requested;
+                if (onNameChange) onNameChange(requested);
+            }
+
+            commitName(requested, previousName);
         };
+
+        // Whoever saves or removes this content confirms an open field first (a programmatic
+        // unmount fires no blur): see `panels/feature-panel-flush.js`.
+        nameInput[PENDING_NAME_COMMIT] = saveEdit;
 
         nameInput.addEventListener('blur', saveEdit);
         nameInput.addEventListener('keydown', (e) => {
@@ -125,6 +233,7 @@ export async function createFeatureIdentification(options) {
                 e.preventDefault();
                 saveEdit();
             } else if (e.key === 'Escape') {
+                editing = false;
                 nameInput.value = feature.properties?.nome || '';
                 nameDisplay.classList.remove('feature-identification-name--hidden');
                 nameInput.classList.add('feature-identification-name-input--hidden');

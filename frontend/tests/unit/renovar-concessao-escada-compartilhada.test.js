@@ -33,7 +33,7 @@ import { issuedExtensionHint, issuedExtensionTermLabel } from '../../src/js/admi
 
 const PACOTE = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const ABA = readFileSync(join(PACOTE, 'src/js/admin/grants-tab.js'), 'utf8');
-const MODAL = readFileSync(join(PACOTE, 'src/js/catalog/resource-share.modal.js'), 'utf8');
+const MODAL = readFileSync(join(PACOTE, 'src/js/catalog/resource-share.modal.core.js'), 'utf8');
 
 /** Posicao da primeira ocorrencia, falhando alto se a ancora sumiu. */
 function pos(texto, ancora, arquivo) {

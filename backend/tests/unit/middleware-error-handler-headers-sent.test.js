@@ -142,7 +142,7 @@ describe('errorHandler — resposta ja iniciada (item 168)', () => {
     assert.deepEqual(res.calls.status, [404], 'status do AppError preservado');
     assert.equal(res.calls.json.length, 1, 'envelope escrito uma vez');
     assert.equal(res.calls.json[0].error.code, 'NOT_FOUND');
-    assert.equal(res.calls.json[0].error.message, 'Atlas not found');
+    assert.equal(res.calls.json[0].error.message, 'Atlas não encontrado.');
     assert.equal(next.seen.length, 0, 'sem headers enviados, o handler RESPONDE em vez de delegar');
   });
 

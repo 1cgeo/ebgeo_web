@@ -168,10 +168,24 @@ describe('adminAudience — a tabela das quatro audiências', () => {
         // a ela, e o caso que a motivou é o do CREDENCIADO, que cai justamente nesta linha: papel
         // definido por conceder, sem trilha de auditoria (decisão registrada) e, até aqui, sem
         // nenhuma tela que listasse o que ele havia concedido.
+        // A ORDEM MUDOU EM 2026-09-22 (item 19a do dono): Concessões passou à frente, e é ela que
+        // o painel abre. Ver o caso "a porta Acessos abre em Concessões", logo abaixo.
         expect(adminAudience(COMUM)).toEqual({
             label: 'Acessos',
-            tabIds: ['groups', 'grants', 'account'],
+            tabIds: ['grants', 'groups', 'account'],
         });
+    });
+
+    it('a porta "Acessos" abre em Concessões, e as outras duas portas NÃO mudaram de abertura', () => {
+        // O PEDIDO DO DONO (2026-09-22, item 19a): o botão "Acessos" do credenciado leva à tela de
+        // Concessões. O mecanismo é o que já existia (sem `?aba=`, a primeira aba abre, em
+        // `AdminPanel._initialTabId`), então toda porta sem parâmetro chega lá. O credenciado não
+        // tem linha própria (D1), e é a linha INTEIRA de "Acessos" que abre em Concessões.
+        expect(adminAudience(COMUM).tabIds[0]).toBe('grants');
+        // A DISCRIMINAÇÃO: administrador e produtor continuam abrindo na aba que o rótulo da porta
+        // deles nomeia. Sem estas duas, uma lista reordenada para todo mundo passaria verde acima.
+        expect(adminAudience(ADMIN).tabIds[0]).toBe('users');
+        expect(adminAudience(PRODUTOR).tabIds[0]).toBe('catalog');
     });
 
     it('DUAS abas são universais entre as três audiências da porta: concessões e a conta', () => {
@@ -287,7 +301,7 @@ describe('adminAudience — a tabela das quatro audiências', () => {
         // produtor. Não há terceiro booleano a passar, e é essa ausência que é a decisão.
         expect(adminAudience(COMUM)).toEqual({
             label: 'Acessos',
-            tabIds: ['groups', 'grants', 'account'],
+            tabIds: ['grants', 'groups', 'account'],
         });
         expect(adminAudience(COMUM)).not.toEqual(adminAudience(ADMIN));
     });

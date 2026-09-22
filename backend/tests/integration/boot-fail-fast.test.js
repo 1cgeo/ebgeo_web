@@ -27,7 +27,9 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
@@ -202,6 +204,79 @@ describe('Boot fail-fast (src/index.js)', () => {
     assert.match(res.stderr, /PORT deve estar entre 1 e 65535/);
     assert.match(res.stderr, /WS_HEARTBEAT_INTERVAL_MS deve ser um inteiro/);
     assert.match(res.stderr, /JWT_ACCESS_EXPIRY deve ser um número seguido de/);
+  });
+
+  // ==========================================================================
+  // THE WRITE PROBE (2026-09-22). On the test stack the image ran as uid 1001 over a bind
+  // mount owned by 1000:1000: the process booted, the healthcheck stayed green, and the file
+  // log and every image upload died on their first write with EACCES. The boot now probes
+  // every directory the process writes (`src/utils/sonda-de-escrita.js`) and refuses to listen.
+  //
+  // HOW THE REFUSAL IS PRODUCED CROSS-PLATFORM: a path that runs THROUGH a regular file. It is
+  // the one refusal that needs neither root nor POSIX permission bits (on Windows the write bit
+  // of a directory does not stop file creation), and mkdir under a file fails the same way on
+  // both. Permission codes (EACCES, EROFS) are covered with an injected fs in
+  // `tests/unit/sonda-de-escrita.test.js`.
+  //
+  // The positive control is the "boots on a valid config" case below: its child probes the
+  // suite's own data directories and must still boot. If the probe refused everything, this
+  // pair of cases would stay green and that one would go red.
+  // ==========================================================================
+  describe('write probe of the data directories', () => {
+    let raiz = null;
+    let bloqueio = null;
+
+    before(() => {
+      raiz = fs.mkdtempSync(path.join(os.tmpdir(), 'ebgeo-boot-sonda-'));
+      bloqueio = path.join(raiz, 'sou-um-arquivo');
+      fs.writeFileSync(bloqueio, 'x');
+    });
+
+    after(() => {
+      if (raiz) fs.rmSync(raiz, { recursive: true, force: true });
+    });
+
+    it('refuses to boot, naming EVERY unwritable directory in one message, and never listens', async () => {
+      // A VALID, free port: the env gate has nothing to say, so the only thing left to refuse the
+      // boot is the probe. Were it broken, the child would bind and run until the harness kills
+      // it, and `timedOut` below would name that.
+      const { port, release } = await holdPort();
+      await release();
+      const imagens = path.join(bloqueio, 'imagens');
+      const videos = path.join(bloqueio, 'videos');
+      const res = await runChild([INDEX_PATH], {
+        env: childEnv({ NODE_ENV: 'test', PORT: String(port), IMAGES_DIR: imagens, CATALOG_VIDEO_DIR: videos }),
+        killAfterMs: 15000,
+      });
+
+      assert.equal(res.timedOut, false, 'the process must exit on its own, not be killed by the harness');
+      assert.notEqual(res.code, 0, 'a backend that cannot write its data directories must not start');
+      assert.match(res.stderr, /Diretório\(s\) de dados sem escrita: o servidor NÃO vai subir/);
+      assert.doesNotMatch(res.stderr, /Configuração inválida/, 'premissa: o ambiente era válido');
+      // BOTH directories, in ONE run: a probe that stopped at the first failure would make a
+      // broken deploy an N-restart round trip.
+      assert.ok(res.stderr.includes(`${imagens} (IMAGES_DIR`), `IMAGES_DIR missing from:\n${res.stderr}`);
+      assert.ok(res.stderr.includes(`${videos} (CATALOG_VIDEO_DIR`), `CATALOG_VIDEO_DIR missing from:\n${res.stderr}`);
+      assert.match(res.stderr, /ENOTDIR ao criar o diretório/);
+      assert.doesNotMatch(res.stdout, /EBGeo backend started/, 'the ready line must never be printed');
+    });
+
+    it('joins the probe with the env validation in ONE throw, both before listen', async () => {
+      // PORT=99999 makes `listen` throw ERR_SOCKET_BAD_PORT SYNCHRONOUSLY, so its absence
+      // proves both gates ran first. Seeing BOTH messages proves the probe is not skipped when
+      // the env is also wrong: moving it after `validateEnvVariables()` throws on its own, or
+      // after `listen`, drops the directory line and turns this red.
+      const res = await runChild([INDEX_PATH], {
+        env: childEnv({ NODE_ENV: 'test', PORT: '99999', IMAGES_DIR: path.join(bloqueio, 'imagens') }),
+        killAfterMs: 15000,
+      });
+
+      assert.notEqual(res.code, 0);
+      assert.match(res.stderr, /Configuração inválida/);
+      assert.match(res.stderr, /PORT deve estar entre 1 e 65535/);
+      assert.match(res.stderr, /Diretório\(s\) de dados sem escrita/);
+      assert.doesNotMatch(res.stderr, /ERR_SOCKET_BAD_PORT/);
+    });
   });
 
   it('boots on a valid config and shuts down gracefully with exit code 0', async () => {

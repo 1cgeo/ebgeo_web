@@ -64,6 +64,7 @@ import {
     esquecerPendenciasEmMemoria,
     BlobUploadState
 } from '@store/sync/blob-upload-queue.js';
+import { FALHA_SEM_BYTES } from '@store/sync/blob-upload-phrases.js';
 
 /** Desfecho "o servidor aceitou". */
 const aceita = () => (_atlasId, uploads) => ({
@@ -295,7 +296,11 @@ describe('fila durável de blobs: registro, retomada e liberação', () => {
         expect(h.enviados).toEqual([]);
         const final = (await listarPendenciasDeBlob())[0];
         expect(final.estado).toBe(BlobUploadState.RECUSADO);
-        expect(final.ultimoErro).toContain('não estão mais neste computador');
+        // A frase gravada é a de "sem bytes" INTEIRA, não uma causa genérica que calhe de citar o
+        // computador. O texto em si é cobrado em tests/unit/blob-upload-frases.test.js; aqui se
+        // prende que o motivo gravado nomeia a ausência do arquivo local.
+        expect(final.ultimoErro).toBe(FALHA_SEM_BYTES);
+        expect(final.ultimoErro).toContain('não está mais neste computador');
     });
 
     it('a pendência mora no banco de IMAGENS do escopo, sob prefixo próprio', async () => {

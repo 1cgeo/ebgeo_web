@@ -84,7 +84,7 @@ class ScreenshotControl {
 
         } catch (error) {
             console.error('Error capturing screenshot:', error);
-            showError('Não foi possível capturar o screenshot');
+            showError('Não foi possível capturar a imagem do mapa. Tente de novo.');
             const button = this.container?.querySelector('button');
             if (button) {
                 button.disabled = false;
@@ -197,7 +197,7 @@ class ScreenshotControl {
                 if (settled) return;
                 settled = true;
                 console.error('Screenshot temporary map timed out before load');
-                showError('Não foi possível capturar o screenshot');
+                showError('Não foi possível capturar a imagem do mapa. Tente de novo.');
                 cleanupTempMap();
             }, 15000);
 
@@ -214,7 +214,7 @@ class ScreenshotControl {
                             this.downloadImageFromDataURL(dataURL);
                         } catch (error) {
                             console.error('Error in alternative method:', error);
-                            showError('Não foi possível capturar o screenshot');
+                            showError('Não foi possível capturar a imagem do mapa. Tente de novo.');
                         } finally {
                             cleanupTempMap();
                         }
@@ -224,7 +224,7 @@ class ScreenshotControl {
 
         } catch (error) {
             console.error('Error creating temporary map:', error);
-            showError('Não foi possível capturar o screenshot. Tente novamente.');
+            showError('Não foi possível capturar a imagem do mapa. Tente de novo.');
         }
     }
 

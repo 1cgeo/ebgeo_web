@@ -441,7 +441,9 @@ async function drawNamedPoint(page, position, nome) {
 
 /**
  * Writes the notes of the current map through the product's own panel, in either build.
- * Both lines use the same class names and the same toast, which is why one helper serves both.
+ * Both lines use the same class names, which is why one helper serves both. The toast is NOT the
+ * same since 2026-09-22: `main` still says "Notas salvas com sucesso!" and this line says "Notas
+ * salvas." (no exclamation in screen text), so the wait accepts exactly those two.
  */
 async function writeNotes(page, title, body) {
     await page.getByRole('button', { name: 'Mapas', exact: true }).click();
@@ -450,7 +452,7 @@ async function writeNotes(page, title, body) {
     await page.locator('.map-notes-sidebar-title-input').fill(title);
     await page.locator('.map-notes-quill-editor .ql-editor').fill(body);
     await page.locator('.map-notes-sidebar-save-btn').click();
-    await expect(page.getByText('Notas salvas com sucesso!', { exact: true })).toBeVisible({ timeout: 20000 });
+    await expect(page.getByText(/^Notas salvas(?: com sucesso!|\.)$/)).toBeVisible({ timeout: 20000 });
 }
 
 /** Closes a context and waits for it, so the tab-lock of that build is released before the swap. */

@@ -68,7 +68,7 @@ test('quota failure importing an actual archive keeps maps and images, then retr
         const { getControl } = await import('/src/js/store/index.js');
         await getControl('exportImport').processFileDirectly(globalThis.__archive);
     });
-    await expect(page.getByText('1 mapa carregados!', { exact: true })).toBeVisible();
+    await expect(page.getByText('1 mapa carregado.', { exact: true })).toBeVisible();
     await boot(page);
     const restored = await page.evaluate(async () => {
         const ns = await import('/src/js/store/atlas-namespace.js');
@@ -133,7 +133,7 @@ test('additive image-write failure preserves the old atlas; retry and reload pre
         const { getControl } = await import('/src/js/store/index.js');
         await getControl('exportImport').processFileDirectly(globalThis.__additiveArchive, true);
     });
-    await expect(page.getByText('1 mapa adicionados!', { exact: true })).toBeVisible();
+    await expect(page.getByText('1 mapa adicionado.', { exact: true })).toBeVisible();
     await boot(page);
     // THE NAME OF A MAP COMES FROM THE PRODUCT'S READERS, NEVER FROM THE DOCUMENT'S `name` FIELD.
     // The blank map seeded at boot (`seedBlankDefaultMap`, store/repository.js) is written as the

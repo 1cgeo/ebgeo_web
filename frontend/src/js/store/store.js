@@ -662,6 +662,17 @@ export async function initializeWithLastActiveMap() {
     // Components that init before this resolves will pick it up via MAP_LOCK_CHANGED listener.
     const locked = memoryStore.lockedMaps.has(lastActiveMap);
     deps.eventBus.emit(EventTypes.MAP_LOCK_CHANGED, { mapName: lastActiveMap, locked });
+    // AND THE TEMPORAL SWITCH, like `setCurrentMap` of `map.operations.js` announces it. The pin
+    // above is silent, and since 2026-09-22 it reads what this person left on this computer, so an
+    // F5 with the timeline ON is the ordinary case and not a rare saved view. Without this, the
+    // timeline bar (event-driven) would depend on being built after the pin; that is the shape of
+    // the 2026-09-21 defect on the atlas-opening path, added here by symmetry with the lock event
+    // above, not measured on this path. `automatico`: nobody clicked.
+    deps.eventBus.emit(EventTypes.MAP_TEMPORAL_CHANGED, {
+        mapName: lastActiveMap,
+        enabled: memoryStore.temporalView?.get(lastActiveMap) === true,
+        automatico: true,
+    });
 
     return lastActiveMap;
 }
@@ -1066,6 +1077,7 @@ export {
     setMapTemporalConfig,
     setMapTemporalView,
     applySavedMapTemporalView,
+    applyMapEntryTemporalView,
     toggleMapTemporal
 } from './temporal.operations.js';
 

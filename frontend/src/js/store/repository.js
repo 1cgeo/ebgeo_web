@@ -19,11 +19,13 @@
  * ones in `repositories/local.repository.js` share one resolver on purpose.
  */
 
-import { StoreName, listAtlasStores, getActiveScope } from './atlas-namespace.js';
+import { ATLAS_RECORD_KEY, StoreName, listAtlasStores, getActiveScope } from './atlas-namespace.js';
 // A FOLHA, nunca a fila de blobs: aquele módulo carrega o cliente HTTP, e este arquivo é alcançado
 // pelo repositório inteiro. O que se precisa daqui é só reconhecer uma pendência dentro do banco de
 // imagens, que é exatamente o que a folha existe para publicar.
 import { limparImagensPoupandoUploads } from './sync/blob-upload-keys.js';
+// A folha sem imports, pelo mesmo motivo da linha acima: este arquivo é alcançado pelo repositório.
+import { forgetPersonViews } from './vista-da-pessoa-disco.js';
 import { ensureAtlasScope, getScopedStore } from './repositories/local.repository.js';
 import {
     detectMigrationNeeded,
@@ -69,6 +71,7 @@ import { memoryStore } from './memory-store.js';
 // `getScopedStore` (repositories/local.repository.js) is shared with the repository
 // implementation so both halves of this front resolve through ONE code path.
 
+const atlasStore = () => getScopedStore(StoreName.ATLAS);
 const mapStore = () => getScopedStore(StoreName.MAPS);
 const imageStore = () => getScopedStore(StoreName.IMAGES);
 const appStore = () => getScopedStore(StoreName.SETTINGS);
@@ -142,6 +145,68 @@ async function medirEscopo() {
 }
 
 /**
+ * Whether the scope's OWN atlas record declares the CURRENT schema.
+ *
+ * It is the second marker every scope carries (`effectiveVersion`, `migration.service.js`, reasons
+ * with the same pair), and it is what separates the one population that reaches the settings
+ * marker absent WITH data and is not a mystery: an atlas whose data came from the server. The
+ * snapshot staging writes the atlas record (born by `createAtlas`, so at the current schema) into
+ * a fresh generation and, until 2026-09-22, never the settings marker; the entry wipe that used to
+ * stamp it (`clearAllDataStore`) left the opening path on 2026-09-19. Result: every F5 on a server
+ * atlas (and on a slot rescued from one, which is the same databases) printed "ESCOPO PRESERVADO"
+ * as an error (13 occurrences in 5 signatures on release 1c3c19c9), and nothing ever stamped it.
+ *
+ * A read that throws answers false, which sends the caller down the preservation path it would
+ * have taken anyway: a failure here must never be the reason anything is written.
+ *
+ * @returns {Promise<boolean>}
+ */
+async function registroDeclaraEsquemaCorrente() {
+    try {
+        const registro = await atlasStore().getItem(ATLAS_RECORD_KEY);
+        return registro?.schemaVersion === ATLAS_SCHEMA_VERSION;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Writes the settings marker the atlas record already vouches for, and says so ONCE.
+ *
+ * WHY THIS IS NOT A WEAKER GUARD. The guard exists because an absent marker over data cannot tell
+ * "installation older than the marker" from "marker lost", and destroying on a guess cost a whole
+ * workspace. Here there is no guess: the record of the same scope says the data is at the current
+ * schema, which is exactly the version the legacy chain has nothing to do for, and nothing is
+ * erased on either branch. A scope with data and NO such record keeps the loud preservation path.
+ * The same repair already exists for isolated copies (`prepareIsolatedScope`, `prepare-scope.js`).
+ *
+ * `console.info` and not `error`: it is the expected state of scopes born before the snapshot
+ * stamped its generation, and an error here is a telemetry defect per boot. After the write the
+ * next boot reads a trustworthy marker and says nothing.
+ *
+ * @returns {Promise<boolean>} True when the marker was written (the caller may trust it); false
+ *   when the write failed, in which case nothing else is written in this boot either.
+ */
+async function repararCarimboPeloRegistro() {
+    try {
+        await appStore().setItem('schemaVersion', ATLAS_SCHEMA_VERSION);
+    } catch (error) {
+        // Aviso e não erro: o dado está intacto e o próximo boot tenta de novo. Um escopo de
+        // servidor cuja cerca de escrita fechou (saída da conta em outra aba) cai aqui.
+        console.warn(
+            'Boot do atlas: carimbo de esquema ausente e o registro declara '
+            + `${ATLAS_SCHEMA_VERSION}; o reparo do carimbo falhou, NADA foi apagado`, error
+        );
+        return false;
+    }
+    console.info(
+        `Boot do atlas: carimbo de esquema reposto em ${ATLAS_SCHEMA_VERSION} a partir do registro `
+        + 'de atlas do mesmo escopo; nada foi apagado'
+    );
+    return true;
+}
+
+/**
  * Checks and cleans incompatible legacy data.
  *
  * A READ THAT FAILS IS NOT A VERDICT ABOUT THE DATA, and treating it as one is what this
@@ -155,7 +220,9 @@ async function medirEscopo() {
  * AND ABSENCE OF THE MARKER IS NOT PROOF OF AGE EITHER. A missing `schemaVersion` means two
  * indistinguishable things (an installation older than the marker, which is empty, and a scope
  * whose marker was lost, which may be full), and the destructive reading was applied to both.
- * The question that separates them is about CONTENT, and it is cheap: `medirEscopo`.
+ * The question that separates them is about CONTENT, and it is cheap: `medirEscopo`. One case is
+ * settled BEFORE that question: when the scope's own atlas record declares the current schema, the
+ * marker is merely missing, and it is written back (`repararCarimboPeloRegistro`).
  *
  * WHAT HAPPENS TO A SCOPE TOO OLD TO MIGRATE THAT NEVERTHELESS HOLDS DATA (a stamp below
  * `MIN_SCHEMA_VERSION`): it is PRESERVED, the boot reports the refusal naming the stamp and the
@@ -182,6 +249,13 @@ async function checkAndCleanLegacyData() {
 
     if (currentSchemaVersion && compareVersions(currentSchemaVersion, MIN_SCHEMA_VERSION) >= 0) {
         return true;
+    }
+
+    // A SEGUNDA TESTEMUNHA, antes de medir: o registro de atlas do MESMO escopo. Ver
+    // `repararCarimboPeloRegistro`. Só o carimbo AUSENTE entra aqui; um carimbo presente e velho
+    // contradiz o registro e continua no caminho de preservação abaixo.
+    if (currentSchemaVersion == null && await registroDeclaraEsquemaCorrente()) {
+        return await repararCarimboPeloRegistro();
     }
 
     const escopo = await medirEscopo();
@@ -376,6 +450,13 @@ export async function clearAllAtlasStores({ preserveBlobUploads = false } = {}) 
     // so the scope has to be settled before the set is resolved. O `.map` abaixo é síncrono e
     // roda depois desta linha, então a ordem continua a mesma que o laço tinha.
     ensureAtlasScope();
+
+    // A VISTA LEMBRADA DA PESSOA SAI JUNTO, no mesmo tique em que o escopo é lido: ela descreve os
+    // mapas do conteúdo que este wipe troca, e o `Principal` chaveado por NOME que o "Limpar Tudo"
+    // recria herdaria a base escolhida para o mapa que acabou de sumir. Mora em `localStorage`, fora
+    // da lista abaixo (`store/vista-da-pessoa-disco.js`).
+    const escopoDoWipe = getActiveScope();
+    if (escopoDoWipe) forgetPersonViews(escopoDoWipe.dbSuffix);
 
     // EM PARALELO, e a razão é que não há dependência nenhuma entre os dez: são bancos
     // IndexedDB distintos, e o laço com `await` dentro pagava dez idas ao disco em fila por

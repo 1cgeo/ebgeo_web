@@ -46,6 +46,11 @@
  * o bloco cuja fonte não respondeu diz isso em vez de imprimir zero (ver `montarResumo`, em
  * `src/utils/diag-consulta.js`).
  *
+ * `enderecos` (2026-09-22) É DE LOG e fica na família de log: a lista de endereços, as contagens
+ * e as abas vêm do `.jsonl`, e ele morre com código 1 num diretório ausente como os irmãos. O
+ * banco entra só para os NOMES das contas, pela mesma função da rota (`nomearContas`), e a
+ * ausência dele não derruba nada: o bloco `contas` diz que ficou cego e a lista sai inteira.
+ *
  * OS TRÊS VERBOS DE CICLO DE VIDA SÃO A ÚNICA ESCRITA DESTE COMANDO. Eles chamam a MESMA
  * função de serviço que a rota `PATCH /diag/defeitos/:id` chama, pela regra de sempre (uma
  * segunda verdade sobre o que "resolver" significa faria a tela e o terminal divergirem), e
@@ -65,6 +70,7 @@
  *   npm run diag -- status [--desde 24h]
  *   npm run diag -- saude [--desde 24h] [--intervalo 5m]
  *   npm run diag -- linhas [--desde 24h] [--filtro texto] [--limite 50]
+ *   npm run diag -- enderecos [--desde 24h] [--limite 100]
  *   npm run diag -- resumo [--desde 24h] [--intervalo 5m]
  *   npm run diag -- defeitos [--desde 24h] [--estado aberto] [--origem store] [--novos]
  *   npm run diag -- defeitos --id <uuid>
@@ -97,6 +103,13 @@ import { MARCADOR_AMOSTRA } from '../src/utils/amostra-de-saude.js';
 // imports) e nunca uma string digitada duas vezes.
 import { criarColetaDoResumo, DEFEITOS_DO_RESUMO } from '../src/modules/diag/resumo.service.js';
 import { lerSonda } from '../src/modules/diag/sonda.service.js';
+// O RELATÓRIO DE ENDEREÇOS, compartilhado com `GET /diag/enderecos`: o acumulador é puro, e o
+// serviço de nomes carrega o pool por `import()` tardio, então trazer os dois aqui não custa banco
+// aos comandos de log (ver o `fileoverview` de `enderecos.service.js`).
+import {
+  criarRelatorioDeEnderecos, idsDeContas, LIMITE_PADRAO_DE_ENDERECOS,
+} from '../src/utils/diag-enderecos.js';
+import { nomearContas, lerContasDoBanco } from '../src/modules/diag/enderecos.service.js';
 // Os DOIS vocabulários entram por import e nunca como literal: são os mesmos que o Joi da
 // rota valida e que o CHECK do banco impõe, e os dois arquivos têm zero imports por
 // contrato, então trazê-los aqui não arrasta `config.js` nem o pool para dentro dos cinco
@@ -133,7 +146,7 @@ const ESTADO_DO_VERBO = Object.freeze({
 });
 
 const COMANDOS = new Set([
-  'erros', 'lento', 'status', 'saude', 'linhas', 'resumo', 'defeitos', 'pilha',
+  'erros', 'lento', 'status', 'saude', 'linhas', 'enderecos', 'resumo', 'defeitos', 'pilha',
   ...Object.keys(ESTADO_DO_VERBO),
 ]);
 
@@ -226,6 +239,10 @@ diag — consulta o log em arquivo e as tabelas de defeito do EBGeo
   npm run diag -- status [--desde 24h]                 contagem por faixa de status
   npm run diag -- saude  [--desde 24h] [--intervalo 5m] buracos na amostra de saúde
   npm run diag -- linhas [--desde 24h] [--filtro texto] despejo cru filtrado
+  npm run diag -- enderecos [--desde 24h] [--limite 100] os endereços IP distintos, com
+                                                       requisições, abas e as contas vistas
+                                                       em cada um (os nomes vêm do banco,
+                                                       e sem ele a lista sai assim mesmo)
   npm run diag -- resumo [--desde 24h]                 UMA tela: defeitos, latência contra a
                                                        janela anterior, saúde, queda vista
                                                        pelo cliente e status
@@ -259,7 +276,8 @@ diag — consulta o log em arquivo e as tabelas de defeito do EBGeo
             casa toda linha que o tenha. Procure pelo valor.
 
   LEEM O BANCO (precisam de DATABASE_URL): defeitos, pilha, resolver, ignorar, reabrir.
-  LEEM O ARQUIVO e respondem com o Postgres fora: erros, lento, status, saude, linhas.
+  LEEM O ARQUIVO e respondem com o Postgres fora: erros, lento, status, saude, linhas,
+  enderecos (este pergunta ao banco só os nomes das contas, e diz quando não conseguiu).
   resumo le OS DOIS, e cada bloco dele diz quando a fonte daquele bloco nao respondeu.
   --estado: ${ESTADOS_DE_DEFEITO.join(' | ')}
   --origem: ${ORIGENS_DE_ERRO.join(' | ')}
@@ -535,6 +553,14 @@ function imprimirSaude(registros, opcoes) {
     process.stdout.write('Isto NÃO é "nenhuma queda", é ausência de medição, e as causas são outras:\n');
     process.stdout.write('  amostrador desligado (HEALTH_SAMPLE=off), log em arquivo desligado\n');
     process.stdout.write('  (LOG_TO_FILE), diretório de log errado, ou processo que não subiu na janela.\n');
+    // A CAUSA QUE O ARQUIVO NÃO TEM COMO CONTAR: o destino se desliga sozinho quando uma escrita
+    // falha, e o que deixa de ser escrito é justamente este arquivo. Este comando só lê o disco,
+    // então ele aponta para as duas testemunhas que existem em vez de adivinhar.
+    process.stdout.write('  O log em arquivo também se DESLIGA SOZINHO quando uma escrita falha (disco\n');
+    process.stdout.write('  cheio, permissão do volume), e o arquivo não tem como registrar isso. O\n');
+    process.stdout.write('  registro durável é um defeito de servidor, que "npm run diag -- resumo" mostra\n');
+    process.stdout.write('  no bloco de saúde; o estado do processo vivo sai em GET /api/v1/diag/saude\n');
+    process.stdout.write('  (campo janela.logEmArquivo).\n');
     if (r.semHorario) {
       process.stdout.write(`\n${r.semHorario} linha(s) de amostra sem horário: existem, mas não têm lugar na série.\n`);
     }
@@ -671,6 +697,79 @@ function imprimirLinhas(linhas, casaram, naJanela, filtro) {
 }
 
 /**
+ * O relatório de endereços, em texto: um endereço por linha, com as contas logo abaixo.
+ *
+ * AS DUAS RESSALVAS SAEM UMA VEZ, no fim, e não por linha: a dos NOMES (quando o banco não
+ * respondeu, as contas saem pelo id, e isso é dito em vez de parecer que a conta não tem nome) e
+ * a do ENDEREÇO ÚNICO, que tem as mesmas duas leituras da nota de `erros` (um cliente só, ou o
+ * proxy no lugar dele) e que este comando também não escolhe.
+ *
+ * O ID DA CONTA SAI CURTO quando não há nome, e INTEIRO no `--json`, pela régua de `cortar`: a
+ * linha do terminal é para ler, o documento é para conferir.
+ *
+ * @param {Object} r - a metade de arquivo, de `criarRelatorioDeEnderecos`
+ * @param {Object} contas - o bloco de `nomearContas`
+ */
+function imprimirEnderecos(r, contas) {
+  const minutos = Math.round(r.recenteMs / 60_000);
+  if (!r.distintos) {
+    process.stdout.write('Nenhuma requisição com endereço na janela.\n');
+    if (r.semEndereco) {
+      process.stdout.write(`(${r.semEndereco} requisição(ões) sem o campo ip, anteriores a ele, ficaram fora)\n`);
+    }
+    return;
+  }
+  process.stdout.write(`${r.distintos} endereço(s) distinto(s) em ${r.requisicoes} requisição(ões); `
+    + `${r.recentes} com requisição nos últimos ${minutos} min ("agora").\n\n`);
+
+  const porId = contas.disponivel ? contas.porId : {};
+  const nomeDa = (id) => {
+    const c = Object.hasOwn(porId, id) ? porId[id] : null;
+    if (!c) return contas.disponivel ? `${id.slice(0, 8)}… (conta removida)` : `${id.slice(0, 8)}…`;
+    const nome = c.nome ? ` (${cortar(c.nome, 30)})` : '';
+    return `${c.username}${nome}${c.ativo ? '' : ' [inativa]'}`;
+  };
+
+  for (const e of r.enderecos) {
+    const ip = e.indeterminado ? `${e.ip} (não determinável)` : e.ip;
+    const marca = e.recente ? '[agora] ' : '        ';
+    // `Math.max(0, …)` porque o relógio de quem escreveu pode estar alguns segundos à frente do de
+    // quem lê, e "há -3s" se leria como defeito do comando.
+    const quando = e.ultima === null
+      ? 'sem horário'
+      : `última ${hora(e.ultima)} (há ${duracao(Math.max(0, Date.now() - e.ultima))})`;
+    process.stdout.write(`${marca}${ip}\n`);
+    process.stdout.write(`         ${quando}   primeira na janela ${hora(e.primeira)}\n`);
+    process.stdout.write(`         ${e.requisicoes} requisição(ões), ${e.comErro} com erro, ${e.sessoes} aba(s) identificada(s)\n`);
+    const partes = e.contas.map((c) => `${nomeDa(c.userId)} ×${c.requisicoes}`);
+    if (e.contasDistintas > e.contas.length) partes.push(`e mais ${e.contasDistintas - e.contas.length} conta(s)`);
+    if (e.anonimas) {
+      const publico = e.deLinkPublico ? `, ${e.deLinkPublico} de link público` : '';
+      partes.push(`anônimo ×${e.anonimas}${publico}`);
+    }
+    process.stdout.write(`         ${partes.join(' · ')}\n\n`);
+  }
+  if (r.distintos > r.enderecos.length) {
+    process.stdout.write(`... e mais ${r.distintos - r.enderecos.length} endereço(s), os de atividade mais antiga. Use --limite.\n`);
+  }
+  if (r.semEndereco) {
+    process.stdout.write(`${r.semEndereco} requisição(ões) sem o campo ip (anteriores a ele) ficaram fora da lista.\n`);
+  }
+  if (!contas.disponivel) {
+    process.stdout.write(`\nNOMES DAS CONTAS INDISPONÍVEIS: ${contas.motivo}\n`);
+    process.stdout.write('Os endereços acima vêm do log e continuam valendo; as contas saem pelo id.\n');
+  }
+  if (r.distintos === 1) {
+    process.stdout.write('\nA JANELA INTEIRA TEM UM ENDEREÇO SÓ, e isso tem duas leituras que este comando não\n');
+    process.stdout.write('escolhe: um cliente só, ou o endereço do proxy em toda linha (TRUST_PROXY_HOPS em\n');
+    process.stdout.write('desacordo com os proxies à frente, ou um proxy de desenvolvimento que não repassa o\n');
+    process.stdout.write('endereço de quem pediu). É indício, não veredito.\n');
+  }
+  process.stdout.write('\nUm endereço é o que o servidor viu depois do proxy reverso: numa rede com NAT ele pode\n');
+  process.stdout.write('ser uma organização inteira. "Agora" é tráfego recente, não presença.\n');
+}
+
+/**
  * O ÚNICO documento que o modo `--json` escreve no stdout.
  *
  * O ENVELOPE TEM TRÊS CAMPOS FIXOS e o resto é a estrutura do comando, espalhada na raiz:
@@ -754,6 +853,31 @@ async function fecharBanco() {
   if (!bancoAberto) return;
   await Promise.resolve(bancoAberto.pgp.end()).catch(() => {});
   bancoAberto = null;
+}
+
+/**
+ * Os nomes das contas de `enderecos`, pela MESMA função da rota, com o pool aberto do jeito do
+ * comando: tarde, só se houver conta a nomear, com o logger silenciado antes, e sempre fechado.
+ *
+ * `abrirBanco` MORA DENTRO DO LEITOR e não antes, e é isso que mantém o comando de log respondendo
+ * sem banco: um `DATABASE_URL` ausente faz `config.js` lançar na importação, o leitor rejeita, e
+ * `nomearContas` transforma a rejeição no bloco cego com a mensagem. A lista de endereços já está
+ * pronta nesse ponto e não depende de nada disto.
+ *
+ * @param {string[]} ids
+ * @returns {Promise<Object>} o bloco `contas`
+ */
+async function nomearContasPeloTerminal(ids) {
+  try {
+    return await nomearContas(ids, {
+      lerContas: async (unicos) => {
+        await abrirBanco();
+        return lerContasDoBanco(unicos);
+      },
+    });
+  } finally {
+    await fecharBanco();
+  }
 }
 
 /** UUID v4 canônico, o formato que a coluna `id` de `defeitos` tem. */
@@ -1446,6 +1570,28 @@ function imprimirSonda(sonda) {
   process.stdout.write('   sonda no MESMO host cai junto com o servidor (ali a queda é a AUSÊNCIA de batidas).\n');
 }
 
+/**
+ * O DESLIGAMENTO DO LOG EM ARQUIVO, lido dos defeitos de servidor (`logEmArquivo` do bloco de
+ * saúde de `montarResumo`).
+ *
+ * ELE SÓ FALA QUANDO HÁ O QUE DIZER, ao contrário da sonda: a ausência de desligamento é o
+ * estado normal, e o bloco de defeitos logo acima já declara o banco cego quando ele está.
+ * Uma linha "nenhum desligamento" em toda saída ensinaria a pular a linha no dia em que ela
+ * disser outra coisa.
+ *
+ * @param {Object|undefined} bloco - o sub-bloco `saude.logEmArquivo`
+ * @returns {void}
+ */
+function imprimirDesligamentosDoLog(bloco) {
+  if (!bloco || !bloco.disponivel || !bloco.desligamentos.length) return;
+  const ultimo = [...bloco.desligamentos].sort((a, b) => (b.ultimaEm ?? 0) - (a.ultimaEm ?? 0))[0];
+  const vezes = bloco.desligamentos.reduce((s, d) => s + (d.ocorrencias ?? 0), 0);
+  process.stdout.write(`   LOG EM ARQUIVO DESLIGADO pelo servidor ${vezes} vez(es) na janela, a última há ${duracao(Date.now() - ultimo.ultimaEm)}:\n`);
+  process.stdout.write(`   ${ultimo.mensagem}\n`);
+  process.stdout.write('   Por isso a série acima pode ter buraco (ou nenhuma amostra) com o processo DE PÉ.\n');
+  process.stdout.write(`   Detalhe: npm run diag -- defeitos --id ${ultimo.id}\n`);
+}
+
 function cabecalhoDeBloco(titulo, bloco) {
   process.stdout.write(`\n── ${titulo} ${'─'.repeat(Math.max(0, 66 - titulo.length))}\n`);
   if (!bloco.disponivel) {
@@ -1536,6 +1682,10 @@ function imprimirResumo(r) {
       process.stdout.write(`   disco do log na última amostra: ${s.discoNaUltima.livreMb} MB livres de ${s.discoNaUltima.totalMb} MB (indício, não veredito)\n`);
     }
   }
+
+  // FORA DO `if`, pela mesma razão da sonda abaixo: o desligamento do log vem do BANCO, e o caso
+  // em que ele mais importa é justamente o bloco de saúde sem fonte ou "sem-amostras".
+  imprimirDesligamentosDoLog(r.saude?.logEmArquivo);
 
   // AS DUAS FONTES DESTE BLOCO SAO INDEPENDENTES, e por isso a da sonda e' impressa FORA do
   // `if`: com o Postgres fora, o cabecalho declara o bloco cego e a sonda continua tendo o que
@@ -1863,6 +2013,24 @@ async function coletar(op, dir, janela, agora) {
       leitura,
       imprimir: () => imprimirStatus(contagem),
       estrutura: () => contagem,
+    };
+  }
+
+  if (op.comando === 'enderecos') {
+    // UMA PASSADA, e o acumulador é o MESMO da rota (`criarRelatorioDeEnderecos`): o que ele
+    // retém é proporcional ao número de endereços e de abas, não ao de linhas. O `agora` é o da
+    // leitura, e é ele que decide o "usando agora" de cada endereço.
+    const acumulador = criarRelatorioDeEnderecos({ agora: agora.getTime() });
+    const leitura = await percorrerRegistros(dir, janela, agora, (reg) => acumulador.ver(reg));
+    const limiteDeEnderecos = op.limite || LIMITE_PADRAO_DE_ENDERECOS;
+    const relatorio = acumulador.resultado({ limite: limiteDeEnderecos });
+    const contas = await nomearContasPeloTerminal(idsDeContas(relatorio));
+    return {
+      leitura,
+      imprimir: () => imprimirEnderecos(relatorio, contas),
+      // O MESMO DOCUMENTO DA ROTA, menos a procedência (que aqui é o envelope `janela`): a metade
+      // de arquivo e o bloco `contas`, nessa ordem.
+      estrutura: () => ({ ...relatorio, contas }),
     };
   }
 

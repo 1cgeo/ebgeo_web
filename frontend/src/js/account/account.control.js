@@ -992,9 +992,9 @@ export class AccountControl {
                     if (!claim.granted) {
                         retractAtlasClaim();
                         showWarning(
-                            'O atlas foi criado no servidor, mas outra aba assumiu este atlas '
-                            + 'enquanto isso. Seus dados locais continuam aqui, intactos: feche a '
-                            + 'outra aba e abra o atlas em "Meus Atlas".',
+                            'O atlas foi criado no servidor, mas está aberto em outra aba. Seus '
+                            + 'dados locais continuam aqui: feche a outra aba e abra o atlas em '
+                            + '"Meus Atlas".',
                             { duration: 10000 }
                         );
                         return;
@@ -1020,8 +1020,7 @@ export class AccountControl {
                         retractAtlasClaim();
                         showWarning(
                             'O atlas foi criado no servidor, mas não foi possível abri-lo agora. '
-                            + 'Seus dados locais continuam aqui, intactos: abra o atlas em '
-                            + '"Meus Atlas".',
+                            + 'Seus dados locais continuam aqui: abra o atlas em "Meus Atlas".',
                             { duration: 10000 }
                         );
                         console.error('[AccountControl] activateRemoteAtlas failed:', error);
@@ -1040,17 +1039,27 @@ export class AccountControl {
                     this._render();
 
                     const { stats, imageStats } = result;
-                    let msg = `Atlas salvo no servidor (${stats.maps} mapa(s), ${stats.features} feição(ões))`;
+                    const mapas = stats.maps === 1 ? '1 mapa' : `${stats.maps} mapas`;
+                    const feicoes = stats.features === 1 ? '1 feição' : `${stats.features} feições`;
+                    let msg = `Atlas salvo no servidor (${mapas}, ${feicoes})`;
                     const lostImages = (imageStats.skipped || 0) + (imageStats.failed || 0);
-                    if (lostImages > 0) msg += ` — ${lostImages} imagem(ns) não enviada(s)`;
+                    if (lostImages > 0) {
+                        msg += lostImages === 1
+                            ? '. 1 imagem não foi enviada'
+                            : `. ${lostImages} imagens não foram enviadas`;
+                    }
                     // Publicado SEM, por decisão da pessoa na pergunta de antes do envio: o toast
                     // repete a contagem para que o desfecho diga o que o diálogo combinou.
-                    if (imageStats.missing > 0) msg += `. Subiu sem ${imageStats.missing} figura(s) que não tinha(m) arquivo`;
+                    if (imageStats.missing > 0) {
+                        msg += imageStats.missing === 1
+                            ? '. Subiu sem 1 figura que não tinha arquivo'
+                            : `. Subiu sem ${imageStats.missing} figuras que não tinham arquivo`;
+                    }
                     showSuccess(msg);
                 } catch (error) {
                     // "Cancelar" na pergunta das figuras é DECISÃO: nada foi publicado, nada a
                     // acusar. O erro segue adiante para o modal, que continua aberto.
-                    if (!error?.cancelled) showError('Falha ao salvar o atlas no servidor');
+                    if (!error?.cancelled) showError('Não foi possível salvar o atlas no servidor. Tente de novo.');
                     console.error('[AccountControl] saveLocalAtlasToServer failed:', error);
                     throw error;
                 }
@@ -1092,7 +1101,7 @@ export class AccountControl {
             // receiving our own `atlas_deleted` before the socket closes.
             await this._handleRemoteAtlasDeleted('excluido');
         } catch (error) {
-            showError('Falha ao excluir o atlas');
+            showError('Não foi possível excluir o atlas. Tente de novo.');
             console.error('[AccountControl] deleteAtlas failed:', error);
         }
     }
@@ -1160,7 +1169,7 @@ export class AccountControl {
         try {
             syncEngine.configure({ baseUrl: resolveBackendBaseUrl() });
         } catch (error) {
-            showError('Falha ao configurar a conexão com o servidor');
+            showError('Não foi possível conectar ao servidor. Recarregue a página e tente de novo.');
             console.error('[AccountControl] configure failed:', error);
             return;
         }
@@ -1275,9 +1284,8 @@ export class AccountControl {
         // taken, so this text must cover both without saying which. See `_handleRegister`'s
         // fileoverview note on non-enumeration.
         const choice = await showChoice('Confira sua caixa de entrada', {
-            message: `Solicitação processada para ${email}. Confira as instruções de confirmação `
-                + 'ou de acesso na sua caixa de entrada e no spam. Se nada chegar, tente reenviar '
-                + 'a confirmação ou procure o administrador.',
+            message: `Enviamos um e-mail para ${email} com os próximos passos. Se não chegar em `
+                + 'alguns minutos, confira a caixa de spam ou reenvie.',
             choices: [
                 { id: 'ok', label: 'Entendi', variant: 'ghost' },
                 { id: 'resend', label: 'Reenviar e-mail', variant: 'primary' }
@@ -1411,9 +1419,9 @@ export class AccountControl {
                     showWarning(
                         chosePreserve
                             ? exitPreservedSummary(rescuedAtlasName(mountedAtlasName))
-                            : 'Sua sessão terminou com alterações que ainda não foram enviadas ao '
-                                + 'servidor. Elas foram mantidas neste computador como atlas local: '
-                                + 'entre novamente e use "Enviar ao servidor".',
+                            : 'Sua sessão terminou com alterações ainda não enviadas ao servidor. '
+                                + 'Elas foram guardadas neste computador como atlas local: entre de '
+                                + 'novo e use "Enviar ao servidor".',
                         { duration: 10000 }
                     );
                 } else if (chosePreserve) {
@@ -1440,12 +1448,11 @@ export class AccountControl {
                     showError(
                         rescueVetoRecorded(mountedAtlasId)
                             ? 'Sua sessão terminou e NÃO foi possível guardar as alterações '
-                                + 'pendentes como atlas local. Elas continuam neste computador '
-                                + 'por tempo limitado: entre novamente o quanto antes para que '
-                                + 'sejam enviadas ao servidor.'
+                                + 'não enviadas como atlas local. Elas ficam neste computador por '
+                                + 'tempo limitado: entre de novo o quanto antes para enviá-las.'
                             : 'Sua sessão terminou e NÃO foi possível guardar as alterações '
-                                + 'pendentes como atlas local. Não feche esta aba: entre '
-                                + 'novamente para que elas sejam enviadas ao servidor.',
+                                + 'não enviadas como atlas local. Não feche esta aba: entre de novo '
+                                + 'para enviá-las.',
                         { duration: 0 }
                     );
                 }
@@ -1516,8 +1523,8 @@ export class AccountControl {
                 // Pending-work loss was confirmed by the voluntary gesture before teardown.
                 if (eraRemoto && !involuntary) {
                     showToast(
-                        'Você saiu da conta. O atlas do servidor foi removido deste computador e '
-                        + 'continua no servidor: ele volta quando você entrar de novo.',
+                        'Você saiu da conta. A cópia do atlas neste computador foi apagada; ele '
+                        + 'continua no servidor e volta quando você entrar de novo.',
                         'info'
                     );
                 }
@@ -1541,7 +1548,7 @@ export class AccountControl {
             this._username = null;
             this._render();
         } catch (error) {
-            showError('Falha ao sair da conta');
+            showError('Não foi possível sair da conta. Tente de novo.');
             console.error('[AccountControl] logout failed:', error);
         }
     }

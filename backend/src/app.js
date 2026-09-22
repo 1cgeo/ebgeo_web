@@ -155,6 +155,17 @@ export function createApp() {
   // A pool-level `connectionTimeoutMillis` / `statement_timeout` would bound this
   // for the whole backend, not just here; that is a database/index.js change, left
   // out of this fix's scope on purpose.
+  //
+  // IT DOES NOT FAIL WHEN THE FILE LOG SWITCHED ITSELF OFF, and that is a decision (2026-09-22,
+  // `docs/decisions/decisions-2026.md`), not an omission. Three reasons. This route is the
+  // AVAILABILITY witness: the external probe (`scripts/sonda-disponibilidade.js`) records every
+  // non-200 as the server being down, so a 503 here would write outages into the instrument
+  // that measures them while users are being served. An orchestrator that restarts unhealthy
+  // containers would restart into the boot write probe (`utils/sonda-de-escrita.js`), which
+  // refuses a full or unwritable volume: a lost log would become a total outage. And the loss is
+  // not silent any more: it is in `GET /api/v1/diag/saude` and `/resumo` (`janela.logEmArquivo`)
+  // and becomes a server defect. Unwritable directories at BOOT are caught before this route
+  // ever answers, because the process refuses to listen.
   app.get('/api/v1/health', async (req, res) => {
     let timer;
     try {

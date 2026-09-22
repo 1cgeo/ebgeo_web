@@ -170,7 +170,7 @@ describe('clipboardMenuActions — estado (mapa travado)', () => {
     it('a frase é A MESMA do menu de mapa, e não uma quarta cópia dela', () => {
         // Asserção ABSOLUTA além da igualdade importada: duas cópias erradas do mesmo jeito
         // passariam por uma comparação sozinha.
-        expect(LOCKED_MAP_NOTICE).toBe('Este mapa está bloqueado. Destrave-o para fazer esta alteração.');
+        expect(LOCKED_MAP_NOTICE).toBe('Mapa bloqueado. Desbloqueie para fazer esta alteração.');
     });
 
     it('copiar NÃO é bloqueado pela trava: um mapa travado é somente-leitura, e copiar lê', () => {

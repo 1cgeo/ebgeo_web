@@ -33,9 +33,14 @@
  */
 
 import { validateMapLibreStyle } from '@utils/maplibre-style-validate.js';
+import { withLiteralGlyphTokens } from './glyphs-template.js';
 
 /**
  * The style for a basemap id, or null when none is usable.
+ *
+ * An object style comes back with its `glyphs` tokens LITERAL (`withLiteralGlyphTokens`): this is
+ * the point every basemap style passes before MapLibre sees it, and MapLibre substitutes the
+ * tokens by text. A style that needs no repair comes back by identity.
  * @param {string} id - Basemap id.
  * @param {Object<string, Object>} builtinStyles - The styles shipped with the client (`STYLE_MAP`).
  * @param {Object<string, Object|string>} [publishedStyles] - `config.basemapStyles` from the server.
@@ -46,11 +51,13 @@ export function resolveBasemapStyle(id, builtinStyles, publishedStyles) {
 
     const published = publishedStyles?.[id];
     if (typeof published === 'string' && published.trim()) return published;
-    if (published && typeof published !== 'string' && validateMapLibreStyle(published).ok) return published;
+    if (published && typeof published !== 'string' && validateMapLibreStyle(published).ok) {
+        return withLiteralGlyphTokens(published);
+    }
 
     // A QUEDA, e não o caminho principal: o embutido vale quando o servidor não publicou nada
     // utilizável para este id. Um publicado malformado chega aqui de propósito (ver o cabeçalho).
-    return builtinStyles?.[id] ?? null;
+    return withLiteralGlyphTokens(builtinStyles?.[id] ?? null);
 }
 
 /**

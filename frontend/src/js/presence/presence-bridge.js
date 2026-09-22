@@ -18,6 +18,22 @@
  *              MARKER_3D_CLICKED / _DESELECTED           -> wsClient.sendSelection (3D)  [case F]
  *              MARKER_360_CLICKED / _DESELECTED          -> wsClient.sendSelection (360) [case F]
  *              BRIEFING_EDIT_STARTED / _ENDED            -> wsClient.sendBriefingEdit[case D]
+ *              VIEWER_3D_* / STREETVIEW_360_* / FIRST_PERSON_* -> wsClient.sendViewer    [case V]
+ *   inbound  : wsClient 'viewerContext' -> presenceStore.setViewer                          [case V]
+ *
+ * CASE V, THE VIEWER CONTEXT (owner, 2026-09-22): which 3D model, walkable scene or 360 photo each
+ * colleague has open, so the roster can say more than the map. The bridge sends only the
+ * IDENTIFIER; the server resolves the name from the catalog and sends it only to the recipients
+ * who may see that resource, the others receiving the viewer kind without it
+ * (`backend/src/modules/collab/collab.viewer.js`). The listened events are the ones the three
+ * viewers already emitted; none of them had to change. The public-link visitor sends nothing,
+ * by the rule that already keeps its cursor home.
+ *
+ * OUR OWN CONNECTION LEAVING ONLINE CLEARS THE ROSTER (2026-09-22). While the socket is down the
+ * store keeps receiving nothing, so every peer stays listed in the state of the moment it fell,
+ * including those who leave meanwhile; when the reconnection keeps failing (a token that expired
+ * during a suspended laptop, a server that is down) that picture never gets corrected. The next
+ * `connected` repopulates it from the server's room, which is the only truth about who is there.
  *
  * O INSTANTE DA LINHA DO TEMPO NÃO VIAJA (dono, 2026-09-21). Existiu aqui um "caso E" que
  * assinava TEMPORAL_CURSOR_CHANGED, coalescia e mandava `{cursor, label, playing}` ao par, que
@@ -48,6 +64,7 @@
 import { wsClient } from '@store/sync/ws-client.js';
 import { checkPermission } from '@store/sync/permission-guard.js';
 import { sessionContext } from '@store/sync/session-context.js';
+import { ConnectionStates } from '@store/sync/connection-state.js';
 import { presenceStore } from '@js/presence/presence-store.js';
 import {
     getCurrentMapNameSync,
@@ -66,7 +83,7 @@ import {
 const CURSOR_THROTTLE_MS = 80;
 
 /** WS inbound events this bridge owns (restored to no-ops on stop). */
-const OWNED_WS_EVENTS = Object.freeze(['connected', 'presence', 'cursor', 'selection', 'briefingEdit']);
+const OWNED_WS_EVENTS = Object.freeze(['connected', 'presence', 'cursor', 'selection', 'briefingEdit', 'viewerContext']);
 
 /**
  * Module-level bridge state. Doubles as the "instance" passed to the
@@ -80,7 +97,67 @@ const state = {
     _map: null,
     _cursorThrottle: { last: 0, timer: null, pending: null },
     _stateUnsub: null,
+    _viewers: freshViewers(),
+    _viewerSent: null,
 };
+
+/**
+ * What each immersive viewer has open right now, one slot per viewer. They are tracked apart
+ * because they can overlap (the walkable scene opens from the 3D control), and the context that
+ * travels is the one on TOP: scene, then 360, then 3D. A close empties only its own slot, so
+ * closing the scene falls back to the 3D model still open underneath.
+ * @returns {{ fp: (string|null), s360: (string|null), m3d: (string|null) }}
+ */
+function freshViewers() {
+    return { fp: null, s360: null, m3d: null };
+}
+
+/**
+ * The viewer context this client should be announcing, from the slots.
+ * @returns {{ surface: '2d'|'3d'|'360'|'fp', tilesetId?: string, photoName?: string }}
+ */
+function currentViewerFrame(viewers = state._viewers) {
+    if (viewers.fp) return { surface: 'fp', tilesetId: viewers.fp };
+    if (viewers.s360) return { surface: '360', photoName: viewers.s360 };
+    if (viewers.m3d) return { surface: '3d', tilesetId: viewers.m3d };
+    return { surface: '2d' };
+}
+
+/**
+ * Sends the viewer context when it CHANGED from the last one this socket announced.
+ *
+ * `force` is the reconnect path: a new socket starts with no context on the server, so what was
+ * announced to the previous one has to be said again, unless it is the map, which is the default.
+ * The public-link visitor sends nothing (the server would drop it anyway).
+ * @param {{ force?: boolean }} [opts]
+ */
+function announceViewer({ force = false } = {}) {
+    if (!wsClient.isConnected() || sessionContext.isVisitor()) {
+        return;
+    }
+    const frame = currentViewerFrame();
+    const key = `${frame.surface}|${frame.tilesetId ?? ''}|${frame.photoName ?? ''}`;
+    if (force && frame.surface === '2d') {
+        state._viewerSent = key;
+        return;
+    }
+    if (!force && state._viewerSent === key) {
+        return;
+    }
+    if (wsClient.sendViewer(frame)) {
+        state._viewerSent = key;
+    }
+}
+
+/**
+ * Applies one viewer lifecycle event to its slot and re-announces.
+ * @param {'fp'|'s360'|'m3d'} slot
+ * @param {*} value - The identifier now open, or null on close.
+ */
+function setViewerSlot(slot, value) {
+    state._viewers[slot] = value !== undefined && value !== null && value !== '' ? String(value) : null;
+    announceViewer();
+}
 
 /**
  * Routes a WS `presence` frame to the matching presence-store mutation.
@@ -321,17 +398,22 @@ export function startPresence({ map } = {}) {
     state._started = true;
     state._map = map || null;
     state._cursorThrottle = { last: 0, timer: null, pending: null };
+    state._viewers = freshViewers();
+    state._viewerSent = null;
 
     setupCleanup(state);
 
     // Inbound: WS -> presence store.
     wsClient.on('connected', (payload) => {
         presenceStore.setInitial((payload && payload.usersOnline) || []);
+        // A new socket starts with no viewer context on the server: say it again (case V).
+        announceViewer({ force: true });
     });
     wsClient.on('presence', routePresence);
     wsClient.on('cursor', (msg) => presenceStore.setCursor(msg));
     wsClient.on('selection', (msg) => presenceStore.setSelection(msg));
     wsClient.on('briefingEdit', routeBriefingEdit);
+    wsClient.on('viewerContext', (msg) => presenceStore.setViewer(msg));
 
     // Outbound: local cursor -> peers (throttled). MapLibre's Map is an Evented
     // emitter (on/off), not a DOM node, so we bind directly and unbind in stop().
@@ -362,6 +444,29 @@ export function startPresence({ map } = {}) {
     subscribe(state, eventBus, EventTypes.ATLAS_SWITCHED, () => {
         if (!wsClient.isConnected()) presenceStore.clear();
     });
+
+    // OUR OWN SOCKET LEAVING ONLINE (2026-09-22). See the fileoverview: without a socket nobody
+    // corrects the roster, and a peer who leaves meanwhile stays listed for as long as the
+    // reconnection keeps failing. ONLINE is excluded because `_onConnected` transitions to it
+    // right BEFORE emitting `connected`, whose `setInitial` is what repopulates the list.
+    subscribe(state, eventBus, EventTypes.CONNECTION_STATE_CHANGED, ({ currentState } = {}) => {
+        if (!currentState || currentState === ConnectionStates.ONLINE) return;
+        state._viewerSent = null;
+        presenceStore.clear();
+    });
+
+    // Case V — the viewer context. Each viewer's own lifecycle events, one slot per viewer.
+    subscribe(state, eventBus, EventTypes.VIEWER_3D_OPENED, ({ tilesetId } = {}) => setViewerSlot('m3d', tilesetId));
+    subscribe(state, eventBus, EventTypes.VIEWER_3D_CLOSED, () => setViewerSlot('m3d', null));
+    subscribe(state, eventBus, EventTypes.STREETVIEW_360_OPENED, ({ photoName } = {}) => setViewerSlot('s360', photoName));
+    // Walking from photo to photo. Only while the 360 is OPEN: a load that finishes after the
+    // viewer closed must not reopen the context the close just cleared.
+    subscribe(state, eventBus, EventTypes.STREETVIEW_360_PHOTO_CHANGED, ({ currentPhoto } = {}) => {
+        if (state._viewers.s360 !== null) setViewerSlot('s360', currentPhoto);
+    });
+    subscribe(state, eventBus, EventTypes.STREETVIEW_360_CLOSED, () => setViewerSlot('s360', null));
+    subscribe(state, eventBus, EventTypes.FIRST_PERSON_OPENED, ({ sceneId } = {}) => setViewerSlot('fp', sceneId));
+    subscribe(state, eventBus, EventTypes.FIRST_PERSON_CLOSED, () => setViewerSlot('fp', null));
 
     // NÃO ASSINE AQUI `TEMPORAL_CURSOR_CHANGED` (dono, 2026-09-21): o instante da linha do tempo
     // é visualização de cada um e não se propaga. O evento continua no barramento para o 3D, o 360
@@ -450,6 +555,8 @@ export function stopPresence() {
     }
 
     state._cursorThrottle = { last: 0, timer: null, pending: null };
+    state._viewers = freshViewers();
+    state._viewerSent = null;
     state._map = null;
     state._started = false;
 

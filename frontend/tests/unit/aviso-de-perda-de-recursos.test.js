@@ -46,7 +46,7 @@ vi.mock('@js/config.js', () => ({
     },
 }));
 
-import { descreverPerdas, nomeDeRecursoConhecido } from '../../src/js/catalog/resource-reference.resolver.js';
+import { descreverPerdas, descreverPerdasDoServidor, nomeDeRecursoConhecido } from '../../src/js/catalog/resource-reference.resolver.js';
 
 const URL_EXPORT = new URL('../../src/js/import_export/export-import.service.js', import.meta.url);
 const URL_MAPS = new URL('../../src/js/sidebar/tabs/maps.tab.js', import.meta.url);
@@ -76,11 +76,11 @@ describe('`descreverPerdas`: o texto que o usuário lê antes de perder o restri
 
         // PISO: uma linha por superfície do relatório, na ordem em que ele as trouxe.
         expect(linhas).toHaveLength(2);
-        expect(linhas[0]).toBe('• 4 camada(s) de catálogo (Hidrografia, Rodovias, Ferrovias e mais 1)');
+        expect(linhas[0]).toBe('• 4 camadas de catálogo (Hidrografia, Rodovias, Ferrovias e mais 1)');
 
         // A contagem vem de `porSuperficie` e NÃO do número de nomes: aqui são 2 perdas e
         // um nome só, porque o segundo id não está no catálogo deste cliente.
-        expect(linhas[1]).toBe('• 2 marcador(es) 3D (Cidade 3D)');
+        expect(linhas[1]).toBe('• 2 marcadores 3D (Cidade 3D)');
 
         // DISCRIMINAÇÃO do teto de três: o quarto nome existe no catálogo e mesmo assim
         // não sai. Sem esta linha, "e mais 1" passaria verde num aviso que listasse tudo.
@@ -118,22 +118,37 @@ describe('`descreverPerdas`: o texto que o usuário lê antes de perder o restri
             nomeados: [{ superficie: 'sv360.markers', grupo: 'views360', id: 'foto-alfa.jpg' }],
         });
 
-        expect(texto).toBe('• 3 marcador(es) em foto 360');
+        expect(texto).toBe('• 3 marcadores em foto 360');
         expect(texto).not.toContain('foto-alfa.jpg');
-        // No trailing name group. (A bare "(" cannot be the probe: the label itself carries
-        // one, in "marcador(es)".)
+        // No trailing name group. (A bare "(" cannot be the probe: some labels carry one of
+        // their own, like "camada de base (volta para a padrão)".)
         expect(texto).not.toMatch(/\([^)]*\)$/);
     });
 
-    it('SUJO: superfície desconhecida cai para a própria chave como rótulo', () => {
+    it('SUJO: superfície desconhecida sai com rótulo genérico, e nunca com a chave crua', () => {
         // Superfície nova no registro de referências e ausente do mapa de rótulos: o aviso
-        // degrada para a chave em vez de sumir com a linha (perda contada é perda avisada).
+        // continua contando a linha (perda contada é perda avisada), mas desde 2026-09-22 com um
+        // rótulo genérico: a chave crua ("settings.available_3d_models") é jargão do documento.
         const texto = descreverPerdas({
             total: 1,
             porSuperficie: { 'nova.superficie': 1 },
             nomeados: [],
         });
-        expect(texto).toBe('• 1 nova.superficie');
+        expect(texto).toBe('• 1 item de outro tipo');
+        expect(texto).not.toContain('nova.superficie');
+        expect(descreverPerdas({ total: 2, porSuperficie: { 'nova.superficie': 2 }, nomeados: [] }))
+            .toBe('• 2 itens de outro tipo');
+    });
+
+    it('o relatório do SERVIDOR com as listas de `atlas.settings` sai em pt-BR, no número certo', () => {
+        // O servidor anota as cinco listas e o padrão; até 2026-09-22 só o padrão tinha rótulo, e
+        // as outras saíam na tela como a chave do documento.
+        expect(descreverPerdasDoServidor({ 'settings.available_3d_models': 2 }))
+            .toBe('• 2 modelos 3D do catálogo');
+        expect(descreverPerdasDoServidor({ 'settings.available_360_views': 1 }))
+            .toBe('• 1 projeto 360 do catálogo');
+        expect(descreverPerdasDoServidor({ 'comments.foto360': 3 }))
+            .toBe('• 3 comentários em foto 360');
     });
 
     it('SUJO: o mesmo nome duas vezes na mesma superfície aparece uma vez só', () => {
@@ -145,7 +160,7 @@ describe('`descreverPerdas`: o texto que o usuário lê antes de perder o restri
                 { superficie: 'mapa.catalogLayers', grupo: 'dataLayers', id: 'dl-0001' },
             ],
         });
-        expect(texto).toBe('• 2 camada(s) de catálogo (Hidrografia)');
+        expect(texto).toBe('• 2 camadas de catálogo (Hidrografia)');
     });
 
     it('sem perda não há aviso: `total: 0` e relatório ausente devolvem null', () => {

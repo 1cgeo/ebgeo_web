@@ -103,7 +103,7 @@ describeOrSkip('exportar le o repositorio, e nao a memoria do mapa corrente', ()
         // (mapas, grupos, camadas, 3D/360, temporal, comentarios, briefings, ordem, imagens e
         // icones ja foram escritos quando ele aparece). Ancorar na propria quantia que se vai
         // asserir transformaria a assercao num timeout mudo no dia em que o defeito voltar.
-        await expect(page.locator('.toast', { hasText: `${esperado.maps} mapas carregados!` }))
+        await expect(page.locator('.toast', { hasText: `${esperado.maps} mapas carregados.` }))
             .toBeVisible({ timeout: 60000 });
 
         // ============================ O ATO SOB MEDICAO ============================

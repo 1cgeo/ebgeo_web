@@ -20,11 +20,20 @@
 //
 // ELE DIRIGE O CONTROLE DE VERDADE, no molde de `tests/unit/troca-de-base-decide-pelo-mapa.test.js`.
 // O QUE NÃO ALCANÇA: MapLibre real, sync real e DOM; isso é do Playwright.
+//
+// DESDE 2026-09-22 A ESCOLHA É LEMBRADA NESTE COMPUTADOR (pedido do dono), e "não grava" passou a
+// querer dizer "não grava o DOCUMENTO do mapa e não enfileira": o seletor escreve a vista lembrada
+// da pessoa (`store/vista-da-pessoa.js`, aqui um dublê que registra as escritas) e a entrada no
+// mapa a lê antes da vista salva. Os casos de "lembrar" moram no último bloco; que a lembrança não
+// viaja e morre com o atlas é `tests/integration/vista-da-pessoa-lembrada.test.js`.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 
-const chamadas = { setBaseLayer: [], setupMapFeatures: [], vistaTemporal: [] };
+const chamadas = { setBaseLayer: [], setupMapFeatures: [], vistaTemporal: [], avisoDeBase: 0 };
+// O dublê da vista lembrada, por NOME de mapa. `personViewTarget()` sem argumento é o mapa corrente,
+// como no módulo real, que lê a memória da store.
+const lembranca = { porMapa: new Map(), escritas: [], esquecidos: [] };
 const barramento = criarBarramento();
 const estado = {
     mapaAtivo: 'mapa-1',
@@ -62,7 +71,7 @@ vi.mock('../../src/js/store', () => ({
     getCurrentBaseLayer: async () => estado.baseSalva,
     hasMapSavedPosition: async () => estado.temPosicaoSalva,
     getMapPosition: async () => ({ center_lat: -15, center_long: -47, zoom: 9, bearing: 0, pitch: 0 }),
-    applySavedMapTemporalView: async (mapName) => { chamadas.vistaTemporal.push(mapName); return true; },
+    applyMapEntryTemporalView: async (mapName) => { chamadas.vistaTemporal.push(mapName); return true; },
     getCatalogLayers: async () => [],
     getEventBus: () => barramento,
     getStateManager: () => ({
@@ -79,7 +88,24 @@ vi.mock('../../src/js/store/atlas-appearance.service.js', () => ({
 }));
 
 vi.mock('../../src/js/terrain/layer-failure-notice.js', () => ({
-    getLayerFailureNotice: () => ({ reportBasemapFailure: () => {}, clearBasemapFailure: () => {} }),
+    getLayerFailureNotice: () => ({
+        reportBasemapFailure: () => { chamadas.avisoDeBase += 1; },
+        clearBasemapFailure: () => {},
+    }),
+}));
+
+vi.mock('../../src/js/store/vista-da-pessoa.js', () => ({
+    personViewTarget: (mapName = null) => ({ mapKey: mapName ?? estado.mapaAtivo }),
+    rememberedMapView: (mapName) => ({ ...(lembranca.porMapa.get(mapName) ?? {}) }),
+    rememberMapView: (alvo, escolha) => {
+        lembranca.escritas.push({ mapa: alvo.mapKey, ...escolha });
+        lembranca.porMapa.set(alvo.mapKey, { ...(lembranca.porMapa.get(alvo.mapKey) ?? {}), ...escolha });
+        return true;
+    },
+    forgetRememberedMapView: (alvo) => {
+        lembranca.esquecidos.push(alvo.mapKey);
+        return lembranca.porMapa.delete(alvo.mapKey);
+    },
 }));
 
 vi.mock('../../src/js/layers', () => ({
@@ -159,6 +185,10 @@ beforeEach(() => {
     chamadas.setBaseLayer.length = 0;
     chamadas.setupMapFeatures.length = 0;
     chamadas.vistaTemporal.length = 0;
+    chamadas.avisoDeBase = 0;
+    lembranca.porMapa.clear();
+    lembranca.escritas.length = 0;
+    lembranca.esquecidos.length = 0;
     barramento.emitidos.length = 0;
     estado.mapaAtivo = 'mapa-1';
     estado.crenca = undefined;
@@ -199,8 +229,8 @@ describe('REPRO: abrir um mapa não regrava a base salva dele', () => {
     });
 });
 
-describe('escolher base no seletor só desenha', () => {
-    it('troca o estilo, anuncia a base nova e NÃO grava nem enfileira', async () => {
+describe('escolher base no seletor desenha e lembra, e não grava o documento', () => {
+    it('troca o estilo, anuncia a base nova, LEMBRA neste computador e NÃO grava nem enfileira', async () => {
         const map = mapaFalso(cartaTopografica);
         const c = await controleJaPintado(map);
 
@@ -209,6 +239,8 @@ describe('escolher base no seletor só desenha', () => {
         expect(map._setStyles.length).toBeGreaterThan(0);
         expect(c.currentLayer).toBe('imagens');
         expect(chamadas.setBaseLayer).toEqual([]);
+        // A única escrita do gesto é a vista lembrada da pessoa, no mapa em que ela escolheu.
+        expect(lembranca.escritas).toEqual([{ mapa: 'mapa-1', baseLayer: 'imagens' }]);
         const anunciados = barramento.emitidos.filter((e) => e.evento === EventTypes.BASE_LAYER_CHANGED);
         expect(anunciados.at(-1)?.payload).toEqual({ layer: 'imagens' });
         // O conteúdo desenhado é mantido: mesmo mapa do atlas, só a base mudou.
@@ -284,6 +316,9 @@ describe('entrar num mapa', () => {
         await c.executeLayerChange('osm');
 
         await barramento.disparar(EventTypes.ALL_DATA_CLEARED, { rebuild: true });
+        // O wipe de CONTEÚDO também esquece a vista lembrada do atlas (`clearAllAtlasStores`), e
+        // este dublê não tem como saber disso sozinho. A reabertura, que NÃO esquece, é o último bloco.
+        lembranca.porMapa.clear();
         estado.baseSalva = 'imagens';
         await c.switchMap(true);
 
@@ -327,5 +362,128 @@ describe('a base salva por um colega não chega à tela de ninguém', () => {
         for (const evento of eventosDeBase) {
             expect(barramento.ouvintes(evento), `o controle passou a OUVIR ${evento}`).toBe(0);
         }
+    });
+});
+
+// A BASE LEMBRADA DA PESSOA (dono, 2026-09-22). A precedência na ENTRADA é: o que ela lembra para
+// este mapa, se o catálogo dela ainda oferecer; senão a vista salva; senão o padrão de antes. E só
+// o GESTO do seletor é lembrado, nunca uma aplicação.
+describe('a base lembrada da pessoa, na entrada do mapa', () => {
+    it('VENCE a vista salva ao entrar num mapa, e a câmera salva continua sendo aplicada', async () => {
+        const map = mapaFalso(cartaTopografica);
+        const c = await controleJaPintado(map);
+
+        estado.mapaAtivo = 'mapa-2';
+        estado.baseSalva = 'imagens';
+        estado.temPosicaoSalva = true;
+        lembranca.porMapa.set('mapa-2', { baseLayer: 'osm' });
+        await c.switchMap(true);
+
+        expect(c.currentLayer).toBe('osm');
+        expect(map._jumps).toHaveLength(1);
+        // O interruptor temporal da entrada passa pela função que também respeita a lembrança.
+        expect(chamadas.vistaTemporal).toEqual(['mapa-2']);
+        expect(chamadas.setBaseLayer).toEqual([]);
+    });
+
+    it('VENCE o que está na tela num mapa sem vista salva', async () => {
+        const map = mapaFalso(cartaTopografica);
+        const c = await controleJaPintado(map);
+        await c.executeLayerChange('imagens');
+
+        estado.mapaAtivo = 'mapa-2';
+        lembranca.porMapa.set('mapa-2', { baseLayer: 'osm' });
+        await c.switchMap(true);
+
+        expect(c.currentLayer).toBe('osm');
+    });
+
+    it('REABRIR o atlas (primeira pintura depois do reset, `switchMap(false)`) encontra a base lembrada', async () => {
+        const map = mapaFalso(cartaTopografica);
+        const c = await controleJaPintado(map);
+        await c.executeLayerChange('osm');
+
+        // `resetAtlasView` anuncia o reset SEM esquecer nada, e a abertura remota pinta com `false`.
+        await barramento.disparar(EventTypes.ALL_DATA_CLEARED, { rebuild: false });
+        estado.baseSalva = 'imagens';
+        await c.switchMap(false);
+
+        expect(c.currentLayer).toBe('osm');
+    });
+
+    it('uma base lembrada que o catálogo desta pessoa NÃO oferece cai para a salva, calada e sem esquecer', async () => {
+        const map = mapaFalso(cartaTopografica);
+        const c = await controleJaPintado(map);
+
+        estado.mapaAtivo = 'mapa-2';
+        estado.baseSalva = 'imagens';
+        estado.temPosicaoSalva = true;
+        lembranca.porMapa.set('mapa-2', { baseLayer: 'base-privada-sem-concessao' });
+        await c.switchMap(true);
+
+        expect(c.currentLayer).toBe('imagens');
+        // Nenhum aviso de base que não resolve: a lembrança não é pedido de ninguém.
+        expect(chamadas.avisoDeBase).toBe(0);
+        // E ela FICA, porque uma concessão que chegue depois a torna válida na próxima entrada.
+        expect(lembranca.porMapa.get('mapa-2')).toEqual({ baseLayer: 'base-privada-sem-concessao' });
+        expect(lembranca.esquecidos).toEqual([]);
+    });
+
+    it('desfazer/refazer e busca (`switchMap(false)` com a tela pintada) NÃO consultam a lembrança', async () => {
+        const map = mapaFalso(cartaTopografica);
+        const c = await controleJaPintado(map);
+        await c.executeLayerChange('osm');
+
+        lembranca.porMapa.set('mapa-1', { baseLayer: 'imagens' });
+        await c.switchMap(false);
+
+        expect(c.currentLayer).toBe('osm');
+    });
+
+    it('a base de um SLIDE vence a lembrada e não é lembrada', async () => {
+        const map = mapaFalso(cartaTopografica);
+        const c = await controleJaPintado(map);
+        lembranca.porMapa.set('mapa-1', { baseLayer: 'osm' });
+
+        await c.switchMap(true, { baseLayer: 'imagens' });
+
+        expect(c.currentLayer).toBe('imagens');
+        expect(lembranca.escritas).toEqual([]);
+    });
+
+    it('um FALLBACK do seletor não é lembrado: a pessoa não escolheu aquela base', async () => {
+        const map = mapaFalso(cartaTopografica);
+        const c = await controleJaPintado(map);
+
+        await c.executeLayerChange('base-que-ninguem-oferece');
+
+        expect(c.currentLayer).toBe('carta-topografica');
+        expect(lembranca.escritas).toEqual([]);
+    });
+
+    it('"Restaurar posição" (`restoreSavedView`) ESQUECE a lembrança e aplica a base salva', async () => {
+        const map = mapaFalso(cartaTopografica);
+        const c = await controleJaPintado(map);
+        await c.executeLayerChange('osm');
+
+        estado.baseSalva = 'imagens';
+        estado.temPosicaoSalva = true;
+        await c.switchMap(true, { sameMap: true, restoreSavedView: true });
+
+        expect(lembranca.esquecidos).toEqual(['mapa-1']);
+        expect(c.currentLayer).toBe('imagens');
+        expect(map._jumps).toHaveLength(1);
+    });
+
+    it('restaurar num mapa SEM vista salva não tem o que restaurar, e não esquece nada', async () => {
+        const map = mapaFalso(cartaTopografica);
+        const c = await controleJaPintado(map);
+        await c.executeLayerChange('osm');
+
+        estado.temPosicaoSalva = false;
+        await c.switchMap(true, { sameMap: true, restoreSavedView: true });
+
+        expect(lembranca.esquecidos).toEqual([]);
+        expect(c.currentLayer).toBe('osm');
     });
 });

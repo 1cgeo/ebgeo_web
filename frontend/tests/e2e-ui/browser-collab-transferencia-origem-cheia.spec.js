@@ -432,12 +432,12 @@ collabTest.describe('Mover camada com a ORIGEM CHEIA: o recarregamento reconcili
         await A.locator('.layer-transfer-item', { hasText: MAPA_DESTINO }).click();
         await A.locator('.layer-transfer-modal-btn-confirm').click();
 
-        const aviso = A.locator('.toast', { hasText: 'não pôde ser esvaziado na hora' });
+        const aviso = A.locator('.toast', { hasText: 'não saiu do mapa de origem' });
         await expect(aviso, 'a recusa no meio do gesto foi DITA, como aviso').toBeVisible({ timeout: 30000 });
         publicar('REAL: o aviso', await aviso.first().innerText());
         expect(await A.evaluate(() => globalThis.__recusaInjetada), 'PISO: a recusa foi de fato injetada').toBe(true);
         await expect(aviso, 'a frase NAO manda recarregar: nao e preciso').not.toContainText('Recarregue');
-        await expect(aviso).toContainText('se ele aceitar a mudança, as feições saem do mapa de origem sozinhas');
+        await expect(aviso).toContainText('no destino, se o servidor aceitar a mudança');
 
         // SEM RECARREGAR: disco, fonte do mapa e arvore, nessa ordem de independencia.
         await expect.poll(async () => (await retrato()).origemNoDisco.length, {
@@ -533,10 +533,10 @@ collabTest.describe('Mover camada com a ORIGEM CHEIA: o recarregamento reconcili
         await A.locator('.layer-transfer-item', { hasText: MAPA_DESTINO }).click();
         await A.locator('.layer-transfer-modal-btn-confirm').click();
 
-        const aviso = A.locator('.toast', { hasText: 'não pôde ser esvaziado na hora' });
+        const aviso = A.locator('.toast', { hasText: 'não saiu do mapa de origem' });
         await expect(aviso, 'a recusa no meio do gesto foi DITA, como aviso').toBeVisible({ timeout: 30000 });
         expect(await A.evaluate(() => globalThis.__recusaInjetada), 'PISO: a recusa foi de fato injetada').toBe(true);
-        await expect(aviso).toContainText(`se recusar, a cópia em "${MAPA_DESTINO}" é desfeita, a camada continua no mapa de origem`);
+        await expect(aviso).toContainText('ou na origem, se recusar');
 
         // O DESFECHO MEDIDO em 2026-09-21: em cerca de um segundo o lote volta RECUSADO, a copia do
         // destino e' desfeita, e a camada continua INTEIRA na origem. A PROMESSA DA FRASE, item a item.
@@ -550,7 +550,7 @@ collabTest.describe('Mover camada com a ORIGEM CHEIA: o recarregamento reconcili
         expect(fim.fila?.problemas, 'e a recusa ficou REGISTRADA na fila, para o painel de pendencias').toBeGreaterThan(0);
         expect(await naFonteDoMapa(), 'as feicoes continuam desenhadas no mapa de origem').toBe(2);
         await expect(A.locator('.toast', { hasText: 'O mapa está bloqueado' }),
-            'o motivo do servidor foi avisado na tela, como a frase promete').toBeVisible({ timeout: 15000 });
+            'o motivo do servidor foi avisado na tela').toBeVisible({ timeout: 15000 });
         // A VERDADE DE SOLO: o servidor nao moveu nada.
         const noServidor = await verdadeDoServidor(collab.db, ids);
         publicar('TRAVA REAL: servidor', noServidor);

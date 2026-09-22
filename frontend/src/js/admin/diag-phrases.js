@@ -603,8 +603,8 @@ export function leitorCego(payload) {
 
 /** @returns {string} */
 export function leitorCegoNotice() {
-    return 'O servidor não encontrou o diretório de log, então esta seção não leu nada. '
-        + '"Nenhum erro" aqui seria uma afirmação sobre o leitor, e não sobre o servidor.';
+    return 'O servidor não encontrou o diretório de log, então nenhum erro foi lido. Isso não '
+        + 'quer dizer que não houve erro.';
 }
 
 /**

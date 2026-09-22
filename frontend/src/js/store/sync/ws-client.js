@@ -8,9 +8,9 @@
  * drives the {@link connectionState} machine, and routes the documented protocol:
  *
  *   inbound  : connected | operation | operations | ack | ack_batch | sync_response |
- *              cursor | selection | user_joined | user_left | user_away |
+ *              cursor | selection | viewer_context | user_joined | user_left | user_away |
  *              user_back | pong | error | adaptive-settings | briefing_edit_started/ended
- *   outbound : operation | operations | ping | cursor | selection |
+ *   outbound : operation | operations | ping | cursor | selection | viewer_context |
  *              briefing_edit_start | briefing_edit_end | sync_request | leave
  *
  * NÃO HÁ QUADRO `temporal` NESTA LISTA desde 2026-09-21, por decisão do dono: o instante da
@@ -47,6 +47,33 @@ const PRESENCE_BUFFER_LIMIT = 1 << 20; // 1 MiB
 
 /** Close code used for an intentional client-side disconnect. */
 const CLOSE_INTENTIONAL = 1000;
+
+/**
+ * What a RECONNECT does with the credential it is about to put in the upgrade URL. Pure, so the
+ * rule is testable without a socket (`tests/integration/ws-reconexao-renova-credencial.repro.test.js`).
+ *
+ * THE UPGRADE ANSWERS AN EXPIRED JWT WITH 401 (`backend/src/modules/collab/collab.gateway.js`), and
+ * a browser reports that as a close with no status, identical to a network drop. Until 2026-09-22 a
+ * reconnect reused whatever token was in memory, so after a sleep longer than the access token's
+ * life (15 min) every backoff step hit 401, forever or until some unrelated HTTP request renewed the
+ * session: the HTTP flush that would have done it is gated on being ONLINE, which is precisely what
+ * the socket was trying to become. Measured on the test stack: 24 refused upgrades in four days.
+ *
+ * @param {{token: (string|null), expired: boolean, renewable: boolean}|null|undefined} credencial
+ *   What `apiClient.socketCredential()` answered, after renewing when it could.
+ * @returns {'reabrir'|'parar-sessao-perdida'|'parar-credencial-vencida'}
+ *   - `reabrir`: open the socket (also when the answer is unknown: the previous behaviour);
+ *   - `parar-sessao-perdida`: the renewal failed TERMINALLY and cleared the tokens; the auth-lost
+ *     handler already tells the person, and an empty token would only buy a 400 per backoff step;
+ *   - `parar-credencial-vencida`: the token is past its expiry and nothing can renew it (the
+ *     public-link visitor, whose token is ephemeral and has no refresh): every attempt is a 401.
+ */
+export function decidirReconexao(credencial) {
+    if (!credencial || typeof credencial !== 'object') return 'reabrir';
+    if (!credencial.token) return 'parar-sessao-perdida';
+    if (credencial.expired === true && credencial.renewable !== true) return 'parar-credencial-vencida';
+    return 'reabrir';
+}
 
 /**
  * Real-time collaboration WebSocket client.
@@ -94,6 +121,12 @@ export class WsClient {
         this._reconnectTimer = null;
         this._connectResolve = null;
         this._connectReject = null;
+        /**
+         * Bumped by `connect()` and `disconnect()`. A reconnect that awaited a token renewal
+         * compares it afterwards, so a switch of atlas (or a logout) during that await never
+         * ends with a second socket opened for the previous intent.
+         */
+        this._geracao = 0;
 
         /** @type {Object<string, Function>} Inbound handlers (set via on()). */
         this._handlers = {};
@@ -119,7 +152,7 @@ export class WsClient {
     /**
      * Registers a handler for an inbound event. Known events:
      * 'connected', 'operation', 'ack', 'syncResponse', 'presence', 'cursor',
-     * 'selection', 'error', 'adaptiveSettings', 'briefingEdit',
+     * 'selection', 'viewerContext', 'error', 'adaptiveSettings', 'briefingEdit',
      * 'stateChange'.
      * @param {string} event
      * @param {Function} handler
@@ -147,12 +180,14 @@ export class WsClient {
         this._haveSnapshot = haveSnapshot === true;
         this._wantConnected = true;
         this._reconnectAttempts = 0;
+        this._geracao += 1;
         return this._open();
     }
 
     /** Closes the connection intentionally (no reconnect). */
     disconnect() {
         this._wantConnected = false;
+        this._geracao += 1;
         this._clearTimers();
         if (this._socket) {
             try {
@@ -229,6 +264,24 @@ export class WsClient {
         const msg = { type: 'selection', featureIds, mapId };
         if (surface) msg.surface = surface;
         if (Array.isArray(featureMeta)) msg.featureMeta = featureMeta;
+        if (tilesetId != null) msg.tilesetId = tilesetId;
+        if (photoName != null) msg.photoName = photoName;
+        return this._sendRaw(msg);
+    }
+
+    /**
+     * Announces which immersive viewer this user has open (presence/awareness): `'3d'` with the
+     * model's `tilesetId`, `'fp'` with the walkable scene's `tilesetId`, `'360'` with the
+     * `photoName`, or `'2d'` when the viewers are closed.
+     *
+     * ONLY THE IDENTIFIER GOES OUT, never a name: the server resolves the label from the catalog
+     * and decides, per recipient, who may read it (a private model's name reaches only who can see
+     * it). See `backend/src/modules/collab/collab.viewer.js`.
+     * @param {{ surface: '2d'|'3d'|'360'|'fp', tilesetId?: string|null, photoName?: string|null }} payload
+     * @returns {boolean}
+     */
+    sendViewer({ surface, tilesetId, photoName }) {
+        const msg = { type: 'viewer_context', surface };
         if (tilesetId != null) msg.tilesetId = tilesetId;
         if (photoName != null) msg.photoName = photoName;
         return this._sendRaw(msg);
@@ -394,6 +447,9 @@ export class WsClient {
                 break;
             case 'selection':
                 this._emit('selection', msg);
+                break;
+            case 'viewer_context':
+                this._emit('viewerContext', msg);
                 break;
             case 'user_joined':
             case 'user_left':
@@ -577,10 +633,52 @@ export class WsClient {
         this._reconnectTimer = setTimeout(() => {
             this._reconnectTimer = null;
             if (!this._wantConnected) return;
-            // From RECONNECTING we must go through CONNECTING again per the state machine.
-            this._open().catch(() => { /* _onClose will reschedule */ });
+            this._reabrirComCredencialFresca();
         }, delay);
         if (typeof this._reconnectTimer?.unref === 'function') this._reconnectTimer.unref();
+    }
+
+    /**
+     * @private A reconnect attempt: renews the credential FIRST, then opens the socket. See
+     * {@link decidirReconexao} for why the renewal cannot be left to the HTTP layer.
+     *
+     * Only the RECONNECT goes through here. The first `connect()` of an atlas stays synchronous:
+     * it always follows an HTTP pull that already renewed the token, and callers rely on the
+     * socket existing when `connect()` returns.
+     * @returns {Promise<void>}
+     */
+    async _reabrirComCredencialFresca() {
+        const geracao = this._geracao;
+        let credencial = null;
+        try {
+            credencial = await this._api.socketCredential?.();
+        } catch {
+            // The renewal swallows its own failures by contract; an unexpected throw falls back to
+            // the previous behaviour (open with what is in memory) instead of stopping the loop.
+            credencial = null;
+        }
+        // A `connect()` or `disconnect()` happened during the await: that intent owns the socket.
+        if (geracao !== this._geracao || !this._wantConnected || this._socket) return;
+
+        const decisao = decidirReconexao(credencial);
+        if (decisao !== 'reabrir') {
+            this._pararReconexao();
+            if (decisao === 'parar-credencial-vencida') this._emit('credentialExpired', {});
+            return;
+        }
+        // From RECONNECTING we must go through CONNECTING again per the state machine.
+        this._open().catch(() => { /* _onClose will reschedule */ });
+    }
+
+    /**
+     * @private Gives up reconnecting: no socket, no timer, OFFLINE. A later `connect()` (a new
+     * login, a reopened atlas) starts over.
+     * @returns {void}
+     */
+    _pararReconexao() {
+        this._wantConnected = false;
+        this._clearTimers();
+        this._safeTransition(ConnectionStates.OFFLINE);
     }
 
     // ===== INTERNAL: HEARTBEAT =====

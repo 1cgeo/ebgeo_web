@@ -239,7 +239,9 @@ export class CommentOverlay {
         this._comments = (mapName ? await getComments(mapName) : {}) || {};
         if (!this._active) return;
         this._render();
-        // Keep an open thread card fresh (new replies / resolve).
+        // Keep an open thread card fresh (new replies / resolve). A PEER's resolution redraws it in
+        // the resolved, read-only state and never closes it: only the person's own "Resolver"
+        // closes the card, from inside it (see comment-card.js). A deleted root closes it.
         if (this._popup?._ebgeoRootId) {
             const root = this._comments[this._popup._ebgeoRootId];
             if (root) this._openThread(root.id, true);
@@ -430,6 +432,18 @@ export class CommentOverlay {
         }
     }
 
+    /**
+     * @private Closes the thread card only while it still shows `rootId`.
+     *
+     * The card calls its `aoFechar` AFTER an await when the person resolves the thread, and by then
+     * a pin click may have opened another thread: closing whatever is open would take that one
+     * away. The id, and not the popup object, is the test, because a reload in the meantime
+     * replaces the popup of the SAME thread, and that replacement must still close.
+     */
+    _closeThread(rootId) {
+        if (this._popup?._ebgeoRootId === rootId) this._closeCard();
+    }
+
     /** @private Opens the compose card to create a new root comment at a coordinate. */
     _openCompose(lngLat) {
         this._closeCard();
@@ -468,7 +482,7 @@ export class CommentOverlay {
         const card = montarCartaoDeThread({
             raiz: root,
             respostas: replies,
-            aoFechar: () => this._closeCard(),
+            aoFechar: () => this._closeThread(rootId),
         });
 
         this._popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: '340px', className: 'comment-popup', anchor: 'bottom', offset: 38 })

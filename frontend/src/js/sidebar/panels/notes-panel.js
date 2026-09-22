@@ -289,10 +289,10 @@ export async function createNotesPanelContent({ mapName, readOnly = false }) {
             // Switch back to view mode with updated data
             switchToViewMode(notes);
 
-            showSuccess('Notas salvas com sucesso!');
+            showSuccess('Notas salvas.');
         } catch (error) {
             console.error('Error saving notes:', error);
-            showError('Erro ao salvar notas');
+            showError('Não foi possível salvar as notas. Tente de novo.');
         }
     };
 

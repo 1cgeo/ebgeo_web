@@ -43,6 +43,8 @@
  * @module utilities/turf-loader
  */
 
+import { carregarSobDemanda } from './carga-sob-demanda.js';
+
 /** Carga em voo (ou ja resolvida). Memoizada para os concorrentes dividirem uma so. */
 let carregando = null;
 
@@ -59,7 +61,8 @@ export function ensureTurf() {
     if (typeof globalThis.turf !== 'undefined') return Promise.resolve(globalThis.turf);
     if (carregando) return carregando;
 
-    carregando = import('../vendor/turf.js')
+    // Pela porta de carga sob demanda: uma nova tentativa, e depois o aviso com "Recarregar".
+    carregando = carregarSobDemanda(() => import('../vendor/turf.js'))
         .then(() => {
             // Ver a decisao 2 do `@fileoverview`: o modulo ter executado nao e, por si so, prova de
             // que o global esta la. Perguntar ao global custa uma leitura e mantem a falha alta.

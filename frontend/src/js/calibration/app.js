@@ -65,6 +65,7 @@ import {
 // Modulo direto, e nao o barrel `@utils`: por ele a pagina de calibracao
 // arrastaria a store inteira pelo caminho transitivo.
 import { escapeHtml } from '@utils/html-escape.js';
+import { serverMessageOr } from '@utils/request-failure.js';
 
 // ============================================================================
 // DOM ELEMENTS
@@ -170,12 +171,11 @@ function showRoleLostDialog() {
     overlay.className = 'cal-dialog-overlay';
     overlay.innerHTML = `
         <div class="cal-dialog">
-            <h3 class="cal-dialog__title">O servidor recusou a gravacao</h3>
+            <h3 class="cal-dialog__title">Você não pode salvar neste projeto</h3>
             <p class="cal-dialog__text">
-                Este projeto e mantido por outra OM: voce pode ve-lo e nao gravar nele.<br><br>
-                Nada do que voce editar aqui sera gravado. Volte ao seletor e escolha um projeto
-                da sua OM. Se voce administra o sistema e mesmo assim leu isto, a sua conta pode
-                ter mudado de papel com a sessao aberta.
+                Ele é mantido por outra OM: você pode vê-lo, mas nada do que editar aqui será
+                salvo. Volte e escolha um projeto da sua OM.<br><br>
+                Se você administra o sistema, seu papel pode ter mudado durante esta sessão.
             </p>
             <div class="cal-dialog__actions">
                 <button class="cal-panel__btn cal-panel__btn--ghost" data-action="leave">Voltar aos projetos</button>
@@ -232,11 +232,11 @@ async function showProjectSelector() {
             projectSelector.replaceChildren();
             const titulo = document.createElement('h1');
             titulo.className = 'project-selector__title';
-            titulo.textContent = 'Street View 360 — Calibração';
+            titulo.textContent = 'Calibração 360';
             const vazio = document.createElement('p');
             vazio.className = 'project-selector__subtitle';
-            vazio.textContent = 'Nenhum projeto 360 sob sua manutenção. O envio do bundle 360 é '
-                + 'feito na aba Catálogo, e só depois dele o projeto aparece aqui para calibrar.';
+            vazio.textContent = 'Nenhum projeto 360 para calibrar. Envie o projeto na aba Catálogo '
+                + 'da administração; depois disso ele aparece aqui.';
             projectSelector.append(titulo, vazio);
             return;
         }
@@ -297,7 +297,7 @@ async function showProjectSelector() {
         titulo.textContent = 'Não foi possível carregar seus projetos';
         const texto = document.createElement('p');
         texto.className = 'project-selector__error';
-        texto.textContent = err?.message || 'O servidor não respondeu.';
+        texto.textContent = serverMessageOr(err, 'Verifique a conexão e tente de novo.');
         const retry = document.createElement('button');
         retry.type = 'button';
         retry.className = 'cal-panel__btn';
@@ -475,7 +475,7 @@ async function startCalibration(photoId) {
         if (err?.name === 'AbortError' || myGen !== loadGeneration) return;
         console.error('Failed to load photo:', err);
         showLoading(false);
-        showToast(`Erro ao carregar foto: ${err.message}`, 'error');
+        showToast(`Não foi possível carregar a foto: ${err.message}`, 'error');
     }
 }
 
@@ -792,11 +792,11 @@ function showDirtyDialog() {
         overlay.className = 'cal-dialog-overlay';
         overlay.innerHTML = `
             <div class="cal-dialog">
-                <h3 class="cal-dialog__title">Alteracoes nao salvas</h3>
-                <p class="cal-dialog__text">Deseja salvar as alteracoes antes de navegar?</p>
+                <h3 class="cal-dialog__title">Alterações não salvas</h3>
+                <p class="cal-dialog__text">Salvar as alterações antes de continuar?</p>
                 <div class="cal-dialog__actions">
-                    <button class="cal-panel__btn cal-panel__btn--save" data-action="save">Salvar e Navegar</button>
-                    <button class="cal-panel__btn cal-panel__btn--discard" data-action="discard">Descartar e Navegar</button>
+                    <button class="cal-panel__btn cal-panel__btn--save" data-action="save">Salvar e continuar</button>
+                    <button class="cal-panel__btn cal-panel__btn--discard" data-action="discard">Descartar e continuar</button>
                     <button class="cal-panel__btn cal-panel__btn--ghost" data-action="cancel">Cancelar</button>
                 </div>
             </div>
@@ -886,7 +886,7 @@ async function handleSave() {
         }
 
         if (promises.length === 0) {
-            showToast('Nenhuma alteracao para salvar', 'info');
+            showToast('Nenhuma alteração para salvar.', 'info');
             return true;
         }
 
@@ -917,8 +917,8 @@ async function handleSave() {
             }
 
             showToast(
-                `Falha ao salvar ${failures.length} de ${results.length} alteracao(oes). ` +
-                `${succeeded} salva(s). Tente salvar novamente.`,
+                `Não foi possível salvar ${failures.length} de ${results.length} ${results.length === 1 ? 'alteração' : 'alterações'} ` +
+                `(${succeeded} ${succeeded === 1 ? 'salva' : 'salvas'}). Tente salvar de novo.`,
                 'error'
             );
             return false;
@@ -935,11 +935,11 @@ async function handleSave() {
         // sv360.write.service.js); a escrita de UMA foto mexe so no angulo. Marcar 'manual'
         // depois de um save por foto trocaria a etiqueta na tela sem trocar nada no banco, e a
         // etiqueta existe justamente para dizer o que foi medido contra o mundo.
-        showToast(`${results.length} alteracao(oes) salva(s)`, 'success');
+        showToast(`${results.length} ${results.length === 1 ? 'alteração salva' : 'alterações salvas'}.`, 'success');
         return true;
     } catch (err) {
         console.error('Save failed:', err);
-        showToast(`Erro ao salvar: ${err.message}`, 'error');
+        showToast(`Não foi possível salvar: ${err.message}`, 'error');
         return false;
     }
 }
@@ -956,7 +956,7 @@ function handleDiscard() {
     if (state.currentMetadata?.camera) {
         setCameraConfig(state.currentMetadata.camera);
     }
-    showToast('Alteracoes descartadas', 'info');
+    showToast('Alterações descartadas.', 'info');
 }
 
 // ============================================================================
@@ -972,10 +972,10 @@ async function handleMarkReviewed(reviewed) {
         // abriria o mapa e veria a foto ainda pendente — o mapa so recarrega ao
         // trocar de projeto.
         setPhotoReviewedOnMap(photoId, reviewed);
-        showToast(reviewed ? 'Foto marcada como revisada' : 'Revisao removida', 'success');
+        showToast(reviewed ? 'Foto marcada como revisada.' : 'Revisão removida.', 'success');
     } catch (err) {
         console.error('Failed to set reviewed:', err);
-        showToast(`Erro: ${err.message}`, 'error');
+        showToast(`Não foi possível mudar a revisão: ${err.message}`, 'error');
     }
 }
 
@@ -992,7 +992,7 @@ async function toggleProjectMap() {
         return;
     }
     if (!state.currentProjectSlug) {
-        showToast('Nenhum projeto carregado', 'error');
+        showToast('Nenhum projeto carregado.', 'error');
         return;
     }
     await openProjectMap(state.currentProjectSlug, state.currentPhotoId);
@@ -1003,7 +1003,7 @@ async function handleNextPhoto() {
     if (nextId) {
         await navigateToPhoto(nextId);
     } else {
-        showToast('Nenhuma foto restante', 'info');
+        showToast('Esta já é a última foto.', 'info');
     }
 }
 
@@ -1012,7 +1012,7 @@ async function handlePrevPhoto() {
     if (prevId) {
         await navigateToPhoto(prevId);
     } else {
-        showToast('Ja esta na primeira foto', 'info');
+        showToast('Esta já é a primeira foto.', 'info');
     }
 }
 
@@ -1023,7 +1023,7 @@ async function handlePrevPhoto() {
 async function handleAddTarget(targetPhotoId) {
     try {
         await createTarget(state.currentPhotoId, targetPhotoId);
-        showToast('Conexao criada', 'success');
+        showToast('Conexão criada.', 'success');
         // Close preview and clear nearby preview state
         clearNearbyPreview();
         showAddButton(false);
@@ -1032,14 +1032,14 @@ async function handleAddTarget(targetPhotoId) {
         await refreshTargetsAndNearby();
     } catch (err) {
         console.error('Failed to create target:', err);
-        showToast(`Erro ao criar conexao: ${err.message}`, 'error');
+        showToast(`Não foi possível criar a conexão: ${err.message}`, 'error');
     }
 }
 
 async function handleDeleteTarget(targetId) {
-    const confirmed = await showConfirm('Remover esta conexao manual?', {
-        message: 'A seta que voce criou entre estas duas fotos deixa de existir. Isso nao se desfaz, '
-            + 'mas a conexao pode ser criada de novo.',
+    const confirmed = await showConfirm('Remover esta conexão manual?', {
+        message: 'A seta que você criou entre estas duas fotos deixa de existir. Isso não se desfaz, '
+            + 'mas a conexão pode ser criada de novo.',
         destructive: true,
         confirmText: 'Remover',
     });
@@ -1048,12 +1048,12 @@ async function handleDeleteTarget(targetId) {
     try {
         await deleteTargetConnection(state.currentPhotoId, targetId);
         deselectTarget();
-        showToast('Conexao removida', 'success');
+        showToast('Conexão removida.', 'success');
         // Refresh targets and nearby without full page reload
         await refreshTargetsAndNearby();
     } catch (err) {
         console.error('Failed to delete target:', err);
-        showToast(`Erro ao remover conexao: ${err.message}`, 'error');
+        showToast(`Não foi possível remover a conexão: ${err.message}`, 'error');
     }
 }
 
@@ -1070,7 +1070,7 @@ async function handleDeletePhoto() {
 
     try {
         await deletePhoto(photoId);
-        showToast(`Foto ${displayName} excluida`, 'success');
+        showToast(`Foto ${displayName} excluída.`, 'success');
 
         // O slug vem do ESTADO, e nao da resposta: esta rota responde 204 sem corpo, enquanto a da
         // origem devolvia `projectSlug` junto. Ler o campo da resposta aqui daria TypeError na
@@ -1094,7 +1094,7 @@ async function handleDeletePhoto() {
         }
     } catch (err) {
         console.error('Failed to delete photo:', err);
-        showToast(`Erro ao excluir foto: ${err.message}`, 'error');
+        showToast(`Não foi possível excluir a foto: ${err.message}`, 'error');
     }
 }
 
@@ -1112,10 +1112,8 @@ function showDeletePhotoDialog(displayName) {
                 <h3 class="cal-dialog__title">Excluir foto permanentemente?</h3>
                 <p class="cal-dialog__text">
                     <strong>${escapeHtml(displayName)}</strong><br><br>
-                    Todas as conexoes desta foto serao removidas.
-                    Ela nao aparecera mais na navegacao.<br><br>
-                    <em>O ponto some do mapa na proxima vez que o tile for pedido: aqui o mapa
-                    e MVT servido do PostGIS, e nao um PMTiles a regenerar.</em>
+                    Todas as conexões desta foto serão removidas, e ela deixa de aparecer na
+                    navegação. Isso não se desfaz.
                 </p>
                 <div class="cal-dialog__actions">
                     <button class="cal-panel__btn cal-panel__btn--destructive" data-action="confirm">Excluir</button>
@@ -1167,7 +1165,7 @@ async function refreshTargetsAndNearby() {
         });
     } catch (err) {
         console.error('Failed to refresh targets:', err);
-        showToast(`Erro ao atualizar: ${err.message}`, 'error');
+        showToast(`Não foi possível atualizar: ${err.message}`, 'error');
     }
 }
 
@@ -1209,7 +1207,7 @@ function handleNearbyFloorScope(escopo) {
         navSetNearbyPhotos(photos);
     }).catch(err => {
         console.warn('Failed to reload nearby photos:', err);
-        showToast('Nao consegui buscar as fotos proximas nesse andar', 'error');
+        showToast('Não foi possível buscar as fotos próximas neste andar.', 'error');
     });
 }
 

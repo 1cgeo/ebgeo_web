@@ -220,7 +220,7 @@ const CENSO = [
             + 'a porta 100% muda, nas quatro entradas da cena.',
     },
     {
-        arquivo: 'src/js/3d_models_viewer_tool/map_3d.js', gatilho: 'catalogo', n: 4,
+        arquivo: 'src/js/3d_models_viewer_tool/map_3d.js', gatilho: 'catalogo', n: 5,
         classe: BASELINE,
         motivo: LE_TILESETS
             + ' A QUARTA leitura entrou em 2026-08-24 e é de NOME, não de estilo nem de URL: '
@@ -230,7 +230,11 @@ const CENSO = [
             + 'emprestado a um visitante de link público some da cena sem uma palavra. O modelo '
             + '3D tem DOIS caminhos de falha e este cobre um; o outro (todos os filhos `.b3dm` '
             + 'recusados enquanto a raiz responde 200) não passa por aqui, não rejeita nada e só '
-            + 'existe como evento `tileFailed`, que não lê o catálogo.',
+            + 'existe como evento `tileFailed`, que não lê o catálogo. A QUINTA entrou em '
+            + '2026-09-22, no MESMO `catch`, e é a mesma leitura de NOME: o toast deixou de dizer '
+            + '"Erro ao carregar modelo 3D" e passou a usar a frase do painel '
+            + '(`layerLoadFailureNotice`), para que toast e painel não digam duas coisas sobre a '
+            + 'mesma falha. Lê o singleton no instante do erro e não guarda nada.',
     },
     { arquivo: 'src/js/3d_models_viewer_tool/components/panel-shared-3d.js', gatilho: 'catalogo', n: 1, classe: BASELINE, motivo: LE_TILESETS },
     { arquivo: 'src/js/features_tab/models3d-section.component.js', gatilho: 'catalogo', n: 2, classe: BASELINE, motivo: LE_TILESETS },
@@ -321,7 +325,7 @@ const CENSO = [
     },
 
     {
-        arquivo: 'src/js/catalog/resource-reference.resolver.js', gatilho: 'catalogo', n: 8,
+        arquivo: 'src/js/catalog/resource-reference.resolver.js', gatilho: 'catalogo', n: 9,
         classe: BASELINE,
         motivo: 'Quem responde "este id é público?" para a PODA DE SAÍDA (o `.ebgeo` e o "Salvar '
             + 'como local"). Lê os quatro grupos do singleton no instante em que o resolver é '
@@ -329,7 +333,14 @@ const CENSO = [
             + 'poda inteira veja o mesmo retrato do começo ao fim. É o consumidor com a '
             + 'consequência mais cara de um miss: a regra é KEEP-LIST, então um recurso que o '
             + 'overlay não somou vira `unknown` e SAI da cópia, num caminho irreversível. É por '
-            + 'isso que ele se recusa a rodar quando a soma nunca aconteceu com sessão viva.',
+            + 'isso que ele se recusa a rodar quando a soma nunca aconteceu com sessão viva. '
+            + 'A NONA linha, de 2026-09-22, é FALSO POSITIVO declarado e não uma leitura: a chave '
+            + "`'settings.basemaps'` da tabela de rótulos (`ROTULO_DE_SUPERFICIE`), que é o id de "
+            + 'SUPERFÍCIE que o relatório de poda do servidor anota, escrito como o servidor o '
+            + 'escreve. As cinco listas de `atlas.settings` entraram na tabela no mesmo dia, e só '
+            + 'esta casa o gatilho, porque as outras quatro se chamam `available_*`. O par '
+            + '(arquivo, gatilho) é único, então a colisão entra na contagem desta entrada em vez '
+            + 'de ganhar classe própria.',
     },
 
     // ================= o que casou o padrão e é outra coisa ==================
@@ -471,6 +482,16 @@ const CENSO = [
             + 'que não carrega `Authorization`, então o `?atlasId=` é a única autorização que '
             + 'atravessa para o recurso emprestado. Desde D14 (2026-09-14) aquele arquivo tem '
             + 'gate de verdade, e sem o carimbo o gate recusa quem só tem o empréstimo.',
+    },
+    {
+        arquivo: 'src/js/catalog/endereco-da-miniatura.js', gatilho: 'escopo', n: 2,
+        classe: CARIMBA_ESCOPO,
+        motivo: 'A MINIATURA do item de catálogo, lida pelo cartão (catálogo e aba de restrição do '
+            + 'atlas) e pelo popup do marcador 3D. `<img src>` é buscado pelo NAVEGADOR, sem '
+            + 'cabeçalho, e a miniatura de um modelo privado é CAMPO DE ARQUIVO do índice de regime de '
+            + '`/api/v1/assets3d`, então o colega que só tem o empréstimo levava 404 e via o desenho '
+            + 'padrão enquanto o modelo abria (relato do dono, 2026-09-22). Data URL e outra origem '
+            + 'saem intactos, porque a receita é `escoparUrlDeAsset`.',
     },
     {
         arquivo: 'src/js/session/erro-telemetria.js', gatilho: 'escopo', n: 2,

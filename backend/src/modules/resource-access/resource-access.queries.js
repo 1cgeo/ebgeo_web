@@ -396,6 +396,14 @@ export const LIST_SHAREABLE_OF_ACTOR = `
  *
  * E-MAIL E PAPEL CONTINUAM FORA, aqui como em todo este módulo: a lista responde "quem tem
  * acesso", e nem o endereço nem o papel global de ninguém fazem parte dessa resposta.
+ *
+ * SÓ A AUTORIA DE QUEM PERGUNTA, desde 2026-09-22 (decisão do dono, item 19c). A lista era a
+ * árvore inteira do recurso, com o que OUTRAS pessoas concederam, e o recorte mora aqui, no
+ * `WHERE`, e não na tela: filtrar no cliente entregaria o dado alheio e só deixaria de
+ * desenhá-lo. Vale para o administrador também. O que a revogação de uma linha derruba continua
+ * sendo contado (a subárvore deriva da concessão de quem pergunta), mas por NÚMERO, calculado
+ * pelo serviço com as CTEs da própria poda (`REVOCATION_FALL_PREVIEW`), e não pelas linhas.
+ *   $3 = quem pergunta (`granted_by`)
  */
 export const LIST_GRANTS_FOR_RESOURCE = `
   SELECT g.id, g.resource_type, g.resource_id, g.grant_level, g.parent_grant_id, g.created_at,
@@ -425,6 +433,7 @@ export const LIST_GRANTS_FOR_RESOURCE = `
    WHERE g.revoked_at IS NULL
      AND g.expires_at > NOW()
      AND g.resource_type = $1 AND g.resource_id = $2
+     AND g.granted_by = $3::uuid
      AND (g.grantee_group_id IS NULL OR gg.deleted_at IS NULL)
    ORDER BY g.created_at
 `;
@@ -946,6 +955,76 @@ export const LIVE_GRANT_COUNT_BY_GRANTER = `
 `;
 
 /**
+ * AS QUATRO CTEs DE LEITURA DA PODA (`alcance`, `teto`, `resgate`, `podados`), e só elas.
+ *
+ * EXISTEM COMO FRAGMENTO PORQUE TÊM DOIS LEITORES desde 2026-09-22: a própria poda
+ * (`REVOKE_SUBTREE_PRESERVING_REACH`, logo abaixo, que continua sendo o MESMO statement, byte
+ * a byte) e a PRÉVIA do que uma revogação derruba (`REVOCATION_FALL_PREVIEW`), que a lista de
+ * concessões do recurso mostra antes do clique. Uma prévia escrita à parte seria a segunda
+ * definição de "quem cai", e o espelho que o cliente mantinha dela nunca alcançou o braço de
+ * grupo (ver o `fileoverview` de `frontend/src/js/catalog/grant-tree.js`). Não há escrita
+ * aqui: as três modificadoras vêm depois, só na poda.
+ *
+ * Os parâmetros são os da poda: $1 = a âncora, $3 = resgatar a âncora. $2 (quem revoga) não
+ * aparece no fragmento, só nos `UPDATE` que o seguem.
+ */
+const CTES_DE_LEITURA_DA_PODA = `alcance AS (
+    SELECT g.id, 1 AS depth
+      FROM resource_grants g
+     WHERE g.id = $1::uuid AND g.revoked_at IS NULL
+    UNION ALL
+    SELECT c.id, s.depth + 1
+      FROM resource_grants c
+      JOIN alcance s ON c.parent_grant_id = s.id
+     WHERE c.revoked_at IS NULL AND s.depth < 32
+),
+teto AS (
+    SELECT EXISTS (SELECT 1 FROM alcance WHERE depth >= 32) AS truncado
+),
+resgate AS (
+    SELECT a.id,
+           g.parent_grant_id AS pai_antigo,
+           g.expires_at      AS prazo_antigo,
+           alt.id            AS novo_pai,
+           LEAST(g.expires_at, alt.expires_at) AS prazo_novo
+      FROM alcance a
+      JOIN resource_grants g ON g.id = a.id
+      CROSS JOIN teto
+      LEFT JOIN LATERAL (
+          SELECT p.id, p.expires_at
+            FROM resource_grants p
+           WHERE p.revoked_at IS NULL
+             AND p.expires_at > NOW()
+             AND p.grant_level = 'view_share'
+             AND p.resource_type = g.resource_type
+             AND p.resource_id  = g.resource_id
+             AND p.id <> g.id
+             AND (p.granted_by IS NULL OR fn_principal_vivo(p.granted_by))
+             AND (p.grantee_id = g.granted_by
+               OR p.grantee_group_id IN (SELECT group_id FROM fn_user_group_ids(g.granted_by)))
+             AND NOT EXISTS (SELECT 1 FROM alcance x WHERE x.id = p.id)
+           ORDER BY p.expires_at DESC, p.created_at, p.id
+           LIMIT 1
+      ) alt ON true
+     WHERE (a.id <> $1::uuid OR $3::boolean)
+       AND g.granted_by IS NOT NULL
+       AND g.expires_at > NOW()
+       AND teto.truncado = false
+),
+podados AS (
+    SELECT a.id, 1 AS depth FROM alcance a
+     WHERE a.depth = 1
+       AND NOT ($3::boolean AND EXISTS (
+             SELECT 1 FROM resgate r WHERE r.id = a.id AND r.novo_pai IS NOT NULL))
+    UNION ALL
+    SELECT c.id, p.depth + 1
+      FROM resource_grants c
+      JOIN podados p ON c.parent_grant_id = p.id
+     WHERE c.revoked_at IS NULL AND p.depth < 32
+       AND NOT EXISTS (SELECT 1 FROM resgate r WHERE r.id = c.id AND r.novo_pai IS NOT NULL)
+)`;
+
+/**
  * PODA A SUBÁRVORE DE $1 PRESERVANDO ALCANÇABILIDADE, num statement só.
  *
  * Ela substituiu uma consulta chamada REVOKE_GRANT_SUBTREE, que só revogava. O nome
@@ -1160,61 +1239,7 @@ export const LIVE_GRANT_COUNT_BY_GRANTER = `
  *   $1 = grant id (a âncora), $2 = revoked_by, $3 = resgatar a âncora (ver a decisão 1)
  */
 export const REVOKE_SUBTREE_PRESERVING_REACH = `
-WITH RECURSIVE alcance AS (
-    SELECT g.id, 1 AS depth
-      FROM resource_grants g
-     WHERE g.id = $1::uuid AND g.revoked_at IS NULL
-    UNION ALL
-    SELECT c.id, s.depth + 1
-      FROM resource_grants c
-      JOIN alcance s ON c.parent_grant_id = s.id
-     WHERE c.revoked_at IS NULL AND s.depth < 32
-),
-teto AS (
-    SELECT EXISTS (SELECT 1 FROM alcance WHERE depth >= 32) AS truncado
-),
-resgate AS (
-    SELECT a.id,
-           g.parent_grant_id AS pai_antigo,
-           g.expires_at      AS prazo_antigo,
-           alt.id            AS novo_pai,
-           LEAST(g.expires_at, alt.expires_at) AS prazo_novo
-      FROM alcance a
-      JOIN resource_grants g ON g.id = a.id
-      CROSS JOIN teto
-      LEFT JOIN LATERAL (
-          SELECT p.id, p.expires_at
-            FROM resource_grants p
-           WHERE p.revoked_at IS NULL
-             AND p.expires_at > NOW()
-             AND p.grant_level = 'view_share'
-             AND p.resource_type = g.resource_type
-             AND p.resource_id  = g.resource_id
-             AND p.id <> g.id
-             AND (p.granted_by IS NULL OR fn_principal_vivo(p.granted_by))
-             AND (p.grantee_id = g.granted_by
-               OR p.grantee_group_id IN (SELECT group_id FROM fn_user_group_ids(g.granted_by)))
-             AND NOT EXISTS (SELECT 1 FROM alcance x WHERE x.id = p.id)
-           ORDER BY p.expires_at DESC, p.created_at, p.id
-           LIMIT 1
-      ) alt ON true
-     WHERE (a.id <> $1::uuid OR $3::boolean)
-       AND g.granted_by IS NOT NULL
-       AND g.expires_at > NOW()
-       AND teto.truncado = false
-),
-podados AS (
-    SELECT a.id, 1 AS depth FROM alcance a
-     WHERE a.depth = 1
-       AND NOT ($3::boolean AND EXISTS (
-             SELECT 1 FROM resgate r WHERE r.id = a.id AND r.novo_pai IS NOT NULL))
-    UNION ALL
-    SELECT c.id, p.depth + 1
-      FROM resource_grants c
-      JOIN podados p ON c.parent_grant_id = p.id
-     WHERE c.revoked_at IS NULL AND p.depth < 32
-       AND NOT EXISTS (SELECT 1 FROM resgate r WHERE r.id = c.id AND r.novo_pai IS NOT NULL)
-),
+WITH RECURSIVE ${CTES_DE_LEITURA_DA_PODA},
 salvos AS (
     SELECT r.* FROM resgate r
      WHERE r.novo_pai IS NOT NULL
@@ -1280,6 +1305,36 @@ UNION ALL
 SELECT 'frontier', id, grantee_id, grantee_group_id, resource_type, resource_id,
        NULL::uuid, NULL::uuid, NULL::timestamptz, NULL::timestamptz
   FROM fronteira
+`;
+
+/**
+ * QUANTAS CONCESSÕES CAIRIAM JUNTO com $1 se ela fosse revogada agora, por tipo de beneficiário.
+ *
+ * É A PODA SEM AS ESCRITAS: as mesmas quatro CTEs de leitura (`CTES_DE_LEITURA_DA_PODA`), com a
+ * âncora no modo da revogação deliberada ($3 = false, ela cai sempre), e o `SELECT` conta
+ * `podados` menos a própria âncora. O resgate por `view_share` vivo do concedente, pessoal E por
+ * grupo, entra de graça, porque é a mesma CTE que a poda usa, e é isso que o cliente não
+ * conseguia reproduzir (ele não tem a composição dos grupos).
+ *
+ * POR QUE ELA EXISTE: desde 2026-09-22 a lista de concessões de um recurso devolve só o que quem
+ * pergunta concedeu, então os descendentes de uma concessão dele (feitos por outras pessoas) não
+ * chegam mais ao cliente, e o aviso de revogação não tem mais árvore para percorrer. O número
+ * continua sendo dito, porque essa subárvore deriva da concessão de quem revoga.
+ *
+ * O QUE ELA NÃO VÊ, dito para ninguém prometer mais do que ela entrega: a `fronteira` (a cadeia
+ * além de 32 níveis, que a poda reenfileira). Acima do teto ela subconta, o mesmo buraco
+ * declarado do cliente, e nenhuma árvore medida chega perto disso. E ela é uma leitura, sem a
+ * trava da poda: entre o desenho e o clique a árvore pode mudar, e quem diz o que caiu de verdade
+ * é a resposta da revogação.
+ *   $1 = a concessão, $2 = não usado (é o `revoked_by` da poda), $3 = false
+ */
+export const REVOCATION_FALL_PREVIEW = `
+WITH RECURSIVE ${CTES_DE_LEITURA_DA_PODA}
+SELECT COUNT(*) FILTER (WHERE g.grantee_group_id IS NULL)::int AS pessoas,
+       COUNT(*) FILTER (WHERE g.grantee_group_id IS NOT NULL)::int AS grupos
+  FROM podados p
+  JOIN resource_grants g ON g.id = p.id
+ WHERE p.id <> $1::uuid
 `;
 
 // --- empréstimo por atlas --------------------------------------------------

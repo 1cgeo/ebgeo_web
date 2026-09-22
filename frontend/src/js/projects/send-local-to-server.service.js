@@ -151,9 +151,8 @@ function exigirNomesUnicos(nomePorChave) {
         .map(([nome, chaves]) => `"${nome}" (${chaves.map((c) => `"${c}"`).join(', ')})`)
         .join('; ');
     const erro = new Error(
-        'Este atlas local tem mais de um mapa com o mesmo nome, e enviar assim faria um deles '
-        + `sobrescrever o outro no servidor: ${detalhe}. Abra o atlas, renomeie os mapas `
-        + 'repetidos e envie de novo. Nada foi enviado.'
+        'Este atlas local tem mapas com o mesmo nome, e um sobrescreveria o outro no servidor: '
+        + `${detalhe}. Nada foi enviado. Abra o atlas, renomeie os mapas repetidos e envie de novo.`
     );
     erro.code = 'NOME_DE_MAPA_REPETIDO';
     erro.stage = 'leitura';
@@ -411,7 +410,7 @@ export async function sendLocalAtlasToServer(entry, { apiClient, scopeOf, name, 
         found.push([imageIdMap[id], blob]);
     }
     const { uploads, skipped } = await buildImageUploads(found);
-    if (skipped.length || built.stats.droppedFeatures) throw comEtapa(new Error('Há imagens ou feições que não podem ser convertidas. Nenhum atlas foi publicado.'), 'leitura');
+    if (skipped.length || built.stats.droppedFeatures) throw comEtapa(new Error('Algumas imagens ou feições não puderam ser convertidas para o servidor. Nada foi enviado.'), 'leitura');
     const question = missingImagesUploadConfirm(classifyMissingImages(missing, exportData), { from: 'disco' });
     if (question && !(await confirmMissingImages?.(question))) throw uploadCancelledError();
     const local = await countAtlasContents(scope);

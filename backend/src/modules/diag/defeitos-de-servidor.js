@@ -48,6 +48,7 @@ import config from '../../config.js';
 import logger from '../../utils/logger.js';
 import { tx as txPadrao } from '../../database/index.js';
 import { assinaturaDeErro, normalizarRota } from '../../utils/diag-consulta.js';
+import { MARCADOR_LOG_DESLIGADO } from '../../utils/log-diario.js';
 import { OrigemDeErro } from './origens-de-erro.js';
 import { gravarDefeitoComOcorrencia } from './defeitos.service.js';
 
@@ -343,6 +344,49 @@ export function defeitoDaQueda(tipo, causa, origem) {
     assinatura: `${registro.msg} | ${assinaturaDeErro(registro)}`.slice(0, 300),
     mensagem: mensagem.slice(0, 500),
     stack: ehObjeto && typeof causa.stack === 'string' ? causa.stack.slice(0, 4000) : null,
+    rota: null,
+    statusCode: null,
+    reqId: null,
+    sessaoId: null,
+    userId: null,
+  };
+}
+
+/**
+ * A anotação de um DESLIGAMENTO do log em arquivo em runtime. PURA.
+ *
+ * POR QUE ISTO VIRA DEFEITO. O arquivo não tem como registrar que parou de ser escrito, e o
+ * aviso de `log-diario.js` vai para um stderr que não sobrevive a um container recriado; a
+ * leitura do processo vivo (`estadoDoLogEmArquivo`) some no reinício. A tabela de defeitos é a
+ * única testemunha DURÁVEL que sobra, e é ela que `npm run diag -- resumo` lê para dizer, no
+ * bloco de saúde, que a série pode ter buraco com o processo de pé.
+ *
+ * A ASSINATURA É `marcador | código`, e não carrega a mensagem crua: o caminho do arquivo do dia
+ * muda a cada dia, e com ele dentro cada dia de disco cheio seria um defeito novo em vez de
+ * `ocorrencias + 1` no mesmo, com a regressão por release que isso dá de graça. O código é o que
+ * decide o conserto (EACCES e ENOSPC pedem providências opostas), então é ele que separa.
+ *
+ * SEM CONTEÚDO DE USUÁRIO: o que viaja é o caminho do diretório e a mensagem do sistema de
+ * arquivos, que o próprio processo escreveu.
+ *
+ * @param {{causa?: string|null, codigo?: string|null, mensagem?: string|null,
+ *          diretorio?: string|null}} estado - de `estadoDoLogEmArquivo`
+ * @returns {Object} a anotação
+ */
+export function defeitoDoLogDesligado(estado) {
+  const codigo = estado && typeof estado.codigo === 'string' && estado.codigo !== ''
+    ? estado.codigo
+    : 'sem codigo';
+  const causa = estado?.causa || 'falha de escrita';
+  const detalhe = estado?.mensagem ? `: ${estado.mensagem}` : '';
+  const onde = estado?.diretorio ? ` Diretório: ${estado.diretorio}.` : '';
+  return {
+    assinatura: `${MARCADOR_LOG_DESLIGADO} | ${codigo}`.slice(0, 300),
+    // O MESMO teto de 500 de `defeitoDeRequisicao`, sobre a frase INTEIRA: a mensagem do
+    // sistema de arquivos carrega um caminho, e caminho não tem tamanho máximo que se possa supor.
+    mensagem: (`O log em arquivo foi DESLIGADO nesta execução (${causa}${detalhe}).${onde} `
+      + 'Ele só volta com o reinício do processo.').slice(0, 500),
+    stack: null,
     rota: null,
     statusCode: null,
     reqId: null,

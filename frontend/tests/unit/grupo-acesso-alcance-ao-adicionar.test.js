@@ -144,7 +144,7 @@ describe('as duas notas que ocupam o lugar do botão "Sair"', () => {
         // Dizer "você é o dono" afirmaria uma posse que ninguém mediu; oferecer o botão terminaria
         // num 409 na cara de quem clicou. A tela sabe que não sabe, e diz.
         expect(nota).not.toMatch(/^Você é o dono/);
-        expect(nota).toMatch(/não conseguiu ler quem é você/);
+        expect(nota).toMatch(/Não foi possível confirmar quem é você/);
         // E oferece a saída real, que é recarregar.
         expect(nota).toMatch(/[Rr]ecarregue/);
         expect(nota).not.toBe(groupOwnerCannotLeaveNotice());

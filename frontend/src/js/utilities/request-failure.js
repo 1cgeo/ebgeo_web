@@ -113,3 +113,65 @@ export function classifyRequestFailure(error) {
 export function isCredentialFailure(error) {
     return classifyRequestFailure(error) === RequestFailure.CREDENTIAL;
 }
+
+/**
+ * The sentence a screen shows for a failed request: the SERVER's own explanation when it sent one,
+ * the caller's fallback otherwise.
+ *
+ * It exists because `error?.message || fallback`, the shape most catches of the pages without a
+ * map used, lets two strings through that are nobody's sentence: the `HTTP <status>` that
+ * `store/sync/api-client.js` invents when the response carried no message (a proxy 502 with an
+ * HTML body is the common case), and the browser's own `Failed to fetch` when there was no
+ * response at all. Both reached the screen as the whole toast. The status stays on the error, for
+ * the console; the person reads the fallback, which names what failed.
+ *
+ * Other copies of this filter exist next to the forms that grew them (`accountErrorMessage`,
+ * `sharingErrorMessage`, `recoveryErrorMessage`, the login model); this is the one for code that
+ * has none nearby, and it lives here because this module is the zero-import leaf every page can
+ * reach.
+ *
+ * @param {*} error - The caught error (an `ApiError` carries the server `message`).
+ * @param {string} fallback - The pt-BR sentence for when there is nothing better.
+ * @returns {string}
+ */
+export function serverMessageOr(error, fallback) {
+    const texto = typeof error?.message === 'string' ? error.message.trim() : '';
+    if (!texto) return fallback;
+    // EXATO, como os irmãos: só o eco inteiro é placeholder. Uma frase do servidor que por acaso
+    // comece por "HTTP" continua sendo frase.
+    if (/^HTTP \d{3}$/.test(texto)) return fallback;
+    if (/^(Failed to fetch|NetworkError|Load failed|The user aborted a request)/i.test(texto)) {
+        return fallback;
+    }
+    return texto;
+}
+
+/**
+ * The house sentence for a failed request, followed by what the SERVER said (when it said
+ * anything) and a discreet `Código: nnn` line (when there was a status).
+ *
+ * It exists for the screens that deliberately keep the server's detail next to their own
+ * sentence, the admin diagnostic tabs: a 404 there means a route missing in this deployment and
+ * a 403 means the role changed mid-session, and dropping that would cost the administrator the
+ * most useful fact on the screen. What they used to append was the RAW message, so the same
+ * `HTTP 502` and `Failed to fetch` that `serverMessageOr` filters reached the screen through the
+ * side door. Here the raw echo is filtered by the same rule, and the status comes back as the
+ * short line the screen-text rule allows (`CLAUDE.md`, "Texto de aviso").
+ *
+ * @param {string} sentence - The pt-BR sentence that names what failed.
+ * @param {*} error - The caught error.
+ * @param {{maxLength?: number}} [options] - Cap for the server's text (a stack trace or an HTML
+ *   body must not take the whole screen).
+ * @returns {string}
+ */
+export function withFailureDetail(sentence, error, { maxLength = 200 } = {}) {
+    const partes = [String(sentence ?? '').trim()];
+    let servidor = serverMessageOr(error, '');
+    if (servidor) {
+        if (servidor.length > maxLength) servidor = `${servidor.slice(0, Math.max(0, maxLength - 1))}…`;
+        partes.push(/[.!?…]$/.test(servidor) ? servidor : `${servidor}.`);
+    }
+    const status = requestStatus(error);
+    if (status !== null) partes.push(`Código: ${status}`);
+    return partes.filter(Boolean).join(' ');
+}

@@ -61,15 +61,37 @@ Dentro da imagem resultante, lida por `docker run`: **Node v22.23.2**, npm 10.9.
 
 O `backend/docker-compose.yml` constrói por `build: .` e portanto herda o Dockerfile; não há um segundo lugar onde o digest entre. Ele declara uma segunda imagem sem digest, `postgis/postgis:16-3.4`, que é do serviço de banco de desenvolvimento e teste: é decisão separada e de risco menor, porque não vai para produção.
 
-Runtime roda como uid/gid **1001** (`backend/Dockerfile`) e o `chown` do build cobre `/app/data` (`backend/Dockerfile`), mas um volume montado ali chega com a dono do host e **sobrescreve** esse chown. Só `/app/data/images` é pré-criado; os diretórios de assets 3D e 360 nascem em runtime pelo app. Volume não gravável por 1001 dá `EACCES` na primeira escrita, não no boot.
+### O processo roda como 1001, e o dono que vale é o do volume
 
-O `HEALTHCHECK` (`backend/Dockerfile`) bate em `/api/v1/health`, que executa `SELECT 1` e responde 503 (`backend/src/app.js`). É **readiness real**, não liveness: se o Postgres cai o container fica unhealthy com o processo vivo. Não martele com intervalo curto, cada probe toca o pool.
+Runtime roda como uid/gid **1001** (`backend/Dockerfile`), e o build cria e entrega a ele os cinco diretórios que o processo escreve sob `/app/data` (`images`, `logs`, `catalog-videos`, `sv360`, `sv360-tmp`). O que acontece com esse dono depende do tipo de montagem, e é aqui que a instalação erra:
+
+- **Volume NOMEADO novo** herda o dono da imagem: o Docker copia o diretório da imagem, com dono e permissões, para dentro do volume vazio. Por isso os cinco precisam EXISTIR na imagem. Até 2026-09-22 só `images` existia, e o `ebgeo_logs` do `backend/docker-compose.yml`, montado num caminho ausente da imagem, nascia com a raiz de root.
+- **BIND MOUNT** (`./data:/app/data`) traz o dono do HOST e **mascara** o `chown` da imagem por inteiro. Medido no stack de teste em 2026-09-22: o `./data` do host era 1000:1000, criado por uma versão anterior, e o processo subiu com o healthcheck verde, o log em arquivo desligado na primeira linha (`EACCES ... open '/app/data/logs/ebgeo-2026-09-22.jsonl'`) e todo envio de imagem em 500 (`EACCES ... mkdir '/app/data/images/<atlasId>'`). Ninguém soube até ler o `docker logs`.
+
+**Desde 2026-09-22 o boot RECUSA SUBIR nesse caso.** Antes de escutar a porta, a sonda de escrita (`backend/src/utils/sonda-de-escrita.js`, chamada em `backend/src/index.js`) cria se faltar, escreve e apaga um arquivo de teste em cada diretório que o processo escreve: `LOG_DIR` (só com o log em arquivo ligado), `IMAGES_DIR`, `CATALOG_VIDEO_DIR`, `SV360_DB_DIR` e `SV360_TMP_DIR`. Qualquer falha sai com código 1 e UMA mensagem no stderr, com todos os diretórios de uma vez, no formato:
+
+```
+Diretório(s) de dados sem escrita: o servidor NÃO vai subir, porque seguiria de pé com funções quebradas em silêncio.
+O processo roda como uid 1001, gid 1001, e precisa criar, escrever e apagar arquivo em cada diretório abaixo:
+  - /app/data/logs (LOG_DIR: log em arquivo): EACCES ao escrever o arquivo de teste; dono atual: 1000:1000.
+  - /app/data/images (IMAGES_DIR: imagens dos atlas): EACCES ao escrever o arquivo de teste; dono atual: 1000:1000.
+Conserto provável:
+  - EACCES/EPERM: o dono do diretório não é o processo. Se o caminho vem de um volume ou bind mount (ex.: ./data:/app/data no compose), o dono que vale é o do HOST, e o chown feito na construção da imagem não alcança o que o mount põe por cima. No host, entregue a origem do mount ao processo: chown -R 1001:1001 <origem no host> (ex.: chown -R 1001:1001 ./data).
+```
+
+O conserto do incidente é, no host, `chown -R 1001:1001 ./data` (o `-R` não é detalhe: a pasta de cada atlas criada pela versão anterior também tem o dono velho, e a sonda não a percorre). `EROFS` manda tirar o `:ro`, `ENOSPC` manda liberar espaço, e disco cheio TAMBÉM recusa o boot, o que é preço declarado da decisão. Se o ambiente também estiver inválido, a mensagem de `validateEnvVariables` e a da sonda saem juntas, no mesmo lançamento.
+
+**Não são sondados**, de propósito, os diretórios que o servidor só LÊ, onde `:ro` é montagem legítima: `MODELS_3D_DIR`, `ASSETS_3D_DIR` e `ASSETS_3D_SQLITE` (quem escreve é o roteiro de importação), `SONDA_DIR` (quem escreve é a sonda de disponibilidade) e `EBGEO_MAPAS_DIR` (quem escreve é o deploy). O 360 NÃO está nessa lista: `SV360_DB_DIR` recebe a ingestão pelo painel e as miniaturas, então uma instalação que queira o acervo 360 montado só leitura hoje não sobe, e não há variável que declare isso.
+
+### Healthcheck e piso do Node
+
+O `HEALTHCHECK` (`backend/Dockerfile`) bate em `/api/v1/health`, que executa `SELECT 1` e responde 503 (`backend/src/app.js`). É **readiness real**, não liveness: se o Postgres cai o container fica unhealthy com o processo vivo. Não martele com intervalo curto, cada probe toca o pool. **Ele não reprova quando o log em arquivo se desliga em runtime**, e é decisão de 2026-09-22: essa rota é a testemunha de disponibilidade da sonda externa (um 503 ali escreveria queda no instrumento que mede queda, com o produto atendendo), e um orquestrador que reinicia container unhealthy cairia na sonda de escrita, que recusa volume cheio ou sem permissão, transformando a perda do log numa indisponibilidade total. O desligamento em runtime sai em `GET /api/v1/diag/saude` e `/resumo` (`janela.logEmArquivo`, estado do processo vivo) e vira defeito de servidor, que `npm run diag -- resumo` mostra no bloco de saúde ([[observabilidade]]).
 
 O piso é **Node 20.19.0** (`backend/package.json`), não 20.0.0: o boot usa `--env-file-if-exists`, que só existe a partir dessa versão. Um 20.12 ou 20.18 satisfaz "Node 20 LTS" e mesmo assim morre na flag desconhecida.
 
 ## Boot fail-fast: por que a validação existe
 
-`validateEnvVariables()` roda em `backend/src/index.js`, **antes** de qualquer conexão, e deliberadamente **não** em `backend/src/app.js` (a suíte importa o app via supertest e não deve exigir env completa). Acumula os erros que alcança e lança um único `Configuração inválida:`.
+`validateEnvVariables()` roda em `backend/src/index.js`, **antes** de qualquer conexão, e deliberadamente **não** em `backend/src/app.js` (a suíte importa o app via supertest e não deve exigir env completa). Acumula os erros que alcança e lança um único `Configuração inválida:`. Desde 2026-09-22 a sonda de escrita dos diretórios de dados (`verificarDiretoriosDeDados`) roda no mesmo ponto e entra no MESMO lançamento: um deploy com ambiente errado e volume de outro dono descobre as duas coisas num reinício só (ver "O processo roda como 1001" acima).
 
 Não alcança `DATABASE_URL` (`backend/src/config.js`) nem `JWT_SECRET`: as duas passam por `required()`, que lança na **avaliação do módulo**, e `index.js` importa `app.js` → `config.js` antes de chamar a validação. Faltando uma delas, a saída é `Missing required env var: X`, em inglês e uma por vez, não a lista. O acumulador governa o que é `optional()` (como `CORS_ORIGIN`) e as regras condicionais de produção. Ver [[hardening-borda-api]].
 
@@ -126,7 +148,7 @@ O acervo 3D tem **duas** formas de armazenamento e uma só rota, e confundi-las 
 Armadilhas que custam dados:
 
 - **`SV360_TMP_DIR` e `SV360_DB_DIR` precisam estar no MESMO volume.** O multer streama o `images.db` multi-GB para o tmp e depois faz `rename`. Em filesystems diferentes o rename vira cópia cross-device e o swap **perde a atomicidade** ([[ingestao-projetos-360]]).
-- O `backend/docker-compose.yml` só persiste `ebgeo_pgdata` e `ebgeo_images`. `assets3d*` e `sv360*` são **efêmeros** nesse stack e somem no recreate. Adicione volumes antes de produção.
+- O `backend/docker-compose.yml` só persiste `ebgeo_pgdata`, `ebgeo_images` e `ebgeo_logs`. `assets3d*`, `catalog-videos` e `sv360*` são **efêmeros** nesse stack e somem no recreate. Adicione volumes antes de produção, e lembre que o dono de cada um é decidido pelo tipo de montagem (ver "O processo roda como 1001").
 - O `db_filename` do 360 é **derivado no servidor** de `(orgId, slug)`. Restaurar arquivos com o nome legado `{slug}.db` quebra o serving mesmo com o Postgres íntegro.
 
 **Controle de RSS:** `better-sqlite3` materializa o BLOB inteiro como `Buffer` no heap, sem stream incremental. O `SELECT` roda num pool de worker threads (`SQLITE_BLOB_WORKERS`, default `min(4, cpus-1)`, `backend/src/utils/sqlite-blob-pool.js`) e o ETag O(1) com 304 acontece **antes** de qualquer leitura de BLOB ([[sintese-cache-http-imutavel]]). Os semáforos `ASSETS_3D_MAX_INFLIGHT` e `SV360_MAX_INFLIGHT` (default 8) são o controle direto de memória: subi-los em container apertado estoura o heap.
@@ -140,7 +162,22 @@ Armadilhas que custam dados:
 
 O mesmo NGINX serve o bundle web a partir de um symlink trocado a cada publicação, com uma armadilha própria: [[deploy-web]].
 
-`trust proxy` **é** configurado no código, por `TRUST_PROXY_HOPS` (default 1 hop, que casa com o NGINX único deste deploy), então `req.ip` é o endereço do CLIENTE e não o do proxy. Esta linha afirmou o contrário até 2026-09-01, e a inversão era do tipo que gera trabalho errado: ela dizia que a parte IP da chave do limitador estava degradada e que registrar endereço não serviria para nada, o oposto do que o código faz desde que o `app.set` de proxy existe. O que continua verdadeiro é a DEPENDÊNCIA: se o número de hops deixar de casar com o que está na frente, `req.ip` passa a devolver a MESMA resposta em toda linha, que é pior do que não ter o campo, porque tem cara de medição. É por isso que as validações de proxy do limitador ficam ligadas fora de teste ([[hardening-borda-api]], [[link-publico]]).
+### `TRUST_PROXY_HOPS` é a contagem de proxies do caminho, e o de produção tem três
+
+`trust proxy` **é** configurado no código, por `TRUST_PROXY_HOPS` (o `app.set` de `backend/src/app.js`), e ele decide o que `req.ip` vale: a metade de endereço da chave do limitador e o campo `ip` de toda linha de requisição do log ([[hardening-borda-api]], [[link-publico]], [[observabilidade]]). Esta página afirmou até 2026-09-01 que ele não existia.
+
+**A regra: o valor é o número de proxies entre o navegador e o backend que escrevem no `X-Forwarded-For`.** O Express conta o par TCP como o primeiro salto e anda o cabeçalho da direita para a esquerda; com o número certo, ele para na entrada que o proxy mais externo escreveu, que é o endereço do navegador. O padrão do código é 1, que casa com UM nginx na frente do backend, e esse não é o caminho real. Medido no log do nginx do servidor em 2026-09-22:
+
+| topologia | caminho | valor |
+|---|---|---|
+| backend atrás só do nginx do servidor (ebgeo-proxy) | navegador, proxy da EBnet, proxy intermediário, ebgeo-proxy, backend | 3 |
+| pilha de teste, com um segundo nginx (ebgeo-novo-proxy) | navegador, proxy da EBnet, proxy intermediário, ebgeo-proxy, ebgeo-novo-proxy, backend | 4 |
+
+O proxy da EBnet PÕE o endereço do navegador no cabeçalho, o do proxy intermediário acrescenta o da EBnet, e o nosso acrescenta o do proxy intermediário: o que chega ao ebgeo-proxy é o endereço do navegador seguido do endereço do proxy da EBnet (27 endereços de cliente distintos em 24 h). A pilha de teste rodou com 3 e gravou TODO acesso com o endereço do proxy da EBnet: o salto do segundo nginx não estava contado, e a leitura parou uma entrada à direita.
+
+**Como conferir.** Registre `$http_x_forwarded_for` no log do nginx mais próximo do backend: o valor certo é o número de entradas que chegam ali, mais um (o próprio nginx). O sintoma de valor A MENOS é todo acesso sair com o endereço de um proxy, o do mais externo quando falta um, e a seção "Endereços de acesso" da aba Diagnóstico mostra um endereço só. Valor A MAIS é o erro pior, porque não aparece: o Express passa a confiar a entrada mais à esquerda, que nenhum proxy nosso garantiu, e se o proxy mais externo acrescentar em vez de substituir, é o próprio navegador quem a escreve e escolhe o endereço que vai para o log e para a chave do limitador. Com o número exato o cliente não forja nada, porque toda a cadeia confiada é de proxies que ACRESCENTAM.
+
+**E cada nginx nosso precisa acrescentar**: `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` (a forma do `dev/tile-privado/nginx/ebgeo.conf` desta árvore; a configuração de produção não mora aqui). Um proxy que não repassa o cabeçalho, ou que o troca pelo próprio par, apaga os saltos anteriores, e aí nenhum valor devolve o navegador.
 
 ## Superfície anônima herdada da ordem de montagem
 

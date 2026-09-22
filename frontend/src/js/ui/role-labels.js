@@ -87,7 +87,7 @@ export function getGlobalRoleDescription(role) {
     if (isKnownGlobalRole(role)) return GLOBAL_ROLE_DESCRIPTIONS[role];
     const raw = getGlobalRoleLabel(role);
     if (!raw) return '';
-    return `Papel "${raw}" definido pelo servidor. Esta versão do aplicativo não sabe descrevê-lo: `
+    return `Papel "${raw}", sem descrição nesta versão do EBGeo. Para saber o que ele permite, `
         + 'consulte o administrador.';
 }
 

@@ -201,7 +201,7 @@ describe('POST /auth/register: the organization the applicant claims for themsel
     const { rows } = await db.query(
       'SELECT email, email_verified FROM users WHERE username = $1', [username]
     );
-    assert.equal(rows[0].email, null, 'createUserAdminSchema não tem campo de e-mail');
+    assert.equal(rows[0].email, null, 'sem e-mail no corpo, a conta administrativa nasce sem endereço');
     assert.equal(rows[0].email_verified, false, 'e a flag continua falsa');
 
     await login(username, 'Claim@1234').expect(200);

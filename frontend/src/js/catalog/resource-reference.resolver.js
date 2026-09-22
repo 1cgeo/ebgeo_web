@@ -128,29 +128,47 @@ export function nomeDeRecursoConhecido(grupo, id) {
 }
 
 /**
- * Rótulo em pt-BR de cada superfície, para o aviso ao usuário.
+ * Rótulo em pt-BR de cada superfície, para o aviso ao usuário: `[singular, plural]`.
  *
  * Escrito em termos do que a pessoa VÊ (uma camada, um marcador, um slide), e não em
  * termos do documento: quem está exportando não sabe o que é `cesium3d.viewsheds`.
+ *
+ * O PAR SUBSTITUIU A FORMA "camada(s)" em 2026-09-22: a contagem está na mesma linha, e o
+ * plural certo sai dela. As duas superfícies de comentário e as cinco listas de `atlas.settings`
+ * entraram no mesmo dia, porque o relatório do SERVIDOR as anota e a linha delas saía com a chave
+ * crua do documento em vez de um nome.
  */
 const ROTULO_DE_SUPERFICIE = Object.freeze({
-    'mapa.baseLayer': 'camada de base (volta para a padrão)',
-    'mapa.catalogLayers': 'camada(s) de catálogo',
-    'cesium3d.cameraPositions': 'posição(ões) de câmera 3D',
-    'cesium3d.markers': 'marcador(es) 3D',
-    'cesium3d.measurements': 'medição(ões) 3D',
-    'cesium3d.viewsheds': 'bacia(s) de visada 3D',
-    'sv360.orientations': 'orientação(ões) de foto 360',
-    'sv360.markers': 'marcador(es) em foto 360',
-    'briefing.slide.modelId': 'slide(s) com modelo 3D (viram slide de mapa)',
-    'briefing.slide.photoId': 'slide(s) com foto 360 (viram slide de mapa)',
-    'briefing.slide.baseLayer': 'slide(s) com mapa base próprio (passam a usar o do mapa)',
+    'mapa.baseLayer': ['camada de base (volta para a padrão)', 'camadas de base (voltam para a padrão)'],
+    'mapa.catalogLayers': ['camada de catálogo', 'camadas de catálogo'],
+    'cesium3d.cameraPositions': ['posição de câmera 3D', 'posições de câmera 3D'],
+    'cesium3d.markers': ['marcador 3D', 'marcadores 3D'],
+    'cesium3d.measurements': ['medição 3D', 'medições 3D'],
+    'cesium3d.viewsheds': ['bacia de visada 3D', 'bacias de visada 3D'],
+    'sv360.orientations': ['orientação de foto 360', 'orientações de foto 360'],
+    'sv360.markers': ['marcador em foto 360', 'marcadores em foto 360'],
+    'comments.foto360': ['comentário em foto 360', 'comentários em foto 360'],
+    'comments.modelo3d': ['comentário em modelo 3D', 'comentários em modelo 3D'],
+    'briefing.slide.modelId': ['slide com modelo 3D (vira slide de mapa)', 'slides com modelo 3D (viram slides de mapa)'],
+    'briefing.slide.photoId': ['slide com foto 360 (vira slide de mapa)', 'slides com foto 360 (viram slides de mapa)'],
+    'briefing.slide.baseLayer': ['slide com mapa base próprio (passa a usar o do mapa)', 'slides com mapa base próprio (passam a usar o do mapa)'],
+    'settings.basemaps': ['camada de base do catálogo', 'camadas de base do catálogo'],
+    'settings.available_data_layers': ['camada de dados do catálogo', 'camadas de dados do catálogo'],
+    'settings.available_analysis_layers': ['camada de análise do catálogo', 'camadas de análise do catálogo'],
+    'settings.available_3d_models': ['modelo 3D do catálogo', 'modelos 3D do catálogo'],
+    'settings.available_360_views': ['projeto 360 do catálogo', 'projetos 360 do catálogo'],
     // SÓ O SERVIDOR ANOTA ESTA, e ela chegou aqui quando o relato de poda do CLONE passou a ser
     // mostrado. Ela é de `atlas.settings`, superfície que existe apenas do lado do servidor (o
     // cliente a recebe no snapshot e nunca a persiste), e é id ÚNICO, não lista: cai de volta
     // para o padrão em vez de esvaziar.
-    'settings.default_basemap': 'mapa base padrão do atlas (volta para o padrão)',
+    'settings.default_basemap': ['mapa base padrão do atlas (volta para o padrão)', 'mapas base padrão do atlas (voltam para o padrão)'],
 });
+
+/**
+ * O rótulo de uma superfície que a tabela acima não conhece. A linha continua saindo, porque
+ * perda contada é perda avisada; o que não sai mais é a chave crua do documento.
+ */
+const ROTULO_DESCONHECIDO = Object.freeze(['item de outro tipo', 'itens de outro tipo']);
 
 /**
  * O cabeçalho de cada NATUREZA de perda, na ordem em que o aviso as mostra.
@@ -165,7 +183,7 @@ const ROTULO_DE_SUPERFICIE = Object.freeze({
  */
 const CABECALHO_DE_NATUREZA = Object.freeze({
     [RefVerdict.PRIVATE]: 'Por restrição de acesso:',
-    [RefVerdict.UNKNOWN]: 'Por não dar para confirmar, fora do servidor, que é público:',
+    [RefVerdict.UNKNOWN]: 'Fora do servidor, não dá para confirmar que são públicos:',
 });
 
 /**
@@ -180,7 +198,10 @@ const NOTA_360 = 'Toda foto 360 entra nesta lista, inclusive a pública.';
 
 /** @private Uma linha do aviso: contagem, rótulo em pt-BR e até três nomes. */
 function linhaDePerda(superficie, quantos, nomes) {
-    const rotulo = ROTULO_DE_SUPERFICIE[superficie] ?? superficie;
+    const [singular, plural] = (Object.hasOwn(ROTULO_DE_SUPERFICIE, superficie)
+        ? ROTULO_DE_SUPERFICIE[superficie]
+        : ROTULO_DESCONHECIDO);
+    const rotulo = quantos === 1 ? singular : plural;
     const amostra = nomes.slice(0, 3).join(', ');
     const resto = nomes.length > 3 ? ` e mais ${nomes.length - 3}` : '';
     return `• ${quantos} ${rotulo}${nomes.length ? ` (${amostra}${resto})` : ''}`;

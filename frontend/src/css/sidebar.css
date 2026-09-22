@@ -1045,9 +1045,13 @@
     display: none;
 }
 
-/* Hide photo gallery add/delete buttons */
+/* Hide photo gallery add/delete buttons, and the "+" card of the grid, which is the one that was
+   missing here: it opened the file picker for a Leitor or a Comentarista. The feature panel no
+   longer builds any of the three when editing is unavailable; this rule still carries the 3D and
+   360 marker galleries, which build them and rely on the panel class. */
 .feature-panel--locked .feature-photo-gallery-add-btn,
-.feature-panel--locked .feature-photo-gallery-delete {
+.feature-panel--locked .feature-photo-gallery-delete,
+.feature-panel--locked .feature-photo-gallery-add-card {
     display: none;
 }
 

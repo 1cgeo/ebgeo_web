@@ -588,6 +588,43 @@
     justify-content: flex-end;
 }
 
+/* O BOTÃO DE ÍCONE (`js/admin/admin-icon-button.js`), hoje só nas ações da linha de Usuários
+   (pedido do dono, 2026-09-22). Os botões de TEXTO daquela linha somavam a largura da coluna de
+   ações, que é dimensionada pela linha mais larga, e espremiam PAPEL: o quadrado fixo custa o
+   mesmo em toda linha. Ele herda moldura, cor e hover da variante (`--ghost`, `--danger`), então
+   o foco, o fantasma e o perigo são os do resto do painel; aqui só muda a caixa.
+
+   `vertical-align: middle` porque um `inline-flex` sem texto não tem linha de base própria, e na
+   célula ele desceria para a base sintetizada da borda de baixo, desalinhado do selo ao lado. */
+.admin-btn--icon {
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    vertical-align: middle;
+}
+
+/* O SVG nasce com 16px por atributo; a regra o fixa e impede que o flex o encolha. */
+.admin-btn--icon svg {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+}
+
+/* O FOCO TEM DE SE VER: o botão é só um desenho, e sem contorno o Tab não produz efeito
+   visível nenhum. Mesmo anel de `.admin-input:focus-visible`. */
+.admin-btn--icon:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 1px;
+}
+
+/* Entre quadrados de 32px o respiro de texto (8px) abre a fileira mais do que ela precisa. Só a
+   célula de Usuários leva o modificador: as outras abas que reusam `.admin-users__actions`
+   continuam com botão de texto e com o espaçamento de cima. */
+.admin-users__actions--icons .admin-btn + .admin-btn {
+    margin-left: var(--space-1);
+}
+
 /* ===== Forms (create / edit / password / transfer) ===== */
 
 /* O FORMULÁRIO É CENTRADO COMO TODO O RESTO, e a exceção que morou aqui por uma hora foi
@@ -662,6 +699,15 @@
    (medido na captura de 2026-09-21). E guarda à direita o lugar da seta: a regra acima tem mais
    especificidade que a do componente e zeraria esse recuo, pondo o texto por baixo da seta. */
 .admin-form__field .searchable-select__input {
+    width: 100%;
+    padding-right: var(--space-8);
+}
+
+/* O CAMPO DE SENHA COM OLHO (`js/ui/password-visibility.js`) tem os mesmos dois problemas do campo
+   buscável acima, pela mesma razão: o olho embrulha o input num `.password-field` de bloco, que
+   tira dele o esticamento da coluna flexível, e a regra de `.admin-form__field input` vence o
+   recuo de `password-field.css` e poria a senha longa por baixo do ícone. */
+.admin-form__field .password-field__input {
     width: 100%;
     padding-right: var(--space-8);
 }
@@ -1541,6 +1587,41 @@
     padding: var(--space-1) var(--space-2);
 }
 
+/* "CONCEDER ACESSO" (2026-09-22): a escolha do recurso abre um cartão entre o cabeçalho da seção
+   e a tabela, e fecha sozinha quando a lista relê. O campo é o mesmo combo buscável de Usuários,
+   então a largura é a do combo, limitada para não esticar numa tela larga. */
+.admin-grants__picker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+}
+
+.admin-grants__picker-field {
+    flex: 1 1 320px;
+    max-width: 480px;
+}
+
+.admin-grants__picker-hint {
+    flex-basis: 100%;
+    margin: 0;
+    color: var(--gray-600);
+    font-size: var(--font-size-sm);
+}
+
+/* O lugar do comando que não se desenha (ninguém para quem conceder nada) e o da lista que não
+   carregou: prosa de legenda, como `.admin-grants__expiry-notice`, e não um estado vazio de
+   cartão, porque a tabela embaixo continua sendo o conteúdo da seção. */
+.admin-grants__share-note {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-3);
+    color: var(--gray-600);
+    font-size: var(--font-size-sm);
+}
+
 /* ===== Aba Diagnóstico =====
 
    Três seções sobre a MESMA janela de tempo (pulso, defeitos, latência), e um seletor só, no
@@ -1999,6 +2080,64 @@
 .admin-diag__p95--desconhecida {
     color: var(--gray-400);
     font-weight: var(--font-weight-normal);
+}
+
+/* ----- seção 5: os endereços de acesso (2026-09-22) -----
+
+   O endereço reusa `.admin-diag__endereco-ip` (monoespaçado, quebra em qualquer ponto), que nasceu
+   para os endereços agregados por grupo de erro: a leitura é a mesma, de caractere e não de
+   palavra. O selo "agora" é verde porque é o único estado VIVO da tabela, e ele não diz saúde: diz
+   tráfego recente. As contas são rótulos em fileira, e só dois tipos ganham tom próprio, o anônimo
+   (apagado, porque não é uma pessoa) e a conta que não existe mais ou está inativa (atenção, porque
+   é o fato que quem monitora precisa ver). */
+
+.admin-diag__enderecos-ressalva {
+    margin: var(--space-2) var(--space-3) 0;
+}
+
+.admin-diag__endereco-celula {
+    white-space: nowrap;
+}
+
+.admin-diag__agora {
+    margin-left: var(--space-2);
+    padding: 1px var(--space-2);
+    border-radius: var(--radius-full);
+    background: color-mix(in srgb, var(--color-success) 15%, transparent);
+    color: color-mix(in srgb, var(--color-success) 78%, var(--gray-900));
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    cursor: help;
+}
+
+.admin-diag__contas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.admin-diag__conta {
+    padding: 0 var(--space-1);
+    border-radius: var(--radius-sm);
+    background: var(--gray-100);
+    color: var(--gray-700);
+    font-size: var(--font-size-xs);
+    overflow-wrap: anywhere;
+    cursor: help;
+}
+
+.admin-diag__conta--anonimo,
+.admin-diag__conta--mais,
+.admin-diag__conta--sem-nome {
+    color: var(--gray-500);
+}
+
+.admin-diag__conta--inativa,
+.admin-diag__conta--removida {
+    color: var(--color-warning-strong);
 }
 
 /* ----- o vazio que é boa notícia ----- */

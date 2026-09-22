@@ -13,11 +13,17 @@
 // unrelated causes (403, 400, the generic 422 headline) the text stays deliberately
 // vague, because a message that names the WRONG cause is worse than one that names none.
 //
-// NOT TRANSLATED HERE, ON PURPOSE: `NotFoundError`'s `${resource} not found`. Its
-// resource comes from ~98 call sites as an English noun ('Atlas', 'Photo', 'User'),
-// so translating only the template yields 'Photo não encontrado' — half English, and
-// with the wrong gender for every feminine noun. That one needs a resource-label table
-// and is a separate, larger change.
+// `NotFoundError` TRANSLATES BY TABLE since 2026-09-22 (`NOT_FOUND_SENTENCES`, below). Its
+// resource comes from ~98 call sites as an English noun ('Atlas', 'Photo', 'User'), so
+// translating only the template would yield 'Photo não encontrado', half English and with
+// the wrong gender for every feminine noun. The table gives each noun a whole sentence.
+// Two things stay as they were, and both are deliberate:
+//   - a noun NOT in the table keeps `${resource} not found`. That is where the 360 module's
+//     nouns live ('Photo', 'Project', 'Target', 'Tile'...): its flat `{ error }` envelope is
+//     the frozen sv360 contract, and its tests pin those strings by name;
+//   - an argument that is ALREADY a sentence (it ends in a period) is used as-is. Two call
+//     sites passed one ('Preparação da importação não encontrada.', the diag module's
+//     `DEFEITO_INEXISTENTE`) and got "... not found" glued after it.
 
 // CAUSE CONTRACT, added 2026-09-01. Every class here takes a trailing, OPTIONAL
 // `options` object and forwards it to `Error`, which reads exactly one key from it,
@@ -68,9 +74,47 @@ export class AppError extends Error {
   }
 }
 
+/**
+ * The pt-BR sentence for each resource noun the web screens can show. See the header for what
+ * is deliberately left out.
+ * @type {Readonly<Record<string, string>>}
+ */
+const NOT_FOUND_SENTENCES = Object.freeze({
+  'Resource': 'Recurso não encontrado.',
+  'Atlas': 'Atlas não encontrado.',
+  'Atlas resource': 'Este recurso não está emprestado a este atlas.',
+  'User': 'Usuário não encontrado.',
+  'API key': 'Chave de API não encontrada.',
+  'Catalog item': 'Item de catálogo não encontrado.',
+  'Access group': 'Grupo de acesso não encontrado.',
+  'Group member': 'Esta pessoa não está no grupo.',
+  'Share': 'Compartilhamento não encontrado.',
+  'Grant': 'Concessão não encontrada.',
+  'Rank': 'Posto ou graduação não encontrado.',
+  'Organization': 'Organização não encontrada.',
+  'Map': 'Mapa não encontrado.',
+  'Source map': 'Mapa de origem não encontrado.',
+  'Briefing': 'Briefing não encontrado.',
+  '3D asset': 'Modelo 3D não encontrado.',
+  '3D model': 'Modelo 3D não encontrado.',
+  'Image': 'Imagem não encontrada.',
+  'Image file': 'Arquivo da imagem não encontrado.',
+  'Video': 'Vídeo não encontrado.',
+});
+
+/**
+ * @param {*} resource - An English noun, or a finished pt-BR sentence.
+ * @returns {string}
+ */
+function notFoundMessage(resource) {
+  const texto = String(resource);
+  if (/[.!?]$/.test(texto.trim())) return texto;
+  return Object.hasOwn(NOT_FOUND_SENTENCES, texto) ? NOT_FOUND_SENTENCES[texto] : `${texto} not found`;
+}
+
 export class NotFoundError extends AppError {
   constructor(resource = 'Resource', options) {
-    super(`${resource} not found`, 404, 'NOT_FOUND', options);
+    super(notFoundMessage(resource), 404, 'NOT_FOUND', options);
   }
 }
 

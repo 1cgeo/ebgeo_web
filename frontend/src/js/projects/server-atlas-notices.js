@@ -27,7 +27,7 @@
 
 // Do ARQUIVO e sem imports próprios: é a definição única desta casa para "por que o pedido
 // falhou". Escrever aqui um segundo `if (status === 401)` seria mais uma cópia da mesma regra.
-import { classifyRequestFailure, requestStatus, RequestFailure } from '@utils/request-failure.js';
+import { classifyRequestFailure, RequestFailure } from '@utils/request-failure.js';
 
 /** Último recurso: a frase que um erro sem nada aproveitável ainda produz. */
 const RECUSA_GENERICA = 'Não foi possível criar o atlas. Tente de novo.';
@@ -55,13 +55,14 @@ export function createServerAtlasFailureNotice(error) {
     // A credencial respondeu por si mesma. O texto do servidor aqui é genérico ("Faça login para
     // continuar"), e o que a pessoa precisa saber é que o atlas NÃO foi criado.
     if (classe === RequestFailure.CREDENTIAL) {
-        return 'A sua sessão não vale mais. Entre de novo e crie o atlas outra vez.';
+        return 'Sua sessão terminou. Entre de novo e crie o atlas outra vez.';
     }
 
     // Todo o resto: o servidor falou, e a frase dele é mais específica que qualquer moldura.
     // É por aqui que a recusa de cota (429 `QUOTA_EXCEEDED`) chega inteira, com os dois números.
-    if (doServidor) return doServidor;
+    // O eco "HTTP nnn", que o cliente inventa quando a resposta não trouxe mensagem, NÃO é frase
+    // do servidor: é texto de console, e o status continua no erro para quem abrir o console.
+    if (doServidor && !/^HTTP \d{3}$/.test(doServidor)) return doServidor;
 
-    const status = requestStatus(error);
-    return status ? `${RECUSA_GENERICA} (HTTP ${status})` : RECUSA_GENERICA;
+    return RECUSA_GENERICA;
 }

@@ -50,7 +50,7 @@ router.post('/resend-verification', resendVerificationLimiter, validate({ body: 
 
 // PASSWORD RECOVERY BY E-MAIL, MOUNTED ONLY WHERE THE MESSAGE CAN LAND, exactly as `/register`
 // is mounted only where self-registration is on. The condition is the honest half of "prever o
-// e-mail": the account e-mail is optional in this product (`POST /api/v1/users` creates accounts
+// e-mail": the account e-mail is optional in this product (`POST /api/v1/users` may create accounts
 // without one) and SMTP is only REQUIRED at boot in production with self-registration on
 // (`validateEnvVariables`, src/config.js), so a PRODUCTION deployment with no relay is a
 // supported state. Mounting there would answer 200 to "enviamos um código" and mail nothing: the

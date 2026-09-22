@@ -540,6 +540,35 @@ const CENSO_CONSULTA = [
       + 'empréstimo conta.',
   },
 
+  // O CONTEXTO DE VISUALIZADOR DA PRESENÇA (2026-09-22): a lista de quem está online passou a
+  // dizer em qual modelo 3D, cena ou foto 360 cada colega está. As duas unidades abaixo RESOLVEM
+  // o identificador que o remetente mandou para o NOME e o NÍVEL do recurso; elas não recortam
+  // nada, e isso é deliberado. Quem decide quem lê o nome é `fn_can_see_resource`, chamado por
+  // `WHO_SEES_VIEWER_RESOURCE` para os DESTINATÁRIOS (não para o remetente), no escopo do atlas da
+  // sala, e o laço que aplica a resposta é `quemPodeVer` (collab.recorte.js). Desde o mesmo dia as
+  // duas servem também o ESCOPO do cursor e da seleção do 3D, da cena e do 360, que até ali saía em
+  // claro para a sala inteira: o identificador que não resolve é privado para todos, para que a
+  // redação não vire oráculo de existência.
+  {
+    arquivo: 'src/modules/collab/collab.queries.js', unidade: 'RESOLVE_VIEWER_TILESET', n: 1,
+    classe: JS, predicado: 'access_level',
+    motivo: 'O nome e o nível do modelo 3D (ou da cena caminhável, linha da mesma tabela) que um '
+      + 'colega abriu, para a lista de quem está online, e o escopo do cursor e da seleção dele no 3D '
+      + 'e na cena. Não recorta: o nível que ela lê é a '
+      + 'entrada da decisão tomada em JS por destinatário, que manda o nome inteiro a quem '
+      + '`fn_can_see_resource` responde sim e o mesmo quadro com o recurso NULO ao resto. Linha '
+      + 'inativa não resolve, como no gate de escrita.',
+  },
+  {
+    arquivo: 'src/modules/collab/collab.queries.js', unidade: 'RESOLVE_VIEWER_360', n: 2,
+    classe: JS, predicado: 'access_level',
+    motivo: 'O projeto 360 e o rótulo da foto que um colega abriu, pela MESMA tradução de '
+      + '`RESOLVE_SV360_REFS` (composta, nunca reescrita, para que o nome na lista seja o do '
+      + 'projeto que o servidor de fotos serve). Projeto desativado é julgado como PRIVADO, porque '
+      + '`fn_can_see_resource` não lê `status` e o catálogo o esconde de quem não o mantém. A '
+      + 'decisão de quem lê é por destinatário, em JS, com o predicado composto.',
+  },
+
   // O SEGUNDO CATÁLOGO DE MODELO 3D SAIU DAQUI, e a ausência é o registro: `ng.catalogo_3d`
   // tinha um eixo de acesso PARALELO (`users.role = admin` direto mais `ng.model_permissions`,
   // nunca `fn_has_global_data_access` nem `resource_grants`), duplicado verbatim entre
@@ -1168,8 +1197,11 @@ const CENSO_ROTA = [
   {
     arquivo: 'src/modules/resource-access/resource-access.routes.js', rota: 'GET /:type/:id/grants',
     classe: R_OUTRA, gate: 'requireResourceShare',
-    motivo: 'Metadado de COMPARTILHAMENTO (quem concedeu a quem, e até quando), não o recurso. Sai '
-      + 'só para quem pode compartilhar aquele recurso, que é uma autoridade mais estreita que vê-lo.',
+    motivo: 'Metadado de COMPARTILHAMENTO (a quem o chamador concedeu, e até quando), não o recurso. '
+      + 'Sai só para quem pode compartilhar aquele recurso, que é uma autoridade mais estreita que '
+      + 'vê-lo, e desde 2026-09-22 só com as concessões de AUTORIA do chamador (`granted_by` lido do '
+      + 'token, no WHERE): o que outras pessoas concederam sobre o mesmo recurso não sai daqui, e a '
+      + 'subárvore de uma concessão dele sai contada, sem as linhas.',
   },
   {
     arquivo: 'src/modules/resource-access/resource-access.routes.js',
@@ -1405,6 +1437,14 @@ const CENSO_ROTA = [
       + 'por `elidirSql`; esta rota não redige por cima, senão a resposta divergiria do arquivo '
       + 'que ela afirma mostrar. Sem `?dir=`, pela mesma razão das irmãs e com mais peso, '
       + 'porque esta devolve LINHA e não contagem.',
+  },
+  {
+    arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /enderecos', classe: R_OUTRA, gate: 'requireAdmin',
+    motivo: `${SO_ADMIN} Os endereços IP DISTINTOS da janela (2026-09-22): agregação do campo \`ip\` `
+      + 'das linhas de requisição do `.jsonl`, com contagem, instantes e abas por endereço, mais o '
+      + 'login e o nome das contas vistas em cada um, lidos de `users` por id. Não toca tabela de '
+      + 'catálogo, 360 nem 3D, e o que um id de recurso pudesse carregar na URL não viaja: a URL não '
+      + 'faz parte do agregado. Sem `?dir=`, pela mesma razão das irmãs.',
   },
   {
     arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /resumo', classe: R_OUTRA, gate: 'requireAdmin',

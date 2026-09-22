@@ -190,7 +190,9 @@ function abrirConversa(raizId, x, y) {
     ancorar(montarCartaoDeThread({
         raiz,
         respostas: respostasDe(estado.colecao, raizId),
-        aoFechar: () => fecharCartao3D(),
+        // Scoped to THIS thread: after a resolution the card calls it only once the store accepted
+        // the write, and by then the person may have opened another comment.
+        aoFechar: () => { if (estado.raizAberta === raizId) fecharCartao3D(); },
     }), x, y);
     estado.raizAberta = raizId;
 }
@@ -203,12 +205,15 @@ async function recarregar() {
     if (!estado.ativo) return;
     desenhar();
 
+    // Resolved by a PEER, the open thread is redrawn in the resolved state and does not close;
+    // deleted, it closes. Same rule as the 360 and the 2D map (2026-09-22): only the person's own
+    // gesture closes the card, from inside it (comment_tool/comment-card.js).
     if (estado.raizAberta) {
         const raiz = estado.colecao[estado.raizAberta];
         const onde = estado.cartao
             ? { x: parseFloat(estado.cartao.style.left) + estado.cartao.offsetWidth / 2, y: parseFloat(estado.cartao.style.top) + estado.cartao.offsetHeight + 24 }
             : null;
-        if (raiz && raiz.status !== 'resolved' && onde) abrirConversa(raiz.id, onde.x, onde.y);
+        if (raiz && onde) abrirConversa(raiz.id, onde.x, onde.y);
         else fecharCartao3D();
     }
 }

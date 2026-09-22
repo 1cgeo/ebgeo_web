@@ -108,7 +108,7 @@ describe('a borda do override: o tipo do sombreamento', () => {
 
   it('o sombreamento sozinho nao arrasta as vizinhas de `map2d`', () => {
     // CONTROLE de escopo: um payload que so liga o sombreamento nao pode exigir nem inventar
-    // `maxPitch`, `globe_projection` ou a faixa de zoom.
+    // `maxPitch` ou a faixa de zoom.
     const r = configOverridesSchema.validate(
       { map2d: { hillshade: { enabled: true } } },
       { stripUnknown: true, abortEarly: false },

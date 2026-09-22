@@ -92,8 +92,8 @@ export function privateBadgePhrase(origem, { sujeito } = {}) {
             origem: canonica,
             rotulo: 'Privado neste atlas',
             rotuloCurto: 'Emprestado',
-            title: `${quem} emprestado por este atlas: você deixa de enxergá-lo ao sair daqui, `
-                + 'a menos que tenha acesso próprio a ele.',
+            title: `${quem} emprestado por este atlas: você deixa de enxergá-lo ao sair deste `
+                + 'atlas, a menos que tenha acesso próprio a ele.',
             volatil: true,
         };
     }

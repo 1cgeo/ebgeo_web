@@ -150,15 +150,15 @@ export class ValidationResult {
      */
     getSummary() {
         if (!this.hasIssues()) {
-            return 'Briefing valido';
+            return 'Briefing válido';
         }
 
         const parts = [];
         if (this.errors.length > 0) {
-            parts.push(`${this.errors.length} erro(s)`);
+            parts.push(this.errors.length === 1 ? '1 erro' : `${this.errors.length} erros`);
         }
         if (this.warnings.length > 0) {
-            parts.push(`${this.warnings.length} aviso(s)`);
+            parts.push(this.warnings.length === 1 ? '1 aviso' : `${this.warnings.length} avisos`);
         }
         return parts.join(', ');
     }

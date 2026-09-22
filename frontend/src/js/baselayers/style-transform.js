@@ -52,6 +52,8 @@
  * to the very object it queued for.
  */
 
+import { withLiteralGlyphTokens } from './glyphs-template.js';
+
 /**
  * Ids a style declares, for telling base content apart from application content.
  * @param {Object|null|undefined} style - A style specification
@@ -119,7 +121,9 @@ export function baseStyleAlreadyOnMap(styleOnMap, style, hasLayer) {
  * @returns {Object} Merged style specification
  */
 export function mergeApplicationStyle(previous, next, previousBase) {
-    if (!previous || !next) return next;
+    // The glyph tokens are restored HERE too, and not only in `resolveBasemapStyle`: a URL style
+    // is a string there, and its document reaches this hook only after MapLibre fetched it.
+    if (!previous || !next) return withLiteralGlyphTokens(next);
 
     const baseSources = previousBase?.sources || new Set();
     const baseLayers = previousBase?.layers || new Set();
@@ -140,11 +144,44 @@ export function mergeApplicationStyle(previous, next, previousBase) {
         layers.push(layer);
     }
 
-    const merged = { ...next, sources, layers };
+    const merged = { ...withLiteralGlyphTokens(next), sources, layers };
     // Terrain and projection belong to the application state, not to the base
     // map: keep them so the diff does not tear the terrain down and the app does
     // not have to put it back a frame later.
     if (previous.terrain && !next.terrain) merged.terrain = previous.terrain;
     if (previous.projection && !next.projection) merged.projection = previous.projection;
     return merged;
+}
+
+/**
+ * The appearance a base switch owes the map, written INTO the style handed to `setStyle`
+ * instead of applied to the map after it.
+ *
+ * WHY INSIDE THE STYLE. `switchLayer` used to call `map.setProjection({ type: 'globe' })` and
+ * `map.setSky(undefined)` after awaiting the first `styledata`, and both go through
+ * `Style._checkLoaded`, which throws "Style is not done loading." while a style is being rebuilt.
+ * The first `styledata` does not mean "loaded" (it can come from the style being replaced, and the
+ * 10 s timeout falls through too), so a map switch that hit the full-rebuild path threw from
+ * there: 3 occurrences in 2 sessions on release 1c3c19c9 of the test stack. Inside the style,
+ * MapLibre applies the projection itself, in `_load` for a rebuild and as a `setProjection` diff
+ * command on a loaded style, so nothing is ever written to a style that is still loading.
+ *
+ * AND THE INPUTS ARE READ WHEN MAPLIBRE APPLIES THE STYLE, because the caller passes them from
+ * inside the `transformStyle` hook: two rapid switches each carry the state of the moment their
+ * style lands, and no projection computed for the first can be written after the second.
+ *
+ * Same rule as before, only moved: globe when the atlas asks for it and terrain is off (globe and
+ * terrain are incompatible, MapLibre #4792); otherwise the projection the merge kept. The sky is
+ * dropped because the app never shows one (the background is CSS).
+ *
+ * @param {Object|null|undefined} style - The merged style
+ * @param {{ globe: boolean, terrainActive: boolean }} appearance
+ * @returns {Object|null|undefined} A new style object, or the input when it is not an object
+ */
+export function withSwitchAppearance(style, { globe, terrainActive }) {
+    if (!style || typeof style !== 'object') return style;
+    const out = { ...style };
+    delete out.sky;
+    if (globe && !terrainActive) out.projection = { type: 'globe' };
+    return out;
 }

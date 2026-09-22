@@ -1,9 +1,10 @@
 // Path: js/admin/diag-tab.js
 
 /**
- * @fileoverview Aba "Diagnóstico" — a saúde do servidor e dos navegadores em QUATRO seções sobre a
- * MESMA janela de tempo: o RESUMO, o pulso de requisições, os DEFEITOS (com ciclo de vida) e a
- * latência por rota.
+ * @fileoverview Aba "Diagnóstico" — a saúde do servidor e dos navegadores em CINCO seções sobre a
+ * MESMA janela de tempo: o RESUMO, o pulso de requisições, os DEFEITOS (com ciclo de vida), a
+ * latência por rota e, desde 2026-09-22, os ENDEREÇOS DE ACESSO (os IPs distintos da janela, com as
+ * contas vistas em cada um; as palavras em `enderecos-phrases.js`).
  *
  * O RESUMO É A PRIMEIRA SEÇÃO DESDE 2026-09-02, e ele é o `npm run diag -- resumo` na tela. A
  * decisão do dono naquele dia foi que o relatório de uma tela não vira digesto diário por e-mail:
@@ -92,6 +93,7 @@ import {
     cleanup,
 } from '@utils/event-cleanup.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
+import { withFailureDetail } from '@utils/request-failure.js';
 import { sectionHeader, card, emptyState, failureState, ICON_DIAG } from './admin-dom.js';
 import {
     JANELAS,
@@ -261,6 +263,27 @@ import {
     totalTruncadoNotice,
     ultimaAmostraNotice,
 } from './resumo-phrases.js';
+import {
+    COLUNAS_DE_ENDERECOS,
+    agoraChipLabel,
+    contasNotice,
+    enderecoLabel,
+    enderecoTitulo,
+    enderecoUnicoNotice,
+    enderecosDesconhecidoNotice,
+    enderecosEmptyHint,
+    enderecosEmptyNotice,
+    enderecosEscopoNotice,
+    enderecosFailureNotice,
+    enderecosReconhecido,
+    enderecosSubtitulo,
+    enderecosTitulo,
+    requisicoesTitulo,
+    rotulosDasContas,
+    semEnderecoNotice,
+    usandoAgoraRotulo,
+    usandoAgoraTitulo,
+} from './enderecos-phrases.js';
 
 /**
  * Os tetos de cada lista.
@@ -271,6 +294,11 @@ import {
  */
 const LIMITE_LENTO = 15;
 const LIMITE_DEFEITOS = 50;
+/**
+ * Os endereços pedidos: o padrão do servidor (`LIMITE_PADRAO_DE_ENDERECOS`), escrito aqui para que
+ * a nota do corte ("mostrando 100 de 340 endereços") saia sobre um número que esta tela escolheu.
+ */
+const LIMITE_ENDERECOS = 100;
 
 /**
  * A marca da última visita, POR PESSOA e no armazenamento do navegador dela.
@@ -329,7 +357,7 @@ function escreverMarcaDeVisita(userId, agora) {
  * defeitos novos" falar de um subconjunto enquanto a premissa dela diz "da janela".
  * @param {string} janela
  * @param {Object} filtros
- * @returns {{resumo: string, status: string, lento: string, defeitos: string}}
+ * @returns {{resumo: string, status: string, lento: string, defeitos: string, enderecos: string}}
  */
 function rotasDaJanela(janela, filtros) {
     const desde = encodeURIComponent(janela);
@@ -338,6 +366,7 @@ function rotasDaJanela(janela, filtros) {
         status: `/diag/status?desde=${desde}`,
         lento: `/diag/lento?desde=${desde}&limite=${LIMITE_LENTO}`,
         defeitos: rotaDeDefeitos(janela, filtros),
+        enderecos: `/diag/enderecos?desde=${desde}&limite=${LIMITE_ENDERECOS}`,
     };
 }
 
@@ -490,7 +519,11 @@ class DiagTab {
         this._secaoPulso = this._secao('admin-diag-pulso');
         this._secaoDefeitos = this._montarSecaoDefeitos();
         this._secaoLatencia = this._secao('admin-diag-latencia');
-        c.append(this._secaoResumo, this._secaoPulso, this._secaoDefeitos, this._secaoLatencia);
+        // OS ENDEREÇOS POR ÚLTIMO: eles respondem "quem", e as quatro de cima respondem "o que está
+        // quebrado ou lento", que é a razão de a aba ser aberta. A mesma janela vale para os cinco.
+        this._secaoEnderecos = this._secao('admin-diag-enderecos');
+        c.append(this._secaoResumo, this._secaoPulso, this._secaoDefeitos, this._secaoLatencia,
+            this._secaoEnderecos);
 
         this._carregar();
     }
@@ -753,6 +786,7 @@ class DiagTab {
         this._pintarCarregando(this._secaoPulso, 'Pulso de requisições');
         this._defeitosCarregando();
         this._pintarCarregando(this._secaoLatencia, 'Latência por rota');
+        this._pintarCarregando(this._secaoEnderecos, enderecosTitulo());
         this._carregando = true;
         if (this._select) {
             this._select.setAttribute('aria-disabled', 'true');
@@ -765,6 +799,14 @@ class DiagTab {
         settle(() => pedirDiag(rotas.resumo)).then(
             (value) => this._resumoRespondeu(geracao, janela, { status: 'fulfilled', value }),
             (reason) => this._resumoRespondeu(geracao, janela, { status: 'rejected', reason }),
+        );
+        // OS ENDEREÇOS TAMBÉM SEGUEM SOZINHOS, pelo mesmo motivo do resumo e com a mesma guarda: é
+        // uma passada a mais pelo log da janela, mais a leitura dos nomes no banco, e nenhuma das
+        // três seções de baixo precisa dela. Junto das irmãs, ela seguraria o Pulso em
+        // "Carregando…" à espera de uma tabela que fica no fim da aba.
+        settle(() => pedirDiag(rotas.enderecos)).then(
+            (value) => this._enderecosResponderam(geracao, janela, { status: 'fulfilled', value }),
+            (reason) => this._enderecosResponderam(geracao, janela, { status: 'rejected', reason }),
         );
 
         const [status, defeitos, lento] = await Promise.allSettled([
@@ -820,6 +862,16 @@ class DiagTab {
     }
 
     /**
+     * @private A resposta dos endereços, fora do compasso das irmãs, com a MESMA guarda de geração
+     * do resumo: a resposta lenta de uma janela abandonada não pode pintar por cima da nova.
+     * @param {number} geracao @param {string} janela @param {PromiseSettledResult<*>} resultado
+     */
+    _enderecosResponderam(geracao, janela, resultado) {
+        if (!this._alive || geracao !== this._geracao) return;
+        this._pintarEnderecos(this._secaoEnderecos, resultado, janela);
+    }
+
+    /**
      * @private O terceiro estado de tela, distinto do vazio e da falha.
      * @param {HTMLElement} host @param {string} titulo
      */
@@ -865,10 +917,9 @@ class DiagTab {
     _falha(host, frase, erro) {
         // A MENSAGEM DO SERVIDOR NÃO SE PERDE, e ela é o dado mais útil desta aba inteira: "404"
         // aqui significa rota ausente nesta implantação, e "403" significa que o papel mudou no
-        // meio da sessão. A frase da casa entra antes, para que a mensagem crua não fique sozinha.
-        const detalhe = typeof erro?.message === 'string' && erro.message.trim()
-            ? `${frase} ${resumirTexto(erro.message, 200)}`
-            : frase;
+        // meio da sessão. A frase da casa entra antes; o eco "HTTP 502" e o "Failed to fetch" do
+        // navegador não entram, e o status sai como "Código: 502" (`withFailureDetail`).
+        const detalhe = withFailureDetail(frase, erro);
         const el = failureState(detalhe, { onRetry: () => { if (this._alive) this._carregar(); } });
         host.appendChild(el);
         return el;
@@ -1634,10 +1685,7 @@ class DiagTab {
             // cru, em inglês, como se fosse a frase do produto. A mensagem do servidor não se
             // perde (um 404 aqui significa que a poda passou por cima do defeito, e um 403 que o
             // papel mudou no meio da sessão), mas ela entra DEPOIS da frase da casa e cortada.
-            const cru = typeof error?.message === 'string' ? error.message.trim() : '';
-            showError(cru
-                ? `${acaoFalhaNotice(acao)} ${resumirTexto(cru, 200)}`
-                : acaoFalhaNotice(acao));
+            showError(withFailureDetail(acaoFalhaNotice(acao), error));
         } finally {
             this._emVoo.delete(id);
         }
@@ -1741,9 +1789,7 @@ class DiagTab {
             p.textContent = ocorrenciasCarregandoNotice();
             box.appendChild(p);
         } else if (leitura.erro) {
-            const detalhe = typeof leitura.erro?.message === 'string' && leitura.erro.message.trim()
-                ? `${ocorrenciasFailureNotice()} ${resumirTexto(leitura.erro.message, 200)}`
-                : ocorrenciasFailureNotice();
+            const detalhe = withFailureDetail(ocorrenciasFailureNotice(), leitura.erro);
             box.appendChild(failureState(detalhe, {
                 onRetry: () => {
                     this._ocorrencias.delete(item?.id);
@@ -1931,9 +1977,205 @@ class DiagTab {
             unidade: 'rotas',
         });
     }
+
+    /**
+     * @private Seção 4: os ENDEREÇOS DE ACESSO, os IPs distintos que falaram com o servidor na
+     * janela, com as contas vistas em cada um (pedido do dono, 2026-09-22).
+     *
+     * ELA LÊ O LOG, e por isso paga as duas coisas que a varredura de seções cobra: pergunta pelo
+     * leitor cego ANTES de desenhar o vazio, e diz o que foi varrido em todo desfecho informativo.
+     * As duas perguntas são feitas sobre o ENVELOPE `janela`, como no Resumo: esta rota publica a
+     * procedência aninhada (é a forma que espelha `npm run diag -- enderecos --json`), e no topo do
+     * payload `arquivos`, `linhas`, `truncado` e `diretorioAusente` não existem.
+     *
+     * O VAZIO NÃO É BOA NOTÍCIA, ao contrário do da latência: servidor em uso registra requisição o
+     * tempo todo, e zero endereço é o log parado ou o servidor recém-subido. Por isso é o
+     * `emptyState` cinzento da casa, e nunca o verde de `bomVazio`.
+     *
+     * OS NOMES CAEM SOZINHOS. Com o banco fora o servidor manda a lista inteira e o bloco `contas`
+     * cego; a ressalva sai acima da tabela e cada conta aparece pelo identificador, em vez de a seção
+     * inteira virar falha por causa da metade que não é dela.
+     *
+     * O ENDEREÇO E O NOME SÃO DADO EXTERNO (o primeiro veio de um socket, o segundo foi digitado num
+     * formulário), e tudo entra por `textContent`, nos construtores do fim do arquivo.
+     * @param {HTMLElement} host @param {PromiseSettledResult<*>} resultado @param {string} janela
+     */
+    _pintarEnderecos(host, resultado, janela) {
+        host.replaceChildren();
+        host.appendChild(sectionHeader(enderecosTitulo(), {
+            subtitle: enderecosSubtitulo(janelaEmPalavras(janela)),
+        }));
+
+        const escopo = document.createElement('p');
+        escopo.className = 'admin-diag__nota';
+        escopo.dataset.testid = 'admin-diag-enderecos-escopo';
+        escopo.textContent = enderecosEscopoNotice();
+        host.appendChild(escopo);
+
+        const wrap = card({ testid: 'admin-diag-enderecos-card', padded: false });
+        host.appendChild(wrap);
+
+        if (resultado.status === 'rejected') {
+            this._falha(wrap, enderecosFailureNotice(), resultado.reason);
+            return;
+        }
+        const payload = resultado.value;
+        // A ROTA É UMA SÓ, então documento irreconhecível é FALHA de seção, com botão, e nunca uma
+        // lista vazia com cara de "ninguém usou".
+        if (!enderecosReconhecido(payload)) {
+            wrap.appendChild(failureState(`${enderecosFailureNotice()} ${enderecosDesconhecidoNotice()}`, {
+                onRetry: () => { if (this._alive) this._carregar(); },
+            }));
+            return;
+        }
+        if (leitorCego(payload.janela)) {
+            wrap.appendChild(failureState(leitorCegoNotice(), {
+                onRetry: () => { if (this._alive) this._carregar(); },
+            }));
+            this._notasDaLeitura(host, payload.janela);
+            return;
+        }
+        if (payload.enderecos.length === 0) {
+            wrap.appendChild(emptyState(enderecosEmptyNotice(janelaEmPalavras(janela)), {
+                hint: enderecosEmptyHint(),
+            }));
+            this._notasDaLeitura(host, payload.janela);
+            return;
+        }
+
+        const tiras = document.createElement('div');
+        tiras.className = 'admin-diag__pulso';
+        tiras.appendChild(tile('Endereços distintos', contagemLabel(payload.distintos),
+            'admin-diag-enderecos-distintos'));
+        // O "AGORA" LEVA A PREMISSA NO `title`, e ela vem do servidor (`recenteMs`): o número sozinho
+        // se leria como presença, e é tráfego recente.
+        const agora = tile(usandoAgoraRotulo(), contagemLabel(payload.recentes), 'admin-diag-enderecos-agora');
+        agora.title = usandoAgoraTitulo(payload.recenteMs);
+        tiras.appendChild(agora);
+        tiras.appendChild(tile('Requisições', contagemLabel(payload.requisicoes),
+            'admin-diag-enderecos-requisicoes'));
+        wrap.appendChild(tiras);
+
+        // AS TRÊS RESSALVAS DO DOCUMENTO, cada uma só quando vale: os nomes que não vieram, o
+        // endereço único (que tem duas leituras) e as requisições que não registraram endereço.
+        const ressalvas = [
+            contasNotice(payload.contas),
+            enderecoUnicoNotice(payload),
+            semEnderecoNotice(payload, { contar: contagemLabel }),
+        ].filter(Boolean);
+        for (const frase of ressalvas) {
+            const p = document.createElement('p');
+            p.className = 'admin-diag__nota admin-diag__enderecos-ressalva';
+            p.dataset.testid = 'admin-diag-enderecos-ressalva';
+            p.textContent = frase;
+            wrap.appendChild(p);
+        }
+
+        const table = document.createElement('table');
+        table.className = 'admin-users__table admin-diag__table';
+        table.dataset.testid = 'admin-diag-enderecos-tabela';
+        const thead = document.createElement('thead');
+        const hrow = document.createElement('tr');
+        for (const coluna of COLUNAS_DE_ENDERECOS) {
+            const th = document.createElement('th');
+            th.textContent = coluna.rotulo;
+            th.title = coluna.titulo;
+            hrow.appendChild(th);
+        }
+        thead.appendChild(hrow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        const agoraMs = Date.now();
+        for (const item of payload.enderecos) {
+            tbody.appendChild(linhaDeEndereco(item, payload.contas, payload.recenteMs, agoraMs));
+        }
+        table.appendChild(tbody);
+        wrap.appendChild(table);
+        // O CORTE DITO EM VOZ ALTA: cem endereços de quatro mil é outra tela que cem de cem, e o
+        // servidor manda a contagem de antes do corte justamente para esta frase existir.
+        this._notasDaLeitura(host, payload.janela, {
+            mostrados: payload.enderecos.length,
+            total: payload.distintos,
+            unidade: 'endereços',
+        });
+    }
 }
 
 // ===== small DOM builders =====
+
+/**
+ * Uma linha da tabela de endereços. Tudo por `textContent`: o endereço veio de um socket e o nome
+ * da conta foi digitado num formulário.
+ * @param {Object} item - um endereço do payload
+ * @param {*} contas - o bloco `contas` do payload
+ * @param {*} recenteMs - a largura do "agora" que o servidor declarou
+ * @param {number} agoraMs - o relógio da tela, UM para a tabela inteira
+ * @returns {HTMLTableRowElement}
+ */
+function linhaDeEndereco(item, contas, recenteMs, agoraMs) {
+    const tr = document.createElement('tr');
+    tr.dataset.testid = 'admin-diag-endereco-linha';
+    if (item?.recente === true) tr.dataset.agora = 'true';
+
+    const celula = document.createElement('td');
+    celula.className = 'admin-diag__endereco-celula';
+    const ip = document.createElement('span');
+    ip.className = 'admin-diag__endereco-ip';
+    ip.textContent = enderecoLabel(item);
+    ip.title = enderecoTitulo(item);
+    celula.appendChild(ip);
+    if (item?.recente === true) {
+        const chip = document.createElement('span');
+        chip.className = 'admin-diag__agora';
+        chip.dataset.testid = 'admin-diag-endereco-agora';
+        chip.textContent = agoraChipLabel();
+        chip.title = usandoAgoraTitulo(recenteMs);
+        celula.appendChild(chip);
+    }
+    tr.appendChild(celula);
+
+    tr.appendChild(celulaDeTexto(tempoRelativo(item?.ultima, agoraMs) || '—', 'admin-diag__quando',
+        horaLocalCompleta(item?.ultima)));
+    tr.appendChild(celulaDeTexto(horaLocal(item?.primeira) || '—', 'admin-diag__quando',
+        horaLocalCompleta(item?.primeira)));
+    tr.appendChild(celulaNumerica(contagemLabel(item?.requisicoes),
+        requisicoesTitulo(item, { contar: contagemLabel })));
+    tr.appendChild(celulaNumerica(contagemLabel(item?.sessoes)));
+    tr.appendChild(celulaDeContas(item, contas));
+    return tr;
+}
+
+/**
+ * A célula de contas de um endereço: um rótulo por conta, mais o anônimo, com o detalhe no `title`.
+ *
+ * O TIPO VIRA MODIFICADOR DE CLASSE E DADO, como o estado do p95: a cor é o que a pessoa lê, o
+ * atributo é o que uma captura consegue afirmar.
+ * @param {Object} item @param {*} contas
+ * @returns {HTMLTableCellElement}
+ */
+function celulaDeContas(item, contas) {
+    const td = document.createElement('td');
+    td.className = 'admin-diag__contas-celula';
+    const rotulos = rotulosDasContas(item, contas, { contar: contagemLabel, hora: horaLocalCompleta });
+    if (!rotulos.length) {
+        td.textContent = '—';
+        return td;
+    }
+    const lista = document.createElement('ul');
+    lista.className = 'admin-diag__contas';
+    for (const rotulo of rotulos) {
+        const li = document.createElement('li');
+        li.className = `admin-diag__conta admin-diag__conta--${rotulo.tipo}`;
+        li.dataset.testid = 'admin-diag-endereco-conta';
+        li.dataset.tipo = rotulo.tipo;
+        li.textContent = rotulo.texto;
+        if (rotulo.titulo) li.title = rotulo.titulo;
+        lista.appendChild(li);
+    }
+    td.appendChild(lista);
+    return td;
+}
 
 /**
  * A taxa de erro do pulso. A aritmética (e as duas saídas que não são o número) mora em

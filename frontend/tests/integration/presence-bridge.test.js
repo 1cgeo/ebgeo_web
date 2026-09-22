@@ -47,6 +47,7 @@ const {
         sendSelection: vi.fn(),
         sendBriefingEditStart: vi.fn(),
         sendBriefingEditEnd: vi.fn(),
+        sendViewer: vi.fn(() => true),
     };
     const store = {
         setInitial: vi.fn(),
@@ -58,6 +59,7 @@ const {
         setSelection: vi.fn(),
         setBriefingEdit: vi.fn(),
         setCurrentMap: vi.fn(),
+        setViewer: vi.fn(),
         clear: vi.fn(),
     };
 
@@ -161,6 +163,8 @@ function resetMocks() {
     wsClientMock.sendSelection.mockClear();
     wsClientMock.sendBriefingEditStart.mockClear();
     wsClientMock.sendBriefingEditEnd.mockClear();
+    wsClientMock.sendViewer.mockClear();
+    wsClientMock.sendViewer.mockReturnValue(true);
     for (const fn of Object.values(presenceStoreMock)) fn.mockClear();
     eventBusMock.on.mockClear();
     eventBusMock.off.mockClear();
@@ -484,6 +488,92 @@ describe('presence-bridge', () => {
             wsClientMock.isConnected.mockReturnValue(false);
             fireBus(EventTypes.CURSOR_360_MOVED, { position: { heading: 1, pitch: 0 }, photoName: 'f1' });
             expect(wsClientMock.sendCursor).not.toHaveBeenCalled();
+        });
+    });
+
+    // CASO V (dono, 2026-09-22): em qual visualizador cada colega está. A ponte manda só o
+    // IDENTIFICADOR e só quando o contexto MUDA; o nome é resolvido pelo servidor, por
+    // destinatário. E a conexão própria que sai de ONLINE esvazia a lista, porque sem socket
+    // ninguém a corrige.
+    describe('caso V: contexto de visualizador', () => {
+        beforeEach(() => {
+            startPresence({ map });
+        });
+
+        it('anuncia o modelo 3D aberto, a troca e o fechamento, e só quando muda', () => {
+            fireBus(EventTypes.VIEWER_3D_OPENED, { tilesetId: 'museu' });
+            expect(wsClientMock.sendViewer).toHaveBeenLastCalledWith({ surface: '3d', tilesetId: 'museu' });
+            fireBus(EventTypes.VIEWER_3D_OPENED, { tilesetId: 'museu' });
+            expect(wsClientMock.sendViewer).toHaveBeenCalledTimes(1);
+            fireBus(EventTypes.VIEWER_3D_OPENED, { tilesetId: 'quartel' });
+            expect(wsClientMock.sendViewer).toHaveBeenLastCalledWith({ surface: '3d', tilesetId: 'quartel' });
+            fireBus(EventTypes.VIEWER_3D_CLOSED, {});
+            expect(wsClientMock.sendViewer).toHaveBeenLastCalledWith({ surface: '2d' });
+            expect(wsClientMock.sendViewer).toHaveBeenCalledTimes(3);
+        });
+
+        it('o 360 anda de foto em foto, e uma foto que termina de carregar DEPOIS de fechar não reabre', () => {
+            fireBus(EventTypes.STREETVIEW_360_OPENED, { photoName: 'f1.jpg' });
+            expect(wsClientMock.sendViewer).toHaveBeenLastCalledWith({ surface: '360', photoName: 'f1.jpg' });
+            fireBus(EventTypes.STREETVIEW_360_PHOTO_CHANGED, { previousPhoto: 'f1.jpg', currentPhoto: 'f2.jpg' });
+            expect(wsClientMock.sendViewer).toHaveBeenLastCalledWith({ surface: '360', photoName: 'f2.jpg' });
+            fireBus(EventTypes.STREETVIEW_360_CLOSED, {});
+            expect(wsClientMock.sendViewer).toHaveBeenLastCalledWith({ surface: '2d' });
+            fireBus(EventTypes.STREETVIEW_360_PHOTO_CHANGED, { previousPhoto: 'f2.jpg', currentPhoto: 'f3.jpg' });
+            expect(wsClientMock.sendViewer).toHaveBeenLastCalledWith({ surface: '2d' });
+            expect(wsClientMock.sendViewer).toHaveBeenCalledTimes(3);
+        });
+
+        it('a cena caminhável fica POR CIMA do 3D, e fechá-la volta ao modelo aberto embaixo', () => {
+            fireBus(EventTypes.VIEWER_3D_OPENED, { tilesetId: 'museu' });
+            fireBus(EventTypes.FIRST_PERSON_OPENED, { sceneId: 'cena-1' });
+            expect(wsClientMock.sendViewer).toHaveBeenLastCalledWith({ surface: 'fp', tilesetId: 'cena-1' });
+            fireBus(EventTypes.FIRST_PERSON_CLOSED, { sceneId: 'cena-1' });
+            expect(wsClientMock.sendViewer).toHaveBeenLastCalledWith({ surface: '3d', tilesetId: 'museu' });
+        });
+
+        it('um socket novo re-anuncia o visualizador aberto, e o mapa não precisa ser dito', () => {
+            wsHandlers.connected({ usersOnline: [] });
+            expect(wsClientMock.sendViewer).not.toHaveBeenCalled();
+            fireBus(EventTypes.VIEWER_3D_OPENED, { tilesetId: 'museu' });
+            wsClientMock.sendViewer.mockClear();
+            wsHandlers.connected({ usersOnline: [] });
+            expect(wsClientMock.sendViewer).toHaveBeenCalledWith({ surface: '3d', tilesetId: 'museu' });
+        });
+
+        it('sem socket não envia, e o contexto sai assim que o socket volta', () => {
+            wsClientMock.isConnected.mockReturnValue(false);
+            fireBus(EventTypes.VIEWER_3D_OPENED, { tilesetId: 'museu' });
+            expect(wsClientMock.sendViewer).not.toHaveBeenCalled();
+            wsClientMock.isConnected.mockReturnValue(true);
+            wsHandlers.connected({ usersOnline: [] });
+            expect(wsClientMock.sendViewer).toHaveBeenCalledWith({ surface: '3d', tilesetId: 'museu' });
+        });
+
+        it('o VISITANTE de link público não anuncia visualizador nenhum', () => {
+            const spy = vi.spyOn(sessionContext, 'isVisitor').mockReturnValue(true);
+            try {
+                fireBus(EventTypes.VIEWER_3D_OPENED, { tilesetId: 'museu' });
+                wsHandlers.connected({ usersOnline: [] });
+                expect(wsClientMock.sendViewer).not.toHaveBeenCalled();
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it("roteia o quadro 'viewer_context' para presenceStore.setViewer", () => {
+            const msg = { type: 'viewer_context', clientId: 'c1', userId: 'u1', viewer: { surface: '3d', recurso: null } };
+            wsHandlers.viewerContext(msg);
+            expect(presenceStoreMock.setViewer).toHaveBeenCalledWith(msg);
+        });
+
+        it('a conexão própria que sai de ONLINE esvazia a lista; a que ENTRA em ONLINE não', () => {
+            fireBus(EventTypes.CONNECTION_STATE_CHANGED, { previousState: 'online', currentState: 'reconnecting' });
+            expect(presenceStoreMock.clear).toHaveBeenCalledTimes(1);
+            fireBus(EventTypes.CONNECTION_STATE_CHANGED, { previousState: 'connecting', currentState: 'online' });
+            expect(presenceStoreMock.clear).toHaveBeenCalledTimes(1);
+            fireBus(EventTypes.CONNECTION_STATE_CHANGED, { previousState: 'online', currentState: 'offline' });
+            expect(presenceStoreMock.clear).toHaveBeenCalledTimes(2);
         });
     });
 

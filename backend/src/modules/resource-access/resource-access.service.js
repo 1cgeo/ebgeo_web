@@ -391,10 +391,53 @@ export async function liveGrantsOfActor(actorId, type, resourceId) {
   return rows;
 }
 
-/** As concessões vivas de um recurso, com beneficiário e concedente. */
-export async function listGrantsForResource(type, resourceId) {
-  const { rows } = await query(Q.LIST_GRANTS_FOR_RESOURCE, [assertResourceType(type), resourceId]);
-  return rows;
+/**
+ * As concessões vivas de um recurso que ESTE ATOR fez, cada uma com o que a revogação dela
+ * derrubaria.
+ *
+ * SÓ A AUTORIA DE QUEM PERGUNTA (decisão do dono, 2026-09-22): o que outras pessoas concederam
+ * sobre o mesmo recurso não sai daqui, e o recorte é do `WHERE`, para que o dado alheio nem
+ * chegue ao cliente. Vale para o administrador como para qualquer um: o ramo largo dele continua
+ * no gate de REVOGAR (`requireGrantRevoker`), não nesta listagem.
+ *
+ * `cascade_people` e `cascade_groups` são quantas concessões cairiam junto se a linha fosse
+ * revogada agora, contadas pelas CTEs da própria poda ({@link previewRevocationFall}). Elas
+ * substituem a árvore que o cliente percorria: os descendentes são concessões feitas por outras
+ * pessoas a partir da de quem pergunta, e o que se entrega delas é a contagem, nunca a linha.
+ *
+ * UMA LEITURA POR LINHA, e o custo é declarado: a lista é das concessões que UMA pessoa fez sobre
+ * UM recurso, que cabe numa tela. Uma consulta única exigiria reescrever a poda com raízes
+ * múltiplas, e essa segunda versão divergiria da primeira no ramo que ninguém olha.
+ *
+ * @param {string} type
+ * @param {string} resourceId
+ * @param {string|null} actorId - Quem pergunta. Nulo (visitante sem conta) não concedeu nada.
+ * @returns {Promise<Array<Object>>}
+ */
+export async function listGrantsForResource(type, resourceId, actorId) {
+  if (!actorId) return [];
+  const { rows } = await query(Q.LIST_GRANTS_FOR_RESOURCE, [assertResourceType(type), resourceId, actorId]);
+  const saida = [];
+  for (const r of rows) {
+    const queda = await previewRevocationFall(r.id);
+    saida.push({ ...r, cascade_people: queda.pessoas, cascade_groups: queda.grupos });
+  }
+  return saida;
+}
+
+/**
+ * QUANTAS concessões cairiam junto com esta, se ela fosse revogada agora.
+ *
+ * A mesma regra da poda, por construção: `REVOCATION_FALL_PREVIEW` é montada com as CTEs de
+ * leitura de `REVOKE_SUBTREE_PRESERVING_REACH`, então o resgate (pessoal e por grupo) é o dela.
+ * Sem trava e sem escrita: é a prévia do aviso, e a resposta da revogação é quem diz o que caiu.
+ *
+ * @param {string} grantId
+ * @returns {Promise<{pessoas: number, grupos: number}>}
+ */
+export async function previewRevocationFall(grantId) {
+  const row = await one(Q.REVOCATION_FALL_PREVIEW, [grantId, null, false]);
+  return { pessoas: row.pessoas, grupos: row.grupos };
 }
 
 // --- o inventário por ATOR --------------------------------------------------

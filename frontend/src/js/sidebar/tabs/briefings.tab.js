@@ -408,7 +408,7 @@ export class BriefingsTab {
             // sobre um briefing que continuava la. Quem recusou ja falou, pelo toast do store.
             const excluido = await deleteBriefing(briefingId);
             if (excluido === false) return;
-            showSuccess(`Briefing "${briefingName}" excluido`);
+            showSuccess(`Briefing "${briefingName}" excluído`);
 
             // Emit event
             this._eventBus.emit(EventTypes.BRIEFING_DELETED, { briefingId });

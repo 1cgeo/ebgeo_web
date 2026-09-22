@@ -136,8 +136,9 @@ describeOrSkip('Minha conta — a aba do painel (navegador real + backend real)'
         await expect(page.locator('[data-testid="admin-tab-grants"]')).toBeVisible();
         await expect(page.locator('[data-testid="admin-tab-account"]')).toBeVisible();
         await expect(page.locator('[data-testid="admin-tab-users"]')).toHaveCount(0);
-        // Sem query, a primeira aba é a que abre. É o controle do caso de deep-link abaixo.
-        await expect(page.locator('[data-testid="admin-tab-groups"]'))
+        // Sem query, a primeira aba é a que abre. É o controle do caso de deep-link abaixo. Desde
+        // 2026-09-22 a primeira da audiência "Acessos" é Concessões (item 19a do dono).
+        await expect(page.locator('[data-testid="admin-tab-grants"]'))
             .toHaveAttribute('aria-selected', 'true');
 
         await page.locator('[data-testid="admin-tab-account"]').click();
@@ -185,7 +186,7 @@ describeOrSkip('Minha conta — a aba do painel (navegador real + backend real)'
         // existem. `users` existe como aba do sistema e NÃO é dele, então a query cai na primeira
         // aba dele, em silêncio. Sem este caso, um deep-link que aceitasse qualquer id passaria.
         await abrirPainel(page, '?aba=users');
-        await expect(page.locator('[data-testid="admin-tab-groups"]'))
+        await expect(page.locator('[data-testid="admin-tab-grants"]'))
             .toHaveAttribute('aria-selected', 'true');
         await expect(page.locator('[data-testid="admin-account"]')).toHaveCount(0);
     });

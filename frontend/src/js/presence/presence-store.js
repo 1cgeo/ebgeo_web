@@ -39,7 +39,68 @@ import { EventTypes } from '@events/event_types.js';
  * @property {string|null} currentMap - Id of the map the user is currently viewing.
  * @property {{ briefingId: string, userName: (string|null) }|null} briefingEdit -
  *   The briefing this user is editing, or null when not editing.
+ * @property {{ surface: '3d'|'360'|'fp', recurso: ({ tipo: (string|null), id: (string|null),
+ *   nome: string, foto: (string|null) }|null) }|null} viewer - The immersive viewer the user has
+ *   open (owner, 2026-09-22), or null when on the map. `recurso` is null when the resource is not
+ *   one THIS client may read: the server decided that per recipient, so the roster says "no
+ *   visualizador 3D" without a name, and never learns which model it was.
  */
+
+/**
+ * How long a DEPARTED key refuses awareness frames, in milliseconds.
+ *
+ * THE GHOST THIS CLOSES (owner, 2026-09-22: "ainda diz que tem usuário presente mesmo que depois
+ * de sair"). The server announces `user_left` at once and ships cursors in a per-room batch on the
+ * next tick, so a frame queued before the peer closed its tab could arrive AFTER the departure.
+ * `setCursor` creates the entry when the key is unknown, and the peer came back to the roster with
+ * no name, for good: nothing would ever announce the departure again. The server now drops the
+ * pending frame (`descartarCursorPendente`, backend/src/modules/collab/collab.rooms.js); this is
+ * the client half, which also covers a server that predates that fix. A key leaves the tombstone
+ * set on `user_joined`, on `setInitial` and on `clear`, so a peer that reloads comes back normally.
+ */
+const DEPARTED_TTL_MS = 30000;
+
+/**
+ * Normalizes the `viewer` value of a frame or snapshot entry. `2d` and anything malformed are
+ * null (the person is on the map). A resource without a string name is dropped to null rather
+ * than rendered half: the name is the only thing the roster shows of it.
+ * @param {*} raw
+ * @returns {PresenceUser['viewer']}
+ */
+function normalizeViewer(raw) {
+    if (!raw || typeof raw !== 'object') {
+        return null;
+    }
+    const surface = typeof raw.surface === 'string' ? raw.surface : null;
+    if (surface !== '3d' && surface !== '360' && surface !== 'fp') {
+        return null;
+    }
+    const r = raw.recurso;
+    const recurso = r && typeof r === 'object' && typeof r.nome === 'string' && r.nome !== ''
+        ? {
+            tipo: r.tipo !== undefined && r.tipo !== null ? String(r.tipo) : null,
+            id: r.id !== undefined && r.id !== null ? String(r.id) : null,
+            nome: r.nome,
+            foto: r.foto !== undefined && r.foto !== null && r.foto !== '' ? String(r.foto) : null,
+        }
+        : null;
+    return { surface, recurso };
+}
+
+/**
+ * Whether two normalized viewer values say the same thing.
+ * @param {PresenceUser['viewer']} a
+ * @param {PresenceUser['viewer']} b
+ * @returns {boolean}
+ */
+function sameViewer(a, b) {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    return a.surface === b.surface
+        && (a.recurso?.id ?? null) === (b.recurso?.id ?? null)
+        && (a.recurso?.nome ?? null) === (b.recurso?.nome ?? null)
+        && (a.recurso?.foto ?? null) === (b.recurso?.foto ?? null);
+}
 
 /**
  * Resolves the Map key for a presence entry, preferring clientId and falling
@@ -214,6 +275,8 @@ function normalizeUser(raw, existing) {
         away: hasStatus ? raw.status === 'away' : (existing?.away ?? false),
         currentMap,
         briefingEdit: existing?.briefingEdit ?? null,
+        // Only the join snapshot and the `viewer_context` frame carry it; a plain re-join keeps what we knew.
+        viewer: raw.viewer !== undefined ? normalizeViewer(raw.viewer) : (existing?.viewer ?? null),
     };
 }
 
@@ -224,6 +287,29 @@ export class PresenceStore {
     constructor() {
         /** @type {Map<string, PresenceUser>} */
         this._users = new Map();
+        /** @type {Map<string, number>} Keys that left recently -> until when they stay refused. */
+        this._departed = new Map();
+    }
+
+    /**
+     * @private Whether an awareness frame for this key is a LATE frame of someone who already left.
+     * Only an UNKNOWN key can be one: a known key is by definition still in the room.
+     * @param {string} key
+     * @returns {boolean}
+     */
+    _isLateForDeparted(key) {
+        if (this._users.has(key)) {
+            return false;
+        }
+        const until = this._departed.get(key);
+        if (until === undefined) {
+            return false;
+        }
+        if (until <= Date.now()) {
+            this._departed.delete(key);
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -232,7 +318,11 @@ export class PresenceStore {
      * @param {Array<Object>} usersOnline
      */
     setInitial(usersOnline) {
+        const cursorSurfaces = this._surfacesOf('cursor');
+        const selectionSurfaces = this._surfacesOf('selection');
         this._users.clear();
+        // The server's roster is the truth now, departures included.
+        this._departed.clear();
         if (Array.isArray(usersOnline)) {
             for (const raw of usersOnline) {
                 const key = resolveKey(raw);
@@ -243,6 +333,10 @@ export class PresenceStore {
             }
         }
         this._emitUsers();
+        // The 3D and 360 scenes redraw their peers only on the cursor/selection events, never on
+        // PRESENCE_CHANGED: a roster replaced without these would leave the previous peers drawn.
+        this._emitSurfaces(cursorSurfaces, this._surfacesOf('cursor'), (s) => this._emitCursors(null, s));
+        this._emitSurfaces(selectionSurfaces, this._surfacesOf('selection'), (s) => this._emitSelections(s));
     }
 
     /**
@@ -255,6 +349,8 @@ export class PresenceStore {
         if (!key) {
             return;
         }
+        // A key that comes back (a reload, a reconnect) is not a ghost anymore.
+        this._departed.delete(key);
         const existing = this._users.get(key);
         this._users.set(key, normalizeUser(user, existing));
         this._emitUsers();
@@ -262,6 +358,12 @@ export class PresenceStore {
 
     /**
      * Removes a user by clientId (or userId fallback).
+     *
+     * The key is TOMBSTONED for {@link DEPARTED_TTL_MS}, so a late awareness frame of the same
+     * client does not recreate it (see the constant). And the scenes that draw the peer's cursor
+     * or selection are told too: the 3D and 360 overlays listen only to their own events, so a
+     * departure announced on PRESENCE_CHANGED alone left the colleague's pointer hanging inside
+     * the model or the panorama until somebody else moved.
      * @param {{ clientId?: string, userId?: string }} ref
      */
     userLeft(ref) {
@@ -269,8 +371,18 @@ export class PresenceStore {
         if (!key) {
             return;
         }
-        if (this._users.delete(key)) {
-            this._emitUsers();
+        const user = this._users.get(key);
+        this._departed.set(key, Date.now() + DEPARTED_TTL_MS);
+        if (!user) {
+            return;
+        }
+        this._users.delete(key);
+        this._emitUsers();
+        if (user.cursor) {
+            this._emitCursors(user.cursor.mapId ?? null, user.cursor.surface ?? '2d');
+        }
+        if (user.selection) {
+            this._emitSelections(user.selection.surface ?? '2d');
         }
     }
 
@@ -300,7 +412,7 @@ export class PresenceStore {
             return;
         }
         const key = resolveKey(msg);
-        if (!key) {
+        if (!key || this._isLateForDeparted(key)) {
             return;
         }
         const user = this._users.get(key) ?? normalizeUser(msg);
@@ -330,7 +442,7 @@ export class PresenceStore {
             return;
         }
         const key = resolveKey(msg);
-        if (!key) {
+        if (!key || this._isLateForDeparted(key)) {
             return;
         }
         const user = this._users.get(key) ?? normalizeUser(msg);
@@ -361,7 +473,7 @@ export class PresenceStore {
             return;
         }
         const key = resolveKey(msg);
-        if (!key) {
+        if (!key || this._isLateForDeparted(key)) {
             return;
         }
         const user = this._users.get(key) ?? normalizeUser(msg);
@@ -383,7 +495,7 @@ export class PresenceStore {
             return;
         }
         const key = resolveKey(msg);
-        if (!key) {
+        if (!key || this._isLateForDeparted(key)) {
             return;
         }
         const user = this._users.get(key) ?? normalizeUser(msg);
@@ -397,6 +509,34 @@ export class PresenceStore {
         }
         this._users.set(key, user);
         this._emitUsers();
+    }
+
+    /**
+     * Updates the immersive viewer a user has open (owner, 2026-09-22), from the `viewer_context` frame.
+     *
+     * The name inside it was resolved by the SERVER, for THIS recipient: a private resource this
+     * client may not read arrives as `recurso: null`, and the roster says only which kind of viewer
+     * it is. Nothing here second-guesses that, and nothing here looks the name up locally.
+     * @param {{ userId?: string, clientId?: string, viewer?: Object|null }} msg
+     */
+    setViewer(msg) {
+        if (!msg || typeof msg !== 'object') {
+            return;
+        }
+        const key = resolveKey(msg);
+        if (!key || this._isLateForDeparted(key)) {
+            return;
+        }
+        const known = this._users.get(key);
+        const user = known ?? normalizeUser(msg);
+        const next = normalizeViewer(msg.viewer);
+        // A transient entry is a membership change by itself, whatever the viewer says.
+        const changed = !known || !sameViewer(user.viewer ?? null, next);
+        user.viewer = next;
+        this._users.set(key, user);
+        if (changed) {
+            this._emitUsers();
+        }
     }
 
     /**
@@ -421,11 +561,43 @@ export class PresenceStore {
      * Clears all presence state (e.g. on disconnect).
      */
     clear() {
+        // A new context (another atlas, a logout, our own socket down): the old departures mean
+        // nothing in it.
+        this._departed.clear();
         if (this._users.size === 0) {
             return;
         }
+        const cursorSurfaces = this._surfacesOf('cursor');
+        const selectionSurfaces = this._surfacesOf('selection');
         this._users.clear();
         this._emitUsers();
+        // Same reason as in setInitial: the 3D and 360 scenes do not listen to PRESENCE_CHANGED.
+        this._emitSurfaces(cursorSurfaces, new Set(), (surface) => this._emitCursors(null, surface));
+        this._emitSurfaces(selectionSurfaces, new Set(), (surface) => this._emitSelections(surface));
+    }
+
+    /**
+     * @private The surfaces on which some user currently has a cursor (or a selection).
+     * @param {'cursor'|'selection'} kind
+     * @returns {Set<string>}
+     */
+    _surfacesOf(kind) {
+        const out = new Set();
+        for (const user of this._users.values()) {
+            const value = user[kind];
+            if (value) out.add(value.surface ?? '2d');
+        }
+        return out;
+    }
+
+    /**
+     * @private Emits once per surface in the union of two sets.
+     * @param {Set<string>} before
+     * @param {Set<string>} after
+     * @param {(surface: string) => void} emit
+     */
+    _emitSurfaces(before, after, emit) {
+        for (const surface of new Set([...before, ...after])) emit(surface);
     }
 
     /**

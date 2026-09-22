@@ -221,9 +221,9 @@ describe('phone move mode — the toast tells the truth', () => {
         expect(updateFeatureMock).toHaveBeenCalledTimes(1);
         expect(storeState.features.get('points:f-1').geometry.coordinates).toEqual([-43.2, -22.9]);
         expect(toastMock).not.toHaveBeenCalledWith('Posição atualizada', 'success');
-        expect(toastMock).toHaveBeenCalledWith(
-            'Não foi possível mover (sem permissão ou mapa bloqueado)', 'error',
-        );
+        // The REASON is the store's own refusal toast (store-error-listener); this one only says
+        // the move did not happen, instead of guessing between two causes in parentheses.
+        expect(toastMock).toHaveBeenCalledWith('Não foi possível mover a feição.', 'error');
     });
 
     it('does not claim success when the map never moved', async () => {

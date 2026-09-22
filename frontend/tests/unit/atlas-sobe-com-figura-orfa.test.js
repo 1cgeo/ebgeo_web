@@ -187,7 +187,7 @@ describe('as TRÊS portas perguntam antes da rede, e nenhuma recusa mais por fig
     it('os chamadores mostram o diálogo e CALAM no cancelamento, em vez de acusar falha', () => {
         const conta = ler('src/js/account/account.control.js');
         expect(conta).toContain('confirmMissingImages: (question) => showConfirm(question.title, {');
-        expect(conta).toContain("if (!error?.cancelled) showError('Falha ao salvar o atlas no servidor');");
+        expect(conta).toContain("if (!error?.cancelled) showError('Não foi possível salvar o atlas no servidor. Tente de novo.');");
         const pagina = ler('src/js/projects/projects-page.js');
         expect(pagina.match(/confirmMissingImages: askAboutMissingImages,/g)).toHaveLength(2);
         expect(pagina.match(/if \(error\?\.cancelled\) return;/g)).toHaveLength(2);

@@ -806,7 +806,7 @@ export class AttributeTableControl {
             await this.refresh();
         } catch (error) {
             console.error('Error removing column:', error);
-            showError('Erro ao remover atributo: ' + error.message);
+            showError('Não foi possível remover o atributo. Tente de novo.');
         }
     }
 
@@ -855,7 +855,7 @@ export class AttributeTableControl {
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
 
-        showSuccess('CSV exportado com sucesso!');
+        showSuccess('CSV exportado.');
     }
 
     // =========================================================================

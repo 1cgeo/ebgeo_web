@@ -255,7 +255,6 @@ export function badgeAccessibleLabel(count) {
  * @returns {string}
  */
 export function badgeScopeNotice() {
-    return 'A marca do que você já viu fica neste navegador: ela não acompanha você em outro '
-        + 'aparelho e some se os dados do site forem limpos. Num navegador novo, o que já estava '
-        + 'compartilhado não conta como novidade.';
+    return 'A marca de novidade vale só neste navegador: não aparece em outro aparelho e some se '
+        + 'os dados do site forem limpos.';
 }

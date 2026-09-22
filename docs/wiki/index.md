@@ -33,7 +33,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 
 - [[canal-collab-websocket]] - o canal de colaboração: tipos de mensagem, ciclo de conexão, autorização no handshake, broadcast de mutações e ack pelo socket.
 - [[client-id-estavel]] - o identificador de cliente persistido que sustenta idempotência e presença.
-- [[presenca-colaborativa]] - a camada efêmera em memória que propaga roster, cursores e seleção nas três superfícies (2D, 3D e 360), com a janela de graça que separa queda de conexão de saída real.
+- [[presenca-colaborativa]] - a camada efêmera em memória que propaga roster, cursores e seleção nas três superfícies (2D, 3D e 360), com a janela de graça que separa queda de conexão de saída real, o visualizador aberto por cada colega (nome decidido por destinatário) e por que quem sai não volta à lista.
 - [[qualidade-conexao-adaptativa]] - RTT reportado pelo cliente e ajustes de transporte recomendados pelo servidor.
 - [[capacidade-de-uma-instancia]] - quantas pessoas cabem num processo, medido em bancada: o teto de sala, o de sockets e o de escrita por atlas.
 
@@ -101,7 +101,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[deploy-backend]] - um processo Node atrás de NGINX, três schemas e stores binários fora do banco.
 - [[deploy-web]] - publicação do bundle por troca de symlink, e por que ele precisa ser relativo.
 - [[observabilidade]] - como se olha para o EBGeo rodando: o log que sobrevive à sessão, o defeito com estado e ocorrências, o uso de produto contado sem rastro individual, o comando que consulta as duas fontes e as duas abas que mostram.
-- [[presenca-administrativa]] - quem está com o produto aberto agora: os três períodos, e por que o número conta navegadores e não pessoas.
+- [[presenca-administrativa]] - quem está com o produto aberto agora: os três períodos, a saída explícita no fechamento da página, e por que o número conta navegadores e não pessoas.
 - [[peso-do-pacote-web]] - o que prende uma biblioteca no payload inicial do mapa, com o ganho já medido de tirá-la.
 - [[desempenho-do-mapa-2d]] - onde o mapa 2D gastava o quadro (zoom pelo worker, elevação em dobro, troca de base que remontava tudo, camada vazia com terreno) e os quatro mecanismos que ficam, com a régua de cada um.
 

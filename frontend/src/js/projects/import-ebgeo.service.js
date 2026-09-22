@@ -71,7 +71,10 @@ export async function importEbgeoAsAtlas(file, { apiClient, name, confirmMissing
 
     const atlasName = (name || atlasNameFromFilename(file?.name)).trim();
     const first = buildServerImportPayload(exportData, { name: atlasName });
-    if (first.stats.droppedFeatures) throw new Error(`Importação interrompida: ${first.stats.droppedFeatures} feição(ões) não pode(m) ser convertida(s) para o servidor. Nenhum atlas foi criado; preserve o arquivo original.`);
+    if (first.stats.droppedFeatures) {
+        const n = first.stats.droppedFeatures;
+        throw new Error(`Importação interrompida: ${n === 1 ? '1 feição não pôde ser convertida' : `${n} feições não puderam ser convertidas`} para o servidor. Nenhum atlas foi criado; guarde o arquivo original.`);
+    }
     // Image IDs are global on the server. Isolate EVERY import (including UUID
     // sources) and use the same mapping for photos, custom icons and 3D/360 refs.
     const imageIdMap = Object.fromEntries(first.imageIds.map(id => [id, generateUUID()]));
@@ -98,7 +101,7 @@ export async function importEbgeoAsAtlas(file, { apiClient, name, confirmMissing
     const question = missingImagesUploadConfirm(classifyMissingImages(missing, exportData), { from: 'arquivo' });
     if (question && !(await confirmMissingImages?.(question))) throw uploadCancelledError();
     const { uploads, skipped } = await buildImageUploads(found);
-    if (skipped.length) throw new Error(`Importação interrompida: ${skipped.length} imagem(ns) não pode(m) ser enviada(s) ao servidor. Nenhum atlas foi criado.`);
+    if (skipped.length) throw new Error(`Importação interrompida: ${skipped.length === 1 ? '1 imagem não pôde ser enviada' : `${skipped.length} imagens não puderam ser enviadas`} ao servidor. Nenhum atlas foi criado.`);
     // All archive reads/conversions above must succeed before creating the atlas.
     const atlas = await apiClient.importAtlas(built.payload, {
         images: uploads,

@@ -4,7 +4,7 @@
 // `wss.on('connection')`, outside the middleware stack entirely, so no Express middleware can ever
 // see a frame. Trying to have one boundary would have meant having none for the socket.
 //
-// Every byte this server sends to a collaboration client leaves through `ws.send` (18 sites today,
+// Every byte this server sends to a collaboration client leaves through `ws.send` (every site is
 // enumerated by `tests/unit/saidas-de-conteudo-censo.test.js`), so wrapping `ws.send` per socket,
 // once, at connection time, covers all of them and every one added later — including the relay in
 // `handleOperation` that `broadcastOperations` never saw, which is the fourth exit F13 exists to

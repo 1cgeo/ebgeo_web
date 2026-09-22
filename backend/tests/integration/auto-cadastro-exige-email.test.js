@@ -15,8 +15,8 @@
 //
 // A DISCRIMINAÇÃO, e é ela que impede o conserto errado: o gate de `login()` é
 // `user.email && !user.email_verified`, condicional ao e-mail de propósito. Conta criada
-// pelo caminho ADMINISTRATIVO (`POST /api/v1/users`, cujo `createUserAdminSchema` não tem
-// campo `email`) continua nascendo sem endereço e logando NA HORA. Se alguém
+// pelo caminho ADMINISTRATIVO (`POST /api/v1/users`) SEM endereço no corpo (o campo é
+// opcional ali desde 2026-09-22) continua nascendo sem endereço e logando NA HORA. Se alguém
 // "simplificar" o gate para `!user.email_verified`, esse caso fica vermelho sozinho e o
 // resto do arquivo continua verde — que é exatamente o que separa "a porta fechou" de "a
 // porta fechou junto com o admin semeado, as contas legadas e as M2M".
@@ -105,9 +105,9 @@ describe('auto-cadastro exige e-mail (e a conta de admin continua entrando na ho
     assert.ok(ok.body.data.accessToken);
   });
 
-  it('DISCRIMINAÇÃO — conta criada por ADMINISTRADOR não tem e-mail e loga NA HORA', async () => {
-    // Este é o vizinho que NÃO pode mudar. `createUserAdminSchema` não tem campo
-    // `email`, então a conta nasce com `email = NULL` e `email_verified = false`, e o
+  it('DISCRIMINAÇÃO — conta criada por ADMINISTRADOR sem e-mail loga NA HORA', async () => {
+    // Este é o vizinho que NÃO pode mudar. O corpo abaixo não traz `email` (opcional em
+    // `createUserAdminSchema`), então a conta nasce com `email = NULL` e `email_verified = false`, e o
     // gate condicional de login() a deixa passar. Trocar o gate por
     // `!user.email_verified` deixa ESTE caso vermelho e nenhum outro.
     const admin = await createAdminUser(db, { username: `adm_${SFX}` });
@@ -123,7 +123,7 @@ describe('auto-cadastro exige e-mail (e a conta de admin continua entrando na ho
     const { rows } = await db.query(
       'SELECT email, email_verified FROM users WHERE LOWER(username) = LOWER($1)', [username]
     );
-    assert.equal(rows[0].email, null, 'o caminho administrativo não tem campo de e-mail');
+    assert.equal(rows[0].email, null, 'sem e-mail no corpo, o caminho administrativo não grava endereço');
     assert.equal(rows[0].email_verified, false, 'e a flag continua falsa — não é ela que abre a porta');
 
     const ok = await login(username, PW).expect(200);

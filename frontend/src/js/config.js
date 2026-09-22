@@ -40,7 +40,8 @@ const config = {
     minZoom: 2,
     maxZoom: 21,
     maxPitch: 60,
-    globe_projection: true,
+    // SEM `globe_projection` desde 2026-09-22: a projeção é do ATLAS (globo por padrão,
+    // `store/atlas-appearance.service.js`), e a chave de deploy passou um mês servida sem leitor.
     // NÍVEL DE DETALHE DOS TILES COM A CÂMERA INCLINADA, e o piso aqui é `null` porque o
     // servido passou a ser `null` (decisão do dono, 2026-09-04; `MAP2D_BASE` em
     // `backend/src/modules/config/config.static.js`). É o par que as duas cópias têm de

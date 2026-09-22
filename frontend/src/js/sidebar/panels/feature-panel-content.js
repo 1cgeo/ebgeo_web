@@ -730,12 +730,15 @@ export async function createFeaturePanelContent({
         container.appendChild(actionsSection);
     }
 
-    // 2. Photo gallery (only for single selection)
+    // 2. Photo gallery (only for single selection). It gets THIS build's answer on both axes:
+    // until 2026-09-22 it asked only about the lock, and a Leitor or Comentarista got the "+"
+    // card that opens the file picker (`photo-gallery-affordance.js`).
     if (isSingleSelection) {
         const photoGallery = await createPhotoGallery({
             featureId,
             featureType,
-            compact: true
+            compact: true,
+            readOnly: mapLocked
         });
         container.appendChild(photoGallery.element);
         cleanupFunctions.push(photoGallery.cleanup);

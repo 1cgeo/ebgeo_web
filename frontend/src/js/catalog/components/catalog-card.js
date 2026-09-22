@@ -42,6 +42,7 @@ import {
     resourceAccessOrigin
 } from '@store/sync/resource-access.service.js';
 import { accessExpiryPhrase, classifyAccess, privateBadgePhrase } from '../access-origin-phrases.js';
+import { enderecoDaMiniatura } from '@catalog/endereco-da-miniatura.js';
 // Import ESTÁTICO, e a escolha é medida e não preguiça: `vite.config.js` manda TODO
 // `src/js/catalog/` para o grupo `core`, então um `import()` daqui não adiaria carga
 // nenhuma — ele só acrescentaria uma promessa entre o clique e a janela abrir, e um
@@ -144,7 +145,11 @@ export function createCatalogCard({ item, onClick, mapLocked = false, selectable
     thumbnailWrapper.className = 'catalog-card-thumbnail';
 
     const img = document.createElement('img');
-    img.src = item.thumbnail;
+    // THE SCOPE STAMP IS NOT OPTIONAL: an `<img src>` is fetched by the browser with no header,
+    // so for a private item reached only by the LOAN of the atlas in focus, `?atlasId=` is the
+    // only authorisation that gets through. Without it the lent 3D model opened and its
+    // miniature fell to the default drawing below. See `endereco-da-miniatura.js`.
+    img.src = enderecoDaMiniatura(item.thumbnail);
     img.alt = item.name;
     img.loading = 'lazy';
     img.onerror = () => {

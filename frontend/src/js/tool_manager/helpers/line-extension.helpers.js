@@ -73,7 +73,7 @@ import { maplibregl } from '@js/map/maplibre.js';
 const EXTENSION_CAPABILITY = 'UPDATE_FEATURE';
 
 /** The locked-map sentence, a copy of the one `linear-conversion.model.js` declares. @type {string} */
-const LOCKED_MAP_NOTICE = 'Este mapa está bloqueado. Destrave-o para fazer esta alteração.';
+const LOCKED_MAP_NOTICE = 'Mapa bloqueado. Desbloqueie para fazer esta alteração.';
 
 /** The sentence for a feature locked by its layer or by its group. @type {string} */
 const LOCKED_CONTAINER_NOTICE = 'A camada ou o grupo desta feição está bloqueado.';

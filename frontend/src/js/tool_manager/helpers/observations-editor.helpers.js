@@ -97,7 +97,7 @@ export function createObservationsSection({ feature, selectedFeatures, control }
             downloadQANAsHTML(qanData, feature.properties.nome);
         } catch (error) {
             console.error('Error exporting QAN:', error);
-            showToast('Erro ao exportar QAN', 'error');
+            showToast('Não foi possível exportar o QAN. Tente de novo.', 'error');
         }
     });
     qanWrapper.appendChild(qanBtn);

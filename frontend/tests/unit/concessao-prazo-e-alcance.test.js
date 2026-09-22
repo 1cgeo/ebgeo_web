@@ -51,7 +51,7 @@ import {
 } from '../../src/js/catalog/grant-tree.js';
 
 const PACOTE = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const MODAL = readFileSync(join(PACOTE, 'src/js/catalog/resource-share.modal.js'), 'utf8');
+const MODAL = readFileSync(join(PACOTE, 'src/js/catalog/resource-share.modal.core.js'), 'utf8');
 /** O mesmo texto com o espaco em branco normalizado: a prosa da tela quebra em varias linhas. */
 const PROSA = MODAL.replace(/\s+/g, ' ');
 
@@ -61,7 +61,7 @@ const PROSA = MODAL.replace(/\s+/g, ' ');
  * A forma ingenua (`texto.includes(...)`) fica verde quando o simbolo e renomeado: a
  * verificacao passa a nao verificar nada, que e a cobertura vazia que a casa proibe.
  */
-function linhaUnica(texto, ancora, arquivo = 'resource-share.modal.js') {
+function linhaUnica(texto, ancora, arquivo = 'resource-share.modal.core.js') {
     const casos = texto.split('\n').filter((l) => l.includes(ancora));
     expect(casos.length, `esperada UMA linha com "${ancora}" em ${arquivo}, achadas ${casos.length}`).toBe(1);
     return casos[0];
@@ -86,16 +86,33 @@ describe('1. o alcance que a lista NAO cobre, dito na propria lista', () => {
 
     it('e as DUAS que faltavam: o emprestimo por atlas e o visitante de link publico', () => {
         // Sao as que mudam a decisao de quem concede, e as unicas que a listagem nao tem como
-        // enumerar (`LIST_GRANTS_FOR_RESOURCE` le so `resource_grants`).
-        expect(nota).toMatch(/atlas cujo dono o enxerga/);
+        // enumerar (`LIST_GRANTS_FOR_RESOURCE` le so `resource_grants`). O verbo encurtou de
+        // "enxerga" para "vê" na reescrita de 2026-09-22; o caminho nomeado e o mesmo.
+        expect(nota).toMatch(/quem abrir um atlas cujo dono o vê/);
         expect(nota).toContain('link público');
     });
 
     it('diz que revogar uma linha NAO fecha esses caminhos, e onde se fecha', () => {
         // A consequencia e o ponto: sem esta oracao a frase informa e nao muda decisao
         // nenhuma. "Uma negativa sem saida e so um muro" (`groupOwnerCannotLeaveNotice`).
-        expect(nota).toContain('não fecha esses dois caminhos');
+        // "esses caminhos" e nao mais "esses dois" desde 2026-09-22: com a lista recortada por
+        // autoria, a concessao ALHEIA e um terceiro caminho que a lista nao fecha.
+        expect(nota).toContain('não fecha esses caminhos');
+        expect(nota).not.toContain('esses dois caminhos');
         expect(nota).toContain('configuração do atlas que empresta');
+    });
+
+    it('diz que a lista e SO o que quem olha concedeu, e que ha quem recebeu de outros', () => {
+        // O recorte por autoria (decisao do dono, 2026-09-22, item 19c) e do servidor; a frase
+        // e o que impede a pessoa de ler "tres linhas" como "tres pessoas veem isto".
+        for (const n of [null, 0, 3]) {
+            const frase = grantsListScopeNote(n);
+            expect(frase, String(n)).toContain('só as concessões que você fez');
+            expect(frase, String(n)).toContain('recebeu de outras pessoas');
+        }
+        // E o zero de emprestimo deixou de afirmar que so o papel sobra: sobra tambem a
+        // concessao alheia, que esta lista nao mostra.
+        expect(grantsListScopeNote(0)).not.toContain('só o do papel continua aberto');
     });
 
     // ESTE CASO MUDOU EM 2026-08-24, E A MUDANCA E DELIBERADA. Ele dizia:
@@ -198,7 +215,7 @@ describe('3. a leitura recusada fala por STATUS, e o 404 nao oferece repetir', (
         // A sentenca que saiu era falsa para o credenciado (nao recebeu nada, ve por papel),
         // para o produtor cujo escopo mudou e para quem foi rebaixado com token vivo.
         expect(e.paragrafos.join(' ')).not.toContain('apenas para ver');
-        expect(e.paragrafos.join(' ')).toContain('não autorizou você a conceder');
+        expect(e.paragrafos.join(' ')).toContain('não pode conceder acesso');
     });
 
     it('404 diz que o recurso acabou, e TAMBEM nao oferece repetir', () => {
@@ -206,7 +223,9 @@ describe('3. a leitura recusada fala por STATUS, e o 404 nao oferece repetir', (
         expect(e.kind).toBe(LOAD_FAILURE.SUMIU);
         expect(e.retry).toBe(false);
         expect(e.paragrafos.join(' ')).toContain('não existe mais');
-        expect(e.paragrafos.join(' ')).toContain('Não há o que tentar de novo');
+        // A saída nomeada é voltar ao catálogo, não repetir (o botão de repetir não se desenha).
+        expect(e.paragrafos.join(' ')).toContain('volte ao catálogo');
+        expect(e.paragrafos.join(' ')).not.toMatch(/tente de novo|tentar de novo/i);
     });
 
     it('o resto (rede, 500, sem status) e o UNICO ramo com nova tentativa', () => {

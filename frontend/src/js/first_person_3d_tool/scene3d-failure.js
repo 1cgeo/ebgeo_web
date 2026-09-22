@@ -110,6 +110,6 @@ export function scene3dEngineTimeoutMessage(name, tempoLimiteMs) {
     const ms = Number(tempoLimiteMs);
     const segundos = Number.isFinite(ms) && ms > 0 ? Math.round(ms / 1000) : null;
     const espera = segundos === null ? 'no tempo limite' : `em ${segundos} segundos`;
-    return `${scene3dLoadFailureMessage(name)} O motor de cenas 3D não respondeu ${espera}. `
+    return `${scene3dLoadFailureMessage(name)} O carregamento não terminou ${espera}. `
         + 'Recarregue a página para tentar de novo.';
 }

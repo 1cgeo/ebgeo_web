@@ -111,6 +111,16 @@ const LOTE_GRANDE_DEMAIS = `Esta ação gerou mais de ${LOTE_MAX_OPS} alteraçõ
     + 'não aceita enviá-las juntas. Ela está guardada nas pendências para revisão.';
 
 /**
+ * What the public-link visitor reads when the live connection cannot come back: the link's token
+ * is ephemeral, has no refresh, and the upgrade refuses it once expired (`decidirReconexao`,
+ * `ws-client.js`). Reloading re-resolves the link and gets a new one. A signed-in person never
+ * reads this: a lost session is told by the auth-lost handler instead.
+ * @type {string}
+ */
+const LINK_PUBLICO_VENCIDO = 'O acesso por link expirou nesta aba. Recarregue a página para '
+    + 'voltar a receber as atualizações.';
+
+/**
  * HTTP statuses that mean "these exact bytes will be refused forever".
  *
  * 400 (violação de dado/formato) e 422 (envelope inválido) são função determinística
@@ -1393,6 +1403,16 @@ class SyncEngine {
                 getEventBus().emit(EventTypes.LAYERS_CHANGED, { mapName: null });
             } catch {
                 // No UI bus (headless).
+            }
+        });
+
+        // The socket gave up reconnecting because its token expired and nothing can renew it.
+        // Not modal and not a reload: the person may still be reading the map as it is.
+        wsClient.on('credentialExpired', () => {
+            try {
+                showWarning(LINK_PUBLICO_VENCIDO, { duration: 0, closable: true });
+            } catch {
+                // No document (headless).
             }
         });
 

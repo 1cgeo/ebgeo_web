@@ -18,6 +18,7 @@ import { mapResolver } from './services/map-resolver.service.js';
 import { sessionContext } from './sync/index.js';
 // Leaf module (only the uuid helper), imported by FILE and not by the sync barrel.
 import { withGestureBatch } from './sync/gesture-batch.js';
+import { carryRememberedMapViewAcrossRename, rememberedMapView } from './vista-da-pessoa.js';
 import { LRUCache } from '../utilities/lru-cache.js';
 import { IMAGE_RESOURCE_FEATURE_TYPES } from './store.constants.js';
 
@@ -193,8 +194,18 @@ class MapManager {
         // none for it yet: from here on a peer saving THEIR view of this map changes the stored
         // document only, never this screen (see the file overview of temporal.operations.js).
         // Written inline because that module imports this one.
+        //
+        // THE PIN FOLLOWS THE ENTRY PRECEDENCE (owner, 2026-09-22): what this person remembers for
+        // this map on this computer, when there is something (`store/vista-da-pessoa.js`), and the
+        // SAVED switch otherwise. The read is synchronous and keyed by the scope of this very tick,
+        // so it cannot answer for another atlas whatever the awaits above let happen. It is what
+        // brings the switch back after an F5, when this memory starts empty.
         if (!this.memoryStore.temporalView.has(mapName)) {
-            this.memoryStore.temporalView.set(mapName, temporalCfg?.ativo === true);
+            const lembrado = rememberedMapView(mapName).temporalEnabled;
+            this.memoryStore.temporalView.set(
+                mapName,
+                typeof lembrado === 'boolean' ? lembrado : temporalCfg?.ativo === true
+            );
         }
 
         // The active map is LOCAL per-client state (each collaborator may view a
@@ -872,6 +883,11 @@ class MapManager {
                 cache.delete(oldName);
             }
         }
+
+        // The remembered view on disk is keyed by the map ID, so a rename only moves it for a
+        // legacy local map that has none (keyed by name). This runs before the resolver learns
+        // the new name, which is the order that function needs.
+        carryRememberedMapViewAcrossRename(oldName, newName);
     }
 
     // ===== BATCH OPERATIONS =====

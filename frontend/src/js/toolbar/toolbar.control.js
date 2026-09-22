@@ -21,6 +21,22 @@ import { getControl } from '@store/control.registry.js';
 import { runUndoRedo } from '@js/map/undo-redo.runner.js';
 
 /**
+ * The class list of a toggle or action button.
+ *
+ * `requiresEdit` in the table becomes the `edit-affordance` mark, which `css/view-mode.css` hides
+ * for a role that cannot edit the connected atlas (the POSTO axis). The ESTADO axis is the lock
+ * pass, `_applyMapLockState`, which reads the same flag. ONE helper for both kinds of button, so
+ * the snap toggle and undo/redo cannot drift into two readings of the same flag.
+ * @param {{requiresEdit?: boolean}} toolConfig
+ * @returns {string}
+ */
+function standaloneButtonClass(toolConfig) {
+    return toolConfig.requiresEdit
+        ? 'toolbar-standalone-btn edit-affordance'
+        : 'toolbar-standalone-btn';
+}
+
+/**
  * Main toolbar controller.
  */
 export class ToolbarControl {
@@ -141,13 +157,18 @@ export class ToolbarControl {
      * Creates a toggle button driven by a StateManager path.
      * Unlike standalone buttons, toggle buttons don't activate a tool —
      * they flip a boolean state and visually reflect it.
+     *
+     * A TOGGLE THAT MODIFIES EDITING GOES AWAY WITH EDITING (`requiresEdit`, 2026-09-22): the snap
+     * was drawn for a Leitor and a Comentarista because this method, unlike the action button
+     * below, never read the flag. While hidden the snap also stops acting, without this button
+     * writing the preference: that rule is the service's (`snapping/snap-availability.js`).
      * @private
-     * @param {Object} toolConfig - { id, label, icon, shortcut, statePath }
+     * @param {Object} toolConfig - { id, label, icon, shortcut, statePath, requiresEdit? }
      * @returns {HTMLButtonElement}
      */
     _createToggleButton(toolConfig) {
         const button = document.createElement('button');
-        button.className = 'toolbar-standalone-btn';
+        button.className = standaloneButtonClass(toolConfig);
         button.dataset.toolId = toolConfig.id;
         button.dataset.active = 'false';
         button.title = `${toolConfig.label} (${toolConfig.shortcut})`;
@@ -188,9 +209,7 @@ export class ToolbarControl {
      */
     _createActionButton(toolConfig) {
         const button = document.createElement('button');
-        button.className = toolConfig.requiresEdit
-            ? 'toolbar-standalone-btn edit-affordance'
-            : 'toolbar-standalone-btn';
+        button.className = standaloneButtonClass(toolConfig);
         button.dataset.toolId = toolConfig.id;
         button.title = toolConfig.shortcut
             ? `${toolConfig.label} (${toolConfig.shortcut})`
@@ -299,8 +318,14 @@ export class ToolbarControl {
 
     /**
      * Shows or hides toolbar groups based on map lock state.
-     * When locked: hide draw, military, analysis groups and snapping toggle.
-     * Utility group remains visible.
+     * When locked: hide draw, military, analysis groups and every button whose table entry says
+     * `requiresEdit` (the snap toggle, undo and redo). Utility group and share-view remain visible.
+     *
+     * This is the ESTADO axis only. The POSTO axis is the `edit-affordance` mark, hidden by
+     * `css/view-mode.css`, and the two together are the same rule that `edicaoIndisponivelSync`
+     * answers: they react to the same five events between them (this pass to MAP_LOCK_CHANGED,
+     * which `setCurrentMap` also emits on a map switch; `ui/view-mode.controller.js` to the
+     * session, connection, atlas-switch and wipe events).
      * @private
      */
     _applyMapLockState() {
@@ -317,8 +342,10 @@ export class ToolbarControl {
             }
         });
 
-        // Hide toggle buttons (snapping) when locked
+        // The toggles that modify editing (the snap) when locked. The flag, not a list repeated
+        // here: a future toggle that is pure view must survive a locked map.
         TOGGLE_TOOLS.forEach(toolConfig => {
+            if (!toolConfig.requiresEdit) return;
             const button = this._standaloneButtons.get(toolConfig.id);
             if (button) {
                 button.style.display = locked ? 'none' : '';

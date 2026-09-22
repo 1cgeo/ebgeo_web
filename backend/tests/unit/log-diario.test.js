@@ -248,6 +248,74 @@ describe('log-diario — o destino', () => {
     assert.equal(fsys.fluxos.length, 0, 'e não tenta escrever mesmo assim');
   });
 
+  // ── a propriedade (5): desligar deixa rastro FORA do arquivo ──
+  //
+  // O arquivo não tem como registrar que parou de ser escrito, e o aviso do stderr não sobrevive
+  // a um container recriado. O que sobra é `estado()` (que as rotas de diagnóstico do processo
+  // vivo publicam) e `aoDesligar` (que o boot liga a um defeito de servidor). Controle negativo:
+  // tire a chamada de `aoDesligar` de `degradar` e o primeiro caso cai; tire o `try` em volta dela
+  // e o segundo passa a lançar de dentro do `write`.
+
+  it('o desligamento fica em `estado()` e chega a `aoDesligar` UMA vez, com causa, código e instante', () => {
+    const fsys = fsFalso();
+    const t = relogio('2026-09-22T09:49:00');
+    const ouvidos = [];
+    const destino = criarLogDiario({
+      diretorio: '/app/data/logs', agora: t.agora, sistemaDeArquivos: fsys,
+      avisar: () => {}, aoDesligar: (e) => ouvidos.push(e),
+    });
+
+    assert.deepEqual(destino.estado(), {
+      ligado: true, diretorio: '/app/data/logs',
+      desligadoEm: null, causa: null, codigo: null, mensagem: null,
+    }, 'antes da falha, nada de desligamento');
+
+    destino.write('a\n');
+    const eacces = new Error("EACCES: permission denied, open '/app/data/logs/ebgeo-2026-09-22.jsonl'");
+    eacces.code = 'EACCES';
+    fsys.fluxos[0].emitirErro(eacces);
+    fsys.fluxos[0].emitirErro(eacces);
+
+    const esperado = {
+      ligado: false,
+      diretorio: '/app/data/logs',
+      desligadoEm: new Date('2026-09-22T09:49:00').getTime(),
+      causa: 'falha ao escrever',
+      codigo: 'EACCES',
+      mensagem: eacces.message,
+    };
+    assert.deepEqual(destino.estado(), esperado);
+    assert.equal(ouvidos.length, 1, 'o segundo erro não é um segundo desligamento');
+    assert.deepEqual(ouvidos[0], esperado);
+  });
+
+  it('um ouvinte que LANÇA não derruba quem loga, e o aviso sai assim mesmo', () => {
+    const fsys = fsFalso({ falharEm: 'write' });
+    const t = relogio('2026-09-22T09:49:00');
+    const avisos = [];
+    const destino = criarLogDiario({
+      diretorio: '/logs', agora: t.agora, sistemaDeArquivos: fsys,
+      avisar: (m) => avisos.push(m), aoDesligar: () => { throw new Error('telemetria quebrada'); },
+    });
+
+    assert.doesNotThrow(() => destino.write('a\n'));
+    assert.equal(avisos.length, 1);
+    assert.equal(destino.estado().ligado, false);
+  });
+
+  it('desligar AO NASCER (diretório impossível) também chega ao ouvinte, dentro da construção', () => {
+    const fsys = fsFalso({ falharEm: 'mkdir' });
+    const ouvidos = [];
+    criarLogDiario({
+      diretorio: '/proibido', sistemaDeArquivos: fsys, avisar: () => {}, aoDesligar: (e) => ouvidos.push(e),
+    });
+
+    assert.equal(ouvidos.length, 1);
+    assert.equal(ouvidos[0].causa, 'não foi possível criar o diretório de log');
+    // O dublê lança `Error` sem `code`: o estado diz que não há código, em vez de inventar um.
+    assert.equal(ouvidos[0].codigo, null);
+  });
+
   it('falha ao PODAR não desliga o log: escrever é o serviço, apagar é higiene', () => {
     const fsys = fsFalso({ falharEm: 'readdir' });
     const t = relogio('2026-08-30T10:00:00');

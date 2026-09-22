@@ -110,7 +110,7 @@ describe('catálogo · o `style` de uma camada de dados não é um estilo de map
       .expect(400);
 
     // A mensagem é a evidência de que o 400 veio DESTA guarda, e não de validação de corpo.
-    assert.match(res.body.error?.message ?? res.body.message ?? '', /Invalid MapLibre style/);
+    assert.match(res.body.error?.message ?? res.body.message ?? '', /Estilo MapLibre inválido/);
   });
 
   it('o mapa base com estilo VÁLIDO continua entrando', async () => {

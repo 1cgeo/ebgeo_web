@@ -63,6 +63,7 @@ import { pruneCatalogLayerDefinitions } from '@catalog/catalog-layer.ref.js';
 // um `.ebgeo` que nao chegou a sair, ou que o `catch` recusou, nao e saida nem entrada de arquivo.
 import { registrarUso } from '@js/session/uso-lote.js';
 import { EventoDeUso } from '@js/session/eventos-de-uso.js';
+import { serverMessageOr } from '@utils/request-failure.js';
 
 /**
  * Extensao do arquivo no zip -> MIME, a TABELA INVERSA de `getBlobExtension`.
@@ -533,7 +534,7 @@ export class ExportImportService {
 
         } catch (error) {
             console.error('Erro ao exportar dados:', error);
-            showError('Erro ao exportar arquivo .ebgeo: ' + error.message);
+            showError('Não foi possível exportar o arquivo .ebgeo: ' + serverMessageOr(error, 'erro inesperado.'));
         }
     }
 
@@ -606,7 +607,12 @@ export class ExportImportService {
                 if (!result.ok) throw new Error(result.message);
                 importedMapsCount = result.importedMapsCount;
                 totalUnavailableCatalogLayers = result.unavailableCatalogLayersCount;
-                if (result.missingOriginalImages) showWarning(`O arquivo já contém ${result.missingOriginalImages} imagem(ns) original(is) ausente(s). As referências foram preservadas, sem substituir por imagens do atlas anterior.`);
+                if (result.missingOriginalImages) {
+                    const faltam = result.missingOriginalImages;
+                    showWarning(faltam === 1
+                        ? 'Uma imagem usada no arquivo não veio junto com ele. A feição foi importada sem ela.'
+                        : `${faltam} imagens usadas no arquivo não vieram junto com ele. As feições foram importadas sem elas.`);
+                }
             }
 
             // Notify about unavailable catalog layers
@@ -634,7 +640,7 @@ export class ExportImportService {
 
         } catch (error) {
             console.error('Erro ao importar arquivo:', error);
-            showError('Erro ao carregar o arquivo: ' + error.message);
+            showError('Não foi possível abrir o arquivo: ' + serverMessageOr(error, 'erro inesperado.'));
         }
 
         event.target.value = '';
@@ -959,7 +965,7 @@ export class ExportImportService {
      * @param {number} mapCount - Number of maps saved
      */
     showSaveSuccess(mapCount) {
-        const message = mapCount === 1 ? '1 mapa exportado!' : `${mapCount} mapas exportados!`;
+        const message = mapCount === 1 ? '1 mapa exportado.' : `${mapCount} mapas exportados.`;
         this._showButtonSuccess('.save-action', message);
     }
 
@@ -969,7 +975,11 @@ export class ExportImportService {
      * @param {string} importType - Type of import ('adicionados' or 'carregados')
      */
     showLoadSuccess(mapCount, importType) {
-        const message = mapCount === 1 ? `1 mapa ${importType}!` : `${mapCount} mapas ${importType}!`;
+        // `importType` chega no plural ('carregados', 'adicionados'): com UM mapa a frase era
+        // "1 mapa carregados!", e o singular sai tirando o "s" final.
+        const message = mapCount === 1
+            ? `1 mapa ${importType.replace(/s$/, '')}.`
+            : `${mapCount} mapas ${importType}.`;
         this._showButtonSuccess('.load-action', message);
     }
 
@@ -981,7 +991,7 @@ export class ExportImportService {
     _notifyUnavailableCatalogLayers(count) {
         const layerWord = count === 1 ? 'camada' : 'camadas';
         showToast(
-            `${count} ${layerWord} do catálogo não ${count === 1 ? 'está' : 'estão'} disponível nesta instância.`,
+            `${count} ${layerWord} do catálogo não ${count === 1 ? 'está disponível' : 'estão disponíveis'} neste servidor.`,
             'warning',
             5000
         );

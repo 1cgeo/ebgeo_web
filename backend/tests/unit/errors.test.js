@@ -18,14 +18,31 @@ describe('Error Classes', () => {
     assert.ok(err instanceof Error);
   });
 
-  it('NotFoundError: 404, NOT_FOUND, message includes resource name', () => {
+  it('NotFoundError: 404, NOT_FOUND, message is the pt-BR sentence of the resource', () => {
     const err = new NotFoundError('Atlas');
     assert.equal(err.statusCode, 404);
     assert.equal(err.code, 'NOT_FOUND');
-    assert.equal(err.message, 'Atlas not found');
+    assert.equal(err.message, 'Atlas não encontrado.');
 
     const errDefault = new NotFoundError();
-    assert.equal(errDefault.message, 'Resource not found');
+    assert.equal(errDefault.message, 'Recurso não encontrado.');
+
+    // O genero concorda, que e o motivo de a tabela ser de FRASES e nao de substantivos.
+    assert.equal(new NotFoundError('Grant').message, 'Concessão não encontrada.');
+  });
+
+  it('NotFoundError: substantivo FORA da tabela mantem o texto do contrato do 360', () => {
+    // O envelope plano do sv360 e contrato congelado, e os testes dele prendem estas frases.
+    assert.equal(new NotFoundError('Photo').message, 'Photo not found');
+    assert.equal(new NotFoundError('Project').message, 'Project not found');
+    assert.equal(new NotFoundError('Route').message, 'Route not found');
+  });
+
+  it('NotFoundError: argumento que JA e frase passa inteiro, sem not found colado', () => {
+    const frase = 'Preparação da importação não encontrada.';
+    assert.equal(new NotFoundError(frase).message, frase);
+    // Controle: a chave de prototipo nao vira frase.
+    assert.equal(new NotFoundError('toString').message, 'toString not found');
   });
 
   it('ForbiddenError: 403, FORBIDDEN', () => {

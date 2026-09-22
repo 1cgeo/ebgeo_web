@@ -163,7 +163,7 @@ function cascata(pessoas) {
  * @type {string}
  */
 export const STALE_COUNTS_NOTICE =
-    'Não foi possível confirmar estes números com o servidor agora, então eles podem estar defasados.';
+    'Não foi possível confirmar estes números agora; eles podem estar desatualizados.';
 
 /**
  * QUEM PÔS ESTA PESSOA NO GRUPO, para a coluna do roster.
@@ -222,8 +222,8 @@ export function memberAdmissionTitle(member, quando) {
  * @returns {string}
  */
 export function groupsLoadFailureNotice() {
-    return 'Não foi possível carregar os seus grupos de acesso. '
-        + 'Isto é falha ao consultar o servidor, não ausência de grupos.';
+    return 'Não foi possível carregar os seus grupos de acesso: falha ao consultar o servidor, '
+        + 'não ausência de grupos.';
 }
 
 /**
@@ -239,7 +239,7 @@ export function groupsLoadFailureNotice() {
  * @returns {string}
  */
 export function groupPickerEmptyNotice(porta) {
-    const onde = porta ? ` Você também administra os seus grupos em ${porta}.` : '';
+    const onde = porta ? ` Você também administra os seus grupos em ${porta}, na aba Grupos.` : '';
     return 'Você ainda não tem grupos de acesso. Crie um aqui mesmo e conceda a ele, '
         + `em vez de pessoa por pessoa.${onde}`;
 }
@@ -256,7 +256,7 @@ export function groupPickerEmptyNotice(porta) {
  * @returns {string}
  */
 export function newGroupEmptyHint(porta) {
-    const onde = porta ? ` Ponha pessoas nele em ${porta}.` : '';
+    const onde = porta ? ` Ponha pessoas nele em ${porta}, na aba Grupos.` : '';
     return `Um grupo novo nasce vazio: conceder a ele não alcança ninguém enquanto não `
         + `houver membros.${onde}`;
 }
@@ -267,7 +267,7 @@ export function newGroupEmptyHint(porta) {
  * @returns {string}
  */
 export function groupPickerExhaustedNotice(porta) {
-    const onde = porta ? ` Você administra os seus grupos em ${porta}.` : '';
+    const onde = porta ? ` Você administra os seus grupos em ${porta}, na aba Grupos.` : '';
     return `Todos os seus grupos de acesso já receberam este recurso.${onde}`;
 }
 
@@ -529,11 +529,10 @@ export function leaveGroupAvailability(group, viewerId) {
  */
 export function leaveGroupWarning(group) {
     const nome = group?.name ?? '';
-    return `Sair do grupo "${nome}" derruba o acesso que ele dava a você: os recursos privados `
-        + 'concedidos a este grupo e os atlas compartilhados com ele. O que você tem por conta '
-        + 'própria continua valendo. Esta tela não sabe quantos acessos caem, e o número só '
-        + 'aparece depois do ato. Você não volta sozinho: só quem administra o grupo pode '
-        + 'incluir você de novo.';
+    return `Sair do grupo "${nome}" tira de você os recursos privados concedidos a ele e os `
+        + 'atlas compartilhados com ele. O que você tem por conta própria continua valendo. '
+        + 'Quantos acessos caem só se sabe depois de sair, e você não volta sozinho: só quem '
+        + 'administra o grupo pode incluir você de novo.';
 }
 
 /**
@@ -582,7 +581,7 @@ export function groupOwnerCannotLeaveNotice() {
     // ao procurar uma saída para oferecer, o texto inventou a que faltava. Uma saída INEXISTENTE é
     // pior que um muro, porque manda a pessoa caçar um botão que não há e ainda a faz duvidar da
     // própria leitura da tela. A saída que sobra é real e está escrita: apagar.
-    return 'Você é o dono deste grupo, e o dono não sai: um grupo sem dono fica sem quem o '
+    return 'Você é o dono deste grupo, e o dono não pode sair: o grupo ficaria sem quem o '
         + 'administre. Para deixar de participar, apague o grupo.';
 }
 
@@ -616,9 +615,8 @@ export function groupOwnerCannotLeaveShort() {
  * @returns {string}
  */
 export function leaveAvailabilityUnknownNotice() {
-    return 'Esta tela não conseguiu ler quem é você agora, então não oferece a saída do grupo: '
-        + 'quem é dono do grupo não pode sair, e oferecer o botão sem saber terminaria num erro. '
-        + 'Recarregue a página para tentar de novo.';
+    return 'Não foi possível confirmar quem é você agora, então a saída do grupo não está '
+        + 'disponível. Recarregue a página para tentar de novo.';
 }
 
 /**
@@ -655,9 +653,8 @@ export function groupTableColumns({ isAdmin = false } = {}) {
  * @returns {string}
  */
 export function participatingReachUnknownNotice() {
-    return 'Esta lista mostra o nome e o dono de cada grupo. Quantas pessoas estão dentro, e a '
-        + 'que recursos ou atlas o grupo dá acesso, é informação de quem o administra e não sai '
-        + 'por aqui: a ausência do número não quer dizer que ele seja zero.';
+    return 'Aqui aparecem o nome e o dono de cada grupo. Quantas pessoas ele tem, e a que dá '
+        + 'acesso, só quem o administra vê: a ausência do número não quer dizer que ele seja zero.';
 }
 
 /*

@@ -33,10 +33,42 @@ function deepMerge(base, override) {
   return out;
 }
 
-/** Reads the admin config override document (partial config; {} when unset). */
+/**
+ * Reads the admin config override document (partial config; {} when unset).
+ *
+ * PRUNED ON THE WAY OUT (`podarProjecaoDoPainel`), and this is the read half of that prune: both
+ * readers go through here, the assembly of `GET /api/config` and the `overrides` echo of
+ * `GET /config/admin`, so a row written before 2026-09-22 serves neither.
+ */
 export async function getConfigOverrides() {
   const { rows } = await query(Q.GET_CONFIG_OVERRIDES, [OVERRIDES_KEY]);
-  return rows[0]?.value ?? {};
+  return podarProjecaoDoPainel(rows[0]?.value ?? {});
+}
+
+/**
+ * Tira `map2d.globe_projection` do documento de OVERRIDE, onde a chave deixou de existir
+ * (decisão do dono, 2026-09-22): a projeção é do ATLAS, globo por padrão, desde 2026-08-16, e a
+ * chave passou um mês gravada pela caixa "Projeção globo" do painel e servida por
+ * `GET /api/config` sem NENHUM leitor no cliente. O dono desmarcou a caixa, o mapa continuou globo,
+ * e a leitura natural foi "está invertido".
+ *
+ * É O MESMO DESENHO DE `podarZoomDeAplicacao`, e pela mesma razão: o schema recusa a chave no
+ * CORPO (`forbidden()`), mas borda de entrada não alcança a linha JÁ gravada. A poda roda na
+ * escrita, para a linha velha cicatrizar no primeiro salvamento seguinte, e na leitura, para
+ * nada servir a chave mesmo que ninguém nunca mais salve. A diferença para o zoom é que aqui não
+ * há valor fixo a repor depois: a chave simplesmente deixa de existir.
+ *
+ * O documento velho NÃO reprova o salvamento seguinte: o schema valida só o corpo que chega, e a
+ * aba não manda mais a chave.
+ *
+ * @param {Object} doc - Documento de override (mutado no lugar).
+ * @returns {Object} O mesmo documento.
+ */
+function podarProjecaoDoPainel(doc) {
+  if (doc?.map2d && typeof doc.map2d === 'object') {
+    delete doc.map2d.globe_projection;
+  }
+  return doc;
 }
 
 /**
@@ -108,7 +140,7 @@ export async function updateConfigOverrides(partial, userId, req = null) {
   }
   const merged = await tx(async (t) => {
     const current = (await t.one(Q.LOCK_CONFIG_OVERRIDES, [OVERRIDES_KEY])).value ?? {};
-    const next = podarZoomDeAplicacao(deepMerge(current, partial));
+    const next = podarProjecaoDoPainel(podarZoomDeAplicacao(deepMerge(current, partial)));
     const value = (await t.one(Q.UPSERT_CONFIG_OVERRIDES, [
       OVERRIDES_KEY,
       JSON.stringify(next),

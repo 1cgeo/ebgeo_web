@@ -50,18 +50,18 @@ export const BlockingCause = Object.freeze({
 const TELAS = Object.freeze({
     [BlockingCause.SERVER_UNREACHABLE]: {
         title: 'EBGeo indisponível',
-        message: 'Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente. '
-            + 'Os atlas guardados neste navegador continuam intactos: nada deste computador se '
-            + 'perde quando o servidor está fora.',
-        retryLabel: 'Tentar novamente'
+        message: 'Não foi possível conectar ao servidor. Verifique sua conexão e tente de novo. '
+            + 'Os atlas guardados neste navegador continuam intactos.',
+        retryLabel: 'Tentar de novo'
     },
     [BlockingCause.APP_ERROR]: {
         title: 'O EBGeo encontrou um erro',
         // NÃO manda verificar a conexão, e essa omissão é a correção inteira: o servidor
         // respondeu. Também não promete que recarregar resolve, porque em geral não resolve.
-        message: 'Algo deu errado ao abrir esta tela. O servidor respondeu normalmente, então o '
-            + 'problema está no programa. Recarregar pode contornar; se voltar a acontecer, avise '
-            + 'quem administra o EBGeo.',
+        // O parêntese "(o servidor respondeu normalmente)" saiu em 2026-09-22: era a tela
+        // narrando o protocolo, e a pessoa não faz nada com ele.
+        message: 'Algo deu errado ao abrir esta página. Recarregue; se o erro continuar, avise '
+            + 'o administrador do EBGeo.',
         retryLabel: 'Recarregar'
     }
 });

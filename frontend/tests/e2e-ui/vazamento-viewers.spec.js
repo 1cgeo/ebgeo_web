@@ -173,7 +173,7 @@ async function registrarTileset(page) {
     ).toBe(true);
 
     // 2) A metade de PRODUÇÃO, que diz QUAL arquivo serve os bytes. Sem ela o JOIN de
-    // `resolverModelo3d` não acha nada e a rota responde 404 "3D model not found", o
+    // `resolverModelo3d` não acha nada e a rota responde 404 "Modelo 3D não encontrado.", o
     // visualizador volta para o 2D, e o teste ficaria verde sem ter aberto modelo nenhum.
     await seedModelo3d(state.dbName, { modelId: TILESET_ID });
 

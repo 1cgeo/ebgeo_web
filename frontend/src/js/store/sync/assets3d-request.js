@@ -39,6 +39,17 @@ import { currentResourceAtlasId } from './resource-scope.js';
 const OUTRA_ORIGEM_RE = /^(?:[a-z][a-z0-9+.-]*:)?\/\//i;
 
 /**
+ * An address that opens with its own SCHEME. The absolute `http(s)://` form is already
+ * refused by {@link OUTRA_ORIGEM_RE}; what this one adds is the scheme with NO authority
+ * (`data:`, `blob:`), which names bytes the page already holds and not a path on this server.
+ * A query appended to it is not a query: it lands INSIDE the payload, and a base64 data URL
+ * ending in `?atlasId=…` no longer decodes to an image. That is not hypothetical: the catalog
+ * miniature of a 3D model is EITHER a data URL embedded by the admin panel OR a file under
+ * `/api/v1/assets3d` (the adopted acquis), and both reach `enderecoDaMiniatura`.
+ */
+const COM_ESQUEMA_RE = /^[a-z][a-z0-9+.-]*:/i;
+
+/**
  * The atlas scope that should accompany an asset request, or null.
  * @returns {string|null}
  */
@@ -52,6 +63,8 @@ export function escopoDeAsset() {
  * For an address the browser fetches on its own, this is the only stamp available. A
  * cross-origin address comes out UNTOUCHED: the loan is a claim about THIS server, and
  * attaching it to a third-party host would only tell that host which atlas the user is in.
+ * An inline address (`data:`, `blob:`) comes out untouched too, because a query written onto
+ * it corrupts the bytes it carries (see {@link COM_ESQUEMA_RE}).
  *
  * @param {string} url
  * @returns {string} The stamped URL, or the original when there is nothing to stamp.
@@ -59,7 +72,7 @@ export function escopoDeAsset() {
 export function escoparUrlDeAsset(url) {
     if (typeof url !== 'string' || !url) return url;
     const atlasId = escopoDeAsset();
-    if (!atlasId || OUTRA_ORIGEM_RE.test(url)) return url;
+    if (!atlasId || OUTRA_ORIGEM_RE.test(url) || COM_ESQUEMA_RE.test(url)) return url;
     if (/[?&]atlasId=/.test(url)) return url;
     const [semHash, hash = ''] = url.split('#');
     const separador = semHash.includes('?') ? '&' : '?';

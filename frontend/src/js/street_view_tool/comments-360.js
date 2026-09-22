@@ -116,13 +116,18 @@ async function recarregar() {
     estado.navigator?.setComments(raizesDaFoto());
 
     // A CONVERSA ABERTA SE REFAZ, e é o que faz a resposta do colega aparecer sem fechar e
-    // reabrir. Se ela sumiu (resolvida ou excluída), o cartão fecha em vez de ficar mentindo.
+    // reabrir. Se ela sumiu (excluída), o cartão fecha em vez de ficar mentindo.
+    //
+    // RESOLVED BY A PEER, it is redrawn in the resolved state and does NOT close (2026-09-22).
+    // Until then this branch closed resolved threads too, and the card vanished under the reader
+    // with no word of why; the 2D map already redrew. Only the person's own gesture closes it,
+    // from inside the card (comment_tool/comment-card.js), the same rule on all four surfaces.
     if (estado.raizAberta) {
         const raiz = estado.colecao[estado.raizAberta];
         const onde = estado.cartao
             ? { x: parseFloat(estado.cartao.style.left) + (estado.cartao.offsetWidth / 2), y: parseFloat(estado.cartao.style.top) + estado.cartao.offsetHeight + 24 }
             : null;
-        if (raiz && raiz.status !== 'resolved' && onde) abrirConversa(raiz.id, onde.x, onde.y);
+        if (raiz && onde) abrirConversa(raiz.id, onde.x, onde.y);
         else fecharCartao360();
     }
 }
@@ -134,7 +139,9 @@ function abrirConversa(raizId, x, y) {
     const cartao = montarCartaoDeThread({
         raiz,
         respostas: respostasDe(estado.colecao, raizId),
-        aoFechar: () => fecharCartao360(),
+        // Scoped to THIS thread: after a resolution the card calls it only once the store accepted
+        // the write, and by then the person may have opened another balloon.
+        aoFechar: () => { if (estado.raizAberta === raizId) fecharCartao360(); },
     });
     ancorar(cartao, x, y);
     estado.raizAberta = raizId;

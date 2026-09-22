@@ -657,6 +657,128 @@ describe('PresenceStore', () => {
         });
     });
 
+    // O FANTASMA DEPOIS DA SAÍDA (relato do dono, 2026-09-22: "ainda diz que tem usuário presente
+    // mesmo que depois de sair"). O servidor anuncia `user_left` na hora e manda o cursor num lote
+    // no tique seguinte, então um quadro enfileirado antes do fechamento chegava DEPOIS da saída, e
+    // `setCursor` recriava a pessoa sem nome, para sempre. O controle negativo é tirar a guarda
+    // `_isLateForDeparted` das mutações: os dois primeiros casos reprovam.
+    describe('saída: quadro atrasado não ressuscita quem saiu', () => {
+        it('o cursor que chega DEPOIS do user_left não recria a entrada', () => {
+            store.userJoined({ clientId: 'c1', userId: 'u1', userName: 'Alice' });
+            store.userLeft({ clientId: 'c1', userId: 'u1' });
+            store.setCursor({ clientId: 'c1', userId: 'u1', position: { lng: 1, lat: 2 }, mapId: 'm1' });
+            expect(store.count()).toBe(0);
+            expect(store.getCursors()).toEqual([]);
+        });
+
+        it('nem a seleção, nem o mapa ativo, nem o briefing, nem o visualizador de quem saiu', () => {
+            store.userJoined({ clientId: 'c1', userId: 'u1' });
+            store.userLeft({ clientId: 'c1', userId: 'u1' });
+            store.setSelection({ clientId: 'c1', featureIds: ['f1'], mapId: 'm1' });
+            store.setCurrentMap({ clientId: 'c1', mapId: 'm1' });
+            store.setBriefingEdit({ clientId: 'c1', briefingId: 'b1', editing: true });
+            store.setViewer({ clientId: 'c1', viewer: { surface: '3d', recurso: null } });
+            expect(store.count()).toBe(0);
+        });
+
+        it('PISO: quem VOLTA (recarregou a página) volta a receber tudo, e o desconhecido ainda nasce', () => {
+            store.userJoined({ clientId: 'c1', userId: 'u1' });
+            store.userLeft({ clientId: 'c1', userId: 'u1' });
+            store.userJoined({ clientId: 'c1', userId: 'u1', userName: 'Alice' });
+            store.setCursor({ clientId: 'c1', position: { lng: 1, lat: 2 }, mapId: 'm1' });
+            expect(store.getCursors()).toHaveLength(1);
+            // Uma chave que nunca saiu continua criando a entrada transitória, como antes.
+            store.setCursor({ clientId: 'c9', userId: 'u9', position: { lng: 3, lat: 4 }, mapId: 'm1' });
+            expect(store.count()).toBe(2);
+        });
+
+        it('o retrato novo do servidor (setInitial) apaga as lápides', () => {
+            store.userJoined({ clientId: 'c1', userId: 'u1' });
+            store.userLeft({ clientId: 'c1' });
+            store.setInitial([]);
+            store.setCursor({ clientId: 'c1', position: { lng: 1, lat: 2 }, mapId: 'm1' });
+            expect(store.count()).toBe(1);
+        });
+
+        it('a lápide vence depois do prazo', () => {
+            vi.useFakeTimers();
+            try {
+                store.userJoined({ clientId: 'c1', userId: 'u1' });
+                store.userLeft({ clientId: 'c1' });
+                vi.advanceTimersByTime(31000);
+                store.setCursor({ clientId: 'c1', position: { lng: 1, lat: 2 }, mapId: 'm1' });
+                expect(store.count()).toBe(1);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('a saída avisa as CENAS: o 3D e o 360 só repintam nos eventos de cursor e de seleção', () => {
+            store.userJoined({ clientId: 'c1', userId: 'u1' });
+            store.setCursor({
+                clientId: 'c1', surface: '360', photoName: 'f1', position: { heading: 1, pitch: 0 }, mapId: 'm1',
+            });
+            store.setSelection({ clientId: 'c1', surface: '3d', featureIds: ['mk1'], tilesetId: 't1' });
+            emitSpy.mockClear();
+            store.userLeft({ clientId: 'c1' });
+            expect(emitsFor(EventTypes.PRESENCE_CHANGED)).toHaveLength(1);
+            expect(emitsFor(EventTypes.PRESENCE_CURSORS_CHANGED)).toEqual([{ mapId: 'm1', surface: '360' }]);
+            expect(emitsFor(EventTypes.PRESENCE_SELECTIONS_CHANGED)).toEqual([{ surface: '3d' }]);
+        });
+
+        it('clear também avisa as cenas das superfícies que perderam alguém', () => {
+            store.userJoined({ clientId: 'c1', userId: 'u1' });
+            store.setCursor({
+                clientId: 'c1', surface: '3d', tilesetId: 't1', position: { lng: 1, lat: 2, alt: 3 }, mapId: 'm1',
+            });
+            emitSpy.mockClear();
+            store.clear();
+            expect(emitsFor(EventTypes.PRESENCE_CURSORS_CHANGED)).toEqual([{ mapId: null, surface: '3d' }]);
+        });
+    });
+
+    // CASO V (dono, 2026-09-22): o visualizador aberto por cada par. O nome veio do SERVIDOR, já
+    // decidido por destinatário; o armazém só guarda e avisa quando muda.
+    describe('setViewer', () => {
+        it('guarda o visualizador com o recurso e avisa a lista uma vez por mudança', () => {
+            store.userJoined({ clientId: 'c1', userId: 'u1' });
+            emitSpy.mockClear();
+            const viewer = { surface: '3d', recurso: { tipo: 'tileset', id: 't1', nome: 'Museu', foto: null } };
+            store.setViewer({ clientId: 'c1', userId: 'u1', viewer });
+            expect(store.getUsers()[0].viewer).toEqual(viewer);
+            store.setViewer({ clientId: 'c1', userId: 'u1', viewer });
+            expect(emitsFor(EventTypes.PRESENCE_CHANGED)).toHaveLength(1);
+        });
+
+        it('recurso nulo (privado que este cliente não lê) fica nulo, e 2d é "no mapa"', () => {
+            store.userJoined({ clientId: 'c1' });
+            store.setViewer({ clientId: 'c1', viewer: { surface: '360', recurso: null } });
+            expect(store.getUsers()[0].viewer).toEqual({ surface: '360', recurso: null });
+            store.setViewer({ clientId: 'c1', viewer: null });
+            expect(store.getUsers()[0].viewer).toBeNull();
+            store.setViewer({ clientId: 'c1', viewer: { surface: '2d', recurso: null } });
+            expect(store.getUsers()[0].viewer).toBeNull();
+        });
+
+        it('recusa superfície desconhecida e recurso sem nome, em vez de desenhar pela metade', () => {
+            store.userJoined({ clientId: 'c1' });
+            store.setViewer({ clientId: 'c1', viewer: { surface: 'teleporte', recurso: { nome: 'x' } } });
+            expect(store.getUsers()[0].viewer).toBeNull();
+            store.setViewer({ clientId: 'c1', viewer: { surface: '3d', recurso: { id: 't1' } } });
+            expect(store.getUsers()[0].viewer).toEqual({ surface: '3d', recurso: null });
+        });
+
+        it('lê o visualizador do retrato de entrada, e um user_joined depois não o apaga', () => {
+            store.setInitial([{
+                id: 'u1', clientId: 'c1', nome: 'Alice',
+                viewer: { surface: 'fp', recurso: { tipo: 'tileset', id: 'cena', nome: 'Cena do museu', foto: null } },
+            }]);
+            expect(store.getUsers()[0].viewer?.recurso?.nome).toBe('Cena do museu');
+            store.userJoined({ id: 'u1', clientId: 'c1', nome: 'Alice' });
+            expect(store.getUsers()[0].viewer?.surface).toBe('fp');
+        });
+    });
+
     describe('returned snapshots are copies', () => {
         it('does not leak internal references through getUsers', () => {
             store.userJoined({ clientId: 'c1', userId: 'u1' });

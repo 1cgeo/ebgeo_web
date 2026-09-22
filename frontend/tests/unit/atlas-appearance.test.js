@@ -7,10 +7,13 @@
  * DOIS ESTADOS, e o padrão é GLOBO. Houve um terceiro ("padrão do sistema", herdando a config de
  * deploy) que o dono cortou em 2026-08-16: uma escolha de duas respostas não precisa de uma
  * terceira que o usuário tenha de traduzir para saber o que vai ver. O que sobra a testar é a
- * assimetria — só `false` tira o globo, e ausência não é `false`.
+ * assimetria (só `false` tira o globo, e ausência não é `false`) e, desde 2026-09-22, que a config
+ * de deploy NÃO entra na conta nem quando um servidor ainda carrega a chave antiga
+ * (`map2d.globe_projection`, podada nos dois pacotes naquela data). O contrato inteiro, painel e
+ * servidor incluídos, está em `projecao-globo-do-painel.repro.test.js`.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 
 vi.mock('@store/repositories/index.js', () => ({ getRepository: vi.fn() }));
 vi.mock('@store/sync/operation-dispatcher.js', () => ({
@@ -18,12 +21,19 @@ vi.mock('@store/sync/operation-dispatcher.js', () => ({
     OperationType: { UPDATE: 'update' },
 }));
 
+import config from '@js/config.js';
 import {
     resolveGlobeProjection,
     setGlobeChoice,
     currentGlobeProjection,
     APPEARANCE_KEYS,
 } from '@store/atlas-appearance.service.js';
+
+afterEach(() => {
+    // The cases below plant the pruned key on the shared config singleton; take it back out.
+    delete config.map2d.globe_projection;
+    setGlobeChoice(null);
+});
 
 describe('resolveGlobeProjection', () => {
     it('só `false` produz o mapa plano', () => {
@@ -43,6 +53,19 @@ describe('resolveGlobeProjection', () => {
             expect(resolveGlobeProjection(lixo), String(lixo)).toBe(true);
         }
     });
+
+    it('a config de deploy NÃO decide, nem quando ainda carrega a chave antiga', () => {
+        // An outdated server (or a hand-written payload) can still hydrate
+        // `config.map2d.globe_projection: false`. The atlas that never chose stays a globe: the
+        // deploy key was the admin box pruned on 2026-09-22, and reading it here is the
+        // re-animation the owner declined.
+        config.map2d.globe_projection = false;
+        expect(resolveGlobeProjection(null)).toBe(true);
+        expect(resolveGlobeProjection(undefined)).toBe(true);
+        // And the atlas choice still decides in both directions.
+        expect(resolveGlobeProjection(false)).toBe(false);
+        expect(resolveGlobeProjection(true)).toBe(true);
+    });
 });
 
 describe('cache em memória', () => {
@@ -60,6 +83,14 @@ describe('cache em memória', () => {
             setGlobeChoice(lixo);
             expect(currentGlobeProjection(), String(lixo)).toBe(true);
         }
+    });
+
+    it('o caminho que o mapa aplica também ignora a chave de deploy', () => {
+        // `currentGlobeProjection()` is what map_sig, the base-layer swap and the terrain toggle
+        // call, so this is the path that decides what the map draws.
+        config.map2d.globe_projection = false;
+        setGlobeChoice(null);
+        expect(currentGlobeProjection()).toBe(true);
     });
 });
 

@@ -125,7 +125,7 @@ describe('Config endpoint (GET /api/v1/config)', () => {
     assert.deepEqual(cfg.basemaps['carta-topografica'], {
       name: 'Topográfica',
       enabled: true,
-      image: './images/layers/carta-topografica-thumb.png',
+      image: './images/layers/carta-topografica-thumb.webp',
       priority: 1,
       minzoom: 2,
       maxzoom: 19,

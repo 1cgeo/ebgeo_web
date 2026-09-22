@@ -760,7 +760,38 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // novo). Ele NÃO mexe no grafo ANSIOSO, e isso foi conferido pelo verde do caso irmão na
         // mesma rodada: quem o importa é `first_person_viewer.js`, que só é alcançado por
         // `import()`, então a folha cai no grupo lazy `first-person-3d` junto com ele.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(750);
+        //
+        // 2026-09-22, décimo oitavo lote: +1, com `catalog/resource-share.modal.core.js`. O modal de
+        // compartilhar recurso foi PARTIDO em núcleo sem store e entrada do mapa (item 19b do dono,
+        // para caber em `admin.html`), no molde de `modals/sharing.modal.core.js`; o mapa passa a
+        // alcançar os dois arquivos onde alcançava um, e a fonte cresce só a entrada (uns 3 kB). A
+        // folha nova do painel (`admin/shareable-resources.js`) não entra aqui: só `admin.html` a
+        // alcança. A medida do dia, pelo mesmo caminhador e com o trabalho de outras sessões em
+        // voo na mesma árvore, deu 759: os outros oito não são deste lote.
+        //
+        // 2026-09-22, décimo nono lote: +1, com `map/tile-expiry-guard.js`, folha de ZERO imports que
+        // impede o MapLibre de pedir de novo, a cada ida e volta, o tile vetorial que foi servido e
+        // depois recusado (o laço de 404 do stack de teste em 2026-09-21). É ANSIOSO de propósito:
+        // `map_sig.js` e o minimapa do 360 o instalam antes do primeiro tile. Não medido por este
+        // caminhador (a sessão não rodou testes); a conta é uma aresta nova para um arquivo novo.
+        //
+        // 2026-09-22, MEDIDO no fim do dia, com a árvore inteira do dia e os arquivos novos postos no
+        // índice (este caminhador não vê arquivo fora do `git ls-files` dos censos, mas vê o disco):
+        // 764, ou seja +14 sobre os 750 do commit anterior, e o teto sobe para 764 por decisão do dono.
+        // A conta fecha sem resto: 15 módulos novos menos `context-menu/qan-menu-gate.js`, apagado
+        // quando o QAN saiu do menu de botão direito. Os 15, por item do dia: o núcleo do modal de
+        // recurso (acima), `map/tile-expiry-guard.js` (acima), `utilities/carga-sob-demanda.js` e
+        // `utilities/carga-sob-demanda.model.js` (chunk que não chega), `store/vista-da-pessoa.js` e
+        // `store/vista-da-pessoa-disco.js` (mapa base e temporal lembrados por mapa),
+        // `3d_models_viewer_tool/services/viewshed-preview.js` (preview do viewshed),
+        // `3d_models_viewer_tool/services/viewer-teardown.js` (desmontagem do 3D com um dono por
+        // objeto), `sidebar/components/feature-name-commit.model.js` e
+        // `sidebar/panels/feature-panel-flush.js` (nome da feição no Enter), e as folhas de decisão
+        // `snapping/snap-availability.js`, `sidebar/components/photo-gallery-affordance.js`,
+        // `baselayers/glyphs-template.js`, `catalog/endereco-da-miniatura.js` e
+        // `presence/viewer-label.js`. Quase todas são folhas puras, que existem para a regra ser
+        // testável em node; juntá-las para caber no teto antigo trocaria teste por número.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(764);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);

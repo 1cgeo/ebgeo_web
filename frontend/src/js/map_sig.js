@@ -42,6 +42,10 @@ import { AddStreetViewControl } from './street_view_tool';
 // link publico nao ve a camada privada que o atlas lhe empresta (clausula 6.3), porque o
 // token dele e efemero e nao vira cookie. Ver `map/credencial-de-tile.js`.
 import { credencialDeTile } from './map/credencial-de-tile.js';
+// A vector tile that was served once and then answered 404 was asked for again by MapLibre
+// itself, once per round trip, forever (measured 2026-09-21: ~530 requests per second). See the
+// module's fileoverview.
+import { installTileExpiryGuard } from '@js/map/tile-expiry-guard.js';
 import { Add3DModelsViewerControl } from './3d_models_viewer_tool';
 import { VectorTileInfoControl } from './vector_info';
 import { FeatureSearchControl, SearchBarComponent } from './search';
@@ -105,6 +109,8 @@ import AddBrushControl from './draw_tools/brush_tool/add_brush_control.js';
 
 // Snapping
 import { SnappingService } from './snapping/snapping.service.js';
+import { isSnapAvailable } from './snapping/snap-availability.js';
+import { edicaoIndisponivelSync } from '@store/edicao-indisponivel.js';
 // Folha de zero imports: a marca do instante em que o mapa ficou pronto, que fecha a medida
 // `tempo-ate-mapa`. Ela nao participa do boot em mais nada.
 import { vitais } from './session/vitais.js';
@@ -196,6 +202,9 @@ export function createMap() {
     // sources que existiam neste instante, ou seja, nenhuma das do primeiro `setStyle`.
     // A reaplicação depois de cada troca de base está em `baselayers/base-layer.control.js`.
     applyTileLodParams(map, config.map2d.sourceTileLodParams);
+    // Before the first tile, so the prototype is guarded long before any 60 s refresh. It leaves
+    // by itself after the first tile: the patch is shared by every map of the page.
+    installTileExpiryGuard(map);
     if (config.map2d.maxBounds) {
         map.setMaxBounds(config.map2d.maxBounds);
     }
@@ -384,7 +393,13 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
 
     // ===== SNAPPING SERVICE =====
 
-    const snappingService = new SnappingService({ stateManager: getStateManager() });
+    // The snap exists only where drawing does (owner, 2026-09-22): the toolbar hides the toggle by
+    // role and by lock, and the service obeys the SAME rule, asked of the single account of both
+    // axes, so a preference left on never acts behind a hidden button. See `snap-availability.js`.
+    const snappingService = new SnappingService({
+        stateManager: getStateManager(),
+        isAvailable: () => isSnapAvailable(edicaoIndisponivelSync()),
+    });
 
     // ===== KEYBOARD SHORTCUTS =====
 

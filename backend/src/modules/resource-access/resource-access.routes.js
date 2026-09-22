@@ -109,10 +109,16 @@ router.patch(
 );
 
 /**
- * GET /api/v1/resource-access/:type/:id/grants — quem tem acesso a este recurso.
+ * GET /api/v1/resource-access/:type/:id/grants — as concessões que o CHAMADOR fez sobre este
+ * recurso, cada uma com quantas cairiam junto na revogação dela.
  *
  * Gate de compartilhar, e não de ver: a lista nomeia pessoas, então quem só
  * recebeu `view` não precisa saber quem mais recebeu.
+ *
+ * DESDE 2026-09-22 ELA NÃO É MAIS "QUEM TEM ACESSO" (decisão do dono, item 19c): o recorte por
+ * autoria (`granted_by` = o chamador, lido do token) mora na consulta, e vale também para o
+ * administrador. O que outras pessoas concederam sobre o mesmo recurso não sai por aqui; a
+ * subárvore que deriva de uma concessão do chamador sai CONTADA, sem as linhas.
  */
 router.get(
   '/:type/:id/grants',

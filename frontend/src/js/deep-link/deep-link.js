@@ -208,7 +208,7 @@ async function copyToClipboard(text) {
 export async function copyShareUrl(url) {
     try {
         await copyToClipboard(url);
-        showSuccess('Link copiado para a área de transferência!');
+        showSuccess('Link copiado.');
     } catch {
         showError('Não foi possível copiar o link');
     }

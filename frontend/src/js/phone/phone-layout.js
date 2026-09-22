@@ -424,7 +424,8 @@ export class PhoneLayout {
                 if (saved) {
                     showToast('Feição atualizada', 'success');
                 } else {
-                    showToast('Não foi possível salvar (sem permissão ou mapa bloqueado)', 'error');
+                    // The reason, when the store refused, is the store's own toast.
+                    showToast('Não foi possível salvar a feição.', 'error');
                 }
             } catch (err) {
                 console.error('PhoneLayout: error saving feature:', err);
@@ -615,7 +616,8 @@ export class PhoneLayout {
             if (saved) {
                 showToast('Posição atualizada', 'success');
             } else {
-                showToast('Não foi possível mover (sem permissão ou mapa bloqueado)', 'error');
+                // The reason, when the store refused, is the store's own toast.
+                showToast('Não foi possível mover a feição.', 'error');
             }
         } catch (err) {
             console.error('PhoneLayout: error moving feature:', err);

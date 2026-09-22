@@ -60,6 +60,7 @@ import {
     saveAtlasAppearance,
     setGlobeChoice,
     currentGlobeProjection,
+    resolveGlobeProjection,
     MIN_EXAGGERATION,
     MAX_EXAGGERATION,
 } from '@store/atlas-appearance.service.js';
@@ -71,6 +72,7 @@ import { CATALOG_TYPE_CONFIG, CATALOG_ITEM_TYPES, CATALOG_MODAL_FILTERS, DEFAULT
 import { refreshVisibleResources } from '@store/sync/resource-access.service.js';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
+import { serverMessageOr } from '@utils/request-failure.js';
 
 /* Ícones estáticos (sem dado de usuário — seguro injetar). */
 const ICON_3D = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>';
@@ -301,9 +303,10 @@ export class AtlasSettingsModal extends ModalBase {
     /** @private A seção que todo atlas tem. */
     _appearancePane() {
         const exaggeration = this._appearance.terrainExaggeration;
-        // `!== false` e não uma busca pelo valor: um atlas que nunca escolheu (null/ausente) é
-        // globo, e a barra precisa mostrar globo marcado em vez de nenhuma opção acesa.
-        const choiceId = this._appearance.globeProjection === false ? 'plano' : 'globo';
+        // O valor EFETIVO, pela MESMA função que o mapa usa, e não uma busca pelo valor gravado:
+        // um atlas que nunca escolheu (null/ausente) é globo, e a barra precisa mostrar globo
+        // marcado em vez de nenhuma opção acesa.
+        const choiceId = resolveGlobeProjection(this._appearance.globeProjection) ? 'globo' : 'plano';
         const options = PROJECTION_CHOICES.map((c) => `
             <button type="button" class="atlas-config__segment${c.id === choiceId ? ' atlas-config__segment--active' : ''}"
                     data-projection="${c.id}" data-testid="atlas-settings-projection-${c.id}"
@@ -628,7 +631,7 @@ export class AtlasSettingsModal extends ModalBase {
             const on = items.filter((i) => this._catalogAllowed.has(i.originalData.id)).length;
             this._catalogBulkLabel.textContent = items.length === 0
                 ? 'Nenhum item nesta filtragem'
-                : `${on} de ${items.length} habilitado(s) nesta filtragem`;
+                : `${on} de ${items.length} ${items.length === 1 ? 'habilitado' : 'habilitados'} nesta filtragem`;
         }
         this._catalogGridWrap.innerHTML = '';
         this._catalogGridWrap.appendChild(createCatalogGrid({
@@ -718,9 +721,9 @@ export class AtlasSettingsModal extends ModalBase {
                 </p>
             </div>
             <p class="atlas-config__note">
-                Estas alterações valem <strong>imediatamente</strong> — não dependem do botão Salvar.
-                E se você restringir uma categoria na aba Catálogo, inclua ali os recursos que este atlas
-                empresta: a restrição é aplicada por cima do empréstimo e, sem isso, eles somem.
+                Estas alterações valem <strong>imediatamente</strong>, sem o botão Salvar.
+                Se você restringir uma categoria na aba Catálogo, inclua ali os recursos que este atlas
+                empresta; senão eles somem, porque a restrição vale por cima do empréstimo.
             </p>
         `;
 
@@ -876,7 +879,7 @@ export class AtlasSettingsModal extends ModalBase {
             showSuccess(lendingSummary({ nome: this._lentName(tipo, id), acao: 'add' }));
             await this._afterLendingChange();
         } catch (error) {
-            showError(error?.message || 'Não foi possível emprestar este recurso.');
+            showError(serverMessageOr(error, 'Não foi possível emprestar este recurso.'));
         } finally {
             this._lendingBusy = false;
         }
@@ -911,7 +914,7 @@ export class AtlasSettingsModal extends ModalBase {
             showSuccess(lendingSummary({ nome, acao: 'remove' }));
             await this._afterLendingChange();
         } catch (error) {
-            showError(error?.message || 'Não foi possível retirar o empréstimo.');
+            showError(serverMessageOr(error, 'Não foi possível retirar o empréstimo.'));
         } finally {
             this._lendingBusy = false;
         }

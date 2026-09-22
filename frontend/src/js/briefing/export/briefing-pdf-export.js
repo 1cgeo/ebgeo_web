@@ -82,7 +82,7 @@ export async function exportBriefingToPdf(briefingId, map) {
         }
 
         if (validation.warnings.length > 0) {
-            showWarning(`${validation.warnings.length} aviso(s) encontrado(s). O PDF pode ter problemas.`);
+            showWarning(`${validation.warnings.length === 1 ? '1 aviso encontrado' : `${validation.warnings.length} avisos encontrados`}. O PDF pode ter problemas.`);
         }
 
         // Validate that all referenced maps still exist
@@ -104,7 +104,7 @@ export async function exportBriefingToPdf(briefingId, map) {
             s => !s.position || s.position.longitude === null
         );
         if (slidesWithoutPosition.length > 0) {
-            showWarning(`${slidesWithoutPosition.length} slide(s) sem posição definida. Salve a posição de todos os slides antes de exportar.`);
+            showWarning(`${slidesWithoutPosition.length === 1 ? '1 slide está' : `${slidesWithoutPosition.length} slides estão`} sem posição definida. Salve a posição de todos os slides antes de exportar.`);
             return;
         }
 
@@ -204,7 +204,7 @@ export async function exportBriefingToPdf(briefingId, map) {
 
     } catch (error) {
         console.error('Error exporting briefing PDF:', error);
-        showError('Erro ao exportar briefing: ' + error.message);
+        showError('Não foi possível exportar o briefing. Tente de novo.');
     } finally {
         // ===== Step 8: Cleanup and restore =====
         _isExporting = false;

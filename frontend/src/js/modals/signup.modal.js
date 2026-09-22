@@ -33,6 +33,7 @@ import { createSearchableSelect } from '@ui/searchable-select.js';
 import { attachPasswordVisibility } from '@ui/password-visibility.js';
 import { avaliarConfirmacao, bytesDaSenha, MAX_SENHA_BYTES } from '@ui/password-match.model.js';
 import { PASSWORD_HEAVY_TEXT, validateRecoveryRequest } from './password-recovery.model.js';
+import { serverMessageOr } from '@utils/request-failure.js';
 
 /**
  * The help line under "Organização Militar", in the vocabulary of the statute.
@@ -47,8 +48,8 @@ import { PASSWORD_HEAVY_TEXT, validateRecoveryRequest } from './password-recover
  * IT IS EXPORTED SO A NODE TEST CAN READ IT. The words are the whole content of the fix, and a
  * constant inlined in the DOM builder would only be reachable through a browser.
  */
-export const LOTACAO_HINT = 'Sua lotação, declarada por você: ninguém a verifica, e ela não '
-    + 'autoriza nada. Papel e escopo de produção são concedidos por um administrador.';
+export const LOTACAO_HINT = 'Sua lotação, declarada por você. Ela não autoriza nada: os papéis '
+    + 'são concedidos por um administrador.';
 
 /** Header icon (user-plus / create account). */
 const SIGNUP_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>`;
@@ -421,7 +422,7 @@ export class SignupModal extends ModalBase {
         this._resendBtn = resendBtn;
         if (this._domainsUnavailable) {
             submitBtn.disabled = true;
-            this._showError('Não foi possível carregar os postos e organizações. Reabra o cadastro após atualizar a página.');
+            this._showError('Não foi possível carregar os postos e organizações. Atualize a página e abra o cadastro de novo.');
         }
 
         return form;
@@ -574,7 +575,7 @@ export class SignupModal extends ModalBase {
             // formulário que já não serve para nada.
             if (this._onRegistered) this._onRegistered({ email });
         } catch (error) {
-            this._showError(error?.message || 'Falha ao criar a conta. Tente novamente.');
+            this._showError(serverMessageOr(error, 'Falha ao criar a conta. Tente novamente.'));
         } finally {
             this._setSubmitting(false);
         }

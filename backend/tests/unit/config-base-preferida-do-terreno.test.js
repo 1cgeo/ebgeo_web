@@ -59,8 +59,9 @@ describe('config.static: a base preferida do terreno servida', () => {
     assert.equal(typeof MAP2D_BASE.minZoom, 'number');
     assert.equal(typeof MAP2D_BASE.maxZoom, 'number');
     assert.equal(typeof MAP2D_BASE.maxPitch, 'number');
-    assert.equal(typeof MAP2D_BASE.globe_projection, 'boolean');
     assert.equal(typeof MAP2D_BASE.hillshade, 'object');
+    // `globe_projection` saiu em 2026-09-22 (a projeção é do atlas); quem prende a ausência é
+    // `tests/integration/config-admin.test.js`.
   });
 });
 

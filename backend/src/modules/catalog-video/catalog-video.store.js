@@ -68,11 +68,11 @@ export async function assertValidVideo(tmpPath) {
   const { size } = statSync(tmpPath);
   const max = config.catalogVideo.maxSizeMb * 1024 * 1024;
   if (size > max) {
-    throw new BadRequestError(`O vídeo excede ${config.catalogVideo.maxSizeMb} MB (${size} bytes).`);
+    throw new BadRequestError(`O vídeo passa do limite de ${config.catalogVideo.maxSizeMb} MB.`);
   }
   const detected = await fileTypeFromFile(tmpPath);
   if (!detected || !EXT_BY_MIME[detected.mime]) {
-    throw new BadRequestError(`O vídeo deve ser MP4 ou WebM (detectado: ${detected?.mime ?? 'desconhecido'}).`);
+    throw new BadRequestError('O vídeo precisa ser MP4 ou WebM.');
   }
   return EXT_BY_MIME[detected.mime];
 }

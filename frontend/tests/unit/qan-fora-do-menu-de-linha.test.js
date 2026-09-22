@@ -1,89 +1,41 @@
 // Path: tests/unit/qan-fora-do-menu-de-linha.test.js
 
 /**
- * @fileoverview Pins the owner's 2026-09-20 request: the right-click menu offers
- * "Exportar QAN" for a POLYGON and NOT for a LINE.
+ * @fileoverview Pins the owner's requests about "Exportar QAN" on the map's right-click
+ * menu. On 2026-09-20 the menu stopped offering it for a LINE; on 2026-09-22 it stopped
+ * offering it for a POLYGON too, so the right-click menu offers it for NO geometry. The file
+ * name predates the second request and is kept so the history of this guard stays in one
+ * place.
  *
  * TWO HALVES, AND NEITHER IS ENOUGH ALONE
  *
- * 1. THE DECISION. `canExportQAN` (`js/context-menu/qan-menu-gate.js`) is pure and has
- *    zero imports, so it runs here for real. This is the half that says what the product
- *    decided.
- * 2. THE WIRING. `context-menu.control.js` cannot be imported in this node environment
- *    (it pulls the `@store` barrel and MapLibre), so the wiring is read as TEXT: that
- *    `_addQANExportOption` delegates to `canExportQAN` and carries no `'line'` literal of
- *    its own. Without this half, someone re-inlines `source === 'line'` in the drawing
- *    code, the item comes back on screen, and the decision module stays green as dead
- *    code. The scan runs over the method body with comments stripped, because the
- *    fileoverview of the control quotes the word "line" in prose on purpose.
+ * 1. THE MENU DOES NOT OFFER IT. `context-menu.control.js` cannot be imported in this node
+ *    environment (it pulls the `@store` barrel and MapLibre), so every module of
+ *    `js/context-menu/` is read as TEXT, comments stripped, and none may mention QAN in
+ *    code: no item label, no generator, no path to the QAN module. The scan covers the
+ *    FOLDER and not the one file, because the menu is assembled from sibling modules too
+ *    (`clipboard-menu-actions.js`), and an item re-added there would come back on screen with
+ *    the control file clean. Comments are stripped because the control explains in prose why
+ *    the item is gone, and that prose names QAN on purpose.
+ *    The polygon-only gate that lived in `js/context-menu/` was deleted with the item, since a
+ *    predicate nobody consults is dead code that `npm run knip` would flag.
+ *
+ * 2. THE PANEL DOOR STAYS. The feature panel's "Azimutes" tab still draws an "Exportar QAN"
+ *    button for line and polygon alike, through `createObservationsSection`
+ *    (`js/tool_manager/helpers/observations-editor.helpers.js`), and that door was NOT part of
+ *    either request. Without this half, a reader of half 1 concludes that QAN left the
+ *    product and removes the second door as cleanup, which nobody asked for.
  *
  * WHAT THIS SUITE DELIBERATELY DOES NOT CLAIM
- * - That a line can no longer produce a QAN. It can: the feature panel's "Azimutes" tab
- *   still draws an "Exportar QAN" button for line and polygon alike
- *   (`createObservationsSection`, `js/tool_manager/helpers/observations-editor.helpers.js`).
- *   Only the right-click door was closed.
- * - That the generator changed. `generateQAN` still handles lines; `qan-export.test.js`
- *   pins that and must stay green.
+ * - That the generator changed. `generateQAN` still handles lines and polygons;
+ *   `qan-export.test.js` pins that and must stay green.
  */
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { canExportQAN } from '../../src/js/context-menu/qan-menu-gate.js';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 
-/**
- * Builds a selected-feature stub with the given `source` property.
- * @param {string} source - Feature source type
- * @returns {Object} Minimal feature shape the menu reads
- */
-function feicao(source) {
-    return { properties: { source, nome: 'Teste' } };
-}
-
-describe('canExportQAN - o que o menu de contexto oferece', () => {
-    it('NAO oferece para linha (o pedido do dono)', () => {
-        expect(canExportQAN([feicao('line')])).toBe(false);
-    });
-
-    it('oferece para poligono', () => {
-        expect(canExportQAN([feicao('polygon')])).toBe(true);
-    });
-
-    it('nao oferece para os demais tipos de feicao', () => {
-        for (const tipo of ['point', 'arrow', 'rectangle', 'boundary', 'military_symbol', 'los']) {
-            expect(canExportQAN([feicao(tipo)])).toBe(false);
-        }
-    });
-});
-
-describe('canExportQAN - bordas', () => {
-    it('exige selecao UNICA: zero ou duas feicoes nao oferecem', () => {
-        expect(canExportQAN([])).toBe(false);
-        expect(canExportQAN([feicao('polygon'), feicao('polygon')])).toBe(false);
-        expect(canExportQAN([feicao('polygon'), feicao('line')])).toBe(false);
-    });
-
-    it('falha FECHADO em argumento ausente ou malformado', () => {
-        expect(canExportQAN()).toBe(false);
-        expect(canExportQAN(null)).toBe(false);
-        expect(canExportQAN('polygon')).toBe(false);
-        expect(canExportQAN([null])).toBe(false);
-        expect(canExportQAN([{}])).toBe(false);
-        expect(canExportQAN([{ properties: {} }])).toBe(false);
-        expect(canExportQAN([{ properties: { source: undefined } }])).toBe(false);
-    });
-
-    it('nao confunde caixa nem espaco no valor de `source`', () => {
-        expect(canExportQAN([feicao('Polygon')])).toBe(false);
-        expect(canExportQAN([feicao(' polygon')])).toBe(false);
-    });
-});
-
-// ============================================================================
-// Wiring (text scan)
-// ============================================================================
-
-const CONTROL_URL = new URL('../../src/js/context-menu/context-menu.control.js', import.meta.url);
-const CONTROL_SOURCE = readFileSync(CONTROL_URL, 'utf8');
+const SRC_JS = new URL('../../src/js/', import.meta.url);
+const CONTEXT_MENU_DIR = new URL('context-menu/', SRC_JS);
 
 /**
  * Strips JS comments, walking string literals so a `//` inside a string survives.
@@ -122,52 +74,67 @@ function stripComments(source) {
 }
 
 /**
- * Extracts a method body by brace matching from its DECLARATION. Anchoring on the
- * declaration and not on the bare name matters: the first occurrence of the name in this
- * file is the CALL site, and slicing from there returns the caller's `if` block, which
- * silently measures the wrong text.
- * @param {string} source - Source text (comments already stripped)
- * @param {string} name - Method name
- * @returns {string} The method body, braces included
+ * Reads a source file under `src/js/` with comments stripped.
+ * @param {string} relative - Path relative to `src/js/`
+ * @returns {string} Code without comments
  */
-function methodBody(source, name) {
-    const declaration = new RegExp(`(^|\\n)\\s*${name}\\s*\\([^)]*\\)\\s*\\{`);
-    const found = declaration.exec(source);
-    if (!found) return '';
-    let i = source.indexOf('{', found.index);
-    if (i === -1) return '';
-    let depth = 0;
-    const from = i;
-    while (i < source.length) {
-        if (source[i] === '{') {
-            depth++;
-        } else if (source[i] === '}') {
-            depth--;
-            if (depth === 0) return source.slice(from, i + 1);
-        }
-        i++;
-    }
-    return '';
+function code(relative) {
+    return stripComments(readFileSync(new URL(relative, SRC_JS), 'utf8'));
 }
 
-describe('fiacao: o menu CONSULTA o portao em vez de decidir sozinho', () => {
-    const code = stripComments(CONTROL_SOURCE);
-    const body = methodBody(code, '_addQANExportOption');
+// ============================================================================
+// Half 1: the right-click menu offers QAN for no geometry
+// ============================================================================
 
-    it('o corpo de _addQANExportOption foi encontrado', () => {
-        expect(body.length).toBeGreaterThan(0);
-        expect(body).toContain('Exportar QAN');
+describe('menu de contexto: nenhuma geometria ganha "Exportar QAN"', () => {
+    const modules = readdirSync(CONTEXT_MENU_DIR).filter((name) => name.endsWith('.js')).sort();
+
+    it('a varredura alcança a pasta do menu, controle incluído', () => {
+        // Guard against empty coverage: a renamed folder would leave the loop below with
+        // nothing to check, and every assertion inside it would pass by never running.
+        expect(modules).toContain('context-menu.control.js');
+        expect(modules).toContain('clipboard-menu-actions.js');
+        expect(modules.length).toBeGreaterThanOrEqual(2);
     });
 
-    it('o controle importa o portao', () => {
-        expect(code).toMatch(/import\s*\{\s*canExportQAN\s*\}\s*from\s*'\.\/qan-menu-gate\.js'/);
+    it.each(modules)('%s não cita QAN em código', (name) => {
+        const text = stripComments(readFileSync(new URL(name, CONTEXT_MENU_DIR), 'utf8'));
+        // One case-insensitive pattern covers the item label ("Exportar QAN"), the generator
+        // (`generateQAN`), the lazy import (`import_export/qan/`) and the deleted gate.
+        expect(text).not.toMatch(/qan/i);
     });
 
-    it('o corpo delega a canExportQAN', () => {
-        expect(body).toContain('canExportQAN(selectedFeatures)');
+    it('o portão só de polígono foi apagado, e não ficou como código morto', () => {
+        expect(existsSync(new URL('qan-menu-gate.js', CONTEXT_MENU_DIR))).toBe(false);
+    });
+});
+
+// ============================================================================
+// Half 2: the feature panel door stays
+// ============================================================================
+
+describe('painel da feição: a aba Azimutes continua exportando QAN', () => {
+    const helper = code('tool_manager/helpers/observations-editor.helpers.js');
+    const start = helper.indexOf('export function createObservationsSection');
+    // Slice up to the next top-level export (or the end), so the assertions below read the
+    // function that draws the button and not some neighbour that happens to share the file.
+    const nextExport = start === -1 ? -1 : helper.indexOf('\nexport ', start + 1);
+    const body = start === -1 ? '' : helper.slice(start, nextExport === -1 ? undefined : nextExport);
+
+    it('createObservationsSection existe e desenha o botão', () => {
+        expect(start).toBeGreaterThanOrEqual(0);
+        expect(body).toContain("'Exportar QAN'");
     });
 
-    it("o corpo nao carrega literal 'line' proprio", () => {
-        expect(body).not.toMatch(/['"`]line['"`]/);
+    it('o botão chega ao gerador pelo módulo de QAN, que continua existindo', () => {
+        expect(body).toContain('generateQAN(feature)');
+        expect(body).toContain('import_export/qan/index.js');
+        expect(existsSync(new URL('import_export/qan/index.js', SRC_JS))).toBe(true);
+    });
+
+    it('o painel da feição ainda monta a seção na aba Azimutes', () => {
+        const panel = code('sidebar/panels/feature-panel-content.js');
+        expect(panel).toContain('createObservationsSection(');
+        expect(panel).toContain('azimutesTab.appendChild(obsSection)');
     });
 });

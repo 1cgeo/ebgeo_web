@@ -493,8 +493,8 @@ export async function leaveGroup({ groupId, userId, actor, req }) {
     // INEXISTENTE é pior que muro, porque manda a pessoa caçar um botão que não há e ainda a
     // faz duvidar da própria leitura da tela.
     throw new ConflictError(
-      'O dono não pode sair do próprio grupo de acesso: um grupo sem dono deixa de entregar '
-      + 'acesso e fica sem quem o administre. Para deixar de participar, apague o grupo.'
+      'O dono não pode sair do próprio grupo de acesso: o grupo ficaria sem quem o administre. '
+      + 'Para deixar de participar, apague o grupo.'
     );
   }
   const naoParticipa = { groupId, userId, removed: false, grantsAffected: 0 };

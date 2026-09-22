@@ -162,7 +162,7 @@ export class LayerTransferModal extends ModalBase {
             const initial = escapeHtml(name.charAt(0).toUpperCase());
             const lockedClass = locked ? ' layer-transfer-item--locked' : '';
             const lockedBadge = locked
-                ? `<span class="layer-transfer-locked-badge">${ICONS.lock}<span>travado</span></span>`
+                ? `<span class="layer-transfer-locked-badge">${ICONS.lock}<span>bloqueado</span></span>`
                 : '';
 
             return `
@@ -201,7 +201,7 @@ export class LayerTransferModal extends ModalBase {
             if (item.classList.contains('layer-transfer-item--locked')) {
                 addDomListener(this, item, 'click', () => {
                     showToast(
-                        `"${item.dataset.map}" está travado. Destrave-o para receber a camada.`,
+                        `"${item.dataset.map}" está bloqueado. Desbloqueie-o para receber a camada.`,
                         'warning'
                     );
                 });

@@ -24,6 +24,24 @@
  * superfície usa (a foto e a direção no 360; o modelo e o ponto no 3D). Assim o painel de
  * comentários, o sync, o guarda de permissão e o documento lateral continuam sendo um só. O
  * precedente é o cursor de presença, que ganhou `surface` em 2026-09-16 pela mesma razão.
+ *
+ * RESOLVING CLOSES THE CARD, and only the person's OWN gesture does (owner's request, 2026-09-22:
+ * "ao resolver comentário fechar a tela do comentário"). The rule lives here, in the one Resolver
+ * button the four surfaces share, and it has three edges:
+ *  - the card closes only AFTER the store accepted the write (`fechaAoResolver`): a refusal by role
+ *    or by the logout barrier keeps the card open, and the refusal reaches the person through the
+ *    store-error listener exactly as before;
+ *  - "Reabrir" never closes: reopening is how the reply box comes back, so closing would take away
+ *    the very thing the person asked for;
+ *  - a PEER's resolution never closes it. The surfaces redraw the open card in the resolved,
+ *    read-only state instead (title, note, and "Reabrir" for whoever may modify), because a card
+ *    that vanishes under the reader's eyes explains nothing. The first-person surface also keeps
+ *    the card untouched while it holds unsent text (`escrevendoNoCartao`), and if that text is
+ *    sent to a thread resolved in the meantime, the refused reply keeps the draft and says why.
+ *
+ * `aoFechar` IS THEREFORE CALLED LATE, after an await, and each surface scopes it to the thread
+ * the card was built for: by then the person may have opened another thread, and closing that one
+ * would be exactly the surprise the rule avoids.
  */
 
 import { addReply, resolveComment, removeComment, updateComment } from '@store';
@@ -31,7 +49,11 @@ import { isRemoteStoreSync } from '@store/store-origin.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { checkPermission, GuardAction } from '@store/sync/permission-guard.js';
 import { getInitials, getPresenceColor } from '@js/presence/presence-colors.js';
-import { showError } from '@utils/toast_service.js';
+import { showError, showWarning } from '@utils/toast_service.js';
+
+/** Shown when a reply was refused because its thread was resolved or deleted meanwhile. */
+export const AVISO_RESPOSTA_RECUSADA =
+    'Não foi possível responder: este comentário foi resolvido ou excluído. Seu texto foi mantido.';
 
 /**
  * As três superfícies onde um comentário pode nascer.
@@ -130,6 +152,38 @@ export function podeModificar(comentario) {
 /** Editing text is reserved to its author, independently of atlas administration. */
 export function podeEditar(comentario) {
     return podeComentar() && !!comentario?.authorId && comentario.authorId === sessionContext.userId;
+}
+
+/**
+ * Whether a click on the resolution toggle closes the card.
+ *
+ * Only a RESOLUTION that the store ACCEPTED closes it. `aceito` must be exactly `true`, which is
+ * what `resolveComment` returns once the write is persisted: `false` is a refusal (role, author
+ * check) and `undefined` a thread that no longer exists, and neither may make the card vanish.
+ * Reopening never closes, accepted or not.
+ *
+ * @param {{resolvendo:boolean, aceito:*}} desfecho - `resolvendo` is true for "Resolver", false
+ *   for "Reabrir"; `aceito` is what the store returned.
+ * @returns {boolean}
+ */
+export function fechaAoResolver({ resolvendo, aceito } = {}) {
+    return resolvendo === true && aceito === true;
+}
+
+/**
+ * Whether the person has unsent text inside this card (a reply draft or an in-place edit).
+ *
+ * The test is the TEXT, not the focus. The first-person surface focuses the reply box every time
+ * it draws a thread, so "focus is inside the card" was true while nobody was writing; and it was
+ * also true right after a click on Resolver or Reabrir, because the button keeps the focus, which
+ * froze the card in the state from before the click.
+ *
+ * @param {HTMLElement|null|undefined} cartao
+ * @returns {boolean}
+ */
+export function escrevendoNoCartao(cartao) {
+    const caixas = cartao?.querySelectorAll?.('textarea') ?? [];
+    return Array.from(caixas).some((caixa) => typeof caixa?.value === 'string' && caixa.value.trim().length > 0);
 }
 
 /**
@@ -288,12 +342,30 @@ function montarCabecalho(raiz, aoFechar) {
     actions.className = 'comment-card__actions';
 
     if (podeModificar(raiz)) {
+        const resolvendo = raiz.status !== 'resolved';
         const resolveBtn = document.createElement('button');
         resolveBtn.type = 'button';
         resolveBtn.className = 'comment-card__action';
         resolveBtn.dataset.testid = 'comment-resolve';
-        resolveBtn.textContent = raiz.status === 'resolved' ? 'Reabrir' : 'Resolver';
-        resolveBtn.addEventListener('click', () => resolveComment(raiz.id, raiz.status !== 'resolved'));
+        resolveBtn.textContent = resolvendo ? 'Resolver' : 'Reabrir';
+        // A second click while the first write is in flight would log a second, identical op.
+        let emVoo = false;
+        resolveBtn.addEventListener('click', async () => {
+            if (emVoo) return;
+            emVoo = true;
+            let aceito;
+            try {
+                aceito = await resolveComment(raiz.id, resolvendo);
+            } catch (error) {
+                // The transaction already announced it (STORE_OPERATION_BLOCKED for the logout
+                // barrier, STORE_PERSIST_ERROR for IndexedDB) and the store-error listener showed
+                // the toast; a second one here would say the same thing twice. The card stays.
+                console.error('Could not change the comment resolution:', error);
+            } finally {
+                emVoo = false;
+            }
+            if (fechaAoResolver({ resolvendo, aceito })) aoFechar?.();
+        });
         actions.appendChild(resolveBtn);
 
         const delBtn = document.createElement('button');
@@ -323,6 +395,10 @@ function montarCabecalho(raiz, aoFechar) {
  * O COMENTÁRIO RESOLVIDO É SÓ LEITURA, nas três superfícies: ele sai do desenho e só é alcançável
  * pelo painel, e reabrir é o que devolve a caixa de resposta. Sem essa regra aqui, cada superfície
  * decidiria sozinha o que "resolvido" significa.
+ *
+ * `aoFechar` runs for the close button, before a delete, and after the person's own resolution was
+ * accepted. The last one comes after an await, so the surface must scope it to THIS thread (see the
+ * file overview).
  *
  * @param {{raiz:Object, respostas:Object[], aoFechar:()=>void}} opcoes
  * @returns {HTMLElement}
@@ -357,7 +433,16 @@ export function montarCartaoDeThread({ raiz, respostas = [], aoFechar }) {
             submitLabel: 'Responder',
             testid: 'comment-reply',
             compact: true,
-            onSubmit: async (texto) => { await addReply(raiz.id, { text: texto, ...autoriaAtual() }); },
+            onSubmit: async (texto) => {
+                const resposta = await addReply(raiz.id, { text: texto, ...autoriaAtual() });
+                if (resposta) return true;
+                // `addReply` refuses in two ways and returns nothing in both. The permission guard
+                // speaks for itself (the store-error listener shows it); the parent check does not:
+                // a thread a peer resolved or deleted while the person was typing came back empty,
+                // and the composer cleared the text as if it had been sent. Keep it, and say why.
+                if (podeComentar()) showWarning(AVISO_RESPOSTA_RECUSADA);
+                return false;
+            },
         }));
     }
 

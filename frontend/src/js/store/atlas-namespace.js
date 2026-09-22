@@ -261,6 +261,9 @@ import {
     adoptMirroredGeneration, captureDataScope, dataGenerationFor, forgetGeneration, readGeneration, setGenerationMirror,
 } from './namespace-generation.js';
 import { fingerprint, sameStorageValue } from './migration/storage-value.js';
+// A leaf with zero imports: the remembered view of the person is keyed by the namespace suffix and
+// has to die with the namespace, here, next to the generation pointer.
+import { forgetPersonViews } from './vista-da-pessoa-disco.js';
 
 /** Kinds of scope a store instance can be resolved for. */
 export const StoreScopeKind = Object.freeze({
@@ -1919,6 +1922,10 @@ export async function clearAtlasDatabases(scope) {
     }));
 
     const cleared = names.filter((_, i) => emptied[i]);
+    // THE REMEMBERED VIEW OF THE PERSON GOES WITH THE DATA, in this step and not only in the drop:
+    // this is the step that carries the invariant (no byte of a destroyed server atlas readable
+    // anywhere), and the record names that atlas's maps and, possibly, a private basemap id.
+    forgetPersonViews(scope.dbSuffix);
     return { names, cleared };
 }
 
@@ -2003,6 +2010,11 @@ export async function dropAtlasDatabases(scope, { timeoutMs = DROP_TIMEOUT_MS, a
         forgetGeneration(scope);
         forgetRemoteWriteFence(scope);
     }
+    // THE REMEMBERED VIEW OF THE PERSON IS NOT A POINTER, so neither condition above applies to it:
+    // no retry derives anything from it, and the maps it describes left with the data databases.
+    // The deletion of a local slot reaches only this function, which is why it is forgotten here
+    // too and not only in `clearAtlasDatabases`.
+    forgetPersonViews(scope.dbSuffix);
     return { dropped, blocked };
 }
 

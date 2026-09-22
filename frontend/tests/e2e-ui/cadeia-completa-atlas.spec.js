@@ -477,9 +477,9 @@ describeOrSkip('a cadeia inteira: arquivo → atlas local → F5 → servidor �
         // fluxo (mapas, grupos, camadas, 3D/360, temporal, comentários, briefings, ordem, imagens
         // e ícones já foram escritos quando ele aparece). Ancorar na própria quantia que se vai
         // asserir transformaria a asserção num timeout mudo no dia em que o defeito voltar.
-        // A PLURALIZAÇÃO É DO PRODUTO e está errada de propósito aqui: `showLoadSuccess` escreve
-        // "1 mapa carregados!" para um mapa só. Para onze, "11 mapas carregados!".
-        await expect(page.locator('.toast', { hasText: `${esperado.maps} mapas carregados!` }))
+        // A frase é do produto: `showLoadSuccess` escreve "1 mapa carregado." para um mapa só e
+        // "11 mapas carregados." para onze.
+        await expect(page.locator('.toast', { hasText: `${esperado.maps} mapas carregados.` }))
             .toBeVisible({ timeout: 180000 });
 
         const p1 = await page.evaluate(lerAtlasMontado, idsDeImagem);
@@ -542,7 +542,9 @@ describeOrSkip('a cadeia inteira: arquivo → atlas local → F5 → servidor �
         await expect(
             page.locator('.toast', {
                 // O fim da frase é o desfecho que o diálogo acima combinou, dito de novo.
-                hasText: `Atlas salvo no servidor (${esperado.maps} mapa(s), ${esperado.features} feição(ões)). Subiu sem 1 figura(s) que não tinha(m) arquivo`,
+                hasText: `Atlas salvo no servidor (${esperado.maps} ${esperado.maps === 1 ? 'mapa' : 'mapas'}, `
+                    + `${esperado.features} ${esperado.features === 1 ? 'feição' : 'feições'}). `
+                    + 'Subiu sem 1 figura que não tinha arquivo',
             }),
             'o envio anunciou os onze mapas e as 262 feições que o repositório tinha',
         ).toBeVisible({ timeout: 300000 });

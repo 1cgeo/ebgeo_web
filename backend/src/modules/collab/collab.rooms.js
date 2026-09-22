@@ -5,6 +5,8 @@ import { recordSpan, isTraceEnabled, TraceStage, TraceOutcome } from '../../util
 import { PERMISSION_LEVELS } from '../../middleware/permissions.js';
 import { pruneResourcePayload } from '../catalog/resource-payload.prune.js';
 import config from '../../config.js';
+import logger from '../../utils/logger.js';
+import { quemPodeVer, escopoLivre, chaveDoRecurso, redigirCursor } from './collab.recorte.js';
 
 const rooms = new Map(); // atlasId -> Set<WebSocket>
 
@@ -64,7 +66,11 @@ export function getRoomClients(atlasId) {
  * @param {string} atlasId
  * @param {Object|string} message
  * @param {import('ws').WebSocket|null} [excludeWs]
- * @param {{ skipReadOnly?: boolean, minPermission?: string|null, alsoUserIds?: string[]|null }} [opts]
+ * - `opts.somenteA` restricts delivery to the sockets of that set (still subject to the checks
+ *   above): it is how one audience class of a per-recipient cut is served in one serialization.
+ *
+ * @param {{ skipReadOnly?: boolean, minPermission?: string|null, alsoUserIds?: string[]|null,
+ *   somenteA?: Set<import('ws').WebSocket>|null }} [opts]
  * @throws {TypeError} When `minPermission` is not a known level (a typo must be loud, not silently
  *   deliver to nobody — the failure mode of a fail-closed default here is an invisible outage).
  */
@@ -72,7 +78,7 @@ export function broadcastToRoom(
   atlasId,
   message,
   excludeWs = null,
-  { skipReadOnly = false, minPermission = null, alsoUserIds = null } = {}
+  { skipReadOnly = false, minPermission = null, alsoUserIds = null, somenteA = null } = {}
 ) {
   const minLevel = minPermission == null ? 0 : PERMISSION_LEVELS[minPermission];
   if (minPermission != null && !minLevel) {
@@ -95,6 +101,9 @@ export function broadcastToRoom(
   const recipients = [];
   for (const client of room) {
     if (client === excludeWs || client.readyState !== 1) continue; // WebSocket.OPEN = 1
+    // The per-recipient cut of a presence frame that names a private resource
+    // (`difundirRecortado`, below): each audience class gets its own serialization.
+    if (somenteA && !somenteA.has(client)) continue;
     if (skipReadOnly && client.permission === 'read') continue;
     if (minLevel) {
       const level = PERMISSION_LEVELS[client.permission] ?? 0;
@@ -217,6 +226,12 @@ export function getRoomUsers(atlasId) {
   const users = [];
   for (const client of room) {
     if (client.userId) {
+      // ESTE RETRATO É O MESMO PARA TODO RECÉM-CHEGADO e é montado sem ir ao banco, então ele leva
+      // do cursor e da seleção só o que TODO membro pode ler (2026-09-22): escopo de recurso
+      // PRIVADO (ou que não resolve) sai sem o identificador, sem a posição e sem os marcadores,
+      // e quem pode lê-lo recebe o quadro inteiro à parte (`enviarContextosAoRecemChegado`).
+      const cursorLivre = escopoLivre(client.cursorRecurso);
+      const selecaoLivre = escopoLivre(client.selectionRecurso);
       users.push({
         id: client.userId,
         // O snapshot precisa da MESMA identidade dos frames ao vivo: o
@@ -228,15 +243,29 @@ export function getRoomUsers(atlasId) {
         nome_guerra: client.userWarName ?? null,
         posto_graduacao: client.userPosto,
         mapId: client.currentMapId,
-        cursorPosition: client.cursorPosition,
+        cursorPosition: cursorLivre ? client.cursorPosition : null,
         // Superficie e escopo do cursor (2d/3d/360), pelo mesmo motivo do `selectionContext`
         // logo abaixo: sem eles o late-joiner desenha um cursor de panorama sobre o mapa.
-        cursorContext: client.cursorContext,
+        cursorContext: cursorLivre || !client.cursorContext
+          ? client.cursorContext
+          : { ...client.cursorContext, tilesetId: null, photoName: null },
         // B-be2: late-joiners get peers' current selection in the join snapshot.
-        selectedFeatures: client.selectedFeatures,
+        selectedFeatures: selecaoLivre ? client.selectedFeatures : [],
         // Full selection context (surface 2d/3d/360 + scope) so a late-joiner can
         // render a peer's 3D/360 selection, not just the 2D featureIds.
-        selectionContext: client.selectionContext,
+        selectionContext: selecaoLivre || !client.selectionContext
+          ? client.selectionContext
+          : {
+            surface: client.selectionContext.surface,
+            mapId: client.selectionContext.mapId ?? null,
+            featureIds: [],
+          },
+        // O VISUALIZADOR ABERTO (3D, cena caminhável, 360), na projeção que TODO membro pode ler:
+        // o recurso só aparece quando é público. O privado chega a quem pode lê-lo num quadro
+        // `viewer` à parte, depois de o servidor perguntar por ele (`enviarContextosAoRecemChegado`,
+        // collab.viewer.js), porque este retrato é o MESMO para todo recém-chegado e é montado
+        // sem ir ao banco. `null` é "está no mapa".
+        viewer: client.viewerContext?.paraTodos ?? null,
         // O INSTANTE DA LINHA DO TEMPO NÃO ENTRA NESTE RETRATO (dono, 2026-09-21): havia aqui
         // uma chave que devolvia a quem entrasse depois o instante em que cada par estava, e o
         // quadro que a alimentava saiu inteiro. A presença diz em que MAPA a pessoa está, não
@@ -303,23 +332,101 @@ function intervaloDeLote() {
   return Number.isFinite(n) ? n : config.ws.cursorBatchMs;
 }
 
-/** atlasId -> Map<clientId, quadro>. So o ULTIMO quadro de cada cliente sobrevive. */
+/**
+ * atlasId -> Map<clientId, { quadro, recurso }>. So o ULTIMO quadro de cada cliente sobrevive, e
+ * ele viaja com o RECURSO do escopo ja resolvido (`resolverRecursoDoEscopo`, collab.recorte.js),
+ * que fica no servidor: e ele que decide quem recebe o quadro inteiro.
+ */
 const cursoresPendentes = new Map();
 let temporizadorDeCursor = null;
 
-/** Emite o lote de cada sala com pendencia e desarma o temporizador quando nao ha mais nada. */
+/**
+ * As descargas em SERIE. Com escopo privado no lote a descarga pergunta ao banco quem pode ve-lo
+ * (so no memo vencido, a cada 30 s), e duas descargas em voo ao mesmo tempo poderiam entregar o
+ * lote velho DEPOIS do novo. Encadeadas, a ordem de chegada e a ordem dos tiques.
+ */
+let cadeiaDeDescarga = Promise.resolve();
+
+/**
+ * Emite o lote de cada sala com pendencia e desarma o temporizador quando nao ha mais nada.
+ *
+ * O RETRATO DAS PENDENCIAS E TIRADO NA HORA, e a emissao pode esperar a pergunta ao banco: o que
+ * chegar depois deste tique vai para o proximo lote, nunca para este.
+ */
 function descarregarCursores() {
+  const lotes = [];
   for (const [atlasId, porCliente] of cursoresPendentes) {
     if (porCliente.size === 0) continue;
-    const lote = [...porCliente.values()];
+    lotes.push([atlasId, [...porCliente.values()]]);
     porCliente.clear();
-    // Sem `excludeWs`: uma serializacao para a sala inteira, e cada cliente descarta o proprio.
-    broadcastToRoom(atlasId, { type: 'cursors', lote });
   }
   cursoresPendentes.clear();
   if (temporizadorDeCursor) {
     clearInterval(temporizadorDeCursor);
     temporizadorDeCursor = null;
+  }
+  if (lotes.length === 0) return;
+  cadeiaDeDescarga = cadeiaDeDescarga
+    .then(() => emitirLotesDeCursor(lotes))
+    .catch((err) => logger.warn({ err }, 'presença: lote de cursor não emitido'));
+}
+
+/**
+ * Emite os lotes de um tique, RECORTADOS POR DESTINATARIO quando algum escopo e privado.
+ *
+ * O CUSTO FICA O DO LOTE (decisao de 2026-08-28): sem escopo privado, UMA serializacao por sala,
+ * como antes. Com escopo privado, os destinatarios sao agrupados pela ASSINATURA do que podem ver
+ * (o conjunto de recursos privados do lote que o predicado libera para cada um), e cada grupo
+ * recebe UMA serializacao; na pratica sao duas classes, quem ve e quem nao ve. O que um grupo nao
+ * pode ver sai redigido (`redigirCursor`): sem escopo e sem posicao.
+ *
+ * QUEM JA SAIU DA SALA NAO ENTRA NO LOTE, e a conferencia e feita AQUI, depois de qualquer espera:
+ * `descartarCursorPendente` tira o quadro de quem sai antes do tique, mas o `user_left` pode
+ * acontecer entre o tique e a emissao, e o quadro dele chegaria ao par depois do anuncio.
+ * @param {Array<[string, Array<{quadro: Object, recurso: Object|null}>]>} lotes
+ * @returns {Promise<void>}
+ */
+async function emitirLotesDeCursor(lotes) {
+  for (const [atlasId, itens] of lotes) {
+    const privados = new Map();
+    for (const { recurso } of itens) {
+      if (!escopoLivre(recurso)) privados.set(chaveDoRecurso(recurso), recurso);
+    }
+    const permitidosPor = new Map();
+    if (privados.size > 0) {
+      const destinatarios = [...getRoomClients(atlasId)].filter((c) => c.readyState === 1);
+      for (const [chave, recurso] of privados) {
+        permitidosPor.set(chave, await quemPodeVer(recurso, destinatarios, atlasId));
+      }
+    }
+
+    const presentes = new Set();
+    for (const c of getRoomClients(atlasId)) presentes.add(c.clientId ?? c.userId);
+    const vivos = itens.filter(({ quadro }) => presentes.has(quadro.clientId ?? quadro.userId));
+    if (vivos.length === 0) continue;
+
+    if (privados.size === 0) {
+      // Sem `excludeWs`: uma serializacao para a sala inteira, e cada cliente descarta o proprio.
+      broadcastToRoom(atlasId, { type: 'cursors', lote: vivos.map((i) => i.quadro) });
+      continue;
+    }
+
+    const grupos = new Map();
+    for (const c of getRoomClients(atlasId)) {
+      if (c.readyState !== 1) continue;
+      const assinatura = [...privados.keys()]
+        .filter((chave) => permitidosPor.get(chave)?.has(c))
+        .join('\n');
+      if (!grupos.has(assinatura)) grupos.set(assinatura, new Set());
+      grupos.get(assinatura).add(c);
+    }
+    for (const [assinatura, grupo] of grupos) {
+      const visiveis = new Set(assinatura ? assinatura.split('\n') : []);
+      const lote = vivos.map(({ quadro, recurso }) => (
+        escopoLivre(recurso) || visiveis.has(chaveDoRecurso(recurso)) ? quadro : redigirCursor(quadro)
+      ));
+      broadcastToRoom(atlasId, { type: 'cursors', lote }, null, { somenteA: grupo });
+    }
   }
 }
 
@@ -327,12 +434,13 @@ function descarregarCursores() {
  * Enfileira um quadro de cursor para sair no proximo lote da sala.
  *
  * @param {string} atlasId
- * @param {Object} quadro - `{ clientId, userId, position, mapId }`.
+ * @param {Object} quadro - `{ clientId, userId, position, mapId, surface, tilesetId, photoName }`.
+ * @param {Object|null} [recurso] - O recurso do escopo, ja resolvido; `null` para o mapa.
  * @returns {boolean} `false` quando o agrupamento esta desligado, e o chamador deve retransmitir
  *   na hora. Devolver um booleano em vez de decidir aqui mantem o caminho antigo intacto e
  *   comparavel, que e o que permite medir antes e depois.
  */
-export function enfileirarCursor(atlasId, quadro) {
+export function enfileirarCursor(atlasId, quadro, recurso = null) {
   const intervalo = intervaloDeLote();
   if (!intervalo || intervalo <= 0) return false;
 
@@ -343,13 +451,65 @@ export function enfileirarCursor(atlasId, quadro) {
   }
   // A CHAVE E O `clientId`, e nao o `userId`: duas abas da mesma pessoa sao duas presencas, e o
   // registro da sala e keyed por clientId. Agrupar por usuario faria uma aba apagar a outra.
-  porCliente.set(quadro.clientId ?? quadro.userId, quadro);
+  porCliente.set(quadro.clientId ?? quadro.userId, { quadro, recurso });
 
   if (!temporizadorDeCursor) {
     temporizadorDeCursor = setInterval(descarregarCursores, intervalo);
     temporizadorDeCursor.unref?.();
   }
   return true;
+}
+
+/**
+ * Difunde um quadro de presença (cursor fora do lote, seleção) RECORTADO POR DESTINATÁRIO.
+ *
+ * Escopo livre (o mapa, ou recurso público) vai inteiro à sala, como sempre foi. Escopo PRIVADO
+ * vai inteiro só a quem `fn_can_see_resource` libera no escopo do atlas, e redigido ao resto; um
+ * identificador que não resolve é privado para todos (`collab.recorte.js`). Duas serializações, no
+ * máximo, e o remetente continua excluído.
+ * @param {import('ws').WebSocket} remetente
+ * @param {Object} mensagem - O quadro inteiro, com `type`.
+ * @param {Object|null} recurso - O recurso do escopo, já resolvido.
+ * @param {(mensagem: Object) => Object} redigir - A forma que vai a quem não pode ver.
+ * @returns {Promise<void>}
+ */
+export async function difundirRecortado(remetente, mensagem, recurso, redigir) {
+  const atlasId = remetente.atlasId;
+  if (escopoLivre(recurso)) {
+    broadcastToRoom(atlasId, mensagem, remetente);
+    return;
+  }
+  const destinatarios = [...getRoomClients(atlasId)]
+    .filter((c) => c !== remetente && c.readyState === 1);
+  if (destinatarios.length === 0) return;
+  const permitidos = await quemPodeVer(recurso, destinatarios, atlasId);
+  // A espera pode ter atravessado o fechamento do remetente, e o par já recebeu o `user_left`.
+  if (remetente.readyState !== 1) return;
+  const outros = new Set(destinatarios.filter((c) => !permitidos.has(c)));
+  if (permitidos.size > 0) broadcastToRoom(atlasId, mensagem, remetente, { somenteA: permitidos });
+  if (outros.size > 0) broadcastToRoom(atlasId, redigir(mensagem), remetente, { somenteA: outros });
+}
+
+/**
+ * Descarta o quadro PENDENTE de um cliente que acabou de SAIR da sala.
+ *
+ * O FANTASMA QUE ISTO FECHA (2026-09-22, relato do dono: "ainda diz que tem usuário presente
+ * mesmo depois de sair"). O `user_left` sai NA HORA, e o lote de cursor sai no próximo tique de
+ * `cursorBatchMs`. Um quadro que chegou antes do fechamento (o mouse ainda andando quando a aba
+ * fecha, a pose de 1 s da cena caminhável, o `mouseleave` do 3D a caminho do X da aba) saía DEPOIS
+ * do `user_left`, e o par o recebia como um cursor de alguém que não está na lista: o armazém de
+ * presença do cliente CRIA a entrada nesse caso, e a pessoa voltava ao roster sem nome, para
+ * sempre, porque nada mais anunciaria a saída dela.
+ *
+ * Quem chama é `removeConnection` (collab.gateway.js), e só no ramo em que o `user_left` É
+ * anunciado: com um socket gêmeo vivo (mesmo usuário, mesmo cliente) o quadro pendente é dele.
+ * @param {string} atlasId
+ * @param {string} chave - O `clientId` (ou o `userId` do quadro sem cliente), a mesma chave de
+ *   `enfileirarCursor`.
+ */
+export function descartarCursorPendente(atlasId, chave) {
+  if (chave == null) return;
+  cursoresPendentes.get(atlasId)?.delete(chave);
 }
 
 /** Descarta o que estiver pendente. Usado no encerramento e pelos testes. */

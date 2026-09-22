@@ -46,6 +46,7 @@ import { deepClone } from '@utils/deep-utils.js';
 import {
     catalogDeletionWarning, projectStatusChangeWarning, projectDeletionWarning,
 } from './catalog-delete-phrases.js';
+import { serverMessageOr } from '@utils/request-failure.js';
 
 /** Where a thumbnail data URL is stored in each category's `config` (mirrors the deploy shapes). */
 const THUMB_KEY = {
@@ -317,7 +318,7 @@ class CatalogTab {
         this._newBtn = button('', 'admin-btn admin-btn--primary', 'admin-catalog-new',
             () => this._acionarCriacao());
         c.appendChild(sectionHeader('Catálogo', {
-            subtitle: 'Recursos globais — 3D, 360, dados, análises e basemaps (metadados)',
+            subtitle: 'Recursos globais: 3D, 360, camadas de dados e de análise, e mapas base',
             actions: [this._newBtn],
         }));
 
@@ -335,9 +336,9 @@ class CatalogTab {
         if (!sessionContext.isAdmin()) {
             const legenda = document.createElement('p');
             legenda.className = 'admin-form__hint admin-catalog__legend';
-            legenda.textContent = 'Você mantém os recursos da sua OM: o Acesso (Público/Privado) '
-                + 'e os metadados são seus. A OM dona é definida na criação e só o administrador '
-                + 'a muda. O eixo Status (Ativo/Inativo) existe apenas nos projetos 360.';
+            legenda.textContent = 'Você mantém os recursos da sua OM: o acesso (público ou '
+                + 'privado) e os dados de cada item. Só o administrador muda a OM dona. O status '
+                + '(ativo ou inativo) existe só nos projetos 360.';
             c.appendChild(legenda);
         }
 
@@ -426,11 +427,10 @@ class CatalogTab {
         escopo.className = 'admin-form__hint';
         escopo.dataset.testid = 'admin-catalog-scope-note';
         escopo.textContent = sessionContext.isAdmin()
-            ? 'Você vê e edita o acervo de todas as OM, e também o institucional (sem OM dona), '
-              + 'porque administra o sistema. A coluna "OM dona" diz quem mantém cada linha.'
-            : 'Esta lista traz apenas o que a sua OM produziu, nas cinco sub-abas. O acervo '
-              + 'institucional e o das outras OM não aparecem aqui, mesmo sendo públicos no '
-              + 'mapa: eles são mantidos por quem os produziu.';
+            ? 'Você vê e edita o acervo de todas as OM e o institucional (sem OM dona). A coluna '
+              + '"OM dona" diz quem mantém cada item.'
+            : 'Aqui aparece só o que a sua OM produziu. O acervo institucional e o das outras OM '
+              + 'ficam de fora, mesmo quando são públicos no mapa.';
         c.appendChild(escopo);
 
         const wrap = card({ testid: 'admin-catalog-list', padded: false });
@@ -455,7 +455,7 @@ class CatalogTab {
             loading.replaceChildren(failureState('Falha ao carregar o catálogo.', {
                 onRetry: () => { if (this._alive) this._selectCategory(category); },
             }));
-            showError(error?.message || 'Falha ao carregar o catálogo.');
+            showError(serverMessageOr(error, 'Falha ao carregar o catálogo.'));
             return;
         }
         if (!this._alive) return;
@@ -469,7 +469,7 @@ class CatalogTab {
             // `emptyState` E NAO paragrafo cru, como as outras quatro abas ja faziam: o
             // helper traz a DICA do proximo passo, e vazio sem proximo passo e beco.
             wrap.appendChild(emptyState('Nenhum item nesta categoria.', {
-                hint: 'Use o botao "+ Novo" no topo da secao para criar o primeiro.',
+                hint: 'Use o botão "+ Novo" no topo da seção para criar o primeiro.',
             }));
             return;
         }
@@ -594,9 +594,8 @@ class CatalogTab {
             const opts = buildDomainOptions(
                 config.organizacoesMilitares, ownerOrgId, orgLabel(ownerOrgId), '— (nenhuma) Institucional');
             ownerSelect = selectField(form, 'OM dona', 'admin-catalog-owner-org', opts, ownerOrgId ?? '');
-            form.appendChild(hintParagraph('Mover para outra OM (ou para o institucional) é ato de '
-                + 'administrador, registrado na auditoria. Só o administrador vê este seletor; o '
-                + 'produtor mantém o que a OM dele produziu, mas não transfere.'));
+            form.appendChild(hintParagraph('Mudar a OM dona (ou tornar o item institucional) é ato '
+                + 'de administrador e fica registrado na auditoria.'));
         } else {
             const ownerField = readOnlyField(form, 'OM dona', 'admin-catalog-owner-org',
                 ownerOrgId ? orgLabel(ownerOrgId) : 'Institucional (nenhuma OM)');
@@ -604,9 +603,9 @@ class CatalogTab {
             form.appendChild(hintParagraph(isEdit
                 ? 'A OM dona é definida na criação, e só o administrador a transfere.'
                 : (sessionContext.isAdmin()
-                    ? 'Criado por um administrador, o item nasce institucional (sem OM dona) e só o '
-                      + 'administrador o mantém. Para que uma OM o mantenha, quem cria é o produtor dela.'
-                    : 'O servidor carimba a sua OM como dona deste item. Ela não vem deste formulário.')));
+                    ? 'Criado por um administrador, o item nasce institucional (sem OM dona). Para '
+                      + 'que uma OM o mantenha, ele deve ser criado por um produtor dela.'
+                    : 'Este item fica com a sua OM como dona.')));
         }
         const ownerBefore = ownerOrgId ?? null;
 
@@ -631,18 +630,19 @@ class CatalogTab {
         if (accessInput) {
             form.appendChild(hintParagraph('Privado tira o item do catálogo público. Ele continua visível '
                 + 'para administradores, credenciados, produtores da OM dona, quem recebeu concessão e quem '
-                + 'abrir um atlas que o empreste. Isto NÃO é o Status: um item pode ser Ativo e Privado.'));
+                + 'abrir um atlas que o empreste.'));
             // ONDE SE CONCEDE, dito aqui porque é aqui que a pergunta nasce. Privatizar e conceder
-            // são os dois lados do mesmo ato e vivem em telas opostas do aplicativo: este
-            // formulário privatiza, e `showResourceShareModal` (o único caminho de concessão) tem
-            // dois chamadores, os dois DENTRO do mapa. Quem acabou de tornar um item privado ficava
-            // sem saber a quem dar acesso, e a tela não dizia que existia outro lugar.
+            // são os dois lados do mesmo ato: este formulário privatiza, e quem acabou de tornar um
+            // item privado precisa saber onde dar acesso a ele.
             //
-            // Decisão do dono, 2026-08-24: a aba NOMEIA onde se concede, e o botão não nasce aqui.
-            // Um segundo modal de concessão nesta página seria uma segunda implementação da mesma
-            // regra, e o motor de sync que o primeiro carrega não cabe numa página sem store.
+            // A PORTA MUDOU EM 2026-09-22 (decisão do dono, item 19b, que supera a de 2026-08-24).
+            // Concede-se também NESTA página, por "Conceder acesso" na aba Concessões, que abre o
+            // MESMO modal do mapa pelo núcleo sem store (`catalog/resource-share.modal.core.js`).
+            // A frase aponta a aba em vez de pôr um segundo botão neste formulário: o item só vira
+            // privado depois de salvo, e a lista daquela aba é a que o servidor diz que se pode
+            // compartilhar, então apontar para ela é apontar para a regra certa sem copiá-la.
             form.appendChild(hintParagraph('Tornar privado não dá acesso a ninguém. Para conceder, '
-                + 'abra o catálogo no mapa e use "Compartilhar" no cartão do recurso.'));
+                + 'use "Conceder acesso" na aba Concessões.'));
         }
 
         // Thumbnail upload (all categories): picked file → downscaled → embedded as a base64 data URL
@@ -715,7 +715,7 @@ class CatalogTab {
 
             const hint = document.createElement('p');
             hint.className = 'admin-form__hint';
-            hint.textContent = 'JPEG, PNG ou WebP — reduzida (WebP) e embutida no catálogo.';
+            hint.textContent = 'JPEG, PNG ou WebP. A imagem é reduzida e guardada no catálogo.';
             field.append(thumb, controls, hint);
             form.appendChild(field);
         }
@@ -733,9 +733,9 @@ class CatalogTab {
         if (category === 'tileset') {
             forma3dInput = selectField(form, 'Forma do modelo 3D', 'admin-catalog-forma3d',
                 FORMA_3D_OPTIONS, derivarForma3d(resource?.config));
-            form.appendChild(hintParagraph('Tiles 3D e Nuvem de pontos usam o mesmo carregador; '
-                + 'a distinção é o que a tela mostra e o que se pode filtrar. Cena indoor abre no '
-                + 'visualizador em primeira pessoa, não no Cesium.'));
+            form.appendChild(hintParagraph('Tiles 3D e nuvem de pontos abrem do mesmo jeito: a forma '
+                + 'escolhida muda só o rótulo e o filtro. Cena indoor abre no visualizador em '
+                + 'primeira pessoa.'));
         }
 
         // O VÍDEO DE PRÉVIA É ENVIADO como a miniatura (decisão do dono, 2026-08-29): arquivo
@@ -942,7 +942,7 @@ class CatalogTab {
                 try {
                     await apiClient.setResourceVisibility(accessType, isEdit ? resource.id : id, accessAfter);
                 } catch (err) {
-                    showError(err?.message || 'O item foi salvo, mas a visibilidade não pôde ser alterada.');
+                    showError(serverMessageOr(err, 'O item foi salvo, mas a visibilidade não pôde ser alterada.'));
                     if (this._alive) this._selectCategory(category);
                     return;
                 }
@@ -961,7 +961,7 @@ class CatalogTab {
                         await apiClient.transferResourceOwner(category, resource.id, ownerAfter);
                         ownerTransferido = true;
                     } catch (err) {
-                        showError(err?.message || 'O item foi salvo, mas a OM dona não pôde ser alterada.');
+                        showError(serverMessageOr(err, 'O item foi salvo, mas a OM dona não pôde ser alterada.'));
                         if (this._alive) this._selectCategory(category);
                         return;
                     }
@@ -982,7 +982,7 @@ class CatalogTab {
                     videoMudou = true;
                 }
             } catch (err) {
-                showError(err?.message || 'O item foi salvo, mas o vídeo de prévia não pôde ser enviado.');
+                showError(serverMessageOr(err, 'O item foi salvo, mas o vídeo de prévia não pôde ser enviado.'));
                 if (this._alive) this._selectCategory(category);
                 return;
             }
@@ -1051,9 +1051,9 @@ class CatalogTab {
 
         const dica = document.createElement('p');
         dica.className = 'admin-form__hint';
-        dica.textContent = 'O projeto é criado com a OM para a qual você produz, e o manifesto não '
-            + 'pode apontar para outra. Um bundle com o mesmo identificador SUBSTITUI o projeto '
-            + 'existente, junto com a calibração já feita nele.';
+        dica.textContent = 'O projeto fica com a OM para a qual você produz; o manifesto não pode '
+            + 'indicar outra. Enviar um bundle com o mesmo identificador substitui o projeto '
+            + 'existente, e a calibração feita nele se perde.';
         form.appendChild(dica);
 
         const error = document.createElement('p');
@@ -1108,7 +1108,7 @@ class CatalogTab {
                 showSuccess(`Projeto 360° "${criado?.name || criado?.slug || ''}" enviado.`);
                 if (this._alive) this._render360List();
             } catch (err) {
-                showFormError(error, err?.message || 'Não foi possível enviar o bundle.');
+                showFormError(error, serverMessageOr(err, 'Não foi possível enviar o bundle.'));
                 enviar.disabled = false;
                 enviar.textContent = 'Enviar';
             }
@@ -1188,7 +1188,7 @@ class CatalogTab {
             showSuccess('Item excluído.');
             if (this._alive) this._selectCategory(this._category);
         } catch (err) {
-            showError(err?.message || 'Falha ao excluir o item.');
+            showError(serverMessageOr(err, 'Falha ao excluir o item.'));
         }
     }
 
@@ -1210,10 +1210,9 @@ class CatalogTab {
         // ANUNCIA AS CINCO ACOES, e nao duas. A nota falava em "status/exclusao" enquanto a
         // linha oferece ativar/desativar, publico/privado, calibrar, video e excluir: as nao
         // anunciadas incluem justamente as que mudam quem VE o projeto.
-        note.textContent = 'O 360 é gerenciado como os outros recursos: "Editar" abre o formulário '
-            + '(nome, descrição, OM dona, visibilidade, status, thumbnail e vídeo), mais os botões de '
-            + 'acesso, exclusão e o de calibração, que é o que o 360 tem a mais. O envio do bundle é '
-            + 'feito pelo botão no topo da seção.';
+        note.textContent = '"Editar" abre o formulário do projeto (nome, descrição, OM dona, '
+            + 'visibilidade, status, miniatura e vídeo). Ao lado ficam os botões de acesso, exclusão '
+            + 'e calibração. Para enviar um projeto novo, use o botão no topo da seção.';
         c.appendChild(note);
 
         const wrap = card({ testid: 'admin-360-list', padded: false });
@@ -1234,7 +1233,7 @@ class CatalogTab {
             loading.replaceChildren(failureState('Falha ao carregar os projetos 360°.', {
                 onRetry: () => { if (this._alive) this._render360List(); },
             }));
-            showError(error?.message || 'Falha ao carregar os projetos 360°.');
+            showError(serverMessageOr(error, 'Falha ao carregar os projetos 360°.'));
             return;
         }
         if (!this._alive) return;
@@ -1247,7 +1246,7 @@ class CatalogTab {
         wrap.replaceChildren();
         if (projects.length === 0) {
             wrap.appendChild(emptyState('Nenhum projeto 360.', {
-                hint: 'Use "+ Enviar bundle 360" no topo da secao para ingerir o primeiro.',
+                hint: 'Use "+ Enviar bundle 360" no topo da seção para enviar o primeiro.',
             }));
             return;
         }
@@ -1600,7 +1599,7 @@ class CatalogTab {
                 showSuccess('Projeto 360 atualizado.');
                 if (this._alive) this._render360List();
             } catch (err) {
-                showFormError(error, err?.message || 'Não foi possível salvar o projeto 360.');
+                showFormError(error, serverMessageOr(err, 'Não foi possível salvar o projeto 360.'));
                 saveBtn.disabled = false;
             }
         };

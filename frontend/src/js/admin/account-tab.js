@@ -69,9 +69,9 @@ import { emailRecoveryEnabled } from '@modals/password-recovery.model.js';
 import { ICON_ACCOUNT } from './admin-dom.js';
 import {
     ADMIN_ONLY_FIELDS_NOTE,
+    EMAIL_ADMIN_ONLY_NOTE,
     EMAIL_CHANGE_PASSWORD_NOTE,
     EMAIL_CHANGE_SENT_TEXT,
-    EMAIL_CHANGE_WARNING,
     EMAIL_RESEND_FAILED,
     EMAIL_RESEND_LABEL,
     EMAIL_RESEND_SENT,
@@ -82,6 +82,7 @@ import {
     PASSWORD_SESSION_WARNING,
     accountErrorMessage,
     emailPresentation,
+    emailSectionCopy,
     profilePatch,
     validateEmailChangeForm,
     validatePasswordForm,
@@ -637,7 +638,7 @@ class AccountTab {
         } else {
             readonly.appendChild(this._readonlyRow(
                 'Papel no sistema',
-                'não informado pelo servidor'
+                'não informado'
             ));
         }
 
@@ -646,11 +647,18 @@ class AccountTab {
         // reverifica. O estado é escrito por extenso em vez de insinuado por uma cor, e "não
         // confirmado" é exatamente o fato que era invisível para a única pessoa capaz de ver o
         // erro de digitação.
+        //
+        // ONDE O SERVIDOR NÃO ENTREGA E-MAIL a seção de troca não é desenhada (ver `_render`), e
+        // a nota diz quem cadastra o endereço ali, em vez de a pessoa procurar um campo que não
+        // existe nesta tela.
         const email = emailPresentation(profile);
+        let emailNote = '';
+        if (email.state === 'unverified') emailNote = EMAIL_UNVERIFIED_HINT;
+        else if (!emailRecoveryEnabled(config)) emailNote = EMAIL_ADMIN_ONLY_NOTE;
         readonly.appendChild(this._readonlyRow(
             'E-mail',
             email.state === 'absent' ? email.status : `${email.address} (${email.status})`,
-            email.state === 'unverified' ? EMAIL_UNVERIFIED_HINT : ''
+            emailNote
         ));
 
         // O BOTÃO QUE A FRASE ACIMA PEDIA AO ADMINISTRADOR. A rota é anônima e está sempre
@@ -746,7 +754,7 @@ class AccountTab {
             field.appendChild(el(
                 'p',
                 'account-settings__field-note',
-                'A lista de postos não veio do servidor, então este campo não pode ser editado agora.'
+                'Não foi possível carregar a lista de postos. Recarregue a página para editar este campo.'
             ));
             field.appendChild(el(
                 'p',
@@ -795,18 +803,26 @@ class AccountTab {
     }
 
     /**
-     * @private "Trocar o e-mail": um convite para outra caixa, não uma escrita na conta.
+     * @private "Trocar o e-mail" (ou "Cadastrar um e-mail"): um convite para outra caixa, não
+     * uma escrita na conta.
      *
      * A seção só é desenhada depois de o perfil ser LIDO, porque o formulário precisa do endereço
      * atual para recusar uma troca inócua sem ida à rede, e porque quem não consegue ver o próprio
      * e-mail não tem o que fazer com a oferta de um novo.
+     *
+     * O TÍTULO SEGUE O ESTADO (`emailSectionCopy`): a conta sem endereço lê "Cadastrar", porque
+     * "Trocar" sobre nada parece tela que não carregou. Enquanto o perfil não chegou vale o texto
+     * de troca, que é o caso comum e não promete nada sobre o estado.
      * @returns {HTMLElement}
      */
     _renderEmailSection() {
+        const atual = emailPresentation(this._profile || {});
+        const copy = emailSectionCopy(this._profile ? atual.state : null);
+
         const section = el('section', 'account-settings__section');
         section.dataset.section = 'email';
         section.appendChild(this._sectionHeader(
-            'Trocar o e-mail',
+            copy.title,
             'O endereço para onde vão a confirmação da conta e a recuperação de senha.'
         ));
 
@@ -816,18 +832,17 @@ class AccountTab {
             return section;
         }
 
-        const atual = emailPresentation(this._profile || {});
         section.appendChild(this._readonlyRow(
             'E-mail atual',
             atual.state === 'absent' ? atual.status : `${atual.address} (${atual.status})`
         ));
-        section.appendChild(this._warningBox(EMAIL_CHANGE_WARNING));
+        section.appendChild(this._warningBox(copy.warning));
 
         const form = this._formBlock('email', () => this._changeEmail());
         form.appendChild(this._usernameField());
         form.appendChild(this._inputField({
             field: 'email-novo',
-            label: 'Novo e-mail',
+            label: copy.fieldLabel,
             type: 'email',
             autocomplete: 'email',
             maxLength: MAX_EMAIL_LENGTH,

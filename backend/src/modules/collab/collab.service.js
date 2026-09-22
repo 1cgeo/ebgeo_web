@@ -24,6 +24,10 @@ import { broadcastToRoom, getRoomUsers } from './collab.rooms.js';
 //     with the READER, and brings a reaper and a heartbeat in the same commit.
 //
 // If durable sessions are ever needed, the design starts with the READER.
+//
+// ONE READ EXISTS SINCE 2026-09-22, and it is not a session: the VIEWER CONTEXT (`collab.viewer.js`)
+// asks the CATALOG for the name of the model or 360 project a person has open, and asks
+// `fn_can_see_resource` who may read that name. Both are SELECTs; presence still writes nothing.
 
 /**
  * Broadcasts user joined event to the room.

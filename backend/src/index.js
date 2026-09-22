@@ -3,12 +3,14 @@ import { createServer } from 'http';
 import app from './app.js';
 import config, { validateEnvVariables } from './config.js';
 import logger, {
+  aoDesligarLogEmArquivo,
   descarregarLog,
   payloadDeQueda,
   prazoRestante,
   CODIGO_DE_SAIDA_NA_QUEDA,
   TIPO_DE_QUEDA,
 } from './utils/logger.js';
+import { verificarDiretoriosDeDados } from './utils/sonda-de-escrita.js';
 import { pgp, one, db } from './database/index.js';
 import { attachWebSocket, closeAllSockets } from './modules/collab/index.js';
 import { promises as fsp } from 'fs';
@@ -22,12 +24,42 @@ import {
 import {
   anotarDefeitoDeServidor,
   defeitoDaQueda,
+  defeitoDoLogDesligado,
   descarregarDefeitosDeServidor,
   INTERVALO_DE_DESCARGA_MS,
 } from './modules/diag/defeitos-de-servidor.js';
 
 // Fail fast and loudly on misconfiguration before accepting any connection.
-validateEnvVariables();
+//
+// TWO GATES, ONE THROW. The environment rules (`validateEnvVariables`) and the write probe of
+// every data directory this process writes (`verificarDiretoriosDeDados`,
+// `utils/sonda-de-escrita.js`) both run BEFORE `createServer`/`listen`, and their failures are
+// joined into a single error: a deploy that is misconfigured AND mounted over a host directory
+// owned by someone else learns both in one restart, not in two. The probe exists because a
+// server that boots with an unwritable volume stays up with its file log and its image uploads
+// silently broken, and the healthcheck (which asks the database) stays green: measured on the
+// test stack on 2026-09-22. The throw is at top level on purpose, like the env gate always was:
+// the crash handlers below are not registered yet, so node prints the message to stderr and
+// exits with code 1.
+const falhasDeBoot = [];
+try {
+  validateEnvVariables();
+} catch (err) {
+  falhasDeBoot.push(err.message);
+}
+const semEscrita = verificarDiretoriosDeDados(config);
+if (semEscrita) falhasDeBoot.push(semEscrita);
+if (falhasDeBoot.length > 0) throw new Error(falhasDeBoot.join('\n\n'));
+
+// The file log can still switch itself off at RUNTIME (disk full, a volume that vanished, the
+// day's file owned by another uid), which the boot probe cannot foresee. The file cannot record
+// that it stopped, so the stop becomes a server DEFECT, the one witness that survives a restart
+// (`npm run diag -- resumo` reads it into the health block). Registered here and not in
+// `utils/logger.js` for the same reason as the timers below: that module is imported by every
+// test file, and `modules/diag/` imports the logger, so wiring it there would close a cycle.
+aoDesligarLogEmArquivo((estado) => {
+  anotarDefeitoDeServidor(defeitoDoLogDesligado(estado));
+});
 
 const server = createServer(app);
 

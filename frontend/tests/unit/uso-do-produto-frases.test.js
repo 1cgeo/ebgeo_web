@@ -449,7 +449,7 @@ describe('o horizonte do uso — idade da medição, e NUNCA poda', () => {
     it('a ressalva das quatro seções diz que todo número é um PISO, e por quê', () => {
         const frase = usoDoProdutoHint();
         expect(frase).toContain('PISO');
-        expect(frase).toContain('sem fila');
+        expect(frase).toContain('sem nova tentativa');
         expect(sessoesInformado({})).toBe(true);
         expect(sessoesInformado(undefined)).toBe(false);
         expect(sessoesNaoInformadoNotice()).toContain('não dá para dizer');

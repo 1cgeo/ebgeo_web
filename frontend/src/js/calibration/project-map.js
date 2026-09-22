@@ -693,7 +693,7 @@ function mostrarErro(msg) {
     // viewer escondido atras dele.
     el.innerHTML = `
         <button class="pmap__legend-close" title="Sair do mapa [M]">&larr; Voltar &agrave; foto</button>
-        <div class="pmap__legend-stat">Erro ao carregar o mapa: ${msg}</div>
+        <div class="pmap__legend-stat">Não foi possível carregar o mapa: ${msg}</div>
     `;
     el.querySelector('.pmap__legend-close').addEventListener('click', closeProjectMap);
 }

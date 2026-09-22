@@ -287,6 +287,23 @@ beforeEach(() => {
     operationQueueMock.forScope.mockImplementation(() => operationQueueMock);
 });
 
+/**
+ * Every inbound WS event the engine wires, ONCE per engine lifetime (`_wireWsHandlers`).
+ * Compared as the list of `on` calls, not as a count: a count lets one handler wired twice
+ * cancel another that went missing, and a second wiring on reconnect doubles every name.
+ * 'atlasResources' entrou com o empréstimo por atlas (o frame só avisa que mudou, e o receptor
+ * re-pede o próprio payload aditivo); 'credentialExpired' entrou com a reconexão que renova a
+ * credencial (`decidirReconexao`, `ws-client.js`), emitido quando o token do link público venceu
+ * e nada o renova.
+ */
+const HANDLERS_FIADOS = Object.freeze([
+    'operation', 'syncResponse', 'atlasDeleted', 'atlasOwnerChanged', 'sharingUpdated',
+    'atlasSettings', 'atlasResources', 'serverResync', 'credentialExpired',
+]);
+
+/** @returns {string[]} the event names passed to `wsClient.on`, sorted, duplicates kept. */
+const eventosFiados = () => wsClientMock.on.mock.calls.map(([evento]) => evento).sort();
+
 describe('respostas de configuração atrasadas após sair do atlas', () => {
     it('não conclui connect depois de disconnect enquanto os recursos carregam', async () => {
         let entered;
@@ -586,15 +603,26 @@ describe('connect', () => {
     it('wires WS handlers only once across reconnects', async () => {
         await syncEngine.connect('atlas-1', { initialPull: false });
         await syncEngine.connect('atlas-1', { initialPull: false });
-        // 8 events ('operation','syncResponse','atlasDeleted','atlasOwnerChanged','sharingUpdated',
-        // 'atlasSettings','atlasResources','serverResync') wired exactly once total.
-        // 'atlasResources' entrou com o empréstimo por atlas: o frame só avisa que
-        // mudou, e o receptor re-pede o próprio payload aditivo (o conjunto visível é
-        // diferente por pessoa, então mandá-lo no frame de todos seria vazamento).
-        expect(wsClientMock.on).toHaveBeenCalledTimes(8);
+        // Nine events wired exactly once in total across the two connects: a second wiring
+        // would put every name in the list twice (18 calls), which is the listener leak this
+        // case exists to catch.
+        expect(eventosFiados()).toEqual([...HANDLERS_FIADOS].sort());
+        expect(wsClientMock.on).toHaveBeenCalledTimes(9);
         // Operation logging is now enabled per authenticated connect (not in wire-once), so two
         // connects enable it twice.
         expect(enableOperationLogging).toHaveBeenCalledTimes(2);
+    });
+
+    it('"credentialExpired" (the ninth handler) tells the person, once, without a reload', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        h.showWarningMock.mockClear();
+        wsClientMock._handlers.credentialExpired({});
+        expect(h.showWarningMock).toHaveBeenCalledTimes(1);
+        const [frase, opcoes] = h.showWarningMock.mock.calls[0];
+        // O aviso diz o que FAZER, e fica até a pessoa fechar: um toast que some sozinho some
+        // enquanto ela ainda está lendo o mapa congelado.
+        expect(frase).toMatch(/Recarregue a página/);
+        expect(opcoes).toMatchObject({ duration: 0, closable: true });
     });
 
     it('on "atlas_deleted" the engine disconnects (stops chasing the dead room)', async () => {
@@ -904,9 +932,12 @@ describe('atlas_owner_changed re-soma o payload aditivo', () => {
         expect(h.refreshVisibleResourcesMock).toHaveBeenCalledTimes(0);
     });
 
-    it('DISCRIMINAÇÃO: nenhum handler novo foi fiado (continuam oito)', async () => {
+    it('DISCRIMINAÇÃO: nenhum handler novo foi fiado para a re-soma (a lista é a mesma)', async () => {
+        // A re-soma mora DENTRO do handler de 'atlasOwnerChanged', que continua sendo um só: a
+        // lista fiada é exatamente a da fiação geral, sem evento a mais para recursos.
         await syncEngine.connect('atlas-1', { initialPull: false });
-        expect(wsClientMock.on).toHaveBeenCalledTimes(8);
+        expect(eventosFiados()).toEqual([...HANDLERS_FIADOS].sort());
+        expect(eventosFiados().filter((evento) => evento === 'atlasOwnerChanged')).toHaveLength(1);
     });
 });
 

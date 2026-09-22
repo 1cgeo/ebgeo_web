@@ -6,7 +6,7 @@
  * features on the map, within a configurable pixel tolerance.
  *
  * @module snapping/snapping.service
- * @dependencies snapping/snapping.constants, state/state_manager
+ * @dependencies snapping/snapping.constants, snapping/snap-availability, state/state_manager
  */
 
 import {
@@ -18,6 +18,7 @@ import {
     SNAP_INDICATOR_STYLE,
     SnapType,
 } from './snapping.constants.js';
+import { isSnapEffective } from './snap-availability.js';
 
 // ============================================================================
 // GEOMETRY HELPERS (pure functions)
@@ -205,13 +206,19 @@ export class SnappingService {
     /**
      * @param {Object} options
      * @param {Object} options.stateManager - StateManager instance
+     * @param {(() => boolean)|null} [options.isAvailable] - Whether the snap may act at all, asked
+     *   at the moment it would snap. INJECTED rather than imported, because the answer lives in the
+     *   store (role on the atlas, lock of the map) and this module is loaded by node suites that
+     *   must not pull the store in. Omitted means always available. See `snap-availability.js`.
      */
-    constructor({ stateManager }) {
+    constructor({ stateManager, isAvailable = null }) {
         if (_instance) {
             return _instance;
         }
 
         this._stateManager = stateManager;
+        /** @type {(() => boolean)|null} */
+        this._isAvailable = typeof isAvailable === 'function' ? isAvailable : null;
         this._ctrlHeld = false;
         /** @type {boolean} Whether the snap indicator source currently holds a point */
         this._indicatorShown = false;
@@ -361,14 +368,20 @@ export class SnappingService {
     // ========================================================================
 
     /**
-     * Effective snapping state: global toggle XOR Ctrl held.
+     * Effective snapping state: global toggle XOR Ctrl held, and only while available.
      * - If global ON  + Ctrl held → disabled (temporary pause)
      * - If global OFF + Ctrl held → enabled  (temporary snap)
+     * - If unavailable (no edit on this atlas, or the map is locked) → disabled either way,
+     *   WITHOUT touching `ui.snapping.enabled`: the toggle is hidden then, and a snap nobody can
+     *   see must not act. The preference is back as it was when the condition falls.
      * @returns {boolean}
      */
     _isEffectivelyEnabled() {
-        const globalEnabled = this.isEnabled();
-        return globalEnabled !== this._ctrlHeld; // XOR
+        return isSnapEffective({
+            preferred: this.isEnabled(),
+            ctrlHeld: this._ctrlHeld,
+            isAvailable: this._isAvailable,
+        });
     }
 
     /**

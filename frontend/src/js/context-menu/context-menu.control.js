@@ -26,7 +26,6 @@ import {
     ClipboardMenuAction,
     clipboardMenuActions
 } from './clipboard-menu-actions.js';
-import { canExportQAN } from './qan-menu-gate.js';
 // STATIC, and it does not contradict the note below: the boundary's cut predicate lives in
 // `tool_manager/helpers/`, which is `core`, not in `military_tools`, which this file must keep
 // at zero eager modules. Its header says why it sits there.
@@ -263,13 +262,11 @@ class ContextMenuControl {
             }
         }
 
-        // QAN export option (polygons only; see `qan-menu-gate.js`)
-        if (hasSelectedFeatures) {
-            const qanAdded = this._addQANExportOption(groupingAnalysis.selectedFeatures);
-            if (qanAdded) {
-                this._contextMenu.appendChild(this._createSeparator());
-            }
-        }
+        // NO QAN EXPORT HERE, for any geometry (owner, 2026-09-22). The menu offered it for
+        // line and polygon, then for polygon only (2026-09-20), and now for nothing. The
+        // export itself stays: the feature panel's "Azimutes" tab draws the button through
+        // `createObservationsSection` (`tool_manager/helpers/observations-editor.helpers.js`),
+        // and that door was not part of the request.
 
         if (hasSelectedFeatures && !locked) {
             const layerOptionsAdded = await this._addLayerMoveOptions(groupingAnalysis.selectedFeatures);
@@ -404,35 +401,6 @@ class ContextMenuControl {
         }
     }
 
-    /**
-     * Add QAN export option for polygon features. The decision is `canExportQAN`, and
-     * the reason a line no longer gets it (plus the panel door that a line still has)
-     * is written in `qan-menu-gate.js`.
-     * @param {Array} selectedFeatures - Currently selected features
-     * @returns {boolean} Whether the option was added
-     */
-    _addQANExportOption(selectedFeatures) {
-        if (!canExportQAN(selectedFeatures)) return false;
-
-        const item = this._createMenuItem(
-            'Exportar QAN',
-            () => this._handleQANExport(selectedFeatures[0])
-        );
-        this._contextMenu.appendChild(item);
-        return true;
-    }
-
-    async _handleQANExport(feature) {
-        try {
-            const { generateQAN, downloadQANAsHTML } = await import('@js/import_export/qan/index.js');
-            const qanData = await generateQAN(feature);
-            downloadQANAsHTML(qanData, feature.properties.nome);
-        } catch (error) {
-            console.error('Error exporting QAN:', error);
-            showError('Erro ao exportar QAN');
-        }
-    }
-
     async _addLayerMoveOptions(selectedFeatures) {
         const layers = await getLayers();
         const activeLayerId = getActiveLayerIdSync();
@@ -519,7 +487,9 @@ class ContextMenuControl {
                     .patch(feature.properties.id, { setProps: { layerId: targetLayerId } });
             }
 
-            showSuccess(`${features.length} feição(ões) movida(s) para "${targetLayerName}"`);
+            showSuccess(features.length === 1
+                ? `1 feição movida para "${targetLayerName}"`
+                : `${features.length} feições movidas para "${targetLayerName}"`);
 
             // Emit layers-changed event via EventBus
             getEventBus().emit(EventTypes.LAYERS_CHANGED, {
@@ -527,7 +497,7 @@ class ContextMenuControl {
             });
         } catch (error) {
             console.error('Error moving features:', error);
-            showError('Erro ao mover feições: ' + error.message);
+            showError('Não foi possível mover as feições. Tente de novo.');
         }
     }
 
@@ -627,7 +597,7 @@ class ContextMenuControl {
             }
         } catch (error) {
             console.error('Error moving features to map:', error);
-            showError('Erro ao mover feições: ' + error.message);
+            showError('Não foi possível mover as feições. Tente de novo.');
         }
     }
 
@@ -709,7 +679,7 @@ class ContextMenuControl {
                 await outcome;
             } catch (error) {
                 console.error('Error in menu operation:', error);
-                showError('Erro: ' + error.message);
+                showError('Não foi possível concluir a ação. Tente de novo.');
             }
         });
 
@@ -1014,7 +984,7 @@ class ContextMenuControl {
             }
 
             const count = await clipboardManager.copy();
-            if (count > 0) showSuccess(`${count} feição(ões) copiada(s)`);
+            if (count > 0) showSuccess(count === 1 ? '1 feição copiada' : `${count} feições copiadas`);
         } catch (error) {
             console.error('Error copying selection:', error);
             showError('Erro ao copiar feições');
@@ -1053,7 +1023,7 @@ class ContextMenuControl {
             }
 
             const count = await clipboardManager.copy([complete]);
-            if (count > 0) showSuccess(`${count} feição(ões) copiada(s)`);
+            if (count > 0) showSuccess(count === 1 ? '1 feição copiada' : `${count} feições copiadas`);
         } catch (error) {
             console.error('Error copying feature under cursor:', error);
             showError('Erro ao copiar feição');
@@ -1235,7 +1205,7 @@ class ContextMenuControl {
 
         if (navigator.clipboard && window.isSecureContext) {
             navigator.clipboard.writeText(text).then(() => {
-                showSuccess('Coordenadas copiadas!');
+                showSuccess('Coordenadas copiadas.');
             }).catch(() => {
                 this._fallbackCopyTextToClipboard(text);
             });
@@ -1256,7 +1226,7 @@ class ContextMenuControl {
 
         try {
             document.execCommand('copy');
-            showSuccess('Coordenadas copiadas!');
+            showSuccess('Coordenadas copiadas.');
         } catch (err) {
             console.error('Error copying text:', err);
         }

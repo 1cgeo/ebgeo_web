@@ -213,7 +213,10 @@ describe('describeSyncWork: as três ausências, separadas', () => {
         });
         expect(saida.state).toBe(SYNC_WORK_STATE.UNKNOWN);
         expect(saida.tone).toBe(SYNC_TONE.UNKNOWN);
-        expect(saida.detail).toContain('fila de envio');
+        // A frase diz que NÃO dá para garantir o envio, sem falar de "fila" (jargão interno,
+        // fora do vocabulário da pessoa desde 2026-09-22).
+        expect(saida.detail).toContain('não dá para garantir');
+        expect(saida.detail).not.toMatch(/fila/i);
         expect(saida.pending).toBeNull();
     });
 

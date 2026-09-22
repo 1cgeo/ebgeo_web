@@ -348,7 +348,7 @@ export function sharingGroupPickerHint(administrados, porta) {
         return 'Todos os seus grupos já estão neste atlas.';
     }
     const destino = typeof porta === 'string' && porta.trim() ? porta.trim() : null;
-    const onde = destino ? ` Crie um em ${destino}.` : '';
+    const onde = destino ? ` Crie um em ${destino}, na aba Grupos.` : '';
     return `Só é possível compartilhar com grupos que você administra.${onde}`;
 }
 
@@ -617,8 +617,8 @@ export function hiddenParticipantsLabel(hidden) {
     const n = Number(hidden);
     if (!Number.isFinite(n) || n <= 0) return '';
     return n === 1
-        ? 'E mais 1 participante que esta lista não detalha.'
-        : `E mais ${Math.trunc(n)} participantes que esta lista não detalha.`;
+        ? 'E mais 1 participante, não listado aqui.'
+        : `E mais ${Math.trunc(n)} participantes, não listados aqui.`;
 }
 
 /**
@@ -1680,7 +1680,7 @@ export class SharingModal extends ModalBase {
             await apiClient.addAtlasGroupShare(this._atlasId, groupId, DEFAULT_GRANT_PERMISSION);
             await this._load();
         } catch (error) {
-            // O 404 do servidor ("Access group not found") é a recusa por POSSE, e ele chega
+            // O 404 do servidor ("Grupo de acesso não encontrado.") é a recusa por POSSE, e ele chega
             // aqui como frase do servidor por `sharingErrorMessage`. Não a traduza para
             // "grupo inexistente": a mensagem do servidor é deliberadamente indistinguível
             // entre "não existe" e "não é seu".

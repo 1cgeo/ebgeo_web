@@ -1,19 +1,47 @@
 // Path: src/modules/uso/uso.presenca.js
-import { tx, one } from '../../database/index.js';
+import { tx, one, query } from '../../database/index.js';
 
 export const PRESENCA_JANELA_SEGUNDOS = 90;
 
+/**
+ * Grava o pulso de um navegador, ou a SAÍDA dele.
+ *
+ * A SAÍDA EXPLÍCITA EXISTE DESDE 2026-09-22 (relato do dono: "ainda diz que tem usuário presente
+ * mesmo depois de sair"). Até ali a única forma de uma linha deixar de contar era a janela de 90 s
+ * passar, então quem fechava a aba continuava "logado" no painel por um minuto e meio, mais os 15 s
+ * do ciclo da tela. A janela continua valendo, e agora é só a REDE DE SEGURANÇA: ela cobre o que não
+ * avisa (a aba que trava, o notebook que suspende, a rede que cai).
+ *
+ * A SAÍDA SÓ APAGA A LINHA SE O ÚLTIMO PULSO FOI DO MESMO DOCUMENTO (`aba_id`). Sem essa condição,
+ * duas coisas normais apagariam quem continua presente: a navegação do mapa para `atlas.html`, em
+ * que a página nova pode pulsar antes de a saída da velha chegar, e fechar uma de duas abas do mesmo
+ * navegador (as duas pulsam sob o mesmo `navegador_id`). A outra aba, avisada pelo navegador, pulsa
+ * logo em seguida e recria a linha se a saída tiver vencido (`session/presenca.js`).
+ * @param {{navegadorId: string, abaId?: string, saindo?: boolean, pendentes?: number|null,
+ *   idadePendenteMs?: number|null, falhasColeta?: number}} body - Já validado.
+ * @param {string|null} userId
+ * @returns {Promise<void>}
+ */
 export async function registrarPresenca(body, userId) {
+  if (body.saindo === true) {
+    // Sem `abaId` não há como saber de quem é a linha, e apagar às cegas é o defeito que a condição
+    // existe para impedir: a linha fica e expira pela janela.
+    if (!body.abaId) return;
+    await query('DELETE FROM uso_presenca WHERE navegador_id = $1 AND aba_id = $2',
+      [body.navegadorId, body.abaId]);
+    return;
+  }
   await tx(async t => {
     await t.none(`INSERT INTO uso_presenca
-      (navegador_id, user_id, pendentes, idade_pendente_ms, falhas_coleta)
-      VALUES ($1, $2, $3, $4, $5)
+      (navegador_id, user_id, pendentes, idade_pendente_ms, falhas_coleta, aba_id)
+      VALUES ($1, $2, $3, $4, $5, $6)
       ON CONFLICT (navegador_id) DO UPDATE SET user_id = EXCLUDED.user_id,
         visto_em = NOW(), pendentes = EXCLUDED.pendentes,
         idade_pendente_ms = EXCLUDED.idade_pendente_ms,
-        falhas_coleta = EXCLUDED.falhas_coleta`,
+        falhas_coleta = EXCLUDED.falhas_coleta,
+        aba_id = EXCLUDED.aba_id`,
     [body.navegadorId, userId ?? null, body.pendentes ?? null,
-      body.idadePendenteMs ?? null, body.falhasColeta ?? 0]);
+      body.idadePendenteMs ?? null, body.falhasColeta ?? 0, body.abaId ?? null]);
     await t.none(`DELETE FROM uso_presenca WHERE navegador_id IN
       (SELECT navegador_id FROM uso_presenca WHERE visto_em < NOW() - INTERVAL '5 minutes' LIMIT 500)`);
   });

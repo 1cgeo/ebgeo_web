@@ -86,6 +86,5 @@ export function clearLocalEditMarks() {
 export function overwriteNotice(authorName) {
     const nome = typeof authorName === 'string' ? authorName.trim() : '';
     if (!nome) return null;
-    return `${nome} alterou depois de você o item que você acabou de editar. `
-        + 'O que está na tela agora é a versão do servidor.';
+    return `${nome} editou este item logo depois de você. A versão exibida agora é a mais recente.`;
 }

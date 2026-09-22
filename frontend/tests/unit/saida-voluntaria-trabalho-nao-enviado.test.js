@@ -161,15 +161,15 @@ describe('a contagem pendente, e o que é desconhecido', () => {
 
 describe('as frases carregam a QUANTIDADE', () => {
     it('singular e plural, e contagens diferentes produzem textos diferentes', () => {
-        expect(pendingOpsLabel(1)).toBe('1 operação');
-        expect(pendingOpsLabel(47)).toBe('47 operações');
+        expect(pendingOpsLabel(1)).toBe('1 alteração');
+        expect(pendingOpsLabel(47)).toBe('47 alterações');
         // CONTROLE NEGATIVO: uma frase fixa ("você tem trabalho não enviado") passaria em qualquer
         // asserção escrita sem número, e é o texto sem número que este arquivo existe para impedir.
         expect(pendingOpsLabel(47)).not.toBe(pendingOpsLabel(1));
     });
 
     it('desconhecido não inventa número, e não diz zero', () => {
-        expect(pendingOpsLabel(NaN)).toBe('um número desconhecido de operações');
+        expect(pendingOpsLabel(NaN)).toBe('um número desconhecido de alterações');
         // CONTROLE NEGATIVO: a frase de desconhecido não pode conter "0", que é a leitura errada
         // que a ausência de medição induz.
         expect(pendingOpsLabel(NaN)).not.toMatch(/\b0\b/);

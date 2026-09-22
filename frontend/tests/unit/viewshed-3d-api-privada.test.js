@@ -91,6 +91,17 @@ const NOSSOS_CAMPOS = new Set([
     '_shadowMatrix',
     '_axisToEyeCoordinates',
     '_wasSaved',
+    // O PREVIEW ENTRE OS DOIS CLIQUES, desde 2026-09-22: o vendor o desenhava e a reescrita de
+    // 2026-09-15 o perdeu. Todos sao estado e metodos da propria classe (as colecoes que o preview
+    // desenha, a ultima posicao do ponteiro e o quadro de animacao que coalesce os movimentos), e
+    // nenhum toca campo privado do Cesium: a API que eles usam e toda publica.
+    '_previewEyeHeight',
+    '_preview',
+    '_hoverPosition',
+    '_hoverFrame',
+    '_previewHover',
+    '_drawPreview',
+    '_clearPreview',
 ]);
 
 describe('viewshed 3D: a superficie privada do Cesium que a reescrita usa', () => {

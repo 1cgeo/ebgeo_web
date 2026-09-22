@@ -187,11 +187,11 @@ export async function createTarget(uuid, body, user) {
 
     const { rows: same } = await exec(WQ.CHECK_TARGET_SAME_PROJECT, [uuid, body.target_id]);
     if (!same[0]) {
-      throw new ConflictError('Target photo must exist in the same project');
+      throw new ConflictError('A foto de destino precisa ser do mesmo projeto.');
     }
 
     const { rows: existing } = await exec(WQ.GET_TARGET_LINK, [uuid, body.target_id]);
-    if (existing[0]) throw new ConflictError('Target link already exists');
+    if (existing[0]) throw new ConflictError('Já existe uma conexão entre estas duas fotos.');
 
     await exec(WQ.INSERT_TARGET, [
       uuid,

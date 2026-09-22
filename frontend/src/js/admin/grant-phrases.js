@@ -50,6 +50,10 @@ export const RESOURCE_TYPE_LABELS = Object.freeze({
     data_layer: 'Camada de dados',
     analysis_layer: 'Camada de análise',
     sv360_project: 'Projeto 360',
+    // O QUINTO TIPO faltava aqui desde que o mapa base virou recurso concedível (cláusula 2.1), e
+    // a linha de uma concessão de mapa base aparecia com o valor cru "basemap". Apareceu ao
+    // montar a lista do "Conceder acesso", que é a primeira tela a listar os cinco lado a lado.
+    basemap: 'Mapa base',
 });
 
 /**
@@ -144,12 +148,12 @@ export function grantLevelLabel(level) {
 export function grantLevelDescription(level) {
     if (level === 'view') return 'Pode ver o recurso, e não pode repassá-lo a mais ninguém.';
     if (level === 'view_share') {
-        return 'Pode ver o recurso E repassá-lo. O que for repassado pende desta concessão, '
-            + 'e cai junto se ela cair.';
+        return 'Pode ver o recurso e repassá-lo. O que for repassado depende desta concessão '
+            + 'e cai junto com ela.';
     }
     const cru = grantLevelLabel(level);
     if (!cru) return '';
-    return `Nível "${cru}" definido pelo servidor. Esta versão do aplicativo não sabe descrevê-lo.`;
+    return `Nível "${cru}", sem descrição nesta versão do EBGeo.`;
 }
 
 /** Quantos dias de antecedência ainda contam como "vence logo". */
@@ -269,9 +273,8 @@ export function expiryChip(expiresAt, { now = Date.now(), perspective = 'receive
             state,
             days: null,
             label: 'Sem prazo registrado',
-            title: 'O servidor não informou a data de vencimento desta concessão. Toda concessão '
-                + 'vence (no máximo em um ano), então a ausência aqui é falta de informação, e não '
-                + 'acesso permanente.',
+            title: 'O vencimento não foi informado. Toda concessão vence em até um ano: isto é '
+                + 'falta de informação, e não acesso permanente.',
         };
     }
     if (state === EXPIRY_STATE.VENCIDA) {
@@ -280,9 +283,9 @@ export function expiryChip(expiresAt, { now = Date.now(), perspective = 'receive
             days: dias,
             label: `Venceu em ${data}`,
             title: recebido
-                ? 'Este acesso já não vale. O recurso deixou de aparecer no seu catálogo no dia '
-                  + 'seguinte, sem aviso: peça de novo a quem concedeu.'
-                : 'Esta concessão já não entrega acesso nenhum. Para reativá-la, conceda o recurso '
+                ? 'Este acesso venceu e o recurso saiu do seu catálogo, sem aviso. Peça de novo a '
+                  + 'quem concedeu.'
+                : 'Esta concessão venceu e não dá mais acesso. Para renovar, conceda o recurso '
                   + 'de novo.',
         };
     }
@@ -303,8 +306,8 @@ export function expiryChip(expiresAt, { now = Date.now(), perspective = 'receive
             days: dias,
             label: `Vence em ${data} (${falta})`,
             title: recebido
-                ? 'Depois desta data o recurso some do seu catálogo, sem aviso: é agora que dá '
-                  + 'tempo de pedir a renovação.'
+                ? 'Depois desta data o recurso sai do seu catálogo, sem aviso. Peça a renovação '
+                  + 'antes disso.'
                 : 'Depois desta data o acesso deixa de valer sozinho. Conceda de novo para renovar.',
         };
     }
@@ -323,9 +326,8 @@ export function expiryChip(expiresAt, { now = Date.now(), perspective = 'receive
  * @returns {string}
  */
 export function receivedExpiryNotice() {
-    return 'Todo acesso concedido tem prazo, e ele acaba em silêncio: no dia seguinte o recurso '
-        + 'simplesmente não aparece mais no seu catálogo, sem aviso e sem erro. Esta coluna é o '
-        + 'único lugar em que esse prazo é visível antes da hora.';
+    return 'Todo acesso concedido vence. No dia seguinte o recurso sai do seu catálogo sem aviso, '
+        + 'então acompanhe o prazo nesta coluna.';
 }
 
 /**
@@ -407,8 +409,8 @@ export function viaGroupNotice(viaGroup) {
     if (!viaGroup) return '';
     const nome = (viaGroup?.name || '').trim();
     const alvo = nome ? `"${nome}"` : 'esse grupo';
-    return `Você vê este recurso por ser membro do grupo ${alvo}, e não por uma concessão feita a `
-        + 'você. Se sair do grupo, ou se alguém tirar você dele, o acesso cai junto.';
+    return `Você vê este recurso por ser membro do grupo ${alvo}, e não por concessão direta. `
+        + 'Se sair do grupo, ou alguém tirar você dele, perde o acesso.';
 }
 
 /**
@@ -419,10 +421,48 @@ export function issuedEmptyNotice() {
     return 'Você não concedeu acesso a nenhum recurso privado.';
 }
 
-/** @returns {string} */
-export function issuedEmptyHint() {
-    return 'Conceder se faz no cartão do recurso, no catálogo. O que for concedido aparece aqui, '
-        + 'com o prazo e com o botão de revogar.';
+/**
+ * A dica embaixo do vazio de "Concedidos por mim".
+ *
+ * ELA DEPENDE DE A PESSOA PODER CONCEDER, desde 2026-09-22: o comando "Conceder acesso" nasceu
+ * nesta aba e só é desenhado para quem tem o que compartilhar, então apontar para ele a quem não o
+ * vê seria mandar procurar um botão que não existe.
+ * @param {boolean} [podeConceder]
+ * @returns {string}
+ */
+export function issuedEmptyHint(podeConceder = false) {
+    const onde = podeConceder
+        ? 'Use "Conceder acesso" para dar acesso a uma pessoa ou a um grupo. '
+        : '';
+    return `${onde}O que você conceder aparece aqui, com o prazo e o botão de revogar.`;
+}
+
+/**
+ * Quem não tem recurso nenhum para compartilhar, dito no lugar do comando que não se desenha.
+ *
+ * O POSTO SOME (a regra da casa para bloqueio que a pessoa não reverte daquela tela), e a frase
+ * existe para que a ausência não se leia como tela quebrada. Ela não ensina a conseguir o que
+ * falta: quem concede de raiz é papel e produção, e o resto recebe de alguém.
+ * @returns {string}
+ */
+export function shareableEmptyNotice() {
+    return 'Você não tem recursos privados que possa compartilhar.';
+}
+
+/**
+ * A falha ao ler a lista do que se pode compartilhar, que NÃO é a lista vazia.
+ * @returns {string}
+ */
+export function shareableFailureNotice() {
+    return 'Não foi possível carregar os recursos que você pode compartilhar.';
+}
+
+/**
+ * O rótulo do campo que escolhe o recurso a conceder.
+ * @returns {string}
+ */
+export function grantPickerLabel() {
+    return 'Recurso a compartilhar';
 }
 
 /** @returns {string} */
@@ -432,8 +472,8 @@ export function receivedEmptyNotice() {
 
 /** @returns {string} */
 export function receivedEmptyHint() {
-    return 'Isto conta só os acessos concedidos a você (ou a um grupo seu). O que você enxerga '
-        + 'pelo seu papel, ou por ser público, não é concessão e não entra nesta lista.';
+    return 'Aqui entram só os acessos concedidos a você ou a um grupo seu. O que você vê pelo seu '
+        + 'papel, ou por ser público, não aparece nesta lista.';
 }
 
 /**
@@ -443,24 +483,25 @@ export function receivedEmptyHint() {
  * @returns {string}
  */
 export function issuedFailureNotice() {
-    return 'Não foi possível carregar o que você concedeu. Isto é falha ao consultar o servidor, '
-        + 'não ausência de concessões.';
+    return 'Não foi possível carregar o que você concedeu: falha ao consultar o servidor, não '
+        + 'ausência de concessões.';
 }
 
 /** @returns {string} */
 export function receivedFailureNotice() {
-    return 'Não foi possível carregar o que concederam a você. Isto é falha ao consultar o '
-        + 'servidor, não ausência de acessos.';
+    return 'Não foi possível carregar o que concederam a você: falha ao consultar o servidor, '
+        + 'não ausência de acessos.';
 }
 
 /**
  * O AVISO ANTES DE REVOGAR, daqui, e ele é QUALITATIVO por medição, não por preguiça.
  *
- * O irmão `revocationWarning` (`catalog/grant-tree.js`) cita quantas concessões caem junto porque
- * ele recebe a ÁRVORE inteira daquele recurso, que o modal acabou de ler. Esta lista é de recursos
- * DIFERENTES e não carrega árvore nenhuma: inventar um número aqui seria fabricar aritmética, que
- * é o defeito que `group-phrases.js` já evita no caso simétrico (`leaveGroupWarning`). O número
- * existe depois do ato, e é o do servidor, que {@link issuedRevocationSummary} relata.
+ * O irmão do modal (`ownRevocationWarning`, `catalog/grant-tree.js`) cita quantas concessões caem
+ * junto porque a listagem daquele recurso traz a contagem pronta, uma consulta por linha. Esta
+ * lista é de recursos DIFERENTES e a rota dela não conta nada: inventar um número aqui seria
+ * fabricar aritmética, que é o defeito que `group-phrases.js` já evita no caso simétrico
+ * (`leaveGroupWarning`). O número existe depois do ato, e é o do servidor, que
+ * {@link issuedRevocationSummary} relata.
  *
  * @param {{resourceName?: string, resourceId?: string, granteeKind?: string, granteeName?: string}} grant
  * @returns {string}
@@ -471,9 +512,9 @@ export function issuedRevocationWarning(grant) {
     const alvo = isGroupGrant(grant)
         ? `do grupo "${quem}", e de todas as pessoas que estão dentro dele,`
         : `de ${quem}`;
-    return `Isto tira o acesso ${alvo} a "${recurso}", e derruba também o que tiver sido repassado `
-        + 'a partir desta concessão. Esta tela não sabe quantos acessos caem: o número só aparece '
-        + 'depois do ato. Quem alcançar o recurso por outro caminho continua alcançando.';
+    return `Isto tira o acesso ${alvo} a "${recurso}", e também o que foi repassado a partir `
+        + 'desta concessão. Quantos acessos caem só se sabe depois de revogar. Quem tem acesso por '
+        + 'outro caminho continua com ele.';
 }
 
 /**
@@ -535,9 +576,9 @@ export function receivedNotRevocableNotice() {
  * @returns {string}
  */
 export function issuedExtensionHint() {
-    return 'Estender o prazo desta concessão pelo tempo escolhido acima, contado a partir de '
-        + 'hoje. O servidor apara pelo teto de quem concedeu e pelo limite de um ano desde que '
-        + 'a concessão nasceu, então o prazo efetivo pode vir menor.';
+    return 'Estende o prazo pelo tempo escolhido acima, a partir de hoje. O servidor apara o que '
+        + 'passar do prazo de quem concedeu ou de um ano desde a criação da concessão, então ele '
+        + 'pode sair menor.';
 }
 
 /**

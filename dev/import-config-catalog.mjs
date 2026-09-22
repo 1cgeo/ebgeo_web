@@ -177,7 +177,10 @@ function mapTilesets(source) {
  *  - `streetView360`: o shape mudou de propósito (MVT servido por este backend).
  */
 function buildOverrides(source) {
-  const { bounds, minZoom, maxZoom, maxPitch, globe_projection, sourceTileLodParams, hillshade } = source.map2d || {};
+  // `map2d.globe_projection` NÃO viaja (2026-09-22): no backend novo a projeção é do ATLAS, e a
+  // chave foi podada do override (o schema a recusa e `config.service.js` a apaga da linha
+  // gravada). Copiá-la do legado plantaria de novo a chave sem leitor que motivou a poda.
+  const { bounds, minZoom, maxZoom, maxPitch, sourceTileLodParams, hillshade } = source.map2d || {};
   // `app.tutorialUrl` NÃO viaja, e o caso é medido (2026-09-16). O legado aponta
   // `./docs/doc.html`, um estático do `publicDir`; na decisão D16, de 2026-09-15, o tutorial
   // virou `tutorial.html`, entrada do bundler, e o padrão passou a ser `./tutorial.html`
@@ -195,7 +198,6 @@ function buildOverrides(source) {
       ...(minZoom !== undefined && { minZoom }),
       ...(maxZoom !== undefined && { maxZoom }),
       ...(maxPitch !== undefined && { maxPitch }),
-      ...(globe_projection !== undefined && { globe_projection }),
       ...(sourceTileLodParams !== undefined && { sourceTileLodParams }),
       ...(hillshade !== undefined && { hillshade }),
     },

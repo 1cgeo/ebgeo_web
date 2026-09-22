@@ -197,11 +197,11 @@ describe('a frase do teto', () => {
         expect(scene3dEngineTimeoutMessage('Forte de Copacabana', 30000)).toContain(painel);
     });
 
-    it('nomeia o motor, o prazo em segundos e a unica saida que existe', () => {
+    it('nomeia o prazo em segundos e a unica saida que existe, sem o jargao do motor', () => {
         const frase = scene3dEngineTimeoutMessage('Forte de Copacabana', 30000);
         expect(frase).toBe(
             'A cena 3D "Forte de Copacabana" não pôde ser carregada. '
-            + 'O motor de cenas 3D não respondeu em 30 segundos. '
+            + 'O carregamento não terminou em 30 segundos. '
             + 'Recarregue a página para tentar de novo.'
         );
     });
@@ -209,7 +209,7 @@ describe('a frase do teto', () => {
     it('sem prazo confiavel, diz "no tempo limite" em vez de imprimir NaN na tela', () => {
         for (const ruim of [undefined, null, NaN, 0, -5, 'trinta']) {
             const frase = scene3dEngineTimeoutMessage('Cena', ruim);
-            expect(frase, `tempo=${String(ruim)}`).toContain('não respondeu no tempo limite.');
+            expect(frase, `tempo=${String(ruim)}`).toContain('não terminou no tempo limite.');
             expect(frase).not.toMatch(/NaN|undefined|null/);
         }
     });

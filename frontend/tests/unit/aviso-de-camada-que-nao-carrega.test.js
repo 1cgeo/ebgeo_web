@@ -318,7 +318,7 @@ describe('1. a rajada de tiles falhos vira UMA frase, contada por camada', () =>
         expect(mensagem()).toBe('2 camadas não puderam ser carregadas: "Molduras" e "Cidades".');
     });
 
-    it('o codigo HTTP sai medido e sem interpretacao, e a frase nao afirma causa', async () => {
+    it('o codigo HTTP sai medido, sem interpretacao e POR ULTIMO, e a frase nao afirma causa', async () => {
         await ligaDado('molduras');
 
         falhaDeTile('data-molduras', 403);
@@ -327,15 +327,17 @@ describe('1. a rajada de tiles falhos vira UMA frase, contada por camada', () =>
         falhaDeTile('data-molduras', 0);
         passaARajada();
 
-        // Ancorado no INICIO e fechado no ponto: `not.toContain('0')` ficaria vermelho pelo zero
-        // de 500, e uma asserção que confunde os dois nao discrimina o caso que interessa.
-        expect(detalhe()).toMatch(/^O servidor respondeu 403, 500\. /);
-        // A restricao de acesso e UMA hipotese entre tres, e nunca uma afirmacao. Este perfil
-        // (credenciado) le todo recurso privado: "voce nao tem acesso" seria mentira sobre o
-        // proprio papel dele.
-        expect(detalhe()).toContain('pode ser a rede');
-        expect(detalhe()).toContain('restrição de acesso');
-        expect(detalhe().toLowerCase()).not.toContain('você não tem acesso');
+        // O corpo ABRE pela acao e FECHA no codigo, ancorado nas duas pontas: `not.toContain('0')`
+        // ficaria vermelho pelo zero de 500, e uma asserção que confunde os dois nao discrimina o
+        // caso que interessa. Desde 2026-09-22 o codigo e a linha discreta do fim, nunca a frase
+        // que abre o corpo ("O servidor respondeu 403, 500." era a abertura).
+        expect(detalhe()).toMatch(/^Verifique sua conexão e tente de novo\. /);
+        expect(detalhe()).toMatch(/ Códigos: 403, 500$/);
+        expect(detalhe()).not.toMatch(/respondeu/i);
+        // A tela nao afirma causa nenhuma. Este perfil (credenciado) le todo recurso privado:
+        // "voce nao tem acesso" seria mentira sobre o proprio papel dele, e por isso "acesso"
+        // nao e palavra do aviso, nem como hipotese.
+        expect(detalhe().toLowerCase()).not.toContain('acesso');
         expect(mensagem().toLowerCase()).not.toContain('acesso');
     });
 });
@@ -430,8 +432,8 @@ describe('4. o mapa base, que e o estilo inteiro e nao uma fonte somada a ele', 
         passaARajada();
 
         expect(mensagem()).toBe('O mapa base não pôde ser carregado.');
-        expect(detalhe()).toContain('O servidor respondeu 403.');
-        expect(detalhe()).toContain('O motivo não é conhecido daqui');
+        // Sem botao de tentar de novo (o mapa base nao e retentavel), a acao nao o menciona.
+        expect(detalhe()).toBe('Verifique sua conexão. Se continuar, avise o administrador. Código: 403');
     });
 
     it('o botao de tentar de novo NAO se desenha quando so o mapa base esta acusado', () => {
@@ -440,7 +442,7 @@ describe('4. o mapa base, que e o estilo inteiro e nao uma fonte somada a ele', 
         passaARajada();
 
         expect(unico(map.container, 'camada-inacessivel-tentar-de-novo').hidden).toBe(true);
-        // Dispensar continua: silenciar e uma acao que a pessoa PODE executar aqui.
+        // Fechar continua: silenciar e uma acao que a pessoa PODE executar aqui.
         expect(unico(map.container, 'camada-inacessivel-dispensar').hidden).toBe(false);
     });
 

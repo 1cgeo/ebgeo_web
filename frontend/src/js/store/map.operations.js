@@ -541,7 +541,7 @@ export async function removeMap(mapName) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
             operation: 'removeMap',
             reason: 'LAST_MAP',
-            message: 'Não é possível excluir o único mapa do projeto.'
+            message: 'Não é possível excluir o único mapa do atlas.'
         });
         return { success: false, reason: 'LAST_MAP' };
     }
@@ -737,7 +737,8 @@ export async function setCurrentMap(mapName) {
     // QUEM ENTRA NUM MAPA ANUNCIA O INTERRUPTOR TEMPORAL DELE, como anuncia a trava logo acima.
     //
     // Desde 2026-09-20 o interruptor é VISTA da pessoa, e `mapManager.setCurrentMap` o FIXA na
-    // entrada (a partir do valor salvo) sem emitir nada, porque aquele módulo não pode importar
+    // entrada (a partir do que a pessoa deixou neste computador, e do valor salvo quando ela não
+    // deixou nada, desde 2026-09-22) sem emitir nada, porque aquele módulo não pode importar
     // `temporal.operations.js`. O anúncio ficou sem dono, e o defeito medido em 2026-09-21 foi o
     // que sobra disso: a aba de mapas LÊ a vista e mostrava o relógio LIGADO, enquanto a barra da
     // linha do tempo só se atualiza por evento e ficava com a leitura que tinha feito ANTES de o

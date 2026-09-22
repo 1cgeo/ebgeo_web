@@ -123,6 +123,22 @@ export const createUserAdminSchema = Joi.object({
       'any.required': 'O papel Produtor exige a OM de produção.',
       'any.only': 'A OM de produção só se define para o papel Produtor.',
     }),
+  // O ENDEREÇO, OPCIONAL, ACEITO NA CRIAÇÃO DESDE 2026-09-22 (pedido do dono). Até então só a
+  // edição o aceitava, e o administrador que criava uma conta precisava de um segundo gesto
+  // para dar a ela o canal de recuperação de senha.
+  //
+  // OPCIONAL, e não obrigatório como no auto-cadastro: a conta SEM endereço continua sendo o
+  // estado legítimo deste caminho (é a conta que loga na hora, e é para ela que o gate de
+  // `login()` continua condicional a `user.email`). Vazio ou ausente é esse estado.
+  //
+  // A REGRA QUE O SCHEMA NÃO EXPRIME é a mesma da edição, e mora no service
+  // (`resolveCreationEmail`): com endereço, a conta nasce PENDENTE, salvo se o MESMO pedido
+  // mandar `email_verified: true`. Um endereço que ninguém provou possuir não vira canal de
+  // recuperação por inércia; declarar que ele foi conferido é ato explícito de quem administra,
+  // e fica na trilha. `email_verified` sem endereço é descartado pelo service, porque uma linha
+  // confirmada sobre um NULL só confunde a próxima leitura.
+  email: Joi.string().trim().email().max(255).allow(null, ''),
+  email_verified: Joi.boolean(),
   // O EIXO `org_role` SAIU DA BORDA em 2026-08-20 (D7), junto com a coluna. Ele nunca
   // autorizou nada aqui, e no cliente contaminava o eixo POR ATLAS. Uma aba antiga que
   // ainda mande o campo tem ele DESCARTADO pelo `stripUnknown: true` de
@@ -171,8 +187,8 @@ export const updateUserAdminSchema = Joi.object({
   // verdade (cláusula 10.6 de CONSTITUICAO.md).
   //
   // `allow(null, '')` LIMPA o endereço, e o estado vazio é legítimo: é como
-  // `POST /api/v1/users` cria toda conta administrativa, e é o que devolve a conta ao regime
-  // em que o gate de login não se aplica.
+  // `POST /api/v1/users` cria a conta administrativa quando o corpo não traz endereço, e é o
+  // que devolve a conta ao regime em que o gate de login não se aplica.
   //
   // A REGRA QUE O SCHEMA NÃO CONSEGUE EXPRIMIR, e que `users.service.js` impõe: trocar o
   // endereço zera `email_verified`, salvo se o MESMO pedido mandar o contrário. Ela depende

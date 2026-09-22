@@ -70,6 +70,14 @@ router.get('/status', auth, requireAdmin, validate({ query: schemas.statusQueryS
 router.get('/saude', auth, requireAdmin, validate({ query: schemas.saudeQuerySchema }), ctrl.saude);
 router.get('/linhas', auth, requireAdmin, validate({ query: schemas.linhasQuerySchema }), ctrl.linhas);
 /**
+ * `enderecos` (2026-09-22) é a de LOG que também encosta no BANCO, e só para os NOMES: os
+ * endereços, as contagens e as abas vêm do `.jsonl`, e o banco troca o UUID de cada conta pelo
+ * login. Com o Postgres fora ela continua 200 com a lista inteira e `contas.disponivel: false`.
+ * O par de gates é o das irmãs, e aqui o `requireAdmin` pesa mais: a resposta é o censo de quem
+ * usou o produto, por endereço, com as contas vistas em cada um.
+ */
+router.get('/enderecos', auth, requireAdmin, validate({ query: schemas.enderecosQuerySchema }), ctrl.enderecos);
+/**
  * `GET /resumo` é a ÚNICA rota HÍBRIDA do módulo: ela lê o `.jsonl` E o Postgres na mesma
  * requisição, e continua respondendo 200 com a metade que a fonte viva sustentar. As de cima
  * são de uma fonte só, e as de ARQUIVO respondem com o banco fora por construção. A tolerância

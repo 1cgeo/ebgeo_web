@@ -167,7 +167,7 @@ describe('leaveGroupWarning — a consequência, sem número inventado', () => {
     it('NÃO INVENTA NÚMERO: a listagem que serve esta seção não traz contagem nenhuma', () => {
         // A discriminação é o dígito: qualquer contagem citada aqui viria de lugar nenhum.
         expect(aviso).not.toMatch(/\d/);
-        expect(aviso).toContain('não sabe quantos acessos caem');
+        expect(aviso).toContain('Quantos acessos caem só se sabe depois');
     });
 
     it('grupo sem nome não vira "undefined" na cara de quem vai clicar', () => {

@@ -63,7 +63,7 @@ import { showError, showSuccess, showWarning } from '@utils/toast_service.js';
 import { initTabLock, noneKey } from '@utils/tab-lock.js';
 // A classificação de falha de pedido, de um módulo folha e SEM imports: é a MESMA definição que
 // `index.js` e `admin/admin-page.js` consomem, e a razão de ela ter saído de dentro do mapa.
-import { classifyRequestFailure, RequestFailure } from '@utils/request-failure.js';
+import { classifyRequestFailure, RequestFailure, serverMessageOr } from '@utils/request-failure.js';
 import { sessionRestoreNotice } from '../session/session-restore-phrases.js';
 // A frase da falha ao CRIAR atlas de servidor, de um módulo folha cujo único import é a
 // classificação acima. Ver o cabeçalho dele: a falha deste caminho era muda.
@@ -747,9 +747,8 @@ function openSignupDialog(abertura) {
         onSubmit: (data) => apiClient.register(data),
         onRegistered: async ({ email }) => {
             const choice = await showChoice('Confira sua caixa de entrada', {
-                message: `Enviamos um e-mail para ${email}. Se ainda não houver conta com esse `
-                    + 'endereço, ele traz o link de confirmação do cadastro; se já houver, traz '
-                    + 'as instruções para recuperar o acesso.',
+                message: `Enviamos um e-mail para ${email} com os próximos passos. Se não chegar `
+                    + 'em alguns minutos, confira a caixa de spam.',
                 choices: [
                     { id: 'ok', label: 'Entendi', variant: 'ghost' },
                     { id: 'resend', label: 'Reenviar e-mail', variant: 'primary' },
@@ -798,7 +797,7 @@ async function importProjectFromFile(file) {
             // A toast would disappear as soon as openAtlas navigates. Keep the
             // incomplete result visible until the operator chooses where to go.
             const choice = await showChoice('Importação incompleta', {
-                message: `"${name}" foi criado, mas tem ${lost} imagem(ns) sem confirmação de envio. Preserve o arquivo .ebgeo original para repetir a importação quando a conexão estiver disponível.`,
+                message: `"${name}" foi criado, mas ${lost === 1 ? '1 imagem pode não ter chegado' : `${lost} imagens podem não ter chegado`} ao servidor. Guarde o arquivo .ebgeo original para repetir a importação quando a conexão voltar.`,
                 choices: [
                     { id: 'list', label: 'Voltar à lista', variant: 'ghost' },
                     { id: 'open', label: 'Abrir atlas incompleto', variant: 'primary' },
@@ -809,13 +808,13 @@ async function importProjectFromFile(file) {
                 return;
             }
         } else {
-            showSuccess(`"${name}" importado (${stats.maps} mapa(s), ${stats.features} feição(ões))`);
+            showSuccess(`"${name}" importado (${stats.maps} ${stats.maps === 1 ? 'mapa' : 'mapas'}, ${stats.features} ${stats.features === 1 ? 'feição' : 'feições'}).`);
         }
         openAtlas(atlasId);
     } catch (error) {
         if (error?.cancelled) return; // The person answered "Cancelar": nothing was created.
         console.error('[projects] .ebgeo import failed:', error);
-        showError(error?.message || 'Falha ao importar o arquivo .ebgeo.');
+        showError(serverMessageOr(error, 'Falha ao importar o arquivo .ebgeo.'));
     }
 }
 

@@ -90,7 +90,7 @@ const BLOCKED_BY_LOCK = new Set([
 ]);
 
 /** The sentence shown when a drawn command refuses because of the map's state. */
-export const LOCKED_MAP_NOTICE = 'Este mapa está bloqueado. Destrave-o para fazer esta alteração.';
+export const LOCKED_MAP_NOTICE = 'Mapa bloqueado. Desbloqueie para fazer esta alteração.';
 
 /**
  * The sentence shown when the LAST remaining map is the delete target. It is a state, not a

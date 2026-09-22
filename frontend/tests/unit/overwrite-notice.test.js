@@ -91,7 +91,9 @@ describe('overwriteNotice', () => {
     it('nomeia quem escreveu', () => {
         const frase = overwriteNotice('Cap. Silva');
         expect(frase).toContain('Cap. Silva');
-        expect(frase).toMatch(/versão do servidor/i);
+        // Diz qual versão vale agora, sem falar da tela nem do servidor (2026-09-22).
+        expect(frase).toMatch(/versão exibida agora é a mais recente/i);
+        expect(frase).not.toMatch(/tela/i);
     });
 
     it('SEM NOME NÃO HÁ AVISO, e isso é decisão e não borda', () => {

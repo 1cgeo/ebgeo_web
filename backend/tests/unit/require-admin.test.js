@@ -19,7 +19,7 @@ describe('requireAdmin middleware', () => {
     requireAdmin({ user: { role: 'user' } }, {}, (err) => {
       assert.ok(err);
       assert.equal(err.statusCode, 403);
-      assert.match(err.message, /Admin access required/);
+      assert.match(err.message, /não tem permissão para administrar o sistema/);
       done();
     });
   });

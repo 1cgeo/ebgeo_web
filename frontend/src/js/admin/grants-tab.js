@@ -34,6 +34,16 @@
  * assinatura porque `mountAdminPage` o passa às sete abas pelo mesmo caminho, e tirá-lo de UMA
  * seria uma exceção a explicar em dois arquivos.
  *
+ * CONCEDER SAI DAQUI TAMBÉM, desde 2026-09-22 (decisão do dono, item 19b, que supera a de
+ * 2026-08-24 de "a aba nomeia onde se concede, e o botão não nasce aqui"). "Conceder acesso", no
+ * cabeçalho de "Concedidos por mim", escolhe um recurso da lista que o SERVIDOR diz que esta pessoa
+ * pode compartilhar (`shareable-resources.js`, sobre o payload de `GET /resource-access/visible`) e
+ * abre o MESMO modal do mapa, pelo núcleo sem store (`catalog/resource-share.modal.core.js`). O
+ * motivo técnico da decisão antiga continua valendo como restrição, e é o que o núcleo resolve: o
+ * motor de sync não entra nesta página, e a re-soma do catálogo que ele fazia depois de revogar é
+ * efeito do mapa, injetado lá. Aqui o efeito é reler as duas listas. O POSTO SOME: sem recurso
+ * nenhum para compartilhar, o comando não se desenha, e uma frase curta diz por quê.
+ *
  * `viaGroup` É VISÍVEL DE PROPÓSITO. É a única transferência de autoridade do sistema que não gera
  * linha própria em `resource_grants`: o acesso vem da membresia, e sai junto com ela. Sem o rótulo,
  * a pessoa procuraria uma concessão que não existe para entender por que perdeu o recurso.
@@ -46,6 +56,12 @@ import { apiClient } from '@store/sync/api-client.js';
 import { militaryPersonLabel } from '@utils/person-label.js';
 import { showConfirm } from '@modals/confirm.modal.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
+import { serverMessageOr } from '@utils/request-failure.js';
+// O campo que escolhe o recurso a conceder, o MESMO componente das listas de OM de Usuários: lista
+// controlada, filtro por digitação, e o valor é a chave, nunca o texto digitado.
+import { createSearchableSelect } from '@ui/searchable-select.js';
+// A lista do que se pode compartilhar, decidida sobre o payload do SERVIDOR (folha, zero imports).
+import { shareableKey, shareableResources } from './shareable-resources.js';
 // Do ARQUIVO, nunca dos barrels `@utils` / `@modals`: esta página não carrega a store, e os
 // barrels a alcançam transitivamente.
 import {
@@ -70,6 +86,7 @@ import {
     expiryChip,
     grantLevelLabel,
     grantLevelDescription,
+    grantPickerLabel,
     granteeGroupNotice,
     granteeLabel,
     grantorLabel,
@@ -89,6 +106,8 @@ import {
     resourceDisplayName,
     resourceIdentityTitle,
     resourceTypeLabel,
+    shareableEmptyNotice,
+    shareableFailureNotice,
     shortDate,
     viaGroupLabel,
     viaGroupNotice,
@@ -135,10 +154,15 @@ class GrantsTab {
         // escolheria 30 cinco vezes se o estado voltasse ao padrão a cada clique.
         this._dias = GRANT_TERM_DEFAULT_DAYS;
         this._busy = false;
+        /** @type {number} Cada `_render` leva um número; a resposta de um render superado não desenha. */
+        this._renderSeq = 0;
+        /** @type {import('@ui/searchable-select.js').SearchableSelect|null} O campo de escolha aberto. */
+        this._picker = null;
         setupCleanup(this);
         this._render();
         return () => {
             this._alive = false;
+            this._destroyPicker();
             cleanup(this);
         };
     }
@@ -148,7 +172,12 @@ class GrantsTab {
      * duas rotas, e uma rede ruim que derrube a segunda não pode esconder a primeira.
      */
     async _render() {
+        // O NÚMERO DO RENDER, porque agora há quem peça render de fora: o modal de compartilhar
+        // avisa a cada escrita (`onAccessChanged`), sem esperar, e duas releituras em voo
+        // terminariam fora de ordem, a mais velha desenhando por cima da mais nova.
+        const meu = ++this._renderSeq;
         clearScopedListeners(this, 'view');
+        this._destroyPicker();
         const c = this._container;
         c.replaceChildren();
 
@@ -188,13 +217,19 @@ class GrantsTab {
         // escapa por cima do `allSettled`, sai de `_render` como rejeição não tratada, e a aba fica
         // no "Carregando…" para sempre. Com o embrulho, esse caso cai na tela de FALHA, que tem
         // botão de tentar de novo.
-        const [emitidas, recebidas] = await Promise.allSettled([
+        //
+        // A TERCEIRA É A LISTA DO QUE SE PODE COMPARTILHAR, e ela é o payload aditivo SEM atlas em
+        // foco: é ele que diz, recurso a recurso, o que o gate de repasse aceita
+        // (`shareable-resources.js`). Falhar nela não esconde as outras duas, e não se lê como
+        // "você não pode compartilhar nada": ver `_grantCommand`.
+        const [emitidas, recebidas, visiveis] = await Promise.allSettled([
             settle(() => apiClient.listIssuedGrants()),
             settle(() => apiClient.listReceivedGrants()),
+            settle(() => apiClient.getVisibleResources(null)),
         ]);
-        if (!this._alive) return;
+        if (!this._alive || meu !== this._renderSeq) return;
 
-        this._renderIssued(concedidos, emitidas);
+        this._renderIssued(concedidos, emitidas, visiveis);
         this._renderReceived(recebidos, recebidas);
     }
 
@@ -259,14 +294,27 @@ class GrantsTab {
     }
 
     /**
-     * @private O que EU concedi, com o botão de revogar.
-     * @param {HTMLElement} host @param {PromiseSettledResult<*>} resultado
+     * @private O que EU concedi, com o comando de conceder e os botões de renovar e revogar.
+     * @param {HTMLElement} host
+     * @param {PromiseSettledResult<*>} resultado - `grants/issued`.
+     * @param {PromiseSettledResult<*>} visiveis - o payload aditivo, de onde sai o que se pode
+     *   compartilhar.
      */
-    _renderIssued(host, resultado) {
+    _renderIssued(host, resultado, visiveis) {
         host.replaceChildren();
+        const comando = this._grantCommand(visiveis);
         host.appendChild(sectionHeader('Concedidos por mim', {
-            subtitle: 'O que você entregou, a quem, com que prazo. Revogar sai daqui.',
+            subtitle: 'O que você concedeu, a quem e até quando. Para revogar, use o botão da linha.',
+            actions: comando.actions,
         }));
+        if (comando.nota) host.appendChild(comando.nota);
+
+        // A VAGA DA ESCOLHA DE RECURSO, entre o cabeçalho e a tabela, vazia até o clique.
+        const vaga = document.createElement('div');
+        vaga.dataset.testid = 'admin-grants-picker-slot';
+        vaga.hidden = true;
+        host.appendChild(vaga);
+        this._pickerSlot = vaga;
 
         const wrap = card({ testid: 'admin-grants-issued-table', padded: false });
         host.appendChild(wrap);
@@ -280,7 +328,9 @@ class GrantsTab {
 
         const linhas = GrantsTab._rows(resultado.value);
         if (linhas.length === 0) {
-            wrap.appendChild(emptyState(issuedEmptyNotice(), { hint: issuedEmptyHint() }));
+            wrap.appendChild(emptyState(issuedEmptyNotice(), {
+                hint: issuedEmptyHint(comando.podeConceder),
+            }));
             return;
         }
 
@@ -457,6 +507,136 @@ class GrantsTab {
     }
 
     /**
+     * @private O comando "Conceder acesso", decidido pela lista que o SERVIDOR mandou.
+     *
+     * TRÊS DESFECHOS, e os dois sem botão dizem coisas diferentes. Com recurso para compartilhar,
+     * o botão nasce no cabeçalho da seção. Sem nenhum, o POSTO SOME (é bloqueio que a pessoa não
+     * reverte desta tela) e uma frase curta ocupa o lugar dele, para a ausência não se ler como
+     * tela quebrada. Com a leitura FALHADA não se afirma nem uma coisa nem outra: a frase diz que
+     * não carregou e oferece tentar de novo, porque "você não pode compartilhar nada" dito depois
+     * de um erro de rede seria falso com cara de estado.
+     *
+     * @param {PromiseSettledResult<*>} visiveis
+     * @returns {{actions: HTMLElement[], nota: HTMLElement|null, podeConceder: boolean}}
+     */
+    _grantCommand(visiveis) {
+        if (visiveis?.status !== 'fulfilled') {
+            const nota = document.createElement('p');
+            nota.className = 'admin-grants__share-note';
+            nota.dataset.testid = 'admin-grants-shareable-failed';
+            const texto = document.createElement('span');
+            texto.textContent = shareableFailureNotice();
+            nota.appendChild(texto);
+            nota.appendChild(this._button('Tentar de novo', 'admin-btn admin-btn--ghost admin-btn--sm',
+                'admin-grants-shareable-retry', () => { if (this._alive) this._render(); }));
+            return { actions: [], nota, podeConceder: false };
+        }
+        const lista = shareableResources(visiveis.value);
+        if (lista.length === 0) {
+            const nota = document.createElement('p');
+            nota.className = 'admin-grants__share-note';
+            nota.dataset.testid = 'admin-grants-no-shareable';
+            nota.textContent = shareableEmptyNotice();
+            return { actions: [], nota, podeConceder: false };
+        }
+        const botao = this._button('Conceder acesso', 'admin-btn admin-btn--primary',
+            'admin-grants-grant', () => this._togglePicker(lista));
+        return { actions: [botao], nota: null, podeConceder: true };
+    }
+
+    /**
+     * @private Abre (ou fecha) a escolha do recurso a conceder.
+     *
+     * A ESCOLHA ABRE O MODAL, sem um segundo botão: o combo só confirma uma linha da lista
+     * controlada (texto digitado não vale nada até se escolher uma), então escolher é o gesto
+     * inteiro, e um "Continuar" depois dele seria um clique que não decide nada. O modal é o do
+     * mapa, pelo núcleo sem store, e quem escolhe pessoa ou grupo, nível e prazo é ele.
+     * @param {Array<import('./shareable-resources.js').ShareableResource>} lista
+     */
+    _togglePicker(lista) {
+        const vaga = this._pickerSlot;
+        if (!vaga) return;
+        if (this._picker) {
+            this._destroyPicker();
+            vaga.replaceChildren();
+            vaga.hidden = true;
+            return;
+        }
+        const porChave = new Map(lista.map((r) => [shareableKey(r), r]));
+        const combo = createSearchableSelect({
+            id: 'admin-grants-resource',
+            label: grantPickerLabel(),
+            testid: 'admin-grants-resource',
+            // O TIPO VAI NA SIGLA: ele aparece ao lado do nome na lista e também casa a busca, de
+            // modo que digitar "360" ou "modelo" filtra pelo tipo.
+            items: lista.map((r) => ({
+                value: shareableKey(r),
+                label: r.name,
+                sigla: resourceTypeLabel(r.resourceType),
+            })),
+            placeholder: 'Digite o nome do recurso…',
+            emptyText: 'Nenhum recurso encontrado',
+            fieldClass: 'admin-form__field admin-grants__picker-field',
+        });
+
+        const box = card({ testid: 'admin-grants-picker' });
+        box.classList.add('admin-grants__picker');
+        box.appendChild(combo.element);
+        box.appendChild(this._button('Cancelar', 'admin-btn admin-btn--ghost',
+            'admin-grants-picker-cancel', () => this._togglePicker(lista)));
+        const dica = document.createElement('p');
+        dica.className = 'admin-grants__picker-hint';
+        dica.textContent = 'Depois de escolher, defina a pessoa ou o grupo, o nível e o prazo.';
+        box.appendChild(dica);
+
+        vaga.replaceChildren(box);
+        vaga.hidden = false;
+        combo.mount();
+        this._picker = combo;
+        addScopedDomListener(this, 'view', combo.input, 'ebgeo:select', (event) => {
+            const recurso = porChave.get(event?.detail?.value);
+            if (recurso) this._openShare(recurso);
+        });
+        combo.input.focus();
+    }
+
+    /** @private Tira o combo do documento (a lista dele é um portal em `document.body`). */
+    _destroyPicker() {
+        if (!this._picker) return;
+        this._picker.destroy();
+        this._picker = null;
+    }
+
+    /**
+     * @private Abre o modal de compartilhar sobre o recurso escolhido.
+     *
+     * POR `import()`, e não estático: o modal só é baixado por quem clica, e a aba é aberta por
+     * todas as audiências do painel. O núcleo não alcança a store (`compartilhar-sem-a-store`).
+     *
+     * O EFEITO INJETADO É RELER AS DUAS LISTAS, sem esperar: o modal avisa a cada escrita que deu
+     * certo, e a tabela embaixo dele passa a mostrar a concessão nova (ou a revogada some) sem
+     * fechar nada. `_render` é quem descarta a releitura superada.
+     * @param {import('./shareable-resources.js').ShareableResource} recurso
+     */
+    async _openShare(recurso) {
+        let abrir;
+        try {
+            ({ openResourceShareModal: abrir } = await import('@js/catalog/resource-share.modal.core.js'));
+        } catch (error) {
+            console.warn('[admin] share modal failed to load:', error);
+            showError('Não foi possível abrir o compartilhamento. Recarregue a página.');
+            return;
+        }
+        if (!this._alive) return;
+        abrir({
+            resourceType: recurso.resourceType,
+            resourceId: recurso.resourceId,
+            resourceName: recurso.name,
+            onAccessChanged: () => { if (this._alive) this._render(); },
+        });
+    }
+
+    /**
      * @private O seletor de prazo da seção "Concedidos por mim", UM para a seção inteira.
      *
      * A ESCADA VEM DE `catalog/grant-tree.js` (`GRANT_TERMS`), e não é escrita aqui. Ela era um
@@ -534,7 +714,7 @@ class GrantsTab {
             });
             showSuccess(extensionSummary(desfecho, shortDate(efetivo)));
         } catch (error) {
-            showError(error?.message || 'Não foi possível renovar o prazo.');
+            showError(serverMessageOr(error, 'Não foi possível renovar o prazo. Tente de novo.'));
         } finally {
             this._busy = false;
         }
@@ -567,7 +747,7 @@ class GrantsTab {
             const resposta = await apiClient.revokeResourceGrant(grant?.id);
             showSuccess(issuedRevocationSummary(resposta));
         } catch (error) {
-            showError(error?.message || 'Não foi possível remover o acesso.');
+            showError(serverMessageOr(error, 'Não foi possível remover o acesso. Tente de novo.'));
         }
         if (this._alive) this._render();
     }

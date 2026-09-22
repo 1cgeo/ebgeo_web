@@ -77,8 +77,7 @@ export function validarJanela(prop, epoch, atual) {
  */
 export function fraseDeJanelaInvertida(decisao, rotuloDoLimite) {
     const ordem = decisao.campo === 'Início' ? 'depois do' : 'antes do';
-    return `${decisao.campo} recusado: ficaria ${ordem} ${decisao.oposto} (${rotuloDoLimite}), `
-        + 'e uma janela invertida nunca contém instante nenhum (a feição sumiria do 3D, do 360 e do PDF). '
+    return `${decisao.campo} recusado: ficaria ${ordem} ${decisao.oposto} (${rotuloDoLimite}). `
         + `Ajuste o ${decisao.oposto} primeiro.`;
 }
 
@@ -140,14 +139,13 @@ export function decidirTrocaDeInstante(trajetoria, alvo, novoInstante) {
 
     const causa = alvo === ancoraAtual ? 'abandonaria_ancora' : 'assumiria_ancora';
     const inicio = causa === 'assumiria_ancora'
-        ? `Instante recusado: ele poria o ponto ${posicao + 1} à frente do ponto 1`
-        : 'Instante recusado: ele tiraria do ponto 1 a dianteira da trajetória';
+        ? `Instante recusado: o ponto ${posicao + 1} ficaria à frente do ponto 1`
+        : 'Instante recusado: o ponto 1 deixaria de ser o primeiro';
     return {
         aceita: false,
         causa,
         motivo: `${inicio}, e o ponto 1 é a partida da feição. `
-            + 'A feição não se move com esta edição, mas saltaria para a nova partida na próxima '
-            + 'interação com o mapa. Para mudar a partida, mova a feição ou arraste o ponto 1 no mapa.',
+            + 'Para mudar a partida, mova a feição ou arraste o ponto 1 no mapa.',
     };
 }
 
@@ -209,9 +207,8 @@ export function derivarCamposDtg(props, featureType) {
  * {@link derivarCamposDtg}). Ela nomeia o estado e a saída, porque o estado é
  * reversível pela própria pessoa: trocar a linha do tempo para o modo absoluto.
  */
-export const GDH_LIGA_SO_NO_ABSOLUTO = 'Ligar ou desligar o GDH automático só no modo absoluto: '
-    + 'troque a linha do tempo na engrenagem da barra temporal. O vínculo já ligado continua '
-    + 'valendo, e o GDH segue acompanhando a janela.';
+export const GDH_LIGA_SO_NO_ABSOLUTO = 'Ligar ou desligar o GDH automático só no modo absoluto. '
+    + 'Troque o modo na engrenagem da barra temporal; o vínculo já ligado continua valendo.';
 
 /** The suffix the state-locked binding carries in its own label. */
 export const GDH_SUFIXO_SO_ABSOLUTO = '(liga só no modo absoluto)';
@@ -239,8 +236,8 @@ export function fraseDeLimpezaDeTrajetoria(quantidade) {
     const pontos = n === 1 ? '1 ponto-chave' : `${n} pontos-chave`;
     return {
         titulo: 'Limpar a trajetória?',
-        mensagem: `Isto remove ${pontos} desta feição, e a feição volta a ser estática. `
-            + 'Dá para desfazer com Ctrl+Z, ou pelo botão Desfazer da barra de ferramentas.',
+        mensagem: `Isto remove ${pontos} desta feição, que volta a ser estática. `
+            + 'Dá para desfazer com Ctrl+Z ou pelo botão Desfazer.',
     };
 }
 

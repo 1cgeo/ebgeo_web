@@ -98,6 +98,7 @@ import {
     temFiltroAtivo,
     tiposDeAlvoVisiveis,
 } from './audit-phrases.js';
+import { serverMessageOr } from '@utils/request-failure.js';
 
 /**
  * Quantas linhas por página, e as escolhas que a tela oferece.
@@ -311,7 +312,7 @@ class AuditTab {
             // A MENSAGEM DO SERVIDOR NÃO SE PERDE: ela entra no estado inline, que é onde a
             // pessoa está olhando. Ver `failureState` em `admin-dom.js`.
             carregando.replaceChildren(failureState(
-                err?.message || 'Falha ao carregar a trilha de auditoria.',
+                serverMessageOr(err, 'Falha ao carregar a trilha de auditoria.'),
                 { onRetry: () => { if (this._alive) this._render(); } },
             ));
             return;
@@ -634,9 +635,10 @@ class AuditTab {
             // E QUANDO O RECORTE DE ACESSO ESTÁ EM VIGOR, ELE É NOMEADO. Uma conta cuja
             // única atividade no período foi entrar e sair vê exatamente esta tela, e sem a
             // frase ela lê "nada aconteceu" sobre linhas que existem.
-            host.appendChild(emptyState('Nenhum evento no período.', {
-                hint: 'Amplie o período ou limpe os filtros. Lista vazia aqui significa '
-                    + '"nada casou o filtro", nunca "nada aconteceu".'
+            // O TÍTULO DIZ "CORRESPONDE", e não "aconteceu": lista vazia aqui é "nada casou o
+            // filtro", nunca "nada aconteceu".
+            host.appendChild(emptyState('Nenhum evento corresponde ao período e aos filtros.', {
+                hint: 'Amplie o período ou limpe os filtros.'
                     + (this._incluirAcesso
                         ? ''
                         : ' Entradas e saídas do sistema estão ocultas: marque a caixa da'

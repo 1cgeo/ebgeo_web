@@ -122,10 +122,13 @@ const FRASE_DA_BARREIRA = 'Outra janela está saindo da conta. '
 
 /** A frase do diálogo quando o censo NÃO pôde ser feito (`pendingWorkSummary` com total não finito). */
 const FRASE_CENSO_DESCONHECIDO =
-    'Não foi possível verificar se existem alterações ainda não enviadas ao servidor.';
+    'Não foi possível verificar se há alterações ainda não enviadas ao servidor.';
 
-/** O pedaço da frase do diálogo quando o censo FOI feito (`pendingWorkSummary` com um total). */
-const FRASE_CENSO_CONTADO = 'com envio pendente ao servidor';
+/**
+ * O pedaço da frase do diálogo quando o censo FOI feito (`pendingWorkSummary` com um total). Cobre
+ * "chegou" e "chegaram", e NÃO aparece na frase do censo desconhecido, que é o que o distingue.
+ */
+const FRASE_CENSO_CONTADO = 'que ainda não cheg';
 
 /**
  * Nome do Web Lock da BARREIRA de um atlas de servidor, escrito à mão.

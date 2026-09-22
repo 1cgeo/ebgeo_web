@@ -176,8 +176,12 @@ describe('o erro tem UMA superfície, e a busca tem UM dono', () => {
         expect(ABA).toContain('failureState(');
         // E A MENSAGEM DO SERVIDOR NÃO SE PERDE: ela migrou para dentro do estado inline, que
         // é onde a pessoa está olhando. Sem esta asserção, apagar o toast teria custado o
-        // motivo da falha.
-        expect(ABA).toMatch(/failureState\(\s*err\?\.message \|\| 'Falha ao carregar a trilha/);
+        // motivo da falha. A forma passou de `err?.message || frase` a `serverMessageOr`
+        // (`utilities/request-failure.js`), que entrega a MESMA mensagem do servidor e só troca
+        // pela frase da casa os dois ecos que não são frase de ninguém (`HTTP 502`, `Failed to
+        // fetch`); que ela deixa passar a frase real do servidor é preso em
+        // `tests/unit/mensagem-do-servidor-ou-frase.test.js`.
+        expect(ABA).toMatch(/failureState\(\s*serverMessageOr\(err, 'Falha ao carregar a trilha/);
         expect(ABA).toMatch(/onRetry:/);
     });
 
@@ -249,6 +253,6 @@ describe('a barra de filtros parou de reescrever o que `.admin-input` já resolv
     it('a frase do VAZIO continua dizendo a coisa certa', () => {
         // "Nada casou o filtro" nunca é a mesma afirmação que "nada aconteceu", e numa trilha
         // confundir as duas é o pior erro possível.
-        expect(ABA).toMatch(/"nada casou o filtro", nunca "nada aconteceu"/);
+        expect(ABA).toContain("emptyState('Nenhum evento corresponde ao período e aos filtros.'");
     });
 });

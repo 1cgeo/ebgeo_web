@@ -36,7 +36,7 @@ export function requireAdmin(req, res, next) {
   }
 
   if (req.user.role !== 'admin') {
-    return next(new ForbiddenError('Admin access required'));
+    return next(new ForbiddenError('Você não tem permissão para administrar o sistema.'));
   }
 
   next();

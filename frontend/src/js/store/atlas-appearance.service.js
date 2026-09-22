@@ -13,10 +13,12 @@
  * escolher o exagero, e escolher o exagero não é redistribuir recurso.
  *
  * A PROJEÇÃO TEM DOIS ESTADOS, globo ou plano, e o padrão é GLOBO. Ela chegou a ter três, com um
- * "padrão do sistema" que herdava `config.map2d.globe_projection` do painel do administrador; o
- * dono cortou a terceira em 2026-08-16, e a razão é boa: uma escolha de duas respostas não precisa
- * de uma terceira que o usuário tem de traduzir mentalmente para saber o que vai ver. A config de
- * deploy continua existindo para outras coisas, mas não decide mais isto.
+ * "padrão do sistema" que herdava a config de deploy do painel do administrador; o dono cortou a
+ * terceira em 2026-08-16, e a razão é boa: uma escolha de duas respostas não precisa de uma
+ * terceira que o usuário tem de traduzir mentalmente para saber o que vai ver. A config de deploy
+ * não decide isto, e desde 2026-09-22 nem carrega mais a chave: a caixa "Projeção globo" da aba
+ * Sistema e a chave do servidor foram podadas, porque passaram um mês gravadas e servidas sem
+ * nenhum leitor, e o dono leu a caixa inerte como invertida.
  */
 
 import { getRepository } from '@store/repositories/index.js';
@@ -87,7 +89,8 @@ export async function readAtlasAppearance() {
  * (patch vazio) ou a permissão recusou.
  *
  * @param {{terrainExaggeration?: number, globeProjection?: boolean|null}} patch - Só as chaves
- *   presentes são tocadas; `globeProjection: null` é uma escrita legítima ("volte a herdar").
+ *   presentes são tocadas; `globeProjection: null` é uma escrita legítima ("sem escolha", que
+ *   resolve para globo), e é o que o modal grava quando a pessoa não tocou na barra de projeção.
  * @returns {Promise<boolean>} True quando gravou; false num patch vazio ou sem permissão.
  * @throws {Error} Quando a persistência falha (quota, escopo trocado, sessão descartada).
  */
@@ -178,13 +181,14 @@ export async function applyRemoteAppearance(patch, terrainControl, map, { reposi
 }
 
 /**
- * A projeção que o mapa deve usar AGORA: a escolha do projeto quando existe, o padrão do deploy
- * quando não.
+ * A projeção que o mapa deve usar AGORA: a escolha do projeto quando existe, globo quando não.
+ * Nenhuma config de deploy entra aqui, de propósito (ver o cabeçalho).
  *
  * Síncrona de propósito, e alimentada por quem já leu o atlas: os pontos que aplicam projeção
  * (`map_sig.js` no boot, `base-layer.control.js` a cada troca de estilo, `terrain.control.js` ao
  * ligar/desligar o relevo) rodam em caminhos quentes onde uma leitura de IndexedDB seria um await
- * no meio de um `styledata`.
+ * no meio de um `styledata`. O modal de configurações do atlas acende a barra por esta mesma
+ * função, para mostrar o que o mapa desenha.
  *
  * @param {boolean|null|undefined} atlasChoice - O que {@link readAtlasAppearance} devolveu.
  * @returns {boolean} True quando o mapa deve ser um globo.

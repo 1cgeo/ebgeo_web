@@ -1,12 +1,15 @@
 // Path: src/modules/diag/diag.controller.js
 import config from '../../config.js';
 import { asyncHandler } from '../../utils/async-handler.js';
+import { estadoDoLogEmArquivo } from '../../utils/logger.js';
 import { principalUserId } from '../../utils/principal.js';
 import { NotFoundError } from '../../utils/errors.js';
 import * as diagService from './diag.service.js';
 import * as defeitos from './defeitos.service.js';
 import { montarResumoCompleto } from './resumo.service.js';
 import { resolverPilhaDeDefeito } from './pilha.service.js';
+import { nomearContas } from './enderecos.service.js';
+import { idsDeContas } from '../../utils/diag-enderecos.js';
 import * as usoService from '../uso/uso.service.js';
 
 /**
@@ -19,6 +22,27 @@ import * as usoService from '../uso/uso.service.js';
  * diretório usa o comando, no servidor, onde já tem shell.
  */
 const diretorio = () => config.log.dir;
+
+/**
+ * A PROCEDÊNCIA de uma leitura de log, mais o estado de quem ESCREVE o log neste processo.
+ *
+ * `janela` é o lugar e não um campo novo na raiz, porque é premissa da leitura: "o diretório
+ * que você está lendo parou de ser escrito às 09:49" é o que torna uma série sem amostras
+ * interpretável, e ela vale para o documento inteiro, não para um bloco. Na raiz ele quebraria
+ * o espelho com o comando, que é quem garante que as duas portas respondem a mesma coisa sobre
+ * o mesmo arquivo; `janela` já é o campo em que as duas portas divergem por construção.
+ *
+ * SÓ A ROTA TEM ESTE CAMPO, e é pela mesma razão do `truncado`: o comando é OUTRO processo, e
+ * o estado do destino de arquivo mora na memória do servidor. Quem lê pelo terminal tem a
+ * metade durável, o defeito de servidor que o desligamento grava, no bloco de saúde do
+ * `resumo`. Ver `estadoDoLogEmArquivo` e `defeitoDoLogDesligado`.
+ *
+ * @param {Object} documento - o `data` que a rota devolveria
+ * @returns {Object}
+ */
+function comEstadoDoLog(documento) {
+  return { ...documento, janela: { ...documento.janela, logEmArquivo: estadoDoLogEmArquivo() } };
+}
 
 /**
  * A frase do 404 das TRÊS rotas que agem sobre UM defeito.
@@ -54,7 +78,9 @@ export const lento = asyncHandler(async (req, res) => {
  */
 export const saude = asyncHandler(async (req, res) => {
   const { desde, intervalo } = req.query;
-  res.json({ data: await diagService.saude({ diretorio: diretorio(), desde, intervalo }) });
+  // O ESTADO DO ESCRITOR VAI JUNTO: sem ele, "sem amostras" com o log desligado por falha é
+  // indistinguível de "sem amostras" com o processo fora. Ver `comEstadoDoLog`.
+  res.json({ data: comEstadoDoLog(await diagService.saude({ diretorio: diretorio(), desde, intervalo })) });
 });
 
 /**
@@ -80,6 +106,29 @@ export const saude = asyncHandler(async (req, res) => {
 export const linhas = asyncHandler(async (req, res) => {
   const { desde, filtro, limite } = req.query;
   res.json({ data: await diagService.linhas({ diretorio: diretorio(), desde, filtro, limite }) });
+});
+
+/**
+ * OS ENDEREÇOS DISTINTOS da janela, com as contas vistas em cada um (2026-09-22).
+ *
+ * É a segunda porta de `npm run diag -- enderecos`, e as DUAS metades são compartilhadas com o
+ * comando: a de ARQUIVO (`diagService.enderecos`, sobre o acumulador puro) e a de BANCO
+ * (`nomearContas`, que troca o UUID de cada conta pelo login). Este controller só as junta, como
+ * `status` junta o pulso e a saúde das releases.
+ *
+ * O BANCO FORA NÃO LEVA A LISTA JUNTO, e o contrato é o do `resumo`: `nomearContas` nunca lança, e
+ * devolve `contas.disponivel: false` com o motivo, enquanto a lista de endereços, que vem do
+ * `.jsonl`, sai inteira. O diagnóstico não pode ser a primeira coisa a cair.
+ *
+ * SÓ ADMINISTRADOR, pelo `requireAdmin` da rota, que recusa toda chave de API: o endereço é dado
+ * pessoal, e a lista é o censo de quem usou o produto. Ele não entra em relato de erro, migalha nem
+ * lote de uso (ver a decisão de 2026-09-22 em `docs/decisions/decisions-2026.md`).
+ */
+export const enderecos = asyncHandler(async (req, res) => {
+  const { desde, limite } = req.query;
+  const relatorio = await diagService.enderecos({ diretorio: diretorio(), desde, limite });
+  const contas = await nomearContas(idsDeContas(relatorio));
+  res.json({ data: { ...relatorio, contas } });
 });
 
 /**
@@ -167,13 +216,13 @@ export const resumo = asyncHandler(async (req, res) => {
   const { desde, limite, intervalo } = req.query;
   // O DIRETÓRIO DA SONDA SAI DA CONFIGURAÇÃO PELA MESMA RAZÃO do de log, e não há `?sonda=`:
   // seria um segundo leitor de arquivo arbitrário do host atrás do mesmo gate.
-  res.json({ data: await montarResumoCompleto({
+  res.json({ data: comEstadoDoLog(await montarResumoCompleto({
     diretorio: diretorio(),
     diretorioDaSonda: config.sondaDir,
     desde,
     limite,
     intervalo,
-  }) });
+  })) });
 });
 
 /**

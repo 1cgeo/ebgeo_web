@@ -1,7 +1,13 @@
 // Path: src/modules/collab/collab.handlers.js
 // Individual message type handlers for WebSocket collaboration
 
-import { broadcastToRoom, broadcastOperations, enfileirarCursor } from './collab.rooms.js';
+import { WebSocket } from 'ws';
+import {
+  broadcastToRoom, broadcastOperations, enfileirarCursor, difundirRecortado,
+} from './collab.rooms.js';
+import {
+  resolverRecursoDoEscopo, escopoDaSuperficie, redigirCursor, redigirSelecao,
+} from './collab.recorte.js';
 import * as syncService from '../sync/sync.service.js';
 import { pushSchema } from '../sync/sync.schemas.js';
 import { assertSyncProtocol } from '../sync/sync-protocol.js';
@@ -10,8 +16,10 @@ import { PERMISSION_LEVELS } from '../../middleware/permissions.js';
 import {
   cursorPresenceSchema,
   selectionPresenceSchema,
+  viewerPresenceSchema,
   validatePresenceFrame,
 } from './collab.schemas.js';
+import { anunciarContextoDoVisualizador } from './collab.viewer.js';
 import { classifyConnectionQuality, adaptiveSettingsFor } from './collab.quality.js';
 import logger from '../../utils/logger.js';
 import { safeErrorMessage } from '../../utils/safe-error-message.js';
@@ -150,24 +158,44 @@ export function handlePing(ws) {
  * position nulled, because it is the only carrier of the ACTIVE MAP: the roster keeps knowing
  * which map each visitor is on, and the count of visitors never depended on the cursor (they are
  * in `getRoomUsers` from the join to the close).
+ *
+ * THE SCOPE IS CUT PER RECIPIENT (owner, 2026-09-22). A cursor on the 3D, walkable-scene or 360
+ * surface names the resource it points into (`tilesetId`/`photoName`), and its position is a
+ * point INSIDE that resource. Until this date both went to the whole room. Now the scope is
+ * resolved against the catalog (`resolverRecursoDoEscopo`, collab.recorte.js) and a PRIVATE one
+ * goes whole only to the recipients `fn_can_see_resource` frees in this atlas; the rest receive
+ * the frame without the scope and without the position (`redigirCursor`), which is what clears
+ * the pointer they were drawing. The map cursor has no scope and never waits for anything.
+ * @param {import('ws').WebSocket} ws
+ * @param {Object} data - Raw parsed frame.
+ * @returns {Promise<void>}
  */
-export function handleCursor(ws, data) {
+export async function handleCursor(ws, data) {
   const normalizado = normalizePresence(ws, cursorPresenceSchema, data);
   if (!normalizado) return;
   const value = ws.isPublic ? { ...normalizado, position: null } : normalizado;
+  const escopo = escopoDaSuperficie(value);
+  const recurso = escopo.tilesetId || escopo.photoName
+    ? await resolverRecursoDoEscopo(value, ws)
+    : null;
+  // Closed during the lookup: its `user_left` already went out, and retaining or relaying now
+  // would bring it back to the peers' roster.
+  if (ws.readyState !== WebSocket.OPEN) return;
 
   ws.cursorPosition = value.position;
   ws.currentMapId = value.mapId;
   // A SUPERFICIE FICA RETIDA JUNTO COM A POSICAO, e o motivo e o snapshot de quem entra depois:
   // `getRoomUsers` monta o roster a partir do que esta no socket, entao um cursor de 360 retido
   // sem superfície volta como cursor de MAPA para o late-joiner, que o desenharia num lugar que
-  // nao significa nada. Espelha o `selectionContext`, que ja existia pela mesma razao.
+  // nao significa nada. Espelha o `selectionContext`, que ja existia pela mesma razao. O RECURSO
+  // do escopo fica ao lado, e e ele que decide o que o retrato mostra a todos.
   ws.cursorContext = {
     surface: value.surface,
     mapId: value.mapId,
-    tilesetId: value.tilesetId ?? null,
-    photoName: value.photoName ?? null,
+    tilesetId: escopo.tilesetId,
+    photoName: escopo.photoName,
   };
+  ws.cursorRecurso = recurso;
 
   const quadro = {
     // `clientId` is NOT optional here, even though the frontend's `resolveKey` falls
@@ -179,27 +207,20 @@ export function handleCursor(ws, data) {
     userId: ws.userId,
     position: value.position,
     mapId: value.mapId,
-    // O escopo viaja no mesmo quadro, e o lote o carrega inteiro sem saber o que e: quem filtra
-    // por superficie e o cliente, como ja faz com `mapId` e com a selecao.
+    // O escopo viaja no mesmo quadro para quem pode ve-lo: quem filtra por superficie e o
+    // cliente, como ja faz com `mapId` e com a selecao.
     surface: value.surface,
-    tilesetId: value.tilesetId ?? null,
-    photoName: value.photoName ?? null,
+    tilesetId: escopo.tilesetId,
+    photoName: escopo.photoName,
   };
 
   // O AGRUPAMENTO DECIDE, E O CAMINHO ANTIGO FICA INTEIRO. Com `WS_CURSOR_BATCH_MS` em zero o
   // quadro sai na hora, exatamente como antes, e e assim que se mede o antes contra o depois na
-  // mesma bancada. Ver a nota longa em `collab.rooms.js`.
-  if (enfileirarCursor(ws.atlasId, quadro)) return;
+  // mesma bancada. Ver a nota longa em `collab.rooms.js`. Os dois caminhos recortam pelo mesmo
+  // recurso.
+  if (enfileirarCursor(ws.atlasId, quadro, recurso)) return;
 
-  broadcastToRoom(ws.atlasId, {
-    // `clientId` is NOT optional here, even though the frontend's `resolveKey` falls
-    // back to `userId`: the roster is KEYED by clientId (collab.rooms.js:176), so an
-    // awareness frame carrying only userId does not update the existing entry, it
-    // CREATES A SECOND ONE. The peer then shows two roster rows per person, one with
-    // a name and no cursor and one with a cursor labelled by the raw UUID.
-    ...quadro,
-    type: 'cursor',
-  }, ws);
+  await difundirRecortado(ws, { ...quadro, type: 'cursor' }, recurso, redigirCursor);
 }
 
 // NÃO EXISTE MAIS TRATADOR DO QUADRO DE LINHA DO TEMPO, e a ausência é decisão do dono
@@ -225,8 +246,15 @@ export function handleCursor(ws, data) {
  * The payload carries `surface` ('2d'|'3d'|'360') plus its scope: `mapId` for 2D,
  * `tilesetId` for 3D, `photoName` for 360. `featureMeta` (optional) ships the
  * per-feature type so a 2D peer can resolve the right highlight without a lookup.
+ *
+ * THE SCOPE IS CUT PER RECIPIENT, like the cursor's (2026-09-22): a selection inside a PRIVATE
+ * model or 360 photo goes whole only to who may see that resource, and the rest receive an EMPTY
+ * selection on the same surface (`redigirSelecao`), which clears the highlight they were drawing.
+ * @param {import('ws').WebSocket} ws
+ * @param {Object} data - Raw parsed frame.
+ * @returns {Promise<void>}
  */
-export function handleSelection(ws, data) {
+export async function handleSelection(ws, data) {
   // Editor and up. This was a CLOSED LIST of the two tiers that happen to sit below the floor
   // (`read || comment`), and it is the exact shape this codebase has paid for twice: a tier
   // inserted between `comment` and `write` would fall THROUGH the gate, and so would any value a
@@ -241,6 +269,11 @@ export function handleSelection(ws, data) {
 
   const value = normalizePresence(ws, selectionPresenceSchema, data);
   if (!value) return;
+  const escopo = escopoDaSuperficie(value);
+  const recurso = escopo.tilesetId || escopo.photoName
+    ? await resolverRecursoDoEscopo(value, ws)
+    : null;
+  if (ws.readyState !== WebSocket.OPEN) return;
 
   const { surface, featureIds } = value;
   // `selectedFeatures` (legacy field of the join snapshot) and `selectionContext.featureIds`
@@ -252,11 +285,12 @@ export function handleSelection(ws, data) {
     mapId: value.mapId ?? null,
     featureIds,
     ...(Array.isArray(value.featureMeta) ? { featureMeta: value.featureMeta } : {}),
-    ...(value.tilesetId != null ? { tilesetId: value.tilesetId } : {}),
-    ...(value.photoName != null ? { photoName: value.photoName } : {}),
+    ...(escopo.tilesetId != null ? { tilesetId: escopo.tilesetId } : {}),
+    ...(escopo.photoName != null ? { photoName: escopo.photoName } : {}),
   };
+  ws.selectionRecurso = recurso;
 
-  broadcastToRoom(ws.atlasId, {
+  await difundirRecortado(ws, {
     clientId: ws.clientId ?? null, // veja o porquê em handleCursor
     type: 'selection',
     userId: ws.userId,
@@ -264,9 +298,26 @@ export function handleSelection(ws, data) {
     featureIds,
     mapId: value.mapId,
     ...(Array.isArray(value.featureMeta) ? { featureMeta: value.featureMeta } : {}),
-    ...(value.tilesetId != null ? { tilesetId: value.tilesetId } : {}),
-    ...(value.photoName != null ? { photoName: value.photoName } : {}),
-  }, ws);
+    ...(escopo.tilesetId != null ? { tilesetId: escopo.tilesetId } : {}),
+    ...(escopo.photoName != null ? { photoName: escopo.photoName } : {}),
+  }, recurso, redigirSelecao);
+}
+
+/**
+ * Handles the VIEWER CONTEXT frame: which immersive viewer (3D model, walkable scene, 360 photo)
+ * the sender has open, or `2d` when it closed them (owner, 2026-09-22).
+ *
+ * Ungated by ROLE, like the cursor: a read-only colleague in the 3D viewer is somewhere too. What
+ * IS gated is the resource NAME, per recipient, and that lives in `collab.viewer.js`, together with
+ * the rule that the public-link visitor's own context neither travels nor is retained.
+ * @param {import('ws').WebSocket} ws
+ * @param {Object} data - Raw parsed frame.
+ * @returns {Promise<void>}
+ */
+export async function handleViewer(ws, data) {
+  const value = normalizePresence(ws, viewerPresenceSchema, data);
+  if (!value) return;
+  await anunciarContextoDoVisualizador(ws, value);
 }
 
 /**

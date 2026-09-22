@@ -291,6 +291,12 @@ describe('GET /diag/saude e /diag/linhas espelham o comando', () => {
     // não, então os dois documentos PODEM divergir de forma legítima. Aqui não divergem, e é o
     // `truncado: false` que autoriza a comparação estrita abaixo.
     assert.equal(rota.janela.truncado, false);
+    // O ESTADO DE QUEM ESCREVE O LOG é da ROTA, como o `truncado`: ele mora na memória do
+    // servidor, e o comando é outro processo. Sob a suíte o destino de arquivo nunca liga, então
+    // o que se prende aqui é a PRESENÇA do campo e que desligado-por-teste não se lê como falha.
+    assert.equal(rota.janela.logEmArquivo.ligado, false);
+    assert.notEqual(rota.janela.logEmArquivo.motivo, 'falha');
+    assert.equal(Object.hasOwn(doc.janela, 'logEmArquivo'), false, 'o comando não tem como saber');
 
     const doComando = semEnvelope(doc);
     const daRota = { ...rota };

@@ -32,5 +32,16 @@
    componente do auto-cadastro. */
 @import url('./searchable-select.css');
 
+/* O olho da senha (`js/ui/password-visibility.js`), o mesmo do "Entrar" e do "Criar conta", nos
+   campos de senha de Usuários (criar conta e redefinir senha). Sem esta folha o botão nasce sem
+   posição, fora do campo. A largura inteira e o recuo do ícone dentro do formulário do painel
+   moram em admin.css, porque `.admin-form__field input` zeraria o recuo desta. */
+@import url('./password-field.css');
+
+/* O modal de compartilhar recurso privado (`catalog/resource-share.modal.core.js`), aberto por
+   "Conceder acesso" na aba Concessões desde 2026-09-22. É a MESMA folha que `atlas.html` já importa
+   para o modal de compartilhar atlas, e o modal de recurso é irmão dele na forma das linhas. */
+@import url('./sharing.css');
+
 /* ===== The page itself ===== */
 @import url('./admin.css');

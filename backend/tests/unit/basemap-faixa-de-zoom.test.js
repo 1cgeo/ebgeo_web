@@ -94,7 +94,9 @@ describe('a faixa de zoom da APLICAÇÃO é fixa', () => {
 
   it('o resto de map2d continua editável', () => {
     const { error } = configOverridesSchema.validate(
-      { map2d: { maxPitch: 70, globe_projection: false } }, OPCOES,
+      // `globe_projection` era a vizinha booleana deste caso e saiu do schema em 2026-09-22
+      // (recusada, como o zoom); o sombreamento ocupa o lugar dela.
+      { map2d: { maxPitch: 70, hillshade: { enabled: false } } }, OPCOES,
     );
     assert.equal(error, undefined);
   });

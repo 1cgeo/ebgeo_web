@@ -1247,6 +1247,216 @@ describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
             .not.toBe(500);
     });
 
+    /**
+     * Linhas visiveis que o preview desenha: a malha de 8 subdivisoes de `frustumOutlineAngles`
+     * (9 meridianos, 9 paralelos e 4 arestas de apice) mais a linha de mira ate o ponteiro.
+     */
+    const LINHAS_DO_PREVIEW = 9 + 9 + 4 + 1;
+
+    /**
+     * Guarda, por IDENTIDADE, as primitivas que a cena tem antes do gesto e ativa a ferramenta.
+     * Identidade e nao contagem, porque o segundo clique acrescenta o setor de verdade e a malha
+     * dele, que e uma PolylineCollection com quase as mesmas linhas do preview.
+     * @param {import('@playwright/test').Page} page
+     */
+    async function ativarComRetratoDaCena(page) {
+        await page.evaluate(async ({ id }) => {
+            const cena = window.map.scene;
+            window.__primitivasAntesDoGesto = new Set(
+                Array.from({ length: cena.primitives.length }, (_, i) => cena.primitives.get(i)),
+            );
+            const ferramenta = await import('/src/js/3d_models_viewer_tool/tools/viewshed_tool_3d.js');
+            ferramenta.activateViewshedTool(window.map, id);
+        }, { id: TILESET_ID });
+    }
+
+    /**
+     * O que o gesto acrescentou a cena: linhas visiveis por colecao de polilinhas, rotulos visiveis
+     * e marcas. So API publica do Cesium, e so os TRES tipos de colecao com que o preview desenha,
+     * para que uma primitiva alheia chegando tarde (o tileset, digamos) nao mude a conta.
+     * @param {import('@playwright/test').Page} page
+     */
+    function lerPreview(page) {
+        return page.evaluate(() => {
+            const C = window.Cesium;
+            const cena = window.map.scene;
+            const novas = [];
+            for (let i = 0; i < cena.primitives.length; i++) {
+                const p = cena.primitives.get(i);
+                const tipoDoPreview = p instanceof C.PolylineCollection
+                    || p instanceof C.LabelCollection
+                    || p instanceof C.PointPrimitiveCollection;
+                if (tipoDoPreview && !window.__primitivasAntesDoGesto.has(p)) novas.push(p);
+            }
+            const linhas = novas
+                .filter((p) => p instanceof C.PolylineCollection)
+                .map((c) => {
+                    let n = 0;
+                    for (let j = 0; j < c.length; j++) {
+                        const l = c.get(j);
+                        if (l.show && l.positions.length >= 2) n++;
+                    }
+                    return n;
+                });
+            const rotulos = novas
+                .filter((p) => p instanceof C.LabelCollection)
+                .flatMap((c) => Array.from({ length: c.length }, (_, j) => c.get(j)))
+                .filter((l) => l.show)
+                .map((l) => l.text);
+            const marcas = novas
+                .filter((p) => p instanceof C.PointPrimitiveCollection)
+                .reduce((soma, c) => soma + c.length, 0);
+            return { novas: novas.length, linhas, rotulos, marcas };
+        });
+    }
+
+    test('entre os dois cliques o setor aparece em preview, segue o ponteiro e sai no segundo clique', async ({ page }) => {
+        // O QUE ESTE CASO MEDE, E POR QUE ELE NASCEU. O plugin substituido em 2026-09-15 desenhava
+        // o tronco enquanto o ponteiro andava entre os dois cliques, como EFEITO de um acessor de
+        // escrita de `distance`; a reescrita manteve a atribuicao e perdeu o efeito, e nenhuma suite
+        // viu, porque o caso de dois cliques acima mede a LOJA depois do gesto e os de pixel medem
+        // o setor PRONTO. O dono deu pela falta em 2026-09-22. O controle negativo e direto: tirar a
+        // chamada de `_drawPreview` do manipulador de movimento reprova a segunda espera abaixo.
+        await registrarTileset(page);
+        await servirTileset(page);
+        await bootar(page);
+
+        const abriu = await abrirVisualizador3d(page);
+        if (!abriu) {
+            test.skip(true, 'o visualizador Cesium nao inicializou sem cabeca; limite de ambiente');
+            return;
+        }
+
+        await montarCena(page, OBSERVADOR);
+        await fixarCamera(page, OBSERVADOR);
+        await ativarComRetratoDaCena(page);
+
+        // Antes do primeiro clique nao ha preview nenhum: nao ha observador de onde desenhar.
+        expect((await lerPreview(page)).novas, 'a ferramenta desenhou antes do primeiro clique').toBe(0);
+
+        const canvas = page.locator('#map-3d canvas').first();
+        await canvas.click({ position: { x: 612, y: 560 } });
+
+        // O primeiro clique e respondido NA HORA, com a marca do observador e sem setor ainda.
+        await expect
+            .poll(() => lerPreview(page), { timeout: 5000, message: 'o primeiro clique nao marcou o observador' })
+            .toMatchObject({ marcas: 1, rotulos: [] });
+        expect((await lerPreview(page)).linhas.every((n) => n === 0), 'setor desenhado sem ponteiro').toBe(true);
+
+        // O ponteiro anda: o setor aparece, com a mira e o alcance ao lado.
+        await canvas.hover({ position: { x: 612, y: 420 } });
+        await expect
+            .poll(async () => {
+                const lido = await lerPreview(page);
+                return lido.linhas.includes(LINHAS_DO_PREVIEW) && lido.rotulos.length === 1;
+            }, { timeout: 5000, message: 'o ponteiro andou e o preview do setor nao apareceu' })
+            .toBe(true);
+        const primeiro = await lerPreview(page);
+        expect(primeiro.rotulos[0], 'o alcance do preview nao le como distancia').toMatch(/^\d+,\d (m|km)$/);
+
+        // E SEGUE o ponteiro: mais longe, outro alcance.
+        await canvas.hover({ position: { x: 612, y: 300 } });
+        await expect
+            .poll(async () => {
+                // O rotulo tem de EXISTIR e ser outro: sem a primeira metade, um preview que
+                // sumisse passaria por um preview que andou.
+                const { rotulos } = await lerPreview(page);
+                return rotulos.length === 1 && rotulos[0] !== primeiro.rotulos[0];
+            }, { timeout: 5000, message: 'o preview ficou parado onde o ponteiro estava antes' })
+            .toBe(true);
+        const antesDoClique = await lerPreview(page);
+        console.log(`preview: ${JSON.stringify(antesDoClique)}`);
+
+        // As colecoes do preview, por identidade, para conferir depois que sairam da cena.
+        await page.evaluate(() => {
+            const C = window.Cesium;
+            const cena = window.map.scene;
+            window.__colecoesDoPreview = [];
+            for (let i = 0; i < cena.primitives.length; i++) {
+                const p = cena.primitives.get(i);
+                const tipoDoPreview = p instanceof C.PolylineCollection
+                    || p instanceof C.LabelCollection
+                    || p instanceof C.PointPrimitiveCollection;
+                if (tipoDoPreview && !window.__primitivasAntesDoGesto.has(p)) {
+                    window.__colecoesDoPreview.push(p);
+                }
+            }
+        });
+
+        // Segundo clique no MESMO pixel em que o ponteiro parou.
+        await canvas.click({ position: { x: 612, y: 300 } });
+
+        const depois = await page.evaluate(async ({ id }) => {
+            const loja = await import('/src/js/store/index.js');
+            let criado = null;
+            for (let tentativa = 0; tentativa < 60 && !criado; tentativa++) {
+                const lista = await loja.getViewsheds(id);
+                if (lista.length > 0) criado = lista[0];
+                else await new Promise((r) => setTimeout(r, 100));
+            }
+            const cena = window.map.scene;
+            const colecoes = window.__colecoesDoPreview;
+            return {
+                distancia: criado?.parameters?.distance ?? null,
+                colecoes: colecoes.length,
+                aindaNaCena: colecoes.filter((c) => cena.primitives.contains(c)).length,
+                destruidas: colecoes.filter((c) => c.isDestroyed()).length,
+            };
+        }, { id: TILESET_ID });
+
+        expect(depois.distancia, 'o segundo clique nao produziu viewshed').not.toBeNull();
+        expect(depois.colecoes, 'o retrato do preview nao achou as colecoes').toBe(3);
+        expect(depois.aindaNaCena, 'o preview ficou na cena depois do segundo clique').toBe(0);
+        expect(depois.destruidas, 'o preview saiu da cena sem ser destruido').toBe(3);
+
+        // O PREVIEW PROMETE O ALCANCE QUE A ANALISE RECEBE: o rotulo lido com o ponteiro parado
+        // sobre o pixel do segundo clique e a distancia gravada, na formatacao do rotulo.
+        const esperado = `${depois.distancia.toFixed(1)} m`.replace('.', ',');
+        expect(antesDoClique.rotulos[0], 'o preview anunciou um alcance diferente do analisado').toBe(esperado);
+    });
+
+    test('desligar a ferramenta no meio do gesto leva o preview e o manipulador junto', async ({ page }) => {
+        // Escape, o botao do chip, trocar de ferramenta e fechar o 3D chegam todos a
+        // `deactivateViewshedTool` (o ultimo pela inscricao em VIEWER_3D_CLOSED), e e o `destroy` do
+        // motor que tira o preview. Este caso chama a porta comum, porque os atalhos dependem da
+        // barra de ferramentas, que este spec nao dirige.
+        await registrarTileset(page);
+        await servirTileset(page);
+        await bootar(page);
+
+        const abriu = await abrirVisualizador3d(page);
+        if (!abriu) {
+            test.skip(true, 'o visualizador Cesium nao inicializou sem cabeca; limite de ambiente');
+            return;
+        }
+
+        await montarCena(page, OBSERVADOR);
+        await fixarCamera(page, OBSERVADOR);
+        await ativarComRetratoDaCena(page);
+
+        const canvas = page.locator('#map-3d canvas').first();
+        await canvas.click({ position: { x: 612, y: 560 } });
+        await canvas.hover({ position: { x: 612, y: 420 } });
+        await expect
+            .poll(async () => (await lerPreview(page)).linhas.includes(LINHAS_DO_PREVIEW), {
+                timeout: 5000,
+                message: 'o preview nao apareceu, e sem ele este caso nao mede nada',
+            })
+            .toBe(true);
+
+        await page.evaluate(async () => {
+            const ferramenta = await import('/src/js/3d_models_viewer_tool/tools/viewshed_tool_3d.js');
+            ferramenta.deactivateViewshedTool();
+        });
+        expect((await lerPreview(page)).novas, 'o preview sobreviveu a ferramenta desligada').toBe(0);
+
+        // E o manipulador saiu junto: o ponteiro volta a andar e nada volta a ser desenhado, nem
+        // no quadro seguinte (o movimento e coalescido por quadro de animacao).
+        await canvas.hover({ position: { x: 640, y: 380 } });
+        await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+        expect((await lerPreview(page)).novas, 'um movimento depois de desligar redesenhou o preview').toBe(0);
+    });
+
 
     test('um setor de 180 graus desenha os DOIS sub-viewsheds, e a emenda nao deixa fresta', async ({ page }) => {
         // O QUE ESTE CASO MEDE, E QUE NENHUM OUTRO MEDIA ATE A REVISAO DE 2026-09-15. Acima de 150

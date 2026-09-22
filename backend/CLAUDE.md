@@ -21,6 +21,7 @@ app de subir, e não existe fallback estático no cliente.
 `better-sqlite3` (BLOBs 3D/360).
 
 - `src/index.js` boot (HTTP + WS + `validateEnvVariables()` fail-fast) · `src/app.js` factory `createApp()` (testável)
+- **O boot também recusa subir com diretório de dados sem escrita** (desde 2026-09-22): `verificarDiretoriosDeDados` (`src/utils/sonda-de-escrita.js`) cria, escreve e apaga um arquivo de teste em cada diretório que o processo ESCREVE, antes do `listen`, e sai junto com os erros de ambiente num lançamento só. Diretório novo que o servidor passe a escrever entra em `diretoriosQueOProcessoEscreve` e no `mkdir` do `Dockerfile` no mesmo commit, senão o volume nomeado dele nasce de root e o boot recusa; diretório só de LEITURA fica fora, porque `:ro` nele é legítimo. Criar não é escrever: o `mkdir` recursivo sobre diretório existente não pergunta nada, e foi assim que um bind mount de outro dono passou calado. O desligamento do log em RUNTIME vira defeito de servidor, e o `/health` não reprova por ele (decisão em [`../docs/decisions/decisions-2026.md`](../docs/decisions/decisions-2026.md), detalhe em [`../docs/wiki/deploy-backend.md`](../docs/wiki/deploy-backend.md)).
 - `src/config.js` env · `src/database/` (`query`/`tx`, `migrate.js`, `migrations/`) · `src/middleware/` · `src/utils/`
 - **A imagem do Docker é `node:22` desde 2026-08-29, e o motivo não é "mais novo é melhor"**: o
   `better-sqlite3` 12.10.0 tirou os prebuilds do Node 20 (EOL), então na 20 o `npm ci` cai em
@@ -504,7 +505,10 @@ implantacao.** O mapa por dominio e as evidencias estao em
 [`src/database/migrations/README.md`](src/database/migrations/README.md). Cada baseline
 cria o estado final: colunas, indices e CHECK completos, sem ALTER para reparar o que
 acabou de criar. Depois da primeira aplicacao em producao, as baselines ficam imutaveis;
-novas alteracoes usam o proximo numero livre.
+novas alteracoes usam o proximo numero livre. **O congelamento chegou antes disso, em
+2026-09-22**: o stack de teste do servidor aplicou as onze bases e guarda dados de testadores,
+entao nenhuma base volta a ser editada, e a primeira incremental e
+`src/database/migrations/012_presenca_aba_e_miniaturas.sql` (detalhe no README da pasta).
 
 **Historico antigo de desenvolvimento nao e upgradeavel por essa consolidacao.** O runner
 recusa nomes de arquivos ausentes antes de aplicar qualquer migracao pendente. Preserve
@@ -532,9 +536,11 @@ self-registration gateada por `ALLOW_SELF_REGISTRATION` (off em prod).
 **Auto-cadastro: e-mail é OBRIGATÓRIO e é o que torna a confirmação obrigatória.** `registerSchema`
 exige `email`, então a conta nasce pendente e o gate que já existia em `login()`
 (`user.email && !user.email_verified`) passa a bater sempre neste caminho, sem gate novo. O gate
-continua **condicional ao e-mail** de propósito: `POST /api/v1/users` (caminho administrativo) não tem
-campo de e-mail e a conta que ele cria loga na hora, e é ela que se tranca fora se alguém "simplificar"
-a condição para `!user.email_verified`. A rota carrega **dois** limitadores, e a ordem importa:
+continua **condicional ao e-mail** de propósito: `POST /api/v1/users` (caminho administrativo) sem
+endereço no corpo cria conta que loga na hora, e é ela que se tranca fora se alguém "simplificar"
+a condição para `!user.email_verified`. Desde 2026-09-22 aquele caminho ACEITA `email`, opcional, e com
+endereço a conta nasce PENDENTE salvo `email_verified: true` no mesmo pedido (`resolveCreationEmail`),
+recebendo o mesmo link `?verify=` do cadastro; detalhe em [[gestao-usuarios]]. A rota carrega **dois** limitadores, e a ordem importa:
 `registerLimiter` (por ENDEREÇO) antes de `authLimiter`, porque num cadastro o `username` da chave
 `${ip}:${username}` é escolhido pelo chamador e nunca existe ainda, logo balde novo a cada requisição.
 Em produção com auto-cadastro ligado o boot **recusa subir** sem `SMTP_HOST` e `APP_BASE_URL`

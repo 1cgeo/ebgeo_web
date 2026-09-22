@@ -116,7 +116,7 @@ export const LINEAR_CONVERSION_CAPABILITIES = Object.freeze(['CREATE_FEATURE', '
  * que o produto nunca diga uma frase numa tela e outra noutra sobre o mesmo cadeado.
  * @type {string}
  */
-export const LOCKED_MAP_NOTICE = 'Este mapa está bloqueado. Destrave-o para fazer esta alteração.';
+export const LOCKED_MAP_NOTICE = 'Mapa bloqueado. Desbloqueie para fazer esta alteração.';
 
 /** A frase da feição bloqueada (cadeado da própria feição, não do mapa). @type {string} */
 export const LOCKED_FEATURE_NOTICE = 'Esta feição está bloqueada. Desbloqueie-a para convertê-la.';

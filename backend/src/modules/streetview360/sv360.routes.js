@@ -490,7 +490,7 @@ function requireUploadCapability(req, res, next) {
   const u = req.user;
   const ok = !!u && (u.role === 'admin' || Boolean(u.producer_org_id));
   if (ok) return next();
-  drainThen(req, new ForbiddenError('Upload requires write capability'), next);
+  drainThen(req, new ForbiddenError('Você não tem permissão para enviar projetos 360.'), next);
 }
 
 router.post(

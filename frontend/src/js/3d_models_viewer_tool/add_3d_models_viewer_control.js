@@ -16,12 +16,15 @@ import { MARKER_KIND, buildMarkerFeatures, resolveMarkerDescriptor } from './mar
 // O ENDEREÇO DE UM VÍDEO DE PRÉVIA tem UMA definição, e ela mora ao lado do modal que a
 // estreou. Ver o uso, abaixo, no popup do marcador.
 import { enderecoDaPrevia } from '@js/catalog/components/preview-video.modal.js';
+// And THE ADDRESS OF A MINIATURE has one definition too, shared with the catalog card.
+import { enderecoDaMiniatura } from '@js/catalog/endereco-da-miniatura.js';
 import { model3dFailures } from './model3d-failure.js';
 // A leaf of the first-person tool: it imports the shared notice and the phrases, and NOT the
 // splatting engine, so this eager control does not grow by a lazy chunk. See its fileoverview.
 import { scene3dFailures } from '@js/first_person_3d_tool/scene3d-failure.js';
 import { maplibregl } from '@js/map/maplibre.js';
 import { ensureCountBadgeImage } from '@utils/map-image-loader.js';
+import { carregarSobDemanda } from '@utils/carga-sob-demanda.js';
 
 // Global flag to prevent click propagation between overlapping marker layers
 // (3D models, street view, saved photos)
@@ -776,13 +779,19 @@ class Add3DModelsViewerControl {
          * Worse, a missing file under the Vite dev server does not 404: the SPA
          * fallback answers 200 with index.html, so the request "succeeds" and the
          * decode is what fails. Without this the popup shows a broken-image icon.
+         *
+         * The source carries the atlas scope for the same reason the video below does: an
+         * `<img src>` is fetched by the browser with no header, and for a PRIVATE model reached
+         * only by the loan of the atlas in focus the stamp is the only authorisation that gets
+         * through. Without it this `onerror` dropped the miniature of every lent model, in
+         * silence (owner's report, 2026-09-22).
          */
         const buildThumbnail = () => {
             const img = document.createElement('img');
             img.className = 'model-preview-thumbnail';
             img.alt = name;
             img.onerror = () => dropMedia(img);
-            img.src = previewThumbnail;
+            img.src = enderecoDaMiniatura(previewThumbnail);
             return img;
         };
 
@@ -953,7 +962,9 @@ class Add3DModelsViewerControl {
                 this._ensureCloseButtonListener();
             }
 
-            const map3dModule = await import('./map_3d.js');
+            // Through the on-demand door: one retry, then the notice with "Recarregar". The
+            // rejection still lands in the `catch` below, which undoes the split view.
+            const map3dModule = await carregarSobDemanda(() => import('./map_3d.js'));
             await map3dModule.openViewerWithTileset(tilesetId);
 
         } catch (error) {
@@ -980,7 +991,10 @@ class Add3DModelsViewerControl {
         try {
             this.removePreviewPopup();
 
-            const { openFirstPersonViewer } = await import('@js/first_person_3d_tool/first_person_viewer.js');
+            // `avisar: false`: the scene panel below already names this failure, and a second
+            // notice saying the same thing would be noise. The retry still happens.
+            const { openFirstPersonViewer } = await carregarSobDemanda(
+                () => import('@js/first_person_3d_tool/first_person_viewer.js'), { avisar: false });
             await openFirstPersonViewer(sceneId);
 
         } catch (error) {
@@ -1019,7 +1033,9 @@ class Add3DModelsViewerControl {
      */
     async closeFirstPersonScene() {
         try {
-            const { closeFirstPersonViewer } = await import('@js/first_person_3d_tool/first_person_viewer.js');
+            // Closing never announces: a viewer whose code never arrived has nothing to close.
+            const { closeFirstPersonViewer } = await carregarSobDemanda(
+                () => import('@js/first_person_3d_tool/first_person_viewer.js'), { avisar: false });
             await closeFirstPersonViewer();
         } catch (error) {
             console.error('Error closing first-person viewer:', error);
@@ -1055,7 +1071,7 @@ class Add3DModelsViewerControl {
      */
     async closeViewer() {
         try {
-            const map3dModule = await import('./map_3d.js');
+            const map3dModule = await carregarSobDemanda(() => import('./map_3d.js'), { avisar: false });
             map3dModule.closeViewer();
 
             this.setFullMap(true);

@@ -47,6 +47,15 @@
  * DOM, tudo isso é decidido por comparação sobre o payload, e frase de ato irreversível que
  * mora dentro de um construtor de HTML não é testável em node.
  *
+ * DESDE 2026-09-22 A QUEDA TEM DUAS FONTES, e a primeira é a que vale. A listagem do recurso
+ * passou a trazer só o que QUEM OLHA concedeu (decisão do dono, item 19c), então a subárvore de
+ * uma linha, feita de concessões de outras pessoas, deixou de chegar; no lugar dela vem a
+ * contagem do SERVIDOR (`cascade_people`/`cascade_groups`), feita pelas CTEs de leitura da
+ * própria poda, e a lê {@link grantCascade}, com a frase em {@link ownRevocationWarning}. As duas
+ * travessias abaixo (`descendantGrants`, `fallenGrants`) e {@link revocationWarning} continuam
+ * valendo para a resposta que ainda traga a árvore sem a contagem, e o que se disse sobre o
+ * espelhamento parcial delas passou a ser verdade só desse caminho.
+ *
  * DESDE 2026-09-20 ELE TEM UM IMPORT, E SÓ UM, e a propriedade que valia não era "zero
  * imports" e sim o GRAFO que ele acrescenta a uma página que boota sem a store
  * (`frontend/tests/unit/compartilhar-sem-a-store.test.js`, que o mede). `@utils/person-label.js`
@@ -443,9 +452,8 @@ export function deadGrantorChip(grant) {
     if (!isGrantorDead(grant)) return null;
     return {
         label: 'sem efeito',
-        title: 'Quem concedeu este acesso teve a conta ou a OM desativada, e por isso esta '
-            + 'linha já não entrega acesso a ninguém. Ela continua aqui só para poder ser '
-            + 'revogada; reativar a conta ou a OM devolve o acesso.',
+        title: 'Quem concedeu este acesso teve a conta ou a OM desativada, e ele deixou de '
+            + 'valer. Você ainda pode removê-lo; reativar a conta ou a OM o devolve.',
     };
 }
 
@@ -732,11 +740,92 @@ export function accessLossClause(count, subject = '') {
  * @returns {string}
  */
 function fallenSummary(caidos) {
-    const { pessoas, grupos } = granteeCounts(caidos);
+    return lossSummary(granteeCounts(caidos));
+}
+
+/**
+ * A mesma oração de {@link fallenSummary}, a partir das CONTAGENS e não das linhas.
+ *
+ * Existe porque, desde 2026-09-22, o que cai junto chega ao cliente como número
+ * ({@link grantCascade}) e não mais como a subárvore. As duas entradas passam pela MESMA
+ * conjugação, senão o aviso da lista recortada e o do fallback diriam "2 pessoas perdem" de
+ * dois jeitos.
+ *
+ * @param {{pessoas: number, grupos: number}} contagem
+ * @returns {string}
+ */
+function lossSummary({ pessoas, grupos }) {
     const partes = [];
     if (pessoas > 0) partes.push(`${pessoas} ${pessoas === 1 ? 'pessoa' : 'pessoas'}`);
     if (grupos > 0) partes.push(`${grupos} ${grupos === 1 ? 'grupo' : 'grupos'}`);
     return accessLossClause(pessoas + grupos, partes.join(' e '));
+}
+
+/**
+ * QUANTAS CONCESSÕES CAIRIAM JUNTO com esta linha, como o SERVIDOR contou, ou `null`.
+ *
+ * O número vem de `cascade_people`/`cascade_groups`, que a listagem do recurso manda desde
+ * 2026-09-22, contados pelas CTEs de leitura da própria poda (`REVOCATION_FALL_PREVIEW`,
+ * `backend/src/modules/resource-access/resource-access.queries.js`). Ele é EXATO onde
+ * {@link fallenGrants} era aproximado: o resgate por grupo entra, porque o servidor tem a
+ * composição dos grupos e o cliente não.
+ *
+ * `null` É UM ESTADO LEGÍTIMO, e não zero. Ele é a linha de um servidor que ainda manda a árvore
+ * sem a contagem, e ali quem conta continua sendo {@link fallenGrants} sobre a árvore. Tratar a
+ * ausência como zero seria o aviso dizer "ninguém cai" sem ter perguntado a ninguém, na direção
+ * perigosa de um ato irreversível. Qualquer coisa que não seja inteiro não negativo nos dois
+ * campos é lida como ausência: um campo sujo não autoriza a metade limpa.
+ *
+ * @param {{cascade_people?: *, cascade_groups?: *}} grant
+ * @returns {{pessoas: number, grupos: number, total: number}|null}
+ */
+export function grantCascade(grant) {
+    const pessoas = grant?.cascade_people;
+    const grupos = grant?.cascade_groups;
+    const valido = (n) => Number.isInteger(n) && n >= 0;
+    if (!valido(pessoas) || !valido(grupos)) return null;
+    return { pessoas, grupos, total: pessoas + grupos };
+}
+
+/**
+ * Se QUEM OLHA fez esta concessão.
+ *
+ * `String(...)` dos dois lados, como em {@link revokeAvailability}: o id da linha vem do JSON e o
+ * de quem olha vem da sessão. Sem concedente (a raiz da administração) ou sem sessão, é `false`,
+ * que é o lado que MOSTRA a frase de origem em vez de escondê-la.
+ *
+ * @param {{granted_by?: string|null}} grant
+ * @param {string|null|undefined} userId
+ * @returns {boolean}
+ */
+export function isOwnGrant(grant, userId) {
+    const concedente = grant?.granted_by;
+    if (concedente == null || userId == null) return false;
+    return String(concedente) === String(userId);
+}
+
+/**
+ * A confirmação de revogar UMA concessão de quem olha, com a queda contada pelo SERVIDOR.
+ *
+ * IRMÃ DE {@link revocationWarning}, e não a mesma, porque a entrada é outra: aquela recebe a
+ * árvore e NOMEIA os primeiros que caem; esta recebe a contagem e só CONTA. Os nomes são de
+ * pessoas que receberam acesso de OUTRAS pessoas a partir da concessão de quem olha, e é
+ * exatamente o dado que o recorte por autoria (decisão do dono, 2026-09-22) não entrega mais.
+ *
+ * TRÊS RAMOS, e o do meio é o que não pode faltar: sem contagem a frase diz que o repasse PODE
+ * cair, em vez de calar sobre ele (que se leria como "nada mais cai"); com zero ela é a pergunta
+ * curta; com N ela conta por tipo, pela mesma conjugação de {@link fallenSummary}.
+ *
+ * @param {Object} grant - A linha da listagem, com `cascade_people`/`cascade_groups`.
+ * @returns {string}
+ */
+export function ownRevocationWarning(grant) {
+    const quem = granteeSubject(grant);
+    const pergunta = `Remover o acesso ${quem} a este recurso?`;
+    const cascata = grantCascade(grant);
+    if (!cascata) return `${pergunta} O que foi repassado a partir dele também pode cair.`;
+    if (cascata.total === 0) return pergunta;
+    return `${pergunta} Também cai o que foi repassado a partir dele: ${lossSummary(cascata)}.`;
 }
 
 /**
@@ -829,10 +918,14 @@ export function revocationWarning(grants, rootId, maxNomes = 3) {
  * @returns {string}
  */
 export function grantsListScopeNote(atlasQueEmprestam = null) {
-    const base = 'Esta lista mostra só as concessões diretas, a pessoas e a grupos. Enxergam este '
-        + 'recurso SEM aparecer aqui: administradores, credenciados e produtores da OM dona, '
-        + 'que o veem por papel; e todo mundo que abrir um atlas cujo dono o enxerga, inclusive '
-        + 'quem entra pelo link público. ';
+    // "SÓ AS QUE VOCÊ CONCEDEU" ENTROU EM 2026-09-22, quando a listagem passou a trazer só a
+    // autoria de quem pergunta (decisão do dono, item 19c). Quem recebeu de OUTRA pessoa é o
+    // terceiro caminho que a lista não mostra, e sem dizê-lo a tela afirmaria que só aquelas
+    // linhas alcançam o recurso.
+    const base = 'Esta lista mostra só as concessões que você fez. Também veem este recurso, sem '
+        + 'aparecer aqui: quem o recebeu de outras pessoas; administradores, credenciados e '
+        + 'produtores da OM dona; e quem abrir um atlas cujo dono o vê, inclusive pelo link '
+        + 'público. ';
 
     // SEM COERÇÃO, e a armadilha é `Number(null) === 0`: com `Number(...)` no meio, o estado
     // "não sei" (o default, e o de um servidor mais velho) viraria a frase de ZERO, que é a
@@ -842,16 +935,19 @@ export function grantsListScopeNote(atlasQueEmprestam = null) {
     const n = atlasQueEmprestam;
     const sabido = Number.isInteger(n) && n >= 0;
 
+    // "ESSES CAMINHOS", e não mais "esses dois": desde que a lista é só a autoria de quem olha, o
+    // que ela não fecha são três (a concessão alheia, o papel e o empréstimo), e o zero de
+    // empréstimo deixou de poder dizer que só o papel sobra.
     if (!sabido) {
-        return `${base}Remover uma linha daqui não fecha esses dois caminhos: o empréstimo se `
+        return `${base}Remover alguém desta lista não fecha esses caminhos: o empréstimo se `
             + 'desfaz na configuração do atlas que empresta.';
     }
     if (n === 0) {
         return `${base}Nenhum atlas empresta este recurso agora, então o caminho do empréstimo `
-            + 'está fechado e só o do papel continua aberto.';
+            + 'está fechado.';
     }
     const quantos = n === 1 ? '1 atlas empresta' : `${n} atlas emprestam`;
-    return `${base}Hoje ${quantos} este recurso. Remover uma linha daqui não fecha esses dois `
+    return `${base}Hoje ${quantos} este recurso. Remover alguém desta lista não fecha esses `
         + 'caminhos: o empréstimo se desfaz na configuração do atlas que empresta.';
 }
 
@@ -869,8 +965,8 @@ export function grantsListScopeNote(atlasQueEmprestam = null) {
  * @returns {string}
  */
 export function searchFailureNotice() {
-    return 'Não foi possível buscar pessoas agora. Isto é falha ao consultar o servidor, '
-        + 'não ausência de resultados: tente de novo.';
+    return 'Não foi possível buscar pessoas agora: falha ao consultar o servidor, não '
+        + 'ausência de resultados. Tente de novo.';
 }
 
 /**
@@ -1057,10 +1153,9 @@ export function loadFailureState(status) {
         return {
             kind: LOAD_FAILURE.SEM_AUTORIDADE,
             paragrafos: [
-                'O servidor não autorizou você a conceder este recurso.',
-                'Isso acontece quando o seu acesso a ele não inclui compartilhar, ou quando ele '
-                + 'deixou de ser mantido por você. Se você acabou de mudar de papel ou de OM, '
-                + 'recarregue a página: a tela pode estar com a informação anterior.',
+                'Você não pode conceder acesso a este recurso.',
+                'Seu acesso a ele não inclui compartilhar, ou ele deixou de ser mantido por você. '
+                + 'Se você mudou de papel ou de OM há pouco, recarregue a página.',
             ],
             retry: false,
         };
@@ -1070,8 +1165,8 @@ export function loadFailureState(status) {
             kind: LOAD_FAILURE.SUMIU,
             paragrafos: [
                 'Este recurso não existe mais.',
-                'Ele foi apagado ou deixou de ser publicado enquanto esta tela estava aberta. '
-                + 'Não há o que tentar de novo aqui: feche e volte ao catálogo.',
+                'Ele foi apagado ou deixou de ser publicado há pouco. Feche esta janela e volte '
+                + 'ao catálogo.',
             ],
             retry: false,
         };
@@ -1281,8 +1376,8 @@ export function extensionSummary(outcome, quando) {
             + 'este acesso.';
     }
     if (outcome === EXTENSION_OUTCOME.APARADO) {
-        return `Prazo estendido até ${data}, menos do que foi pedido: uma concessão não vale `
-            + 'depois da de quem a originou, e o servidor aparou por esse teto.';
+        return `Prazo estendido até ${data}, menos do que foi pedido: uma concessão não pode `
+            + 'durar mais que a de quem a originou.';
     }
     return `Prazo estendido até ${data}.`;
 }
@@ -1302,5 +1397,5 @@ export function extensionSummary(outcome, quando) {
  */
 export function extendGrantHint() {
     return 'Estender o prazo desta concessão, contado a partir de hoje, pelo prazo escolhido '
-        + 'em "Conceder acesso". O servidor apara pelo teto de quem concedeu.';
+        + 'em "Conceder acesso". Ele não passa do prazo de quem concedeu.';
 }

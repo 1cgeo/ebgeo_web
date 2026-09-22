@@ -143,7 +143,11 @@ describe('o desfecho de um bloco', () => {
         const ausente = blocoAusenteNotice();
         const semFonte = semFonteNotice({ motivo: 'o diretório de log não existe' });
         expect(ausente).not.toBe(semFonte);
-        expect(ausente).toMatch(/implantação anterior/i);
+        // "implantação anterior" virou "versão anterior" na reescrita de 2026-09-22 (menos
+        // jargão); a causa nomeada é a mesma, e é ela que diz o que fazer: atualizar o servidor,
+        // e não tentar ler de novo.
+        expect(ausente).toMatch(/versão anterior/i);
+        expect(ausente).toMatch(/não é uma leitura que falhou/i);
         expect(semFonte).toContain('o diretório de log não existe');
         // A RESSALVA É DAQUI e não do servidor: sem ela um cartão vazio parece um que ainda carrega.
         expect(semFonte).toMatch(/nenhum número/i);

@@ -176,8 +176,23 @@ export const eventosDeUsoSchema = Joi.object({
   }).unknown(false),
 });
 
+/**
+ * O pulso de presença administrativa, e desde 2026-09-22 também a SAÍDA.
+ *
+ * `abaId` é o id do DOCUMENTO que pulsa, novo a cada carga de página (não o da aba do navegador,
+ * que sobrevive a uma navegação). `saindo: true` é o último pulso, mandado no `pagehide`: ele
+ * apaga a linha do navegador SÓ SE o último pulso gravado for DESTE documento
+ * (`registrarPresenca`, uso.presenca.js). É isso que torna a saída explícita segura nos dois
+ * casos em que ela chega fora de ordem: a navegação do mapa para `atlas.html` (a página nova pode
+ * pulsar antes de a saída da velha chegar) e a outra aba do mesmo navegador, que continua aberta.
+ *
+ * Os dois campos são OPCIONAIS: uma aba carregada antes deste deploy continua mandando o corpo de
+ * antes, e ele vale como sempre valeu (a linha expira pela janela).
+ */
 export const presencaSchema = Joi.object({
   navegadorId: Joi.string().guid().required(),
+  abaId: Joi.string().guid(),
+  saindo: Joi.boolean(),
   pendentes: Joi.number().integer().min(0).max(10000000).allow(null),
   idadePendenteMs: Joi.number().integer().min(0).max(31536000000).allow(null),
   falhasColeta: Joi.number().integer().min(0).max(10000000),

@@ -192,9 +192,9 @@ async function importarPelaTela(page, arquivo, mapasEsperados) {
     // A tela NAVEGA; quem importa e o boot do mapa.
     await page.waitForURL((url) => !url.pathname.endsWith('atlas.html'), { timeout: 30000 });
     await esperarMapa(page);
-    // Pluralizacao do produto: com UM mapa ele escreve "1 mapa carregados!". A fixture tem onze,
-    // entao o plural e o certo aqui, e o numero vem do ARQUIVO.
-    await expect(page.locator('.toast', { hasText: `${mapasEsperados} mapas carregados!` }))
+    // Com UM mapa o produto escreve "1 mapa carregado.". A fixture tem onze, entao a frase e a do
+    // plural, e o numero vem do ARQUIVO.
+    await expect(page.locator('.toast', { hasText: `${mapasEsperados} mapas carregados.` }))
         .toBeVisible({ timeout: 60000 });
 }
 
@@ -306,7 +306,7 @@ describeOrSkip('.ebgeo: o ciclo completo pelo disco', () => {
         // O toast de sucesso do EXPORTADOR, que so aparece depois do `a.click()`: sem ele, um
         // arquivo salvo e um `showError('Erro ao exportar arquivo .ebgeo')` engolido seriam o
         // mesmo verde.
-        await expect(page.locator('.toast', { hasText: `${esperado.maps} mapas exportados!` }))
+        await expect(page.locator('.toast', { hasText: `${esperado.maps} mapas exportados.` }))
             .toBeVisible({ timeout: 60000 });
         expect(nomeBaixado, 'o download sai com a extensao do formato').toMatch(/^atlas-.+\.ebgeo$/);
 

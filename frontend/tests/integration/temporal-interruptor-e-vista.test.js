@@ -5,9 +5,11 @@
 // O DEFEITO QUE ESTE ARQUIVO PRENDE: ligar ou desligar a linha do tempo gravava `ativo` na config
 // do mapa e enfileirava uma op `mapTemporal`, de modo que o gesto de UMA pessoa ligava a linha do
 // tempo na tela de TODAS. O conserto separa dois valores. O da TELA mora em
-// `memoryStore.temporalView`, não persiste e não enfileira nada. O SALVO continua dentro da
-// config, viaja com ela e só é escrito por `setMapTemporalSaved`, que o gesto de salvar a vista
-// chama.
+// `memoryStore.temporalView`, não vai para o documento do mapa e não enfileira nada; desde
+// 2026-09-22 o GESTO também é lembrado neste computador (`store/vista-da-pessoa.js`, aqui um dublê,
+// cobrado de verdade em `tests/integration/vista-da-pessoa-lembrada.test.js`). O SALVO continua
+// dentro da config, viaja com ela e só é escrito por `setMapTemporalSaved`, que o gesto de salvar a
+// vista chama.
 //
 // A ARMADILHA QUE A SEPARAÇÃO TEM, e que os dois últimos casos prendem: o servidor REGRAVA
 // `temporal_config` com as chaves que a op traz, então o payload precisa continuar levando
@@ -64,6 +66,15 @@ vi.mock('../../src/js/store/services.js', () => ({
     getEventBus: vi.fn(() => eventBus),
 }));
 
+// A VISTA LEMBRADA É ENTRADA DESTE ARQUIVO, e por isso é dublê: o que se mede aqui é QUAL troca a
+// escreve (só o gesto) e que a entrada num mapa a prefere ao salvo.
+const lembranca = vi.hoisted(() => ({ porMapa: new Map(), escritas: [] }));
+vi.mock('../../src/js/store/vista-da-pessoa.js', () => ({
+    personViewTarget: (mapName) => ({ mapKey: mapName }),
+    rememberedMapView: (mapName) => ({ ...(lembranca.porMapa.get(mapName) ?? {}) }),
+    rememberMapView: (alvo, escolha) => { lembranca.escritas.push({ mapa: alvo.mapKey, ...escolha }); return true; },
+}));
+
 import {
     setMapTemporalConfig,
     setMapTemporalSaved,
@@ -73,6 +84,7 @@ import {
     isMapTemporalEnabledSync,
     isMapTemporalSavedEnabled,
     applySavedMapTemporalView,
+    applyMapEntryTemporalView,
     getMapTemporalConfig,
 } from '../../src/js/store/temporal.operations.js';
 import { memoryStore } from '../../src/js/store/memory-store.js';
@@ -90,6 +102,8 @@ function emitidos(evento) {
 
 beforeEach(async () => {
     settingStore.clear();
+    lembranca.porMapa.clear();
+    lembranca.escritas.length = 0;
     memoryStore.temporalConfigs.clear();
     memoryStore.temporalView.clear();
     eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn() };
@@ -104,9 +118,11 @@ describe('o interruptor da TELA não grava e não viaja', () => {
 
         expect(isMapTemporalEnabledSync(MAP_UUID)).toBe(true);
         expect(emitidos(EventTypes.MAP_TEMPORAL_CHANGED)).toEqual([{ mapName: MAP_UUID, enabled: true }]);
-        // O sinal que separa vista de escrita: a fila de saída e o disco continuam vazios.
+        // O sinal que separa vista de escrita: a fila de saída e o documento do mapa continuam
+        // vazios. A única escrita é a vista lembrada, fora de ambos.
         expect(await operationQueue.count()).toBe(0);
         expect(settingStore.has(`temporal_${MAP_UUID}`)).toBe(false);
+        expect(lembranca.escritas).toEqual([{ mapa: MAP_UUID, temporalEnabled: true }]);
     });
 
     it('o LEITOR alterna: o gesto não pergunta nada ao guarda', async () => {
@@ -212,6 +228,50 @@ describe('a config do mapa não deixa o interruptor da tela vazar', () => {
 
         const [op] = await operationQueue.peek(10);
         expect(op.data).toMatchObject({ ativo: true, unidade: 'hora' });
+    });
+});
+
+describe('a escolha da TELA é lembrada neste computador, e só o gesto (2026-09-22)', () => {
+    it('uma troca AUTOMÁTICA não é lembrada: nem o slide, nem a vista salva aplicada', async () => {
+        settingStore.set(`temporal_${MAP_UUID}`, { ativo: true });
+
+        setMapTemporalView(MAP_UUID, false, { automatico: true });
+        await applySavedMapTemporalView(MAP_UUID);
+
+        expect(lembranca.escritas).toEqual([]);
+    });
+
+    it('ao entrar num mapa com vista salva, o lembrado VENCE o salvo, e a troca sai automática', async () => {
+        settingStore.set(`temporal_${MAP_UUID}`, { ativo: true });
+        lembranca.porMapa.set(MAP_UUID, { temporalEnabled: false });
+        setMapTemporalView(MAP_UUID, true, { automatico: true });
+        eventBus.emit.mockClear();
+
+        await expect(applyMapEntryTemporalView(MAP_UUID)).resolves.toBe(false);
+
+        expect(emitidos(EventTypes.MAP_TEMPORAL_CHANGED)).toEqual([
+            { mapName: MAP_UUID, enabled: false, automatico: true },
+        ]);
+        // Aplicar o lembrado não o reescreve: não é gesto.
+        expect(lembranca.escritas).toEqual([]);
+    });
+
+    it('sem lembrança, a entrada aplica o SALVO (é a lembrança que muda o desfecho)', async () => {
+        settingStore.set(`temporal_${MAP_UUID}`, { ativo: true });
+
+        await expect(applyMapEntryTemporalView(MAP_UUID)).resolves.toBe(true);
+    });
+
+    it('lembrar não abre porta de escrita: o LEITOR lembra, sem guarda e sem op', async () => {
+        // O histórico do espião atravessa os casos (os de cima chamam o guarda ao salvar).
+        checkPermission.mockClear();
+        checkPermission.mockReturnValue({ allowed: false, reason: 'somente leitura', required: 'write' });
+
+        await toggleMapTemporal(MAP_UUID);
+
+        expect(lembranca.escritas).toEqual([{ mapa: MAP_UUID, temporalEnabled: true }]);
+        expect(checkPermission).not.toHaveBeenCalled();
+        expect(await operationQueue.count()).toBe(0);
     });
 });
 

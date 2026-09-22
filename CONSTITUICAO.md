@@ -240,6 +240,25 @@ resgatava). O dono decidiu por MANTER, que é o que a 3.7 já mandava. A regra d
 porque ela existe para a revogação DELIBERADA: os chamadores é que passaram a se separar em dois grupos, e
 sair de um grupo é remoção de CAMINHO, não revogação de uma concessão que alguém escolheu derrubar.
 
+**3.9** Quem compartilha **vê as concessões que ele mesmo fez, e só elas**: na lista do recurso e na aba
+Concessões. O que outras pessoas concederam sobre o mesmo recurso não chega à tela dele, e vale igual para
+o administrador. O que cai junto quando ele revoga uma concessão sua continua sendo **contado** antes do
+clique, porque deriva da concessão dele, mas não é nomeado. Concede-se por qualquer das duas telas, e as duas
+só oferecem o que a pessoa pode originar ou repassar (3.3). **[vigente]** desde 2026-09-22, decisão do dono:
+o recorte é do servidor (`granted_by` igual a quem pergunta, na consulta da listagem), para que a concessão
+alheia nem chegue ao cliente, e a contagem da queda é feita pelas mesmas consultas de leitura da poda de 3.5.
+Preso por `backend/tests/integration/concessoes-do-recurso-so-autoria.test.js`, que mede o recorte nos dois
+sentidos e a contagem batendo com o que a revogação derruba, e por
+`frontend/tests/unit/conceder-pelo-painel.test.js`, que prende a lista do que se pode compartilhar.
+
+**O que o administrador deixou de ter, e onde isso sobrevive.** O gate de revogar continua com o ramo largo
+de 3.5: o servidor aceita que ele revogue qualquer concessão. O que saiu foi a **tela** que listava as
+concessões dos outros sobre um recurso, e portanto o caminho de clique até elas. Sobrevivem a rota de
+revogação (para quem tem o identificador da concessão, que a trilha de auditoria registra em cada
+`PERMISSION_GRANT`), a desativação da conta de quem concedeu e o rebaixamento de papel ou de escopo de
+produção, que podam tudo o que aquela pessoa originou, e a exclusão do grupo beneficiário. Uma tela de
+revogação administrativa por recurso não existe, e só nasce por pedido.
+
 ---
 
 ## 4. Grupos
@@ -416,6 +435,14 @@ gate já usava para resolver o caminho. O `?atlasId=` sempre esteve dentro dele.
 virou uma conclusão falsa, e a conclusão foi carregada por dezessete dias como escopo de trabalho.** O sintoma
 que ela deixou na tela era o pior possível para a 6.3: quem alcança uma camada SÓ pelo empréstimo a via na
 lista do catálogo e não a via desenhar.
+
+**A MINIATURA ficou fora de "os ativos 3D e 360" até 2026-09-22**, com o mesmo sintoma visto de outro ângulo
+(relato do dono): o `tileset.json` do modelo emprestado já saía com o atlas, e a miniatura dele, que é
+`<img src>` e arquivo do mesmo gate, saía crua do cartão do catálogo e do popup dos marcadores 3D e 360.
+O colega abria o modelo e via o desenho padrão no lugar da imagem. O servidor já decidia certo; o cliente
+passou a carimbá-la por uma receita só (`frontend/src/js/catalog/endereco-da-miniatura.js`). Preso por
+`frontend/tests/unit/miniatura-emprestada-carimba-escopo.repro.test.js` e
+`backend/tests/integration/miniatura-3d-emprestada.repro.test.js`.
 
 **6.4** O empréstimo reconhece também o **produtor** como dono capaz de emprestar o acervo da própria
 organização. **[vigente]** desde 2026-08-21: a produção do dono do atlas entrou como termo próprio na
@@ -648,7 +675,7 @@ e nunca confirma o e-mail deixa aquele par reservado indefinidamente, e a razão
 unicidade não perguntam pela vivacidade. (Esta cláusula dizia também que os dois índices únicos são totais,
 e isso é FALSO para o e-mail desde a baseline de identidade: `idx_users_email_lower` é parcial, com
 `WHERE email IS NOT NULL`. A parcialidade não muda nada aqui, porque ela só dispensa a conta SEM endereço,
-que é a administrativa; o cativeiro vem do predicado, não do índice.) A assimetria é a parte que surpreende:
+que é a administrativa criada sem e-mail; o cativeiro vem do predicado, não do índice.) A assimetria é a parte que surpreende:
 o TOKEN de verificação caduca em 48 horas, e a conta que ele deveria ativar não caduca nunca. Decidido em
 2026-08-21 **deixar como está**, e o desbloqueio passa a ser ato de administrador. Não é buraco esquecido: é
 custo aceito, e a alternativa (expirar cadastro não confirmado) fica registrada como a saída, se um dia o
@@ -667,6 +694,14 @@ esta cláusula.** O endereço pretendido mora no token (`email_verification_toke
 nunca na conta, então enquanto o convite está de pé o endereço segue livre para qualquer outra pessoa: a
 unicidade é conferida no pedido e DE NOVO no resgate, nunca segurada no meio. Um token que caduca sem ser
 aberto não deixa nada reservado.
+
+**A criação administrativa passou a aceitar o endereço (2026-09-22), e o cativeiro que ela pode produzir
+tem dono.** Com endereço, a conta nasce pendente, salvo se o mesmo pedido a declarar conferida
+(`resolveCreationEmail`), e recebe o mesmo link de confirmação do auto-cadastro onde o servidor entrega
+e-mail. Nascer confirmada por padrão foi recusado: o endereço confirmado é o canal de recuperação de senha, e
+um erro de digitação entregaria a conta a quem tem a caixa. A conta pendente criada assim reserva o par
+como a do auto-cadastro, mas não fica sem saída, porque quem a criou é justamente quem a corrige ou aprova.
+**[vigente]** Preso por `backend/tests/integration/admin-cria-conta-com-email.test.js`.
 
 **Confirmação e recuperação vinculadas à conta (2026-09-19).** O link de confirmação só confirma
 o endereço ao qual foi enviado, enquanto a conta estiver ativa. O código de recuperação exige

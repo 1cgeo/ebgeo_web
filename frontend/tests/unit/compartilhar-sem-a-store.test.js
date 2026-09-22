@@ -254,7 +254,13 @@ describe('o núcleo do modal de compartilhamento cabe em `atlas.html`', () => {
         // `utilities/person-label.js`, folha de ZERO imports que compõe o rótulo militar das
         // quatro linhas de pessoa desta tela. Ele não alcança a store, que é o que os proibidos
         // abaixo medem, e o teto sobe UM em vez de a mudança ser desfeita.
-        expect(grafo.arquivos.size).toBeLessThanOrEqual(31);
+        //
+        // 31 -> 32 em 2026-09-22, pelo mesmo critério: o acréscimo é
+        // `store/vista-da-pessoa-disco.js` (a vista lembrada da pessoa, pedido do dono daquela
+        // data), folha de ZERO imports que entra por `store/atlas-namespace.js`, porque o registro
+        // é chaveado pelo sufixo do namespace e tem de morrer junto com ele. Não é o núcleo que a
+        // importa: é a fábrica de namespace, que o núcleo já alcançava. Não alcança a store.
+        expect(grafo.arquivos.size).toBeLessThanOrEqual(32);
     });
 
     for (const [rotulo, padrao] of Object.entries(PROIBIDOS)) {
@@ -391,5 +397,105 @@ describe('a separação está escrita no código, e não só no grafo', () => {
         // deixaria os três casos acima verdes sobre um arquivo em branco.
         expect(semComentarios('// getEventBus()\nconst x = 1;')).toMatch(/const x = 1;/);
         expect(semComentarios('// getEventBus()\nconst x = 1;')).not.toMatch(/getEventBus/);
+    });
+});
+
+// =================================================================================================
+// O SEGUNDO CASO, desde 2026-09-22: o modal de compartilhar RECURSO cabe em `admin.html`.
+//
+// O pedido do dono (item 19b) foi conceder pela aba Concessões, e o que prendia aquele modal ao
+// mapa era UMA linha: a re-soma do catálogo privado de quem revogou, por `syncEngine.atlasId`, que
+// arrasta a store inteira. A separação é a mesma deste arquivo: o núcleo
+// (`catalog/resource-share.modal.core.js`) recebe o efeito por injeção (`onAccessChanged`), e a
+// entrada do mapa (`catalog/resource-share.modal.js`) liga a re-soma. O caminhador é o de cima;
+// o comentário do cabeçalho prometia virar helper no TERCEIRO caso, e este é o segundo.
+// =================================================================================================
+
+const NUCLEO_RECURSO = 'src/js/catalog/resource-share.modal.core.js';
+const ENTRADA_RECURSO_DO_MAPA = 'src/js/catalog/resource-share.modal.js';
+const PAGINA_ADMIN = 'src/js/admin/admin-page.js';
+
+/** O que o núcleo do modal de recurso TEM de alcançar: o controle de que os aliases resolveram. */
+const ANCORAS_RECURSO = Object.freeze([
+    'src/js/store/sync/api-client.js',      // listar, conceder, estender, revogar, buscar pessoa
+    'src/js/store/sync/session-context.js', // quem olha, para autoria e para a porta de grupos
+    'src/js/catalog/grant-tree.js',         // a contagem da queda e as frases
+    'src/js/modals/confirm.modal.js',       // `showConfirm` por arquivo, não pelo barril
+    'src/js/modals/modal.base.js',
+    'src/js/utilities/person-label.js',     // o rótulo militar da busca
+]);
+
+describe('o núcleo do modal de compartilhar RECURSO cabe em `admin.html`', () => {
+    const grafo = percorrer([abs(NUCLEO_RECURSO)]);
+
+    it('o caminhador de fato caminhou, e resolveu tudo', () => {
+        expect(existsSync(abs(NUCLEO_RECURSO)), `${NUCLEO_RECURSO} não existe`).toBe(true);
+        expect(grafo.naoResolvidos).toEqual([]);
+        const alcancados = [...grafo.arquivos].map(rel);
+        for (const ancora of ANCORAS_RECURSO) {
+            expect(alcancados, `não alcançou ${ancora}`).toContain(ancora);
+        }
+        // Piso e teto MEDIDOS em 2026-09-22: 33 módulos, contra os 32 do núcleo irmão, e a
+        // entrada do mapa na casa de quatrocentos. O teto é o que transforma "ficou leve" em
+        // propriedade: sem ele o grafo pode dobrar sem nada acusar, desde que os proibidos fiquem
+        // de fora.
+        expect(grafo.arquivos.size).toBeGreaterThanOrEqual(12);
+        expect(grafo.arquivos.size).toBeLessThanOrEqual(36);
+    });
+
+    for (const [rotulo, padrao] of Object.entries(PROIBIDOS)) {
+        it(`não alcança ${rotulo}`, () => {
+            const achados = [...grafo.arquivos].filter((f) => padrao.test(f));
+            const detalhe = achados.map((f) => caminhoAte(f, grafo.pai)).join('\n\n');
+            expect(achados, `entrou por:\n  ${detalhe}`).toEqual([]);
+        });
+    }
+
+    it('as dependências externas são exatamente as declaradas aqui', () => {
+        expect([...grafo.externos].sort()).toEqual(['localforage']);
+    });
+
+    it('a página de administração ALCANÇA o núcleo, e continua sem nenhum proibido', () => {
+        // A PONTA LIGADA: sem o núcleo no grafo da página, "Conceder acesso" abriria um chunk que
+        // não existe. Ele entra por `import()` dinâmico da aba Concessões, que o caminhador segue.
+        const pagina = percorrer([abs(PAGINA_ADMIN)]);
+        expect(pagina.naoResolvidos).toEqual([]);
+        const daPagina = [...pagina.arquivos].map(rel);
+        expect(daPagina, 'a página deixou de alcançar o núcleo: o comando foi desligado')
+            .toContain(NUCLEO_RECURSO);
+        expect(daPagina, 'a página passou a alcançar a entrada PESADA do mapa')
+            .not.toContain(ENTRADA_RECURSO_DO_MAPA);
+        for (const [rotulo, padrao] of Object.entries(PROIBIDOS)) {
+            const achados = daPagina.filter((f) => padrao.test(f));
+            const detalhe = achados.map((f) => caminhoAte(abs(f), pagina.pai)).join('\n\n');
+            expect(achados, `a página passou a alcançar ${rotulo} por:\n  ${detalhe}`).toEqual([]);
+        }
+    });
+
+    it('CONTROLE DE VÁCUO: a entrada do mapa continua alcançando o motor de sync e a store', () => {
+        // Sem esta metade, um caminhador que não seguisse o import da entrada devolveria "nenhum
+        // proibido" para as duas pontas e o verde de cima seria sobre nada.
+        const doMapa = [...percorrer([abs(ENTRADA_RECURSO_DO_MAPA)]).arquivos].map(rel);
+        expect(doMapa).toContain(NUCLEO_RECURSO);
+        expect(doMapa).toContain('src/js/store/sync/sync-engine.js');
+        expect(doMapa.some((f) => PROIBIDOS['o barril @store (store/index.js)'].test(`/${f}`)))
+            .toBe(true);
+    });
+
+    it('a separação está escrita no código: o núcleo não cita o motor, e a entrada o injeta', () => {
+        const nucleo = semComentarios(readFileSync(abs(NUCLEO_RECURSO), 'utf8'));
+        for (const proibido of ['syncEngine', 'refreshVisibleResources', 'getEventBus', 'initServices']) {
+            expect(nucleo, `${NUCLEO_RECURSO} ainda cita ${proibido}`).not.toMatch(proibido);
+        }
+        // O efeito é OPCIONAL de forma explícita, por default ausente.
+        expect(nucleo).toMatch(/constructor\(\{ resourceType, resourceId, resourceName, onAccessChanged = null \}\)/);
+        expect(nucleo).toMatch(/export function openResourceShareModal\(/);
+
+        const entrada = semComentarios(readFileSync(abs(ENTRADA_RECURSO_DO_MAPA), 'utf8'));
+        expect(entrada).toMatch(/export \* from '\.\/resource-share\.modal\.core\.js'/);
+        expect(entrada).toMatch(/export function showResourceShareModal\(/);
+        expect(entrada).toMatch(/onAccessChanged: refreshAfterRevoke/);
+        // A re-soma é da REVOGAÇÃO, e só dela: quem concede não perde caminho nenhum.
+        expect(entrada).toMatch(/if \(kind !== 'revoke'\) return;/);
     });
 });

@@ -76,6 +76,7 @@ import {
 // Módulo FOLHA, sem imports: as palavras das operações de atlas local moram todas nele, e é dele
 // que vem a recusa que este componente diz ANTES de chamar de volta a página.
 import { deleteAttempt, NoticeKind } from './local-atlas-notices.js';
+import { serverMessageOr } from '@utils/request-failure.js';
 
 const ICONS = {
     plus: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
@@ -417,10 +418,9 @@ export function describeLeaveOutcome(result, atlasName = '') {
         gone: false,
         tone: 'warning',
         message: removed
-            ? `Seu convite direto ${aAlvo} foi retirado, mas você continua com acesso de ${nivel} `
-                + 'por outro caminho, e o atlas segue na sua lista. Para sair de vez, fale com quem '
-                + 'administra o atlas.'
-            : `Você não tinha convite direto ${aAlvo}: o acesso de ${nivel} vem de outro caminho, `
+            ? `Seu convite direto ${aAlvo} foi retirado, mas você ainda tem acesso de ${nivel} `
+                + 'por outro caminho. Para sair de vez, fale com quem administra o atlas.'
+            : `Você não tinha convite direto ${aAlvo}. Seu acesso de ${nivel} vem de outro caminho, `
                 + 'e só quem administra o atlas pode retirá-lo.',
     };
 }
@@ -836,7 +836,7 @@ export class AtlasDrive {
                 this._trashed = Array.isArray(list) ? list : [];
                 this._trashedLoaded = true;
             } catch (error) {
-                showError(error?.message || 'Não foi possível carregar a lixeira.');
+                showError(serverMessageOr(error, 'Não foi possível carregar a lixeira.'));
             }
         }
         this._renderGrid();
@@ -866,7 +866,7 @@ export class AtlasDrive {
             this._sistemaTruncado = r?.truncated === true;
         } catch (error) {
             this._sistema = [];
-            showError(error?.message || 'Não foi possível buscar no acervo do sistema.');
+            showError(serverMessageOr(error, 'Não foi possível buscar no acervo do sistema.'));
         }
         this._renderGrid();
     }
@@ -897,7 +897,7 @@ export class AtlasDrive {
             falha.className = 'atlas-drive__empty';
             falha.dataset.testid = 'project-picker-load-error';
             falha.textContent = 'Não foi possível carregar seus atlas do servidor. Eles continuam '
-                + 'lá; o que falhou foi esta consulta.';
+                + 'lá; tente de novo.';
             const retry = document.createElement('button');
             retry.type = 'button';
             retry.className = 'atlas-drive__empty-retry';
@@ -931,12 +931,12 @@ export class AtlasDrive {
             if (isSistema) {
                 const termo = this._query.trim();
                 empty.textContent = termo.length === 0
-                    ? 'Digite para buscar no acervo do sistema inteiro: nome do atlas, nome ou '
+                    ? 'Digite para buscar em todos os atlas do sistema: nome do atlas, nome ou '
                     : (termo.length < 2
                         ? 'Digite pelo menos dois caracteres.'
                         : `Nenhum atlas do sistema corresponde a "${termo}".`);
                 if (termo.length === 0) {
-                    empty.textContent += 'login do dono, ou o id exato. Esta aba não lista tudo de propósito.';
+                    empty.textContent += 'login do dono, ou o id exato.';
                 }
             } else {
                 empty.textContent = isTrash
@@ -1385,7 +1385,7 @@ export class AtlasDrive {
     async _refresh() {
         const [list, overview] = await Promise.all([
             apiClient.listAtlas().catch((error) => {
-                showError(error?.message || 'Não foi possível atualizar a lista.');
+                showError(serverMessageOr(error, 'Não foi possível atualizar a lista.'));
                 return null;
             }),
             // Silent on failure, deliberately: the extras are an enrichment, and a second red
@@ -1469,7 +1469,7 @@ export class AtlasDrive {
             showSuccess('Imagem do atlas atualizada.');
         } catch (error) {
             console.error('[projects] cover upload failed:', error);
-            showError(error?.message || 'Não foi possível usar esta imagem.');
+            showError(serverMessageOr(error, 'Não foi possível usar esta imagem.'));
         }
     }
 
@@ -1484,7 +1484,7 @@ export class AtlasDrive {
             this._renderGrid();
             showSuccess('Imagem removida.');
         } catch (error) {
-            showError(error?.message || 'Não foi possível remover a imagem.');
+            showError(serverMessageOr(error, 'Não foi possível remover a imagem.'));
         }
     }
 
@@ -1499,7 +1499,7 @@ export class AtlasDrive {
             showSuccess('Atlas renomeado.');
             await this._refresh();
         } catch (error) {
-            showError(error?.message || 'Falha ao renomear o atlas.');
+            showError(serverMessageOr(error, 'Falha ao renomear o atlas.'));
         }
     }
 
@@ -1524,13 +1524,14 @@ export class AtlasDrive {
             if (perdas) {
                 // `showWarning` e não `showSuccess`: a cópia saiu, mas saiu incompleta, e o tom é
                 // a primeira coisa que a pessoa lê.
-                showWarning('A cópia é sua e ficou sem o que você não tem acesso:\n' + perdas);
+                showWarning('Cópia criada em seu nome, sem os itens a que você não tem acesso:\n'
+                    + perdas);
             } else {
-                showSuccess('Cópia criada, e ela é sua.');
+                showSuccess('Cópia criada em seu nome.');
             }
             await this._refresh();
         } catch (error) {
-            showError(error?.message || 'Falha ao duplicar o atlas.');
+            showError(serverMessageOr(error, 'Falha ao duplicar o atlas.'));
         }
     }
 
@@ -1551,7 +1552,7 @@ export class AtlasDrive {
             this._trashedLoaded = false; // re-fetch the trash next time it is opened
             await this._refresh();
         } catch (error) {
-            showError(error?.message || 'Falha ao mover o atlas para a lixeira.');
+            showError(serverMessageOr(error, 'Falha ao mover o atlas para a lixeira.'));
         }
     }
 
@@ -1577,10 +1578,9 @@ export class AtlasDrive {
     async _leave(project) {
         const nome = String(project?.name ?? '').trim();
         const ok = await showConfirm(nome ? `Sair de "${nome}"?` : 'Sair deste atlas?', {
-            message: 'Você perde o acesso a este atlas e ao que ele emprestava: as camadas, os '
-                + 'modelos 3D e os projetos 360 privados que só apareciam por causa dele.\n'
-                + 'E você não pode voltar sozinho: só quem administra o atlas pode convidar você '
-                + 'de novo.',
+            message: 'Você perde o acesso a este atlas e aos itens privados que só ele mostrava '
+                + '(camadas, modelos 3D e projetos 360).\n'
+                + 'Para voltar, alguém que administra o atlas terá de convidar você de novo.',
             confirmText: 'Sair do atlas',
             cancelText: 'Continuar no atlas',
             destructive: true,
@@ -1593,7 +1593,7 @@ export class AtlasDrive {
             else showToast(outcome.message);
             await this._refresh();
         } catch (error) {
-            showError(error?.message || 'Não foi possível sair do atlas.');
+            showError(serverMessageOr(error, 'Não foi possível sair do atlas.'));
         }
     }
 
@@ -1689,8 +1689,8 @@ export class AtlasDrive {
         const dono = this._donoAlheio(project);
         if (dono) {
             const ok = await showConfirm(`Restaurar "${project?.name ?? ''}"?`, {
-                message: `Este atlas é de ${dono}, e foi essa pessoa que o mandou para a lixeira. `
-                    + 'Restaurá-lo o devolve à lista dela, e ela não recebe aviso nenhum disso.',
+                message: `Este atlas é de ${dono}. Restaurar o devolve à lista dessa pessoa, `
+                    + 'sem aviso para ela.',
                 confirmText: 'Restaurar',
             });
             if (!ok) return;
@@ -1705,7 +1705,7 @@ export class AtlasDrive {
             } catch { /* keep the cached list */ }
             this._renderGrid();
         } catch (error) {
-            showError(error?.message || 'Falha ao restaurar o atlas.');
+            showError(serverMessageOr(error, 'Falha ao restaurar o atlas.'));
         }
     }
 
@@ -2046,9 +2046,8 @@ export class LocalAtlasSection {
 
         const text = document.createElement('p');
         text.className = 'local-atlas__failure-text';
-        text.textContent = 'Não foi possível ler os atlas guardados neste navegador. Eles continuam '
-            + 'aqui; o que falhou foi esta leitura. Não crie um atlas novo antes de tentar de novo, '
-            + 'para não trabalhar por cima de uma lista que a página não conseguiu ver.';
+        text.textContent = 'Não foi possível ler os atlas deste navegador. Eles continuam aqui; '
+            + 'tente de novo antes de criar um atlas novo.';
         falha.appendChild(text);
 
         const retry = document.createElement('button');
@@ -2375,17 +2374,15 @@ export function createServerOutage({ onRetry }) {
 
     const text = document.createElement('p');
     text.className = 'server-outage__text';
-    text.textContent = 'O servidor não respondeu, então entrar e abrir atlas do servidor estão '
-        + 'fora no momento. Os atlas guardados neste navegador continuam aqui, e você pode criar, '
-        + 'renomear, copiar e excluir normalmente. Abrir um deles no mapa só volta a funcionar '
-        + 'quando o servidor responder.';
+    text.textContent = 'Até ele voltar, não dá para entrar nem abrir atlas no mapa. Os atlas deste '
+        + 'navegador continuam aqui, e você pode criar, renomear, copiar e excluir.';
     section.appendChild(text);
 
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'atlas-drive__btn atlas-drive__btn--primary';
     btn.dataset.testid = 'server-outage-retry';
-    btn.textContent = 'Tentar novamente';
+    btn.textContent = 'Tentar de novo';
     btn.addEventListener('click', () => onRetry?.());
     section.appendChild(btn);
 

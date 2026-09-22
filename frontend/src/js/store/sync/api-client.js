@@ -608,6 +608,33 @@ export class ApiClient {
     }
 
     /**
+     * The credential of the collab WebSocket, renewed FIRST when it is expired or about to expire.
+     *
+     * The socket is the one request of this client that never goes through `_performRequest`: its
+     * token travels in the upgrade URL (`wsUrl`), and the upgrade answers an expired JWT with 401.
+     * Until 2026-09-22 a RECONNECT reused whatever token was in memory, so after a sleep longer than
+     * the access token's life every backoff step was refused. The reconnect of `ws-client.js` now
+     * asks here before opening, and decides with the answer (`decidirReconexao`).
+     *
+     * Never throws, like `_ensureFreshAccessToken`: a terminal renewal failure shows up as
+     * `token: null` (the tokens were cleared and the auth-lost handler fired), a transient one as
+     * the current token, kept.
+     *
+     * @returns {Promise<{token: (string|null), expired: boolean, renewable: boolean}>} `expired` is
+     *   judged by the local clock, the same one the proactive renewal trusts; `renewable` says
+     *   whether a refresh token exists (the public-link token never has one).
+     */
+    async socketCredential() {
+        await this._ensureFreshAccessToken();
+        const expiresAt = jwtExpiryMs(this._accessToken);
+        return {
+            token: this._accessToken,
+            expired: expiresAt !== null && expiresAt <= Date.now(),
+            renewable: Boolean(this._refreshToken),
+        };
+    }
+
+    /**
      * @private Persists the current tokens to localStorage so the session survives a reload.
      * Degrades silently to in-memory only when localStorage is unavailable.
      */
@@ -2184,15 +2211,20 @@ export class ApiClient {
     }
 
     /**
-     * Quem tem acesso a um recurso privado (exige `view_share` ou papel global).
+     * As concessões que QUEM PERGUNTA fez sobre um recurso privado (exige `view_share`,
+     * produção ou papel global).
      *
-     * CADA LINHA CARREGA `granted_by_vivo`, e ele NÃO é enfeite: desde D8(b) uma concessão
-     * cujo concedente teve a conta ou a OM desativada continua na lista (ela é revogável)
-     * e já não entrega acesso nenhum. Quem calcula queda a partir desta resposta precisa
-     * tratá-la como caminho MORTO — é o que `fallenGrants` faz, e sem isso o aviso
-     * pré-clique subestima o estrago de um ato irreversível.
+     * SÓ A AUTORIA DO CHAMADOR desde 2026-09-22 (decisão do dono, item 19c): o que outras
+     * pessoas concederam sobre o mesmo recurso não vem, e o recorte é do servidor. Cada linha
+     * traz `cascade_people`/`cascade_groups`, quantas concessões cairiam junto se ela fosse
+     * revogada, contadas pelas CTEs da própria poda; é o que o aviso pré-clique lê
+     * (`grantCascade`), porque a subárvore em si deixou de chegar.
      *
-     * @param {string} type - tileset | data_layer | analysis_layer | sv360_project
+     * CADA LINHA CARREGA TAMBÉM `granted_by_vivo`, e ele NÃO é enfeite: desde D8(b) uma
+     * concessão cujo concedente teve a conta ou a OM desativada continua na lista (ela é
+     * revogável) e já não entrega acesso nenhum.
+     *
+     * @param {string} type - basemap | tileset | data_layer | analysis_layer | sv360_project
      * @param {string} id
      * @returns {Promise<Array>}
      */
@@ -2571,9 +2603,14 @@ export class ApiClient {
      * scope, and the backend CHECK is bidirectional — `producer` REQUIRES it and every other
      * role REFUSES it, so the pair must always travel coherent (null when demoting).
      * `organization_id` is just the declared posting and authorizes nothing.
+     * `email` is OPTIONAL (since 2026-09-22): without it the account is born e-mail-less and logs
+     * in at once; with it the account is born PENDING (login refused until confirmed) unless
+     * `email_verified: true` travels in the same body. The returned row carries `email` and
+     * `email_verified`, which is what the screen reports (`createdUserNotice`).
      * @param {{ username: string, password: string, nome: string, rank_id?: string|null,
      *   organization_id?: string|null, role?: 'user'|'producer'|'credenciado'|'admin',
-     *   producer_org_id?: string|null }} payload
+     *   producer_org_id?: string|null, email?: string|null,
+     *   email_verified?: boolean }} payload
      * @returns {Promise<Object>} The created user.
      */
     async createUser(payload) {
@@ -2590,7 +2627,7 @@ export class ApiClient {
      * @param {{ username?: string, nome?: string, rank_id?: string|null,
      *   organization_id?: string|null, role?: 'user'|'producer'|'credenciado'|'admin',
      *   producer_org_id?: string|null, is_active?: boolean,
-     *   email_verified?: boolean }} payload
+     *   email?: string|null, email_verified?: boolean }} payload
      * @returns {Promise<Object>} The updated user.
      */
     async updateUser(userId, payload) {

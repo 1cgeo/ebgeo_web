@@ -14,15 +14,19 @@
  * `ativo` HAS TWO VALUES SINCE 2026-09-20, AND ONLY ONE OF THEM TRAVELS (owner's decision,
  * registered in docs/decisions/decisions-2026.md). The switch on the screen is VIEW state of
  * this person, exactly like the camera and the base layer: it lives in
- * `memoryStore.temporalView`, is never persisted and never enqueues an op, so a reader and a
- * locked map keep it, and a colleague flipping theirs does not flip anyone else's. The `ativo`
+ * `memoryStore.temporalView`, is never written to the map document and never enqueues an op, so a
+ * reader and a locked map keep it, and a colleague flipping theirs does not flip anyone else's.
+ * Since 2026-09-22 the GESTURE is also REMEMBERED on this computer, per map
+ * (`store/vista-da-pessoa.js`, in `localStorage`), and that memory outranks the saved value on the
+ * next entry, an F5 included. The `ativo`
  * inside the stored config is the SAVED value, part of the saved view of the map, and exactly
  * one function writes it: `setMapTemporalSaved`, called by the "save view" gesture
  * (`map-view.operations.js`). Everything else of the config (window, unit, lens) stays a synced
  * map setting.
  *
  * THE VIEW IS PINNED ON ENTRY, by `setCurrentMap` (`store-state-manager.js`, inline there because
- * this module imports that one). Without an entry the readers below answer the saved value, so a
+ * this module imports that one), from the remembered switch when there is one and from the saved
+ * value otherwise. Without an entry the readers below answer the saved value, so a
  * colleague saving THEIR view of a map would flip the timeline of everyone who is on it and never
  * touched the switch. Pinning freezes what the person saw when they came in; a saved value that
  * arrives later is picked up on the NEXT entry, like a saved camera.
@@ -62,6 +66,7 @@ import { readMapRevision } from './map-revision.js';
 import { isMapLocked } from './map.operations.js';
 import { withGestureBatch } from './sync/gesture-batch.js';
 import { decisaoDoReagendamento } from '../temporal/temporal-settings.model.js';
+import { personViewTarget, rememberMapView, rememberedMapView } from './vista-da-pessoa.js';
 
 const STORE_PREFIX = 'temporal_';
 
@@ -149,8 +154,9 @@ export async function isMapTemporalSavedEnabled(mapName = null) {
 }
 
 /**
- * Sets the ON-SCREEN switch of a map. View state: no permission gate, no lock gate, no
- * persistence and no sync op, by design (see the file overview).
+ * Sets the ON-SCREEN switch of a map. View state: no permission gate, no lock gate, no write to
+ * the map document and no sync op, by design (see the file overview). A gesture (no `automatico`)
+ * is remembered on this computer for the next entry.
  *
  * @param {string|null} mapName - Map name (null = current).
  * @param {boolean} enabled - The switch the person wants on their own screen.
@@ -162,6 +168,11 @@ export function setMapTemporalView(mapName, enabled, { automatico = false } = {}
     const next = enabled === true;
     const previous = isMapTemporalEnabledSync(target);
     memoryStore.temporalView.set(target, next);
+    // A GESTURE IS REMEMBERED ON THIS COMPUTER (owner, 2026-09-22), an application never is: the
+    // saved view applied on entry and a briefing slide pass `automatico`, and remembering them
+    // would freeze an automatic value as the person's choice. `localStorage`, not the map
+    // document, and no op: see `store/vista-da-pessoa.js`.
+    if (!automatico) rememberMapView(personViewTarget(target), { temporalEnabled: next });
     if (next !== previous) {
         // `automatico` MARKS A FLIP NOBODY CLICKED (the saved view applied on entering a map, a
         // briefing slide). One subscriber reads it: usage telemetry counts `temporal.ativado` on
@@ -174,8 +185,9 @@ export function setMapTemporalView(mapName, enabled, { automatico = false } = {}
 }
 
 /**
- * Applies the SAVED switch to the screen: the temporal third of "entering a map that has a
- * saved view", next to the camera and the base layer (`BaseLayerControl.switchMap`).
+ * Applies the SAVED switch to the screen, whatever this person remembers. The entry into a map with
+ * a saved view goes through {@link applyMapEntryTemporalView}, which honours the remembered switch
+ * first and falls back to this one.
  *
  * @param {string} [mapName=null] - Map name (null = current).
  * @returns {Promise<boolean>} The state now on screen.
@@ -183,6 +195,25 @@ export function setMapTemporalView(mapName, enabled, { automatico = false } = {}
 export async function applySavedMapTemporalView(mapName = null) {
     const target = resolveMapName(mapName);
     return setMapTemporalView(target, await isMapTemporalSavedEnabled(target), { automatico: true });
+}
+
+/**
+ * Applies the switch a person should FIND on entering a map that has a saved view: the one they
+ * remember for it on this computer, when there is one, else the saved one. It is what
+ * `BaseLayerControl.switchMap` calls, and the base layer there follows the same precedence
+ * (`store/vista-da-pessoa.js`).
+ *
+ * The remembered value is read in the same tick as it is applied, so an atlas switch cannot slip
+ * in between. The flip is `automatico` either way: nobody clicked on entering the map.
+ *
+ * @param {string} [mapName=null] - Map name (null = current).
+ * @returns {Promise<boolean>} The state now on screen.
+ */
+export async function applyMapEntryTemporalView(mapName = null) {
+    const target = resolveMapName(mapName);
+    const lembrado = rememberedMapView(target).temporalEnabled;
+    if (typeof lembrado === 'boolean') return setMapTemporalView(target, lembrado, { automatico: true });
+    return applySavedMapTemporalView(target);
 }
 
 /**

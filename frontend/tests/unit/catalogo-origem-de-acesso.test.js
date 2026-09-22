@@ -97,7 +97,7 @@ describe('privateBadgePhrase', () => {
         for (const estavel of [ACCESS_ORIGIN.PAPEL, ACCESS_ORIGIN.CONCESSAO, null]) {
             const selo = privateBadgePhrase(estavel);
             expect(selo.volatil).toBe(false);
-            expect(selo.title).not.toMatch(/sair daqui/i);
+            expect(selo.title).not.toMatch(/ao sair deste atlas/i);
             expect(selo.rotulo).toBe('Privado');
         }
     });

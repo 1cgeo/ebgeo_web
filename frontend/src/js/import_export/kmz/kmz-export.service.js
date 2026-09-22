@@ -227,7 +227,7 @@ export async function exportMapAsKmz({ mapName, options = {} } = {}) {
 
     } catch (error) {
         console.error('Error exporting KMZ:', error);
-        showError('Erro ao exportar KMZ: ' + error.message);
+        showError('Não foi possível exportar o KMZ. Tente de novo.');
         progress.remove();
         return false;
     }

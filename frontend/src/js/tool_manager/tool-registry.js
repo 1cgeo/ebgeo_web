@@ -64,6 +64,7 @@ import {
     withCoordinationLineZoomSizes as comTamanhosDeZoomDaLinhaDeCoordenacao
 } from './helpers/coordination-line-zoom.model.js';
 import { ensureTurf } from '@utils/turf-loader.js';
+import { carregarSobDemanda } from '@utils/carga-sob-demanda.js';
 
 // ============================================================================================
 // A TABELA
@@ -384,7 +385,10 @@ export function ensureControl(controlKey, { comTurf = true } = {}) {
         return Promise.reject(new Error('tool-registry usado antes de initToolRegistry()'));
     }
 
-    const carga = ferramenta.carregar()
+    // PELA PORTA DE CARGA SOB DEMANDA, e nunca `ferramenta.carregar()` cru: uma nova tentativa e,
+    // se ela também falhar, o aviso com "Recarregar". A rejeição continua chegando ao chamador, que
+    // é o que mantém o botão sem ferramenta ativa (`toolbar.control.js` só ativa no sucesso).
+    const carga = carregarSobDemanda(ferramenta.carregar)
         .then((modulo) => {
             const Classe = modulo.default ?? modulo[ferramenta.classe];
             if (typeof Classe !== 'function') {

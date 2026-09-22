@@ -31,8 +31,10 @@ vi.mock('@utils/toast_service.js', () => ({
     showInfo: vi.fn(),
 }));
 
-vi.mock('@store', () => ({
-    isCurrentMapLockedSync: vi.fn(() => false),
+// The handler asks the single account of both editing axes, by file, since 2026-09-22 (before that
+// it asked the `@store` barrel for the lock only). Dubbed free, so the real store stays out.
+vi.mock('@store/edicao-indisponivel.js', () => ({
+    edicaoIndisponivelSync: vi.fn(() => ({ bloqueado: false, motivo: null, required: null })),
 }));
 
 vi.mock('@modals/confirm.modal.js', () => ({

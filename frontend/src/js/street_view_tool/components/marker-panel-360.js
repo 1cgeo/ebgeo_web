@@ -927,7 +927,7 @@ function buildActionButtons(container, marker, initialProperties, initialStyle, 
     defaultButton.addEventListener('click', () => {
         const styleToSave = { ...marker.style };
         localStorage.setItem('marker360_default_style', JSON.stringify(styleToSave));
-        showSuccess('Estilo definido como padrao!');
+        showSuccess('Estilo definido como padrão.');
     });
     section.appendChild(defaultButton);
 
@@ -954,7 +954,7 @@ function buildDeleteButton(container, marker, onClose) {
 
         try {
             await removeMarker360(marker.id);
-            showSuccess('Marcador deletado!');
+            showSuccess('Marcador excluído.');
             if (onClose) onClose();
         } catch (error) {
             console.error('Error deleting marker:', error);

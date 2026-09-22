@@ -179,12 +179,12 @@ async function confirmAndPrepareLogout(settled, drained = true, entries = null) 
     }
     if (!Number.isFinite(pendingOps) || pendingOps > 0) {
         const confirmed = await showConfirm('Sair com alterações pendentes?', {
-            message: `${pendingWorkSummary(pendingOps, quarantined)} Ao sair, as alterações `
-                + 'pendentes dos atlas do servidor neste navegador, inclusive em outras abas, '
-                + 'serão descartadas e não poderão ser recuperadas. '
+            message: `${pendingWorkSummary(pendingOps, quarantined)} Se sair agora, as alterações `
+                + 'pendentes dos atlas do servidor serão descartadas deste navegador, inclusive das '
+                + 'outras abas, sem como recuperar. '
                 + quarantineKeptNotice(quarantined)
-                + 'Seus atlas locais e os dados já enviados ao servidor serão mantidos. '
-                + 'Uma solicitação já recebida pelo servidor pode concluir mesmo após a saída.',
+                + 'Seus atlas locais e o que já chegou ao servidor continuam salvos. '
+                + 'O que já estava a caminho ainda pode chegar.',
             confirmText: 'Sair e descartar pendências',
             cancelText: 'Continuar no EBGeo',
             destructive: true,

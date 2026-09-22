@@ -110,7 +110,7 @@ export async function login(username, password) {
   }
 
   if (!user.is_active) {
-    throw new UnauthorizedError('Conta desativada');
+    throw new UnauthorizedError('Esta conta está desativada. Procure o administrador do EBGeo.');
   }
 
   // E-mail confirmation gate: an account registered WITH an e-mail must verify it before login.
@@ -124,7 +124,7 @@ export async function login(username, password) {
   // trazer o nome, e projeta `org_ativa` no mesmo JOIN. A chamada a `orgIsActive` que
   // estava aqui abria uma segunda consulta à MESMA linha.
   if (!orgIsActiveFromRow(user.organization_id, user.org_ativa)) {
-    throw new ForbiddenError('Organização inativa');
+    throw new ForbiddenError('A organização da sua conta está inativa. Procure o administrador do EBGeo.');
   }
 
   // Update last login
@@ -255,7 +255,7 @@ export async function refresh(refreshToken) {
   // Mesma troca do login: `FIND_USER_BY_ID` acima já leu a organização de lotação junto
   // com o usuário, então a vivacidade sai daquela linha, não de uma segunda consulta.
   if (!orgIsActiveFromRow(user.organization_id, user.org_ativa)) {
-    throw new ForbiddenError('Organização inativa');
+    throw new ForbiddenError('A organização da sua conta está inativa. Procure o administrador do EBGeo.');
   }
 
   // Generate new tokens
@@ -311,8 +311,8 @@ export async function getMe(userId) {
  * (email_verified=false) with a verification token issued + e-mailed, and the `?verify=` link is
  * the only way into it. (This paragraph read "without an e-mail the account is immediately active"
  * until e-mail became mandatory; the e-mail-less account still exists, but only through
- * `POST /api/v1/users`, whose schema has no such field — which is why the gate in `login()` stays
- * conditional on `user.email`.)
+ * `POST /api/v1/users` with no address in the body, where the field is optional — which is why
+ * the gate in `login()` stays conditional on `user.email`.)
  *
  * ORACLE, and how it is closed. This route used to answer 409 for a taken username or e-mail and
  * 201 otherwise, while the comment sitting here claimed the single generic 409 message meant "an
@@ -502,12 +502,17 @@ export function passwordResetTtlMinutes() {
 
 /**
  * Issues a fresh verification token for a user and e-mails (or logs) the link.
+ *
+ * EXPORTED since 2026-09-22 for ONE outside caller, `createUser` in
+ * `src/modules/users/users.service.js`: an administrator may now create an account WITH an
+ * address, born pending, and its confirmation is the very same `verify` token the signup mints.
+ * A second emitter over there would be the second copy of the most sensitive rule of the house.
  * @param {{ id: string, nome: string }} user
  * @param {string} email
  * @param {string} origin
  * @returns {Promise<string>} The token.
  */
-async function issueAndSendVerification(user, email, origin) {
+export async function issueAndSendVerification(user, email, origin) {
   const token = await mintToken(user.id, TokenPurpose.VERIFY, verificationTtlMs(), null, email);
   const link = buildVerificationLink(token, origin);
   await sendVerificationEmail({ to: email, link, nome: user.nome });

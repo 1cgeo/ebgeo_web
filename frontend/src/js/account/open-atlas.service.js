@@ -566,15 +566,14 @@ export async function clearMountedAtlasIfGranted(replay = null) {
  * @returns {Promise<boolean>} True when the user chose to discard the rescue and open.
  */
 async function confirmDiscardingRescuedWork(rescued) {
-    const choice = await showChoice('Este atlas tem trabalho resgatado neste computador', {
+    const choice = await showChoice('Este atlas tem trabalho guardado neste computador', {
         message:
-            `Quando sua sessão caiu, as alterações que ainda não tinham subido para o servidor foram `
-            + `guardadas aqui como o atlas local "${rescued.name}". Ele ocupa o mesmo espaço deste `
-            + `atlas do servidor, então abrir agora apaga o resgate.\n\n`
-            + `Para não perder nada: cancele, volte ao mapa local e use "Enviar ao servidor".`,
+            `Quando sua sessão caiu, as alterações não enviadas foram guardadas aqui como o atlas `
+            + `local "${rescued.name}". Abrir este atlas do servidor agora apaga esse trabalho.\n\n`
+            + `Para não perder nada: cancele, abra o atlas local e use "Enviar ao servidor".`,
         choices: [
             { id: 'cancel', label: 'Cancelar', variant: 'ghost' },
-            { id: 'discard', label: 'Descartar o resgate e abrir', variant: 'danger' },
+            { id: 'discard', label: 'Apagar e abrir', variant: 'danger' },
         ],
     });
     return choice === 'discard';
@@ -1021,9 +1020,9 @@ export function replaceAtlasFromImport(source, name, prepare) {
         if (!result.ok) return result;
         try {
             const opened = await switchToExistingLocalAtlas(result.atlas.id, result.currentMapName);
-            if (!opened.ok) return { ...opened, message: 'O atlas foi importado. Abra-o em Meus Atlas para continuar.' };
+            if (!opened.ok) return { ...opened, message: 'O atlas foi importado. Abra-o em "Meus Atlas" para continuar.' };
         } catch (cause) {
-            throw new Error('O atlas foi importado e salvo, mas não foi possível exibi-lo. Reabra-o em Meus Atlas.', { cause });
+            throw new Error('O atlas foi importado e salvo, mas não foi possível exibi-lo. Reabra-o em "Meus Atlas".', { cause });
         }
         return { ...result, atlasName: local ? null : result.atlas.name };
     });

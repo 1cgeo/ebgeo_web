@@ -14,6 +14,7 @@
 
 import { SIDEBAR_ICONS } from '../sidebar.constants.js';
 import { escapeHtml } from '@utils/html-escape.js';
+import { commitOpenNameFields } from '../panels/feature-panel-flush.js';
 import {
     setupCleanup,
     addDomListener,
@@ -203,6 +204,10 @@ export class FeaturePanel {
      */
     _triggerSave() {
         if (!this._contentContainer) return;
+
+        // An open name field is an edit not confirmed yet, and the content may be about to
+        // leave the DOM without a blur: confirm it before the staged edits are saved.
+        commitOpenNameFields(this._contentContainer);
 
         const saveButton = this._contentContainer.querySelector('.attr-modern-btn-save');
         if (!saveButton) return;

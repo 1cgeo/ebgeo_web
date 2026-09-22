@@ -60,7 +60,7 @@ existe e a instalação termina em segundos sem toolchain nenhum. O `engines` co
 
 ```
 src/
-├── index.js            # boot (HTTP + WS + validateEnvVariables fail-fast)
+├── index.js            # boot (HTTP + WS + validateEnvVariables e sonda de escrita, fail-fast)
 ├── app.js              # factory createApp() (testável por supertest)
 ├── config.js           # env: required() / optional(), Object.freeze
 ├── database/           # index.js (query/tx), migrate.js, migrations/

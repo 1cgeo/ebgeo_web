@@ -11,10 +11,10 @@ import { createAudit, createAuditBestEffort } from '../../utils/audit.js';
 // rota de `/users/me`, mas o portao pelo qual o endereco novo passa e literalmente o do
 // cadastro. Escrever um segundo emissor de token aqui seria a segunda copia da regra mais
 // sensivel da casa.
-import { issueAndSendEmailChange } from '../auth/auth.service.js';
+import { issueAndSendEmailChange, issueAndSendVerification } from '../auth/auth.service.js';
 // A UNICIDADE DE E-MAIL tambem tem uma definicao so, ao lado do fluxo que confirma o endereco.
-import { CHECK_EMAIL_EXISTS_EXCLUDING } from '../auth/auth.queries.js';
-import { sendEmailInUseNotice, buildAppLink } from '../../utils/mailer.js';
+import { CHECK_EMAIL_EXISTS, CHECK_EMAIL_EXISTS_EXCLUDING } from '../auth/auth.queries.js';
+import { sendEmailInUseNotice, buildAppLink, canDeliverAccountMail } from '../../utils/mailer.js';
 import logger from '../../utils/logger.js';
 // O DE-PARA DA TRILHA (clausula 9.3) tem UMA implementacao, e ela e a mesma do catalogo
 // e do 360: tres regimes por lista fechada, com o nome-so como piso do desconhecido. A
@@ -212,6 +212,46 @@ function resolveAdminEmail(data, existing) {
     return { email, provided: true, verified: false };
   }
   return { email, provided: true, verified: pedidoExplicito };
+}
+
+/**
+ * A recusa de endereco tomado nos DOIS caminhos administrativos (criar e editar).
+ *
+ * 409 COM O MOTIVO, e nao a resposta uniforme do auto-servico: quem chama e administrador, ja le a
+ * lista inteira de contas com e-mail em `GET /users`, e esconder dele a colisao so produziria um
+ * salvamento que nao salva. O anti-enumeracao da clausula 5.6 protege quem NAO tem essa leitura.
+ */
+const EMAIL_EM_USO_ADMIN = 'Este e-mail já está em uso por outra conta.';
+
+/** O indice parcial que arbitra a corrida entre duas criacoes com o mesmo endereco. */
+const INDICE_EMAIL_UNICO = 'idx_users_email_lower';
+
+/**
+ * Resolve o par (endereco, confirmado) com que a conta NASCE pelo caminho administrativo.
+ *
+ * E A MESMA REGRA DE `resolveAdminEmail`, aplicada a uma linha que ainda nao existe: um endereco
+ * novo nasce PENDENTE, salvo se o MESMO pedido disser o contrario. Nascer confirmado por inercia
+ * teria o custo que aquela funcao existe para evitar, e aqui ele e pior, porque o endereco
+ * confirmado e o canal de recuperacao de senha (`FIND_RESETTABLE_USER_BY_EMAIL` so aceita
+ * endereco confirmado): um erro de digitacao do administrador entregaria o codigo de
+ * recuperacao da conta a caixa de um estranho.
+ *
+ * O PRECO DECLARADO: com endereco e sem a marca, a conta NAO entra na hora, porque o gate de
+ * `login()` (`user.email && !user.email_verified`) passa a valer para ela, exatamente como vale
+ * para o auto-cadastro. Quem a destranca e o link de confirmacao, que `createUser` dispara onde o
+ * servidor consegue entregar, ou o proprio administrador marcando `email_verified`. A conta SEM
+ * endereco continua nascendo como sempre nasceu, e logando na hora.
+ *
+ * `email_verified` SEM endereco e descartado: uma linha confirmada sobre um NULL e o estado que
+ * `resolveAdminEmail` tambem se recusa a produzir.
+ *
+ * @param {{email?: *, email_verified?: boolean}} data - O corpo da criacao.
+ * @returns {{email: string|null, verified: boolean}}
+ */
+function resolveCreationEmail(data) {
+  const email = normalizaEmail(data.email);
+  if (!email) return { email: null, verified: false };
+  return { email, verified: data.email_verified === true };
 }
 
 /**
@@ -527,12 +567,33 @@ export async function getUserById(userId) {
 
 /**
  * Creates a new user (admin only).
+ *
+ * O ENDEREÇO É OPCIONAL desde 2026-09-22, e as duas formas da conta são legítimas: sem endereço
+ * ela nasce como sempre nasceu e loga na hora; com endereço ela segue `resolveCreationEmail`
+ * (pendente, salvo marca explícita) e, pendente, recebe o MESMO link `?verify=` do
+ * auto-cadastro, disparado depois do COMMIT.
+ *
+ * @param {object} data - Corpo validado por `createUserAdminSchema`.
+ * @param {object} [req] - Express req (ip/user-agent da trilha).
+ * @param {string|null} [actorId] - O administrador que cria.
+ * @param {string} [origin] - Origem da requisição, para a base do link de confirmação; o mailer
+ *   só a honra quando ela é a origem que o deployment já confia (`resolveVerificationBase`).
  */
-export async function createUser(data, req = null, actorId = null) {
+export async function createUser(data, req = null, actorId = null, origin = '') {
   // Check if username already exists
   const { rows: existing } = await query(Q.CHECK_USERNAME_EXISTS, [data.username]);
   if (existing.length > 0) {
     throw new ConflictError('Nome de usuário já existe.');
+  }
+
+  // A pré-checagem é o que dá à tela a frase com o NOME do problema; quem arbitra uma corrida
+  // entre duas criações com o mesmo endereço é o índice, tratado no `catch` abaixo.
+  const emailInicial = resolveCreationEmail(data);
+  if (emailInicial.email) {
+    const { rows: emailCheck } = await query(CHECK_EMAIL_EXISTS, [emailInicial.email]);
+    if (emailCheck.length > 0) {
+      throw new ConflictError(EMAIL_EM_USO_ADMIN);
+    }
   }
 
   // Hash password
@@ -543,36 +604,77 @@ export async function createUser(data, req = null, actorId = null) {
   // CHECK de `audit_trail.action` (`002_auditoria.sql`) e não tinha emissor
   // nenhum — filtro que por construção nunca casa se lê como "nada aconteceu",
   // não como "nunca foi ligado", que é a forma mais silenciosa de lacuna.
-  return tx(async (t) => {
-    const criado = await t.one(Q.INSERT_USER_ADMIN, [
-      data.username,
-      passwordHash,
-      data.nome,
-      data.rank_id || null,
-      data.organization_id || null,
-      data.role || 'user',
-      // O bicondicional ja foi cobrado pelo Joi da criacao (onde o corpo e completo
-      // e o `when` alcanca os dois lados); aqui basta normalizar '' para null.
-      uuidOuNulo(data.producer_org_id),
-      data.nome_guerra || null,
-    ]);
+  let criado;
+  try {
+    criado = await tx(async (t) => {
+      const linha = await t.one(Q.INSERT_USER_ADMIN, [
+        data.username,
+        passwordHash,
+        data.nome,
+        data.rank_id || null,
+        data.organization_id || null,
+        data.role || 'user',
+        // O bicondicional ja foi cobrado pelo Joi da criacao (onde o corpo e completo
+        // e o `when` alcanca os dois lados); aqui basta normalizar '' para null.
+        uuidOuNulo(data.producer_org_id),
+        data.nome_guerra || null,
+        emailInicial.email,
+        emailInicial.verified,
+      ]);
 
-    if (actorId) {
-      await createAudit(req, {
-        action: 'USER_CREATE', actorId, targetType: 'USER',
-        targetId: criado.id, targetName: criado.nome,
-        // O papel criado é o dado que interessa numa revisão: uma conta nascida
-        // 'admin' é o evento que se quer achar depois.
-        details: {
-          role: criado.role,
-          organization_id: criado.organization_id,
-          producer_org_id: criado.producer_org_id,
-        },
-      }, t);
+      if (actorId) {
+        await createAudit(req, {
+          action: 'USER_CREATE', actorId, targetType: 'USER',
+          targetId: linha.id, targetName: linha.nome,
+          // O papel criado é o dado que interessa numa revisão: uma conta nascida
+          // 'admin' é o evento que se quer achar depois.
+          //
+          // `email_verified` SÓ QUANDO HÁ ENDEREÇO, e sem o endereço: a trilha não guarda o
+          // valor (na edição ele entra por impressão, `utils/audit-diff.js`), e o que ela precisa
+          // dizer aqui é se o administrador DECLAROU conferido um endereço que ninguém provou,
+          // que é o ato explícito que `resolveCreationEmail` exige. A ausência da chave é a
+          // conta nascida sem endereço.
+          details: {
+            role: linha.role,
+            organization_id: linha.organization_id,
+            producer_org_id: linha.producer_org_id,
+            ...(linha.email ? { email_verified: linha.email_verified } : {}),
+          },
+        }, t);
+      }
+
+      return linha;
+    });
+  } catch (err) {
+    // A CORRIDA QUE A PRÉ-CHECAGEM NÃO FECHA: outra criação (ou um cadastro) grava o mesmo
+    // endereço entre a leitura e o INSERT. Sem esta tradução o 23505 sairia como o 409 genérico
+    // do errorHandler, sem dizer qual campo colidiu.
+    // A causa viaja junto (`cause`), como em todo tradutor de erro de driver da casa: o log
+    // continua dizendo que foi o índice, e o `detail` do pg não sai por ela.
+    if (err?.code === '23505' && err?.constraint === INDICE_EMAIL_UNICO) {
+      throw new ConflictError(EMAIL_EM_USO_ADMIN, { cause: err });
     }
+    throw err;
+  }
 
-    return criado;
-  });
+  // A CONFIRMAÇÃO SAI DEPOIS DO COMMIT, e best-effort, pela razão de `register`: o token referencia
+  // a linha, que só existe fora da transação depois dela, e uma falha de envio que virasse 500
+  // esconderia do administrador uma conta que JÁ foi criada. Falhando, a pessoa pede um novo link
+  // pela tela de entrada (`POST /auth/resend-verification`), que é o que o erro de login oferece.
+  //
+  // SÓ ONDE O SERVIDOR CONSEGUE ENTREGAR (`canDeliverAccountMail`, o predicado das rotas de
+  // recuperação). Numa produção sem relay o token não chegaria a ninguém e o envio só gritaria
+  // no log; ali a conta pendente é destrancada pelo administrador, e a tela diz isso antes do
+  // clique.
+  if (criado.email && !criado.email_verified && canDeliverAccountMail()) {
+    try {
+      await issueAndSendVerification(criado, criado.email, origin);
+    } catch (err) {
+      logger.error({ err, userId: criado.id }, 'Verification e-mail failed (account created by an administrator; user can resend)');
+    }
+  }
+
+  return criado;
 }
 
 /**
@@ -589,7 +691,7 @@ export async function updateUser(userId, data, actingUserId = null, req = null) 
       throw new ConflictError('Você não pode desativar a própria conta.');
     }
     if (data.role && data.role !== 'admin' && existing.role === 'admin') {
-      throw new ConflictError('Você não pode remover seu próprio papel de admin.');
+      throw new ConflictError('Você não pode tirar de si mesmo o papel de administrador.');
     }
   }
 
@@ -632,12 +734,9 @@ export async function updateUser(userId, data, actingUserId = null, req = null) 
   const emailAlvo = resolveAdminEmail(data, existing);
   if (emailAlvo.provided && emailAlvo.email) {
     const { rows: emailCheck } = await query(CHECK_EMAIL_EXISTS_EXCLUDING, [emailAlvo.email, userId]);
-    // 409 COM O MOTIVO, e nao a resposta uniforme do auto-servico: quem chama aqui e
-    // administrador, ja le a lista inteira de contas com e-mail em `GET /users`, e esconder
-    // dele a colisao so produziria um salvamento que nao salva. O anti-enumeracao da clausula
-    // 5.6 protege quem NAO tem essa leitura.
+    // 409 COM O MOTIVO (ver `EMAIL_EM_USO_ADMIN`), a mesma recusa da criacao.
     if (emailCheck.length > 0) {
-      throw new ConflictError('Este e-mail já está em uso por outra conta.');
+      throw new ConflictError(EMAIL_EM_USO_ADMIN);
     }
   }
 

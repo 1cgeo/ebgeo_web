@@ -142,7 +142,10 @@ describe('a ordem entre as pendências é contrato', () => {
         const recusado = describeSyncWork({ ...VERDE, uploads: 2, uploadsRecusados: 1 });
         expect(recusado.state).toBe(SYNC_WORK_STATE.BLOB_PENDING);
         expect(recusado.tone).toBe(SYNC_TONE.WARN);
-        expect(recusado.detail).toContain('1 alteração');
+        // A frase nomeia QUANTAS o servidor recusou, entre as figuras paradas.
+        expect(recusado.detail).toContain('recusou uma delas');
+        expect(describeSyncWork({ ...VERDE, uploads: 5, uploadsRecusados: 3 }).detail)
+            .toContain('recusou 3 delas');
     });
 });
 

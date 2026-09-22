@@ -249,9 +249,8 @@ export function describeSyncWork({
             tone: SYNC_TONE.IDLE,
             label: 'Local',
             resumo: 'Atlas só deste computador.',
-            detail: 'Este atlas existe só neste computador. O seu trabalho está salvo aqui e '
-                + 'não vai para servidor nenhum, então não há nada para enviar nem nada a '
-                + 'esperar. Limpar os dados deste navegador apaga o atlas.',
+            detail: 'Este atlas fica só neste computador e não é enviado a nenhum servidor. '
+                + 'Limpar os dados deste navegador apaga o atlas.',
             pending: null,
         };
     }
@@ -263,9 +262,8 @@ export function describeSyncWork({
             tone: SYNC_TONE.UNKNOWN,
             label: 'Sem confirmação',
             resumo: 'Estado da conexão desconhecido.',
-            detail: 'Esta tela não reconheceu o estado da conexão com o servidor, então não '
-                + 'sabe dizer se o seu trabalho está sendo enviado. Não a tome como prova de '
-                + 'que tudo foi salvo.',
+            detail: 'Não foi possível confirmar a conexão com o servidor, então não dá para '
+                + 'garantir que o seu trabalho foi enviado. Aguarde antes de fechar a aba.',
             pending: toPendingCount(pending),
         };
     }
@@ -275,10 +273,9 @@ export function describeSyncWork({
             state: SYNC_WORK_STATE.RECOVERING,
             tone: SYNC_TONE.BUSY,
             label: 'Recuperando…',
-            resumo: 'Reescrevendo este atlas; não feche a aba.',
-            detail: 'O EBGeo está aplicando as alterações que vieram do servidor e reescrevendo '
-                + 'este atlas neste computador. Nada é enviado enquanto isso termina, e a '
-                + 'contagem de pendências só volta a valer depois. Não feche a aba agora.',
+            resumo: 'Atualizando este atlas; não feche a aba.',
+            detail: 'O EBGeo está aplicando as alterações recebidas do servidor. Não feche a '
+                + 'aba até terminar.',
             pending: toPendingCount(pending),
         };
     }
@@ -288,9 +285,8 @@ export function describeSyncWork({
             state: SYNC_WORK_STATE.CHECKING,
             tone: SYNC_TONE.UNKNOWN,
             label: 'Verificando…',
-            resumo: 'Lendo a fila de envio.',
-            detail: 'Lendo a fila de envio deste atlas. Enquanto isso, esta luz não afirma '
-                + 'que tudo já foi enviado.',
+            resumo: 'Verificando o que falta enviar.',
+            detail: 'Verificando se há alterações deste atlas à espera de envio.',
             pending: null,
         };
     }
@@ -301,10 +297,9 @@ export function describeSyncWork({
             state: SYNC_WORK_STATE.UNKNOWN,
             tone: SYNC_TONE.UNKNOWN,
             label: 'Sem confirmação',
-            resumo: 'Não deu para ler a fila de envio.',
-            detail: 'Não foi possível ler a fila de envio deste atlas, então esta tela não '
-                + 'sabe se há trabalho esperando. Não a tome como prova de que tudo foi '
-                + 'salvo no servidor.',
+            resumo: 'Não foi possível verificar os envios.',
+            detail: 'Não foi possível verificar se há alterações à espera de envio, então não '
+                + 'dá para garantir que tudo foi salvo no servidor.',
             pending: null,
         };
     }
@@ -322,16 +317,18 @@ export function describeSyncWork({
             state: SYNC_WORK_STATE.UNKNOWN,
             tone: SYNC_TONE.UNKNOWN,
             label: 'Sem confirmação',
-            resumo: 'Não deu para ler todas as pendências.',
-            detail: 'Não foi possível ler todas as pendências deste atlas (alterações em revisão, '
-                + 'recusas do servidor ou figuras à espera de envio), então esta tela não afirma '
-                + 'que o seu trabalho chegou ao servidor.',
+            resumo: 'Não foi possível verificar as pendências.',
+            detail: 'Não foi possível verificar todas as pendências deste atlas, então não dá '
+                + 'para garantir que o seu trabalho chegou ao servidor.',
             pending: n,
         };
     }
 
+    // Verb agreement for a count: "1 alteração continua", "3 alterações continuam".
+    const conforme = (quantas, um, varios) => (quantas === 1 ? um : varios);
+
     const restante = n > 0
-        ? ` Além disso, ${pendingLabel(n)} continuam à espera de envio.`
+        ? ` Além disso, ${pendingLabel(n)} ${conforme(n, 'continua', 'continuam')} à espera de envio.`
         : '';
 
     if (emRevisao > 0) {
@@ -339,11 +336,11 @@ export function describeSyncWork({
             state: SYNC_WORK_STATE.CONFLICT,
             tone: SYNC_TONE.WARN,
             label: `Revisão: ${emRevisao}`,
-            resumo: `${pendingLabel(emRevisao)} esperam uma decisão sua.`,
-            detail: `${pendingLabel(emRevisao)} foram guardadas à espera de uma decisão sua: o `
-                + 'servidor não as aceitou como estão e elas não saem daqui sozinhas. Elas '
-                + 'sobrevivem a sair da conta e a fechar o navegador, então nada está perdido, '
-                + `mas o servidor também não as tem.${restante}`,
+            resumo: `${pendingLabel(emRevisao)} ${conforme(emRevisao, 'espera', 'esperam')} uma decisão sua.`,
+            detail: `O servidor não aceitou ${pendingLabel(emRevisao)} como `
+                + `${conforme(emRevisao, 'estava', 'estavam')}. Até você decidir, `
+                + `${conforme(emRevisao, 'ela continua guardada', 'elas continuam guardadas')} neste `
+                + `computador, mesmo se você sair da conta.${restante}`,
             pending: n,
         };
     }
@@ -354,28 +351,33 @@ export function describeSyncWork({
             tone: SYNC_TONE.WARN,
             label: `Recusas: ${recusadas}`,
             resumo: `O servidor recusou ${pendingLabel(recusadas)}.`,
-            detail: `O servidor recusou ${pendingLabel(recusadas)} deste atlas, ou elas estão `
-                + 'paradas atrás de uma recusa. Reconectar não resolve: o trabalho continua '
-                + 'guardado neste computador e precisa de uma decisão. Fale com quem administra '
-                + `o atlas se a recusa não fizer sentido.${restante}`,
+            detail: `O servidor recusou alterações deste atlas, e ${pendingLabel(recusadas)} `
+                + `${conforme(recusadas, 'está parada', 'estão paradas')} neste computador à espera `
+                + `de uma decisão sua. Se a recusa não fizer sentido, fale com quem administra o `
+                + `atlas.${restante}`,
             pending: n,
         };
     }
 
     if (figuras > 0) {
         const definitivas = toPendingCount(uploadsRecusados) ?? 0;
-        const cauda = definitivas > 0
-            ? ` O servidor recusou ${pendingLabel(definitivas)} em definitivo, e essas não são `
-                + 'tentadas de novo: refaça a inserção da figura.'
-            : ' A tentativa é retomada sozinha quando a conexão permitir.';
+        let cauda = ' O envio é retomado sozinho quando a conexão permitir.';
+        if (definitivas > 0) {
+            cauda = figuras === 1
+                ? ' O servidor a recusou: insira a figura de novo.'
+                : ` O servidor recusou ${conforme(definitivas, 'uma delas', `${definitivas} delas`)}: `
+                    + 'insira de novo as figuras recusadas.';
+        }
         return {
             state: SYNC_WORK_STATE.BLOB_PENDING,
             tone: definitivas > 0 ? SYNC_TONE.WARN : SYNC_TONE.BUSY,
             label: `Imagens: ${figuras}`,
-            resumo: `${figuras === 1 ? 'Uma figura' : `${figuras} figuras`} sem os bytes no servidor.`,
-            detail: `Os bytes de ${figuras === 1 ? 'uma figura' : `${figuras} figuras`} ainda não `
-                + 'chegaram ao servidor. Quem abrir este atlas em outro computador vê um buraco '
-                + `no lugar dela até os bytes subirem.${cauda}${restante}`,
+            resumo: figuras === 1
+                ? 'Uma figura ainda não foi enviada.'
+                : `${figuras} figuras ainda não foram enviadas.`,
+            detail: `${figuras === 1 ? 'Uma figura ainda não chegou' : `${figuras} figuras ainda não chegaram`} `
+                + 'ao servidor, e quem abrir este atlas em outro computador vê um espaço vazio no '
+                + `lugar.${cauda}${restante}`,
             pending: n,
         };
     }
@@ -391,8 +393,7 @@ export function describeSyncWork({
                 tone: SYNC_TONE.OK,
                 label: 'Tudo enviado',
                 resumo: 'Nada espera envio.',
-                detail: 'Nada espera envio: tudo o que você fez neste atlas já foi aceito '
-                    + 'pelo servidor.',
+                detail: 'Tudo o que você fez neste atlas já foi salvo no servidor.',
                 pending: 0,
             };
         }
@@ -401,8 +402,8 @@ export function describeSyncWork({
                 state: SYNC_WORK_STATE.CONNECTING,
                 tone: SYNC_TONE.BUSY,
                 label: 'Conectando…',
-                resumo: 'Ligando ao servidor.',
-                detail: 'Ligando ao servidor. Nada espera envio.',
+                resumo: 'Conectando ao servidor.',
+                detail: 'Conectando ao servidor. Nada espera envio.',
                 pending: 0,
             };
         }
@@ -411,8 +412,7 @@ export function describeSyncWork({
             tone: SYNC_TONE.IDLE,
             label: 'Sem conexão',
             resumo: 'Sem conexão; nada espera envio.',
-            detail: 'Sem conexão com o servidor agora. Nada espera envio: o que você fez '
-                + 'antes já tinha sido aceito.',
+            detail: 'Sem conexão com o servidor. Nada espera envio: o que você fez já foi salvo.',
             pending: 0,
         };
     }
@@ -422,9 +422,9 @@ export function describeSyncWork({
             state: SYNC_WORK_STATE.SENDING,
             tone: SYNC_TONE.BUSY,
             label: `Enviando ${n}…`,
-            resumo: `${pendingLabel(n)} saindo agora.`,
-            detail: `${pendingLabel(n)} à espera de confirmação do servidor, saindo agora. `
-                + 'O trabalho continua guardado neste computador até o servidor aceitar.',
+            resumo: `Enviando ${pendingLabel(n)}.`,
+            detail: `Enviando ${pendingLabel(n)} ao servidor. Até a confirmação, o trabalho fica `
+                + 'guardado neste computador.',
             pending: n,
         };
     }
@@ -434,8 +434,8 @@ export function describeSyncWork({
             tone: SYNC_TONE.BUSY,
             label: pendingShortLabel(n),
             resumo: `${pendingLabel(n)} à espera; reconectando.`,
-            detail: `${pendingLabel(n)} à espera de envio. A conexão com o servidor está `
-                + 'sendo refeita, e o trabalho continua guardado neste computador.',
+            detail: `${pendingLabel(n)} à espera de envio. Reconectando ao servidor; o trabalho `
+                + 'fica guardado neste computador.',
             pending: n,
         };
     }
@@ -444,9 +444,9 @@ export function describeSyncWork({
         tone: SYNC_TONE.WARN,
         label: pendingShortLabel(n),
         resumo: `${pendingLabel(n)} à espera; sem conexão.`,
-        detail: `${pendingLabel(n)} à espera de envio, e não há conexão com o servidor `
-            + 'agora. O trabalho continua guardado neste computador e sai quando a conexão '
-            + 'voltar. Sair da conta antes disso põe esse trabalho em risco.',
+        detail: `${pendingLabel(n)} à espera de envio, sem conexão com o servidor. O trabalho `
+            + 'é enviado quando a conexão voltar. Sair da conta antes disso põe esse trabalho em '
+            + 'risco.',
         pending: n,
     };
 }

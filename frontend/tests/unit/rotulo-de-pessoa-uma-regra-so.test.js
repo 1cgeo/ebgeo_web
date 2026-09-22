@@ -58,7 +58,9 @@ const FOLHA = 'src/js/utilities/person-label.js';
  */
 const TELAS = Object.freeze([
     ['src/js/modals/sharing.modal.core.js', 'compartilhar atlas: dono, participante e busca'],
-    ['src/js/catalog/resource-share.modal.js', 'conceder recurso: busca de pessoas'],
+    ['src/js/catalog/resource-share.modal.core.js', 'conceder recurso: busca de pessoas'],
+    // A ENTRADA DO MAPA (`resource-share.modal.js`) é só a fiação da re-soma desde 2026-09-22:
+    // quem nomeia gente é o núcleo, e é ele que a lista cobra.,
     ['src/js/catalog/grant-tree.js', 'conceder recurso: a linha, o aria-label e o diálogo'],
     ['src/js/modals/create-atlas.modal.js', 'criar atlas: busca e lista de convidados'],
     ['src/js/projects/atlas-drive.js', 'o rodapé de quem tem acesso, no cartão do atlas'],

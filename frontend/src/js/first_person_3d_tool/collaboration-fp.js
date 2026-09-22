@@ -7,7 +7,7 @@ import { sessionContext } from '@store/sync/session-context.js';
 import { presenceStore } from '@js/presence/presence-store.js';
 import { getPresenceColor } from '@js/presence/presence-colors.js';
 import {
-    SUPERFICIE, autoriaAtual, ehDaSuperficie, montarCartaoDeCompose,
+    SUPERFICIE, autoriaAtual, ehDaSuperficie, escrevendoNoCartao, montarCartaoDeCompose,
     montarCartaoDeThread, podeComentar, respostasDe,
 } from '@js/comment_tool/comment-card.js';
 
@@ -79,8 +79,10 @@ export class FpCollaboration {
             if (this.openId) {
                 const root = this.collection[this.openId];
                 if (!root || !ehDaSuperficie(root, SUPERFICIE.PRIMEIRA_PESSOA, this.sceneId)) this.closeCard();
-                // Keep an in-progress reply/edit intact when a peer updates the thread.
-                else if (!this.card?.contains(document.activeElement)) this.focus(root.id);
+                // Keep an in-progress reply/edit intact when a peer updates the thread. The test is
+                // unsent TEXT, not focus: a focused Resolver/Reabrir button froze the card in its
+                // pre-click state, and the reply box is focused on every draw.
+                else if (!escrevendoNoCartao(this.card)) this.focus(root.id);
             }
         } catch (error) {
             console.error('[first-person] could not read comments:', error);
@@ -126,8 +128,11 @@ export class FpCollaboration {
     focus(id) {
         const root = this.collection[id];
         if (!this.active || !root || !ehDaSuperficie(root, SUPERFICIE.PRIMEIRA_PESSOA, this.sceneId)) return false;
+        // Scoped to THIS thread: after a resolution the card calls it only once the store accepted
+        // the write, and by then another pin may be open.
         this.showCard(montarCartaoDeThread({
-            raiz: root, respostas: respostasDe(this.collection, id), aoFechar: () => this.closeCard(),
+            raiz: root, respostas: respostasDe(this.collection, id),
+            aoFechar: () => { if (this.openId === id) this.closeCard(); },
         }));
         this.openId = id;
         return true;

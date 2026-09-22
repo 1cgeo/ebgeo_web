@@ -38,6 +38,7 @@ import { fileURLToPath } from 'node:url';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { MARCADOR_AMOSTRA } from '../../src/utils/amostra-de-saude.js';
 import { MARCADOR_QUERY_LENTA } from '../../src/utils/query-lenta.js';
+import { MARCADOR_LOG_DESLIGADO } from '../../src/utils/log-diario.js';
 
 const COMANDO = fileURLToPath(new URL('../../scripts/diag.js', import.meta.url));
 const MARCA = randomUUID().slice(0, 8);
@@ -300,5 +301,30 @@ describe('diag CLI: resumo, o comando híbrido', () => {
     const r = rodar(['resumo', '--dir', dir, '--desde', '2hs']);
     assert.equal(r.codigo, 1);
     assert.match(r.erro, /Janela inválida/);
+  });
+
+  it('o log em arquivo DESLIGADO pelo servidor sai no bloco de saúde, no JSON e no texto', async () => {
+    // O comando é OUTRO processo e não enxerga a memória do servidor: a única testemunha que
+    // ele tem de que o log parou com o processo de pé é o defeito que o boot grava
+    // (`defeitoDoLogDesligado`). A assinatura leva a MARCA para não colidir com a chave única
+    // da tabela compartilhada, e continua abrindo com o marcador, que é o que o resumo procura.
+    // Por último no arquivo porque ele semeia: os casos acima contam defeitos da janela.
+    await db.query(
+      `INSERT INTO defeitos (assinatura, mensagem, pagina, estado, origem, ocorrencias,
+                             primeira_em, ultima_em)
+       VALUES ($1, $2, $3, 'aberto', 'servidor', 2, NOW(), NOW())`,
+      [`${MARCADOR_LOG_DESLIGADO} | EACCES-${MARCA}`, `O log em arquivo foi DESLIGADO nesta execução (${MARCA})`, PAGINA]
+    );
+
+    const doc = JSON.parse(rodar(['resumo', '--dir', dir, '--desde', '2h', '--json']).saida);
+    assert.equal(doc.saude.logEmArquivo.disponivel, true);
+    const meus = doc.saude.logEmArquivo.desligamentos.filter((d) => d.mensagem.includes(MARCA));
+    assert.equal(meus.length, 1);
+    assert.equal(meus[0].ocorrencias, 2);
+
+    const texto = rodar(['resumo', '--dir', dir, '--desde', '2h']);
+    assert.equal(texto.codigo, 0, texto.erro);
+    assert.match(texto.saida, /LOG EM ARQUIVO DESLIGADO pelo servidor/);
+    assert.match(texto.saida, /com o processo DE PÉ/);
   });
 });

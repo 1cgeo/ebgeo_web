@@ -261,9 +261,10 @@ describe('a cena 3D acusa no painel do mapa', () => {
         scene3dFailures.report('cena-museu', { name: 'Museu', status: 403 });
         passaARajada();
 
-        expect(detalhe()).toContain('O servidor respondeu 403.');
-        expect(detalhe()).toContain('não é conhecido daqui');
-        expect(detalhe()).not.toMatch(/você não tem acesso/i);
+        // Sem botao de tentar de novo nesta superficie, a acao nao o menciona; o codigo fecha o
+        // corpo como linha discreta, sem virar frase sobre o que o servidor respondeu.
+        expect(detalhe()).toBe('Verifique sua conexão. Se continuar, avise o administrador. Código: 403');
+        expect(detalhe()).not.toMatch(/acesso/i);
     });
 
     it('sem codigo nenhum (o chunk que nao chegou) o painel nao inventa numero', () => {
@@ -271,7 +272,7 @@ describe('a cena 3D acusa no painel do mapa', () => {
         scene3dFailures.report('cena-museu', { name: 'Museu' });
         passaARajada();
 
-        expect(detalhe()).not.toMatch(/respondeu/);
+        expect(detalhe()).not.toMatch(/C[oó]digo|respondeu/);
         expect(mensagem()).toBe('A cena 3D "Museu" não pôde ser carregada.');
     });
 
@@ -309,7 +310,7 @@ describe('a cena 3D acusa no painel do mapa', () => {
             'A camada "Molduras" não pôde ser carregada. '
             + 'A cena 3D "Museu" não pôde ser carregada.'
         );
-        expect(detalhe()).toContain('O servidor respondeu 403, 404.');
+        expect(detalhe()).toMatch(/ Códigos: 403, 404$/);
     });
 
     it('a retirada e por cena: reabrir uma nao absolve a outra', () => {

@@ -708,7 +708,7 @@ function showCoordinateEditModal3D(marker, onPositionUpdate, sectionContainer) {
             await renderCoordinates(coordsContainer, newPosition);
         }
 
-        showSuccess('Coordenadas atualizadas!');
+        showSuccess('Coordenadas atualizadas.');
         closeModal();
     });
 
@@ -779,7 +779,7 @@ function buildActionButtons(container, marker, initialProperties, initialStyle, 
     defaultButton.addEventListener('click', () => {
         const styleToSave = { ...marker.style };
         localStorage.setItem('marker3d_default_style', JSON.stringify(styleToSave));
-        showSuccess('Estilo definido como padrão!');
+        showSuccess('Estilo definido como padrão.');
     });
     section.appendChild(defaultButton);
 
@@ -809,7 +809,7 @@ function buildDeleteButton(container, marker, _onClose) {
             const { deleteMarker } = await getMarkerTool();
             const result = await deleteMarker(marker.id);
             if (result) {
-                showSuccess('Marcador deletado!');
+                showSuccess('Marcador excluído.');
                 // No onClose() here: deleteMarker now emits MARKER_3D_DESELECTED,
                 // which the sidebar already turns into a panel close. Calling both
                 // closes twice. This mirrors measurement-panel-3d.js, which never

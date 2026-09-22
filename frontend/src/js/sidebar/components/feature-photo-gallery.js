@@ -3,14 +3,22 @@
 /**
  * @fileoverview Compact photo gallery component for the feature panel.
  * Displays feature images in a grid with add button.
+ *
+ * WHO SEES THE WRITING COMMANDS is decided by `photo-gallery-affordance.js`, on BOTH axes: a
+ * Leitor or a Comentarista (POSTO) and a locked map (ESTADO) get the pictures and the lightbox,
+ * and no "Adicionar", no "+" card, no delete and no file input. Until 2026-09-22 this file asked
+ * only about the lock, and the "+" card reached the picker for a reader.
  */
 
 import userDataManager from '@js/user_data/user_data_manager.js';
-import { getEventBus, isCurrentMapLockedSync } from '@store/index.js';
+import { getEventBus } from '@store/index.js';
+import { edicaoIndisponivelSync, semEdicaoSync } from '@store/edicao-indisponivel.js';
+import { unavailableEditNotice } from '@store/denial-phrases.js';
 import { EventTypes, FeatureUpdateProperty } from '@events/index.js';
 import { showConfirm } from '@modals/index.js';
-import { showError } from '@utils/index.js';
+import { showError, showWarning } from '@utils/index.js';
 import { validateImagePayload, IMAGE_CONFIG } from '@utils/image_utils.js';
+import { photoGalleryAffordances } from './photo-gallery-affordance.js';
 
 /** @type {Array<Object>|null} Current gallery images for viewer navigation */
 let _viewerImages = null;
@@ -19,17 +27,40 @@ let _viewerImages = null;
 let activeImageViewerClose = null;
 
 /**
+ * Re-asks, at the moment of a writing gesture, whether editing is still available, and says why
+ * when it is not.
+ *
+ * The build already hid every writing command when editing was unavailable; this covers the
+ * other order, a panel drawn while editing was free and a peer locking the map (or the role
+ * dropping) before the click. The command is on screen then, so the click is how the reason
+ * reaches the person, and it is refused NAMING the state or the capability, never in silence.
+ * @returns {boolean} true when the gesture was refused (and the refusal was said).
+ */
+function refusedNow() {
+    const notice = unavailableEditNotice(edicaoIndisponivelSync());
+    if (!notice) return false;
+    showWarning(notice);
+    return true;
+}
+
+/**
  * Creates the photo gallery section for the feature panel.
  * @param {Object} options - Configuration options
  * @param {string} options.featureId - Feature ID
  * @param {string} options.featureType - Feature type
  * @param {boolean} [options.compact=true] - Use compact mode (3 columns grid)
+ * @param {boolean} [options.readOnly] - Whether editing is unavailable (role or lock). The panel
+ *   passes the answer it used for itself, so the two agree on the same instant; when omitted the
+ *   gallery asks the single account of both axes (`semEdicaoSync`).
  * @returns {Promise<Object>} Object with element and cleanup function
  */
 export async function createPhotoGallery(options) {
     const { featureId, featureType, compact = true } = options;
 
-    const mapLocked = isCurrentMapLockedSync();
+    const readOnly = typeof options.readOnly === 'boolean' ? options.readOnly : semEdicaoSync();
+    // `canAdd`/`canRemove` do not depend on the count, so the header and the file input are
+    // decided once here; the grid asks again per render, with the real count.
+    const { canAdd } = photoGalleryAffordances({ readOnly, imageCount: 0, compact });
     const container = document.createElement('div');
     container.className = 'feature-photo-gallery';
 
@@ -42,21 +73,6 @@ export async function createPhotoGallery(options) {
     title.textContent = 'Fotos / Imagens';
 
     header.appendChild(title);
-
-    if (!mapLocked) {
-        const addButton = document.createElement('button');
-        addButton.className = 'feature-photo-gallery-add-btn';
-        addButton.innerHTML = `
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Adicionar
-        `;
-        addButton.addEventListener('click', () => {
-            if (isCurrentMapLockedSync()) return;
-            fileInput.click();
-        });
-        header.appendChild(addButton);
-    }
-
     container.appendChild(header);
 
     // Grid container
@@ -69,15 +85,26 @@ export async function createPhotoGallery(options) {
     counter.className = 'feature-photo-gallery-counter';
     container.appendChild(counter);
 
-    // Hidden file input
-    const fileInput = document.createElement('input');
-    fileInput.type = 'file';
-    // The allowlist the gate (and the server) actually enforce: offering GIF in the picker only
-    // led to a file `addImage` refused with nothing but a `console.warn`.
-    fileInput.accept = IMAGE_CONFIG.allowedTypes.join(',');
-    fileInput.multiple = true;
-    fileInput.className = 'feature-photo-gallery__file-input';
-    container.appendChild(fileInput);
+    // The file input exists only where adding exists: for whoever cannot edit there is no door
+    // to a picker at all, not a hidden one.
+    const fileInput = canAdd ? createFileInput() : null;
+    if (fileInput) container.appendChild(fileInput);
+
+    const openPicker = () => {
+        if (!fileInput || refusedNow()) return;
+        fileInput.click();
+    };
+
+    if (canAdd) {
+        const addButton = document.createElement('button');
+        addButton.className = 'feature-photo-gallery-add-btn';
+        addButton.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Adicionar
+        `;
+        addButton.addEventListener('click', openPicker);
+        header.appendChild(addButton);
+    }
 
     /**
      * Renders the images in the grid.
@@ -86,29 +113,21 @@ export async function createPhotoGallery(options) {
         grid.innerHTML = '';
 
         const images = await userDataManager.getImages(featureId, featureType);
+        const view = photoGalleryAffordances({ readOnly, imageCount: images.length, compact });
 
-        // When map is locked and no images, hide the entire gallery
-        if (mapLocked && images.length === 0) {
-            container.classList.add('feature-photo-gallery--hidden');
-            return;
-        }
-        container.classList.remove('feature-photo-gallery--hidden');
+        // Read-only with no picture: nothing to show and nothing to offer, so no section at all.
+        container.classList.toggle('feature-photo-gallery--hidden', view.hidden);
+        if (view.hidden) return;
 
-        // Show images (limited to 5 in compact mode + add button)
-        const maxVisible = compact ? 5 : images.length;
-        const visibleImages = images.slice(0, maxVisible);
-
-        visibleImages.forEach(img => {
-            const card = mapLocked
-                ? createReadOnlyImageCard(img, images)
-                : createImageCard(img, featureId, featureType, renderImages, images);
+        images.slice(0, view.visibleCount).forEach(img => {
+            const card = view.canRemove
+                ? createImageCard(img, featureId, featureType, renderImages, images)
+                : createReadOnlyImageCard(img, images);
             grid.appendChild(card);
         });
 
-        // Add button card (hide when map is locked)
-        if (!mapLocked && images.length <= 2) {
-            const addCard = createAddCard(fileInput);
-            grid.appendChild(addCard);
+        if (view.showAddCard) {
+            grid.appendChild(createAddCard(openPicker));
         }
 
         // Update counter
@@ -121,9 +140,10 @@ export async function createPhotoGallery(options) {
         }
     }
 
-    // File input handler
-    fileInput.addEventListener('change', async (e) => {
-        if (isCurrentMapLockedSync()) { fileInput.value = ''; return; }
+    // File input handler. Asked AGAIN here, because the state can change while the picker is
+    // open, and a picture chosen after the lock would otherwise be processed and then refused.
+    fileInput?.addEventListener('change', async (e) => {
+        if (refusedNow()) { fileInput.value = ''; return; }
         if (e.target.files?.length) {
             const arquivos = Array.from(e.target.files);
             for (const file of arquivos) {
@@ -205,6 +225,9 @@ function createImageCard(imageData, featureId, featureType, onDelete, allImages)
 
     deleteBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
+        // Before the confirmation, not after: asking "remover?" to refuse the answer spends the
+        // gesture on a no. `refusedNow` names the state or the capability.
+        if (refusedNow()) return;
         const confirmed = await showConfirm('Remover esta imagem?', { destructive: true });
         if (confirmed) {
             await userDataManager.removeImage(featureId, featureType, imageData.id);
@@ -243,21 +266,33 @@ function createReadOnlyImageCard(imageData, allImages) {
 
 /**
  * Creates the add button card.
- * @param {HTMLInputElement} fileInput - Hidden file input
+ * @param {() => void} openPicker - Opens the file picker, re-asking about editing first
  * @returns {HTMLElement} Add card element
  */
-function createAddCard(fileInput) {
+function createAddCard(openPicker) {
     const card = document.createElement('div');
     card.className = 'feature-photo-gallery-card feature-photo-gallery-add-card';
     card.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
     card.title = 'Adicionar imagem';
 
-    card.addEventListener('click', () => {
-        if (isCurrentMapLockedSync()) return;
-        fileInput.click();
-    });
+    card.addEventListener('click', openPicker);
 
     return card;
+}
+
+/**
+ * The hidden file input of the gallery, built only for whoever can add a picture.
+ * @returns {HTMLInputElement}
+ */
+function createFileInput() {
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    // The allowlist the gate (and the server) actually enforce: offering GIF in the picker only
+    // led to a file `addImage` refused with nothing but a `console.warn`.
+    fileInput.accept = IMAGE_CONFIG.allowedTypes.join(',');
+    fileInput.multiple = true;
+    fileInput.className = 'feature-photo-gallery__file-input';
+    return fileInput;
 }
 
 /**

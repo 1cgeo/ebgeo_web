@@ -118,7 +118,7 @@ export async function seedTileset(dbName, {
  * cliente vê e quem pode vê-lo) e `a3d.models` é a PRODUÇÃO (qual arquivo `.3dtiles` serve
  * aqueles bytes). `resolverModelo3d` faz o JOIN das duas, então um tileset com linha de
  * catálogo e sem linha de produção responde **404** em `/api/v1/assets3d/m/<id>/...`, com a
- * mensagem "3D model not found" e nenhum outro sinal.
+ * mensagem "Modelo 3D não encontrado." e nenhum outro sinal.
  *
  * ISSO CUSTOU UMA MEDIDA ERRADA em 2026-08-31: um spec que só semeava o tileset abria o
  * visualizador, via o modelo falhar, voltava para o 2D e ficava verde por outro caminho. Um

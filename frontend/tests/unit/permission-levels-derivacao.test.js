@@ -214,9 +214,11 @@ describe('podeAdministrarGrupo — a autoridade otimista sobre grupo', () => {
 describe('sharingGroupPickerHint — a dica manda para a porta que ESTA pessoa vê', () => {
     it('quem não administra nenhum grupo recebe o rótulo calculado, não "Grupos" fixo', () => {
         expect(sharingGroupPickerHint(0, 'Administração'))
-            .toBe('Só é possível compartilhar com grupos que você administra. Crie um em Administração.');
-        expect(sharingGroupPickerHint(0, 'Catálogo')).toContain('Crie um em Catálogo.');
-        expect(sharingGroupPickerHint(0, 'Acessos')).toContain('Crie um em Acessos.');
+            .toBe('Só é possível compartilhar com grupos que você administra. Crie um em Administração, na aba Grupos.');
+        expect(sharingGroupPickerHint(0, 'Catálogo')).toContain('Crie um em Catálogo, na aba Grupos.');
+        // Desde 2026-09-22 o botão "Acessos" abre na aba Concessões, e Grupos fica a um clique no
+        // menu lateral: a frase nomeia a aba para continuar verdadeira.
+        expect(sharingGroupPickerHint(0, 'Acessos')).toContain('Crie um em Acessos, na aba Grupos.');
     });
 
     it('DISCRIMINAÇÃO: as três audiências produzem três frases diferentes', () => {

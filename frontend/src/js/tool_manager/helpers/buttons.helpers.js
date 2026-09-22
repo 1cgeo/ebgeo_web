@@ -56,17 +56,30 @@ export function createModernButtons(config) {
     /**
      * Save features logic (reusable without deselect).
      * Exposed as saveButton._saveOnly for programmatic save-without-deselect.
+     *
+     * ONE SAVE AT A TIME PER PANEL. The same content is asked to save twice in a row when it is
+     * replaced (the rebuild saves the outgoing content when it starts and again at the swap,
+     * `sidebar/panels/feature-panel-flush.js`), and a multi-selection save opens the GLOBAL undo
+     * batch collector: a second `startBatchUndo` while the first save is still writing resets the
+     * collector and drops what the first had recorded. Chained, the second save starts after the
+     * first committed its batch, and finds nothing left to write (`updateFeature` returns early
+     * on an equal feature).
      */
-    const doSave = async () => {
-        const needsBatch = selectedFeatures.length > 1;
-        if (needsBatch) startBatchUndo();
-        try {
-            await control.saveFeatures(selectedFeatures, initialPropertiesMap);
-            if (needsBatch) commitBatchUndo();
-        } catch (error) {
-            if (needsBatch) discardBatchUndo();
-            console.error('Error during batch save:', error);
-        }
+    let saveChain = Promise.resolve();
+    const doSave = () => {
+        const run = saveChain.then(async () => {
+            const needsBatch = selectedFeatures.length > 1;
+            if (needsBatch) startBatchUndo();
+            try {
+                await control.saveFeatures(selectedFeatures, initialPropertiesMap);
+                if (needsBatch) commitBatchUndo();
+            } catch (error) {
+                if (needsBatch) discardBatchUndo();
+                console.error('Error during batch save:', error);
+            }
+        });
+        saveChain = run.catch(() => {});
+        return run;
     };
 
     // Expose save-only function for programmatic use (feature switching)

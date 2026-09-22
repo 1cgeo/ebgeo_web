@@ -125,9 +125,8 @@ export function resourceAccessNotice({ authenticated, degraded, repairing } = {}
 
     return {
         label: 'Acervo privado indisponível',
-        detail: 'Os itens restritos a você não puderam ser carregados, então o catálogo está '
-            + 'mostrando só o conteúdo público e as ações de compartilhar deles não aparecem. '
-            + 'Sua conta e suas permissões continuam as mesmas. Clique para tentar de novo.',
+        detail: 'Seus itens restritos não carregaram, e o catálogo mostra só o conteúdo público. '
+            + 'Sua conta e suas permissões não mudaram. Clique para tentar de novo.',
         actionLabel: 'Tentar de novo',
         tone: RESOURCE_NOTICE_TONE.WARN,
     };

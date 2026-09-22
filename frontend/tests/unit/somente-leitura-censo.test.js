@@ -67,6 +67,24 @@ const SITIOS = Object.freeze([
         arquivo: 'src/js/sidebar/tabs/maps.tab.js', ancora: "'sidebar-settings-btn edit-affordance'" },
     { nome: 'Temporal: engrenagem de configuração', classe: MARCA,
         arquivo: 'src/js/temporal/temporal-timeline-bar.js', ancora: 'temporal-bar__settings edit-affordance' },
+    // O SNAP ENTROU AQUI EM 2026-09-22, pelo relato do dono ("esconder snap no somente leitura, ou
+    // no bloqueado, ou comentário"): o interruptor não lia `requiresEdit`, então não levava a marca.
+    // A âncora é o ajudante que o interruptor e as ações da barra compartilham; que o interruptor
+    // de fato o chame é o que `snap-some-sem-edicao.test.js` cobra.
+    { nome: 'Barra: interruptor de snap, desfazer e refazer (a bandeira `requiresEdit`)', classe: MARCA,
+        arquivo: 'src/js/toolbar/toolbar.control.js', ancora: "'toolbar-standalone-btn edit-affordance'" },
+    // E NO MESMO DIA, pelo relato "mesmo no modo leitura ou comentário aparece na UI para o cara
+    // adicionar imagem numa feição": a galeria perguntava só pela trava, e o cartão "+" dela abria
+    // o seletor de arquivo para o Leitor; a solta no mapa também perguntava só pela trava, e a
+    // figura do Leitor ia para a fila de subida antes de a store recusar a feição. O comportamento
+    // das duas é cobrado em `galeria-de-fotos-some-sem-edicao.test.js` e em
+    // `drag-drop-classificacao.test.js`.
+    { nome: 'Galeria de fotos da feição (adicionar, cartão "+", remover)', classe: PERGUNTA,
+        arquivo: 'src/js/sidebar/components/feature-photo-gallery.js',
+        ancora: "typeof options.readOnly === 'boolean' ? options.readOnly : semEdicaoSync()" },
+    { nome: 'Soltar arquivo no mapa (figura, .ebgeo, geometria)', classe: PERGUNTA,
+        arquivo: 'src/js/import_export/drag-drop.handler.js',
+        ancora: 'unavailableEditNotice(edicaoIndisponivelSync(DROP_GUARD_ACTION))' },
 
     // A SEGUNDA LEVA (2026-09-17), que o dono encontrou testando um mapa somente leitura na rede:
     // "ele ainda está exibindo a escolha de basemap" e "quero que as ferramentas do 360 e 3d sejam

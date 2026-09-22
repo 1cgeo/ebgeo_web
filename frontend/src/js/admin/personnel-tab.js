@@ -21,6 +21,7 @@ import {
     orgDeactivationWarning, orgDeactivationConfirmLabel, orgDeactivationSummary,
     rankDeactivationWarning, statusLabel,
 } from './personnel-phrases.js';
+import { serverMessageOr } from '@utils/request-failure.js';
 
 /** The two controlled lists, each backed by its own table/endpoints + field set. */
 const SUBCATS = [
@@ -189,7 +190,7 @@ class PersonnelTab {
             loading.replaceChildren(failureState('Falha ao carregar a lista.', {
                 onRetry: () => { if (this._alive) this._renderList(); },
             }));
-            showError(error?.message || 'Falha ao carregar a lista.');
+            showError(serverMessageOr(error, 'Falha ao carregar a lista.'));
             return;
         }
         if (!this._alive) return;
@@ -206,7 +207,7 @@ class PersonnelTab {
             // helper traz a DICA do que fazer agora, e era exatamente ela que faltava nas duas
             // abas que montavam o vazio à mão. Lista vazia sem próximo passo é beco.
             wrap.appendChild(emptyState('Nenhum item nesta lista.', {
-                hint: 'Use "+ Novo" no topo da secao para criar o primeiro.',
+                hint: 'Use "+ Novo" no topo da seção para criar o primeiro.',
             }));
             return;
         }
@@ -316,7 +317,7 @@ class PersonnelTab {
                 showSuccess(isEdit ? 'Item atualizado.' : 'Item criado.');
                 if (this._alive) this._renderList();
             } catch (err) {
-                showFormError(error, err?.message || 'Falha ao salvar o item.');
+                showFormError(error, serverMessageOr(err, 'Falha ao salvar o item.'));
                 saveBtn.disabled = false;
             }
         };
@@ -370,10 +371,10 @@ class PersonnelTab {
             await this._reidratarConfig();
             showSuccess(ehOm
                 ? orgDeactivationSummary(item.nome, contagens)
-                : 'Posto desativado. Ele saiu dos seletores de cadastro.');
+                : 'Posto desativado. Ele saiu das listas de cadastro.');
             if (this._alive) this._renderList();
         } catch (err) {
-            showError(err?.message || 'Falha ao desativar o item.');
+            showError(serverMessageOr(err, 'Falha ao desativar o item.'));
         }
     }
 
@@ -416,7 +417,7 @@ class PersonnelTab {
             showSuccess('Reativado.');
             if (this._alive) this._renderList();
         } catch (err) {
-            showError(err?.message || 'Falha ao reativar o item.');
+            showError(serverMessageOr(err, 'Falha ao reativar o item.'));
         }
     }
 }

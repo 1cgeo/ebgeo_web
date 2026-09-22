@@ -257,7 +257,7 @@ for (const [filename, version, maps, features, images, settingsVersion] of cases
             await page.getByTestId('local-atlas-file-input').setInputFiles(path);
             await page.waitForURL(url => !url.pathname.endsWith('atlas.html'), { timeout: 45000 });
             // Maps are written first; their count alone does not mean images/side stores finished.
-            await expect(page.getByText(maps === 1 ? '1 mapa carregados!' : `${maps} mapas carregados!`, { exact: true }))
+            await expect(page.getByText(maps === 1 ? '1 mapa carregado.' : `${maps} mapas carregados.`, { exact: true }))
                 .toBeVisible({ timeout: 90000 });
             await expect.poll(async () => {
                 try { return (await counts(page)).features; } catch { return -1; }
@@ -359,7 +359,7 @@ for (const route of ['browser-v1', 'file-v1']) {
             const buffer = Buffer.concat([Buffer.from('EBGXOR'), Buffer.from(raw.map(b => b ^ 0xaa))]);
             await page.goto('/atlas.html');
             await page.getByTestId('local-atlas-file-input').setInputFiles({ name: 'v1-images.ebgeo', mimeType: 'application/octet-stream', buffer });
-            await expect(page.getByText('1 mapa carregados!', { exact: true })).toBeVisible({ timeout: 90000 });
+            await expect(page.getByText('1 mapa carregado.', { exact: true })).toBeVisible({ timeout: 90000 });
         }
         await boot(page);
         const result = await inspectRestoredImages(page, testInfo, fixture);

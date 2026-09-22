@@ -195,7 +195,7 @@ describeOrSkip('o balde `barrier_lines` da 2.2 chega à tela como Linha de Coord
         await esperarMapa(page);
 
         // O toast é a ÚLTIMA linha do fluxo de import, então é o único sinal de "acabou".
-        await expect(page.locator('.toast', { hasText: `${MAPAS_DO_ARQUIVO} mapas carregados!` }))
+        await expect(page.locator('.toast', { hasText: `${MAPAS_DO_ARQUIVO} mapas carregados.` }))
             .toBeVisible({ timeout: 60000 });
 
         // A ferramenta pela BARRA, ANTES da troca de mapa: é o clique que carrega o módulo e

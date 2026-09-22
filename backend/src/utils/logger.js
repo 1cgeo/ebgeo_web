@@ -227,6 +227,27 @@ export function errSerializer(err) {
 let destinoDiario = null;
 
 /**
+ * Quem quer saber que o destino de arquivo se DESLIGOU em runtime (`aoDesligarLogEmArquivo`).
+ *
+ * DECLARADO ANTES de `montarDestinos()` ser chamado, e a ordem é o ponto: o destino pode se
+ * desligar DENTRO da própria construção (o `mkdir` do diretório falhou), e um `const` declarado
+ * depois estaria na zona morta temporal nesse instante. `criarLogDiario` engole a exceção do
+ * ouvinte, então o sintoma seria o pior possível: o aviso some e nada fica vermelho.
+ */
+const ouvintesDoDesligamento = new Set();
+
+/** Repassa o desligamento a cada ouvinte, sem deixar um ouvinte derrubar o outro. */
+function anunciarDesligamento(estado) {
+  for (const ouvinte of ouvintesDoDesligamento) {
+    try {
+      ouvinte({ ...estado, motivo: 'falha' });
+    } catch {
+      // Um ouvinte é telemetria. Ver `aoDesligar` em `log-diario.js`.
+    }
+  }
+}
+
+/**
  * O `base` do pino: os campos que TODA linha carrega, sem ninguém precisar lembrar deles.
  *
  * POR QUE `base` E NÃO UM CAMPO EM CADA PAYLOAD. Os produtores de linha desta casa são
@@ -264,6 +285,7 @@ function montarDestinos() {
     destinoDiario = criarLogDiario({
       diretorio: config.log.dir,
       retencaoDias: config.log.retencaoDias,
+      aoDesligar: anunciarDesligamento,
     });
     destinos.push({ stream: destinoDiario });
   }
@@ -297,6 +319,55 @@ const logger = pino({
     censor: '[REDACTED]',
   },
 }, destinos);
+
+/**
+ * O ESTADO DO LOG EM ARQUIVO neste processo, para quem precisa dizer em voz alta que ele não
+ * está escrevendo.
+ *
+ * O BURACO QUE ISTO FECHA. Quando o destino se desliga em runtime (disco cheio, volume que
+ * sumiu, arquivo do dia de outro dono), o `.jsonl` para de crescer com o processo VIVO, e o
+ * `diag -- saude` lia isso como "sem amostras" ou como buraco na série, que é a mesma
+ * assinatura de uma queda. O próprio arquivo não tem como registrar que parou; o aviso do
+ * stderr não sobrevive a um container recriado. Esta leitura é o que as rotas de diagnóstico do
+ * processo vivo publicam (`janela.logEmArquivo`), e o boot liga o desligamento a um defeito de
+ * servidor (`aoDesligarLogEmArquivo`), que é a metade que sobrevive ao reinício.
+ *
+ * TRÊS MOTIVOS DE ESTAR DESLIGADO, e só um é incidente: `configuracao` (`LOG_TO_FILE=off`),
+ * `teste` (a suíte nunca escreve arquivo) e `falha`. `motivo` é `null` com o destino ligado.
+ *
+ * @returns {{ligado: boolean, motivo: 'configuracao'|'teste'|'falha'|null, diretorio: string,
+ *   desligadoEm: number|null, causa: string|null, codigo: string|null, mensagem: string|null}}
+ */
+export function estadoDoLogEmArquivo() {
+  const vazio = { desligadoEm: null, causa: null, codigo: null, mensagem: null };
+  if (!config.log.emArquivo) {
+    return { ligado: false, motivo: 'configuracao', diretorio: config.log.dir, ...vazio, causa: 'LOG_TO_FILE=off' };
+  }
+  if (!destinoDiario) {
+    return { ligado: false, motivo: 'teste', diretorio: config.log.dir, ...vazio };
+  }
+  const estado = destinoDiario.estado();
+  return { ...estado, motivo: estado.ligado ? null : 'falha' };
+}
+
+/**
+ * Registra quem quer saber do desligamento do log em arquivo POR FALHA. Devolve o cancelamento.
+ *
+ * QUEM CHEGA DEPOIS DO DESLIGAMENTO É AVISADO NA HORA: o destino pode ter se desligado dentro
+ * da avaliação deste módulo (o `mkdir` do diretório falhou), muito antes de o boot ter a chance
+ * de se registrar, e um ouvinte que só ouvisse o futuro perderia justamente esse caso.
+ *
+ * @param {(estado: ReturnType<typeof estadoDoLogEmArquivo>) => void} ouvinte
+ * @returns {() => void}
+ */
+export function aoDesligarLogEmArquivo(ouvinte) {
+  ouvintesDoDesligamento.add(ouvinte);
+  const agora = estadoDoLogEmArquivo();
+  if (agora.motivo === 'falha') {
+    try { ouvinte(agora); } catch { /* telemetria; ver `anunciarDesligamento` */ }
+  }
+  return () => { ouvintesDoDesligamento.delete(ouvinte); };
+}
 
 /** Teto padrão da descarga de saída. Ver `descarregarLog`. */
 export const PRAZO_DE_DESCARGA_MS = 2000;

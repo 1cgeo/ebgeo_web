@@ -11,6 +11,7 @@ import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { userDataManager } from '@js/user_data';
 import { ensureTurf } from '@utils/turf-loader.js';
 import { extractTemporalProperties, buildTrajectoryFromGpxFeature, extractGpxTimes, sanitizeImportedTrajectory, describeTemporalIssues } from '@js/temporal/temporal-import.js';
+import { serverMessageOr } from '@utils/request-failure.js';
 
 /** Maps source type to Portuguese display name for imported features. */
 const TYPE_DISPLAY_NAMES = {
@@ -195,7 +196,7 @@ class AddImportControl {
             }
         } catch (error) {
             console.error('Error importing file:', error);
-            showError(`Erro ao importar arquivo: ${error.message}`);
+            showError(`Não foi possível importar o arquivo: ${serverMessageOr(error, 'erro inesperado.')}`);
         }
 
         // Only reset file input if it exists (not when called via processFileDirectly)

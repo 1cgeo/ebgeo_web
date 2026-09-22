@@ -170,7 +170,9 @@ describe('cartão de projeto · participantes, capa e presença', () => {
       .set('Authorization', `Bearer ${donoToken}`)
       .send({ image: PNG_BYTES_CALLED_WEBP })
       .expect(400);
-    assert.match(res.body.error?.message || '', /image\/webp/);
+    // The refusal names the ANNOUNCED format, in the user's words (not the MIME string).
+    assert.match(res.body.error?.message || '', /\bWebP\b/);
+    assert.doesNotMatch(res.body.error?.message || '', /image\//);
 
     const { rows } = await db.query('SELECT 1 FROM atlas_covers WHERE atlas_id = $1', [atlas.id]);
     assert.equal(rows.length, 0, 'nada pode ter sido gravado');

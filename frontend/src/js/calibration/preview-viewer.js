@@ -216,8 +216,8 @@ export function initPreviewViewer(parentContainer, options = {}) {
     // O GLIFO NAO E NOME. `\u00d7` e o sinal de multiplicacao, e um leitor de tela
     // o anuncia como "vezes" ou cala. O rotulo diz o que o botao FAZ, e o `title`
     // repete para quem passa o ponteiro e nao reconhece o desenho.
-    closeBtn.setAttribute('aria-label', 'Fechar a previa');
-    closeBtn.title = 'Fechar a previa';
+    closeBtn.setAttribute('aria-label', 'Fechar a prévia');
+    closeBtn.title = 'Fechar a prévia';
     closeBtn.classList.add('cal-preview__close');
     closeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -239,7 +239,7 @@ export function initPreviewViewer(parentContainer, options = {}) {
     // Add target button (for nearby photos)
     addTargetBtn = document.createElement('button');
     addTargetBtn.id = 'preview-viewer-add';
-    addTargetBtn.textContent = 'Adicionar Conexao';
+    addTargetBtn.textContent = 'Adicionar conexão';
     addTargetBtn.classList.add('cal-preview__btn', 'cal-preview__btn--add');
     addTargetBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -334,7 +334,7 @@ export async function showRearView(photoId, meshRotationY, meshRotationX = 0, me
     applyModeClass('rear');
     const label = document.getElementById('preview-viewer-label');
     if (label) {
-        label.textContent = 'Visao Traseira';
+        label.textContent = 'Visão traseira';
     }
 
     // Hide all action buttons in rear view
@@ -499,7 +499,7 @@ export function hidePreview() {
         applyModeClass('rear');
         const label = document.getElementById('preview-viewer-label');
         if (label) {
-            label.textContent = 'Visao Traseira';
+            label.textContent = 'Visão traseira';
         }
 
         hideAllButtons();

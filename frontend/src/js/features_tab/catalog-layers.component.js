@@ -594,7 +594,7 @@ function showUnavailableLayerPopover(layer, anchorElement, map, eventBus, analys
             eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
 
             // Show success message
-            showSuccess(`Camada "${catalogLayerDisplayName(layer)}" carregada com sucesso!`);
+            showSuccess(`Camada "${catalogLayerDisplayName(layer)}" carregada.`);
 
             removePopover();
         } else {

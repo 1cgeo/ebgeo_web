@@ -1040,9 +1040,11 @@ describe('tab-lock: two tabs', () => {
         expect(aviso).toBeDefined();
         const texto = textoDe(aviso);
         // O QUE ACONTECEU e, principalmente, O QUE FAZER. A segunda metade é a que falta com mais
-        // facilidade, e um aviso que só descreve a falha deixa a pessoa sem jogada nenhuma.
-        expect(texto).toContain('Feche as outras abas');
-        expect(texto).toContain('trabalhe em uma só');
+        // facilidade, e um aviso que só descreve a falha deixa a pessoa sem jogada nenhuma. A
+        // terceira frase é o PORQUÊ da jogada, sem o qual ela se lê como capricho.
+        expect(texto).toContain('não permite que as abas do EBGeo se coordenem');
+        expect(texto).toContain('Trabalhe em uma aba só');
+        expect(texto).toContain('a última apaga o trabalho da outra');
         // E ele NÃO é a sobreposição de bloqueio: aquela tira o app do ar, e aqui a trava falha
         // ABERTA de propósito, então roubar o mapa transformaria falta de recurso em pane.
         expect(achar(host, 'tab-lock-overlay--visible')).toBeUndefined();

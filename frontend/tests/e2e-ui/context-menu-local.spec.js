@@ -8,7 +8,7 @@
  * observable effects:
  *   - the `.context-menu` becomes visible with its default items;
  *   - "Copiar Coordenadas" copies a non-empty coordinate string to the clipboard and
- *     shows the success toast ("Coordenadas copiadas!");
+ *     shows the success toast ("Coordenadas copiadas.");
  *   - "Orientar para Norte" resets the REAL map bearing (read via __ebgeoMap.getBearing())
  *     back to 0 after we rotate the map first;
  *   - "Copiar Feição" copies the feature UNDER THE CURSOR without selecting it (the feature
@@ -134,7 +134,7 @@ describeOrSkip('§14 Map context menu (real browser, local pure-UI)', () => {
         await expect(menu).toBeHidden({ timeout: 5000 });
 
         // Real observable effect 1: a success toast with the expected message.
-        await expect(page.locator('.toast--success', { hasText: 'Coordenadas copiadas!' }))
+        await expect(page.locator('.toast--success', { hasText: 'Coordenadas copiadas.' }))
             .toBeVisible({ timeout: 5000 });
 
         // Real observable effect 2: the clipboard now holds a non-empty coordinate string.

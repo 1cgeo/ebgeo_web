@@ -96,8 +96,8 @@ describe('groupDeletionWarning — contador fresco contra contador defasado', ()
     it('sem a opção, a frase é EXATAMENTE a de antes (releitura bem-sucedida)', () => {
         const grupo = { name: 'G', member_count: 4, grant_count: 2, atlas_share_count: 1 };
         expect(groupDeletionWarning(grupo)).toBe(groupDeletionWarning(grupo, {}));
-        expect(groupDeletionWarning(grupo)).not.toContain('defasados');
-        expect(groupDeletionWarning(grupo, { countsStale: false })).not.toContain('defasados');
+        expect(groupDeletionWarning(grupo)).not.toContain('desatualizados');
+        expect(groupDeletionWarning(grupo, { countsStale: false })).not.toContain('desatualizados');
     });
 
     it('DISCRIMINAÇÃO: a releitura falhada acrescenta a ressalva, sem apagar o número', () => {

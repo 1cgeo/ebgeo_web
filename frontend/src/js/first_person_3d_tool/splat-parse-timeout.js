@@ -32,7 +32,7 @@
  *
  * NO FABRICATED HTTP STATUS. `loadSplat` puts `Response.status` on its errors because it MEASURED
  * one; here no response is involved at all, so a status field would be prose dressed as
- * measurement, and `layerLoadFailureStatusDetail` would print "O servidor respondeu 504." about a
+ * measurement, and `layerLoadFailureStatusDetail` would print "Código: 504" about a
  * server that answered 200 with every byte. What travels instead is {@link SPLAT_PARSE_TIMEOUT} on
  * `error.code`, read by {@link isSplatParseTimeout} and never parsed back out of a message.
  *

@@ -273,8 +273,8 @@ describe('as sete subclasses continuam funcionando SEM o parâmetro novo', () =>
   // serializer ganharia um «: undefined» na mensagem de todo erro desta casa.
   const naFormaAntiga = [
     ['AppError', () => new AppError('test', 500, 'TEST_ERROR'), 500, 'TEST_ERROR', 'test'],
-    ['NotFoundError', () => new NotFoundError('Atlas'), 404, 'NOT_FOUND', 'Atlas not found'],
-    ['NotFoundError (default)', () => new NotFoundError(), 404, 'NOT_FOUND', 'Resource not found'],
+    ['NotFoundError', () => new NotFoundError('Atlas'), 404, 'NOT_FOUND', 'Atlas não encontrado.'],
+    ['NotFoundError (default)', () => new NotFoundError(), 404, 'NOT_FOUND', 'Recurso não encontrado.'],
     ['ForbiddenError', () => new ForbiddenError(), 403, 'FORBIDDEN', 'Você não tem permissão para esta ação.'],
     ['UnauthorizedError', () => new UnauthorizedError(), 401, 'UNAUTHORIZED', 'Faça login para continuar.'],
     ['ConflictError', () => new ConflictError('Duplicate'), 409, 'CONFLICT', 'Duplicate'],

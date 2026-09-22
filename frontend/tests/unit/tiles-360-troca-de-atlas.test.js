@@ -108,13 +108,34 @@ const { EventTypes } = await import('../../src/js/events/event_types.js');
 const { setResourceScope, resetResourceScope, resourceScopeKey } = await import(
     '../../src/js/store/sync/resource-scope.js'
 );
-const { default: AddStreetViewControl } = await import(
+const { default: AddStreetViewControl, TRAJECTORY_SURFACE } = await import(
     '../../src/js/street_view_tool/add_street_view_control.js'
 );
+const { getLayerFailureNotice } = await import('../../src/js/terrain/layer-failure-notice.js');
+
+/**
+ * Um tile com os dois metodos que a guarda de `map/tile-expiry-guard.js` embrulha. O primeiro
+ * tile que passa por um `sourcedata` ensina o prototipo a guarda; dali em diante `loadVectorData`
+ * e o embrulhado, que registra se a carga trouxe dado.
+ */
+class TileFalso {
+    loadVectorData(dado) {
+        this.state = 'loaded';
+        this.dado = dado ?? null;
+    }
+
+    getExpiryTimeout() {
+        return undefined;
+    }
+}
+
+/** Quantas vezes a fonte foi demolida, que e o que pede todos os tiles de novo. */
+const demolicoes = (estado, id) => estado.historico.filter((h) => h === `removeSource:${id}`).length;
 
 /** Um mapa de mentira com a parte do contrato do MapLibre que este caminho usa. */
 function mapaFalso(camadas, fontes) {
     const estado = { camadas: [...camadas], fontes: { ...fontes }, historico: [] };
+    const ouvintes = new Map();
     return {
         estado,
         getSource: (id) => estado.fontes[id],
@@ -136,11 +157,18 @@ function mapaFalso(camadas, fontes) {
             estado.camadas.push({ ...spec });
         },
         getLayer: (id) => estado.camadas.find((c) => c.id === id),
-        // O controle assina `load` no minimapa. O toco nunca dispara, entao a criacao das
-        // camadas do minimapa nao roda aqui: o que este arquivo mede e a troca de atlas
-        // sobre fontes JA desenhadas, montadas pelo ajudante abaixo.
-        on: () => {},
-        off: () => {},
+        // O controle assina `load` no minimapa, e ninguem o dispara aqui, entao a criacao das
+        // camadas do minimapa nao roda: o que este arquivo mede e a troca de atlas sobre fontes
+        // JA desenhadas, montadas pelo ajudante abaixo. Os ouvintes sao GUARDADOS desde
+        // 2026-09-22 para que o caso do tile recusado dispare `sourcedata` pela fiacao real.
+        on: (tipo, fn) => {
+            if (!ouvintes.has(tipo)) ouvintes.set(tipo, new Set());
+            ouvintes.get(tipo).add(fn);
+        },
+        off: (tipo, fn) => { ouvintes.get(tipo)?.delete(fn); },
+        emitir: (tipo, evento) => {
+            for (const fn of [...(ouvintes.get(tipo) ?? [])]) fn(evento);
+        },
     };
 }
 
@@ -276,5 +304,57 @@ describe('o controle do 360 reage a troca do atlas em foco', () => {
         // O carimbo NAO avancou: quando a ferramenta for ativada, `loadData` cria a fonte
         // ja no atlas certo, e uma troca posterior continua sendo detectada.
         expect(controle._linesAtlasId).toBe(null);
+    });
+
+    it('RAJADA de anuncios sem troca: nenhuma demolicao; uma troca: UMA por fonte, nao uma por anuncio', () => {
+        const { mapa, mini, idLinhas, idPontos } = controleComFontesEm(ATLAS_A);
+        for (let i = 0; i < 50; i++) {
+            barramento.emit(EventTypes.ATLAS_SETTINGS_CHANGED, { reason: 'atlas_resources' });
+        }
+        expect(mapa.estado.historico).toEqual([]);
+        expect(mini.estado.historico).toEqual([]);
+
+        setResourceScope(resourceScopeKey('u-1', ATLAS_B));
+        for (let i = 0; i < 50; i++) {
+            barramento.emit(EventTypes.ATLAS_SETTINGS_CHANGED, { settings: {} });
+        }
+        expect(demolicoes(mapa.estado, idLinhas)).toBe(1);
+        expect(demolicoes(mini.estado, idPontos)).toBe(1);
+    });
+
+    it('tile RECUSADO da trajetoria (o 404 do incidente de 2026-09-21): UM aviso, NENHUMA demolicao, e a nova tentativa e UMA', () => {
+        const { controle, mapa, idLinhas } = controleComFontesEm(ATLAS_A);
+        controle.isActive = true;
+        const aviso = getLayerFailureNotice(mapa);
+        const relatos = vi.spyOn(aviso, 'report');
+
+        // O primeiro tile ensina o prototipo a guarda; os seguintes carregam pelo metodo embrulhado.
+        mapa.emitir('sourcedata', { sourceId: 'osm', tile: new TileFalso() });
+        const recusado = () => {
+            const tile = new TileFalso();
+            tile.loadVectorData(null); // o caminho do MapLibre para um tile VETORIAL respondido 404
+            return tile;
+        };
+
+        for (let i = 0; i < 50; i++) mapa.emitir('sourcedata', { sourceId: idLinhas, tile: recusado() });
+        expect(relatos).toHaveBeenCalledTimes(1);
+        expect(relatos).toHaveBeenCalledWith(TRAJECTORY_SURFACE, idLinhas);
+        // O LACO ERA ISTO: nenhuma resposta do servidor pode virar pedido novo sozinha.
+        expect(demolicoes(mapa.estado, idLinhas)).toBe(0);
+
+        // A nova tentativa do painel e o gesto da pessoa (o botao chama exatamente este metodo):
+        // UMA demolicao, e a recusa seguinte fala de novo em vez de ser engolida como ja dita.
+        aviso._retryFailures();
+        expect(demolicoes(mapa.estado, idLinhas)).toBe(1);
+        for (let i = 0; i < 50; i++) mapa.emitir('sourcedata', { sourceId: idLinhas, tile: recusado() });
+        expect(relatos).toHaveBeenCalledTimes(2);
+        expect(demolicoes(mapa.estado, idLinhas)).toBe(1);
+
+        // O servidor voltando a responder (tile COM dado, mesmo sem feicao nenhuma) retira o aviso.
+        const retiradas = vi.spyOn(aviso, 'clear');
+        const servido = new TileFalso();
+        servido.loadVectorData({ featureIndex: {} });
+        mapa.emitir('sourcedata', { sourceId: idLinhas, tile: servido });
+        expect(retiradas).toHaveBeenCalledWith(TRAJECTORY_SURFACE, idLinhas);
     });
 });

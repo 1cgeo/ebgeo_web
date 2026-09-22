@@ -10,7 +10,11 @@ import Joi from 'joi';
  * the 72nd byte, so without the cap two different passwords that only diverge after it hash
  * to the same value, and the product would accept a long password advertising a strength it
  * does not have. The count is in UTF-8 BYTES, not characters, which is where the rule bites in
- * a Portuguese product: an accented letter costs two, so the message must say "bytes".
+ * a Portuguese product: an accented letter costs two. The message names NO number (since
+ * 2026-09-22, as the recovery screen's `PASSWORD_HEAVY_TEXT` already did): the cap bites at a
+ * different character count for every password, so "72" would announce a limit the person just
+ * disproved by typing fewer characters than that. The frontend mirrors the sentence
+ * (`PASSWORD_BYTES_TEXT`, `frontend/tests/unit/conta-regra-de-senha-espelha-servidor.test.js`).
  *
  * Until 2026-09-19 this rule lived only in `auth.schemas.js` and the three password fields of
  * `users.schemas.js` kept a bare `.max(100)`, so an administrator could create an account with
@@ -22,7 +26,7 @@ import Joi from 'joi';
 export const PASSWORD_MAX_BYTES = 72;
 
 export const PASSWORD_BYTES_MESSAGE =
-  'A senha deve ter no máximo 72 bytes em UTF-8; caracteres acentuados ocupam mais de um byte.';
+  'Senha longa demais. Use uma senha mais curta.';
 
 export const newPassword = Joi.string().required().min(6).max(100).custom((value, helpers) =>
   Buffer.byteLength(value, 'utf8') > PASSWORD_MAX_BYTES ? helpers.error('password.bytes') : value

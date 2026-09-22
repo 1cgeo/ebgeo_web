@@ -90,7 +90,7 @@ test('HTTPS: importar, enviar ao servidor, reiniciar, editar sem rede, recuperar
     await page.goto('/atlas.html');
     await expect(page.getByTestId('local-atlas-file-input')).toBeAttached({ timeout: 30000 });
     await page.getByTestId('local-atlas-file-input').setInputFiles(archive);
-    await expect(page.getByText('14 mapas carregados!', { exact: true })).toBeVisible({ timeout: 90000 });
+    await expect(page.getByText('14 mapas carregados.', { exact: true })).toBeVisible({ timeout: 90000 });
     const local = await disk(page);
     expect(Object.values(local.maps).some(map => map.features === 805)).toBe(true);
     const credentials = await createVerifiedUser({ prefix: 'release', nome: 'Ensaio de release' });

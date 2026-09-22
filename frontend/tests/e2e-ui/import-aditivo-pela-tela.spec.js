@@ -29,9 +29,9 @@
  * (`frontend/src/js/import_export/export-import.service.js`) é a ÚLTIMA linha do fluxo de import,
  * depois de mapas, grupos, camadas, 3D/360, temporal, comentários, briefings, ícones e camada
  * base, então é o único sinal que significa "acabou". A palavra dele muda por caminho,
- * `carregados` no não aditivo e `adicionados` no aditivo, e ele pluraliza errado: para UM mapa a
- * frase é "1 mapa carregados!". Daí as duas esperas serem, na ordem, "1 mapa carregados!" (o
- * arquivo base) e "11 mapas adicionados!" (os onze mapas DO ARQUIVO, que é o que
+ * `carregados` no não aditivo e `adicionados` no aditivo (no singular com UM mapa, desde
+ * 2026-09-22; antes saía "1 mapa carregados!"). Daí as duas esperas serem, na ordem, "1 mapa carregado." (o
+ * arquivo base) e "11 mapas adicionados." (os onze mapas DO ARQUIVO, que é o que
  * `importedMapsCount` conta). As asserções falam de DOZE mapas e 263 feições, que são somas:
  * esperar pela própria quantia que se vai asserir transformaria a asserção num timeout mudo no dia
  * em que ela falhasse.
@@ -231,9 +231,8 @@ describeOrSkip('import aditivo pela tela', () => {
         await page.waitForURL((url) => !url.pathname.endsWith('atlas.html'), { timeout: 30000 });
         await esperarMapa(page);
 
-        // "1 mapa carregados!", com a pluralização errada de `showLoadSuccess` e com a palavra do
-        // caminho NÃO aditivo. Esperar por qualquer outra frase aqui é esperar para sempre.
-        await expect(page.locator('.toast', { hasText: '1 mapa carregados!' }))
+        // "1 mapa carregado.", com a palavra do caminho NÃO aditivo de `showLoadSuccess`. Esperar por qualquer outra frase aqui é esperar para sempre.
+        await expect(page.locator('.toast', { hasText: '1 mapa carregado.' }))
             .toBeVisible({ timeout: 120000 });
 
         // O CONTROLE que dá sentido a tudo o que vem depois: sem ele, "o preexistente sobreviveu"
@@ -261,7 +260,7 @@ describeOrSkip('import aditivo pela tela', () => {
         await seletor.setFiles(FIXTURE_ADITIVA);
 
         // "adicionados", não "carregados", e ONZE, que são os mapas do arquivo e não o total.
-        await expect(page.locator('.toast', { hasText: `${doArquivo.maps} mapas adicionados!` }))
+        await expect(page.locator('.toast', { hasText: `${doArquivo.maps} mapas adicionados.` }))
             .toBeVisible({ timeout: 300000 });
 
         const depois = await lerRepositorio(page);

@@ -306,7 +306,7 @@ function buildActionButtons(container, measurement, initialProperties, initialSt
     defaultButton.addEventListener('click', () => {
         const styleToSave = { ...measurement.style };
         localStorage.setItem('measurement3d_default_style', JSON.stringify(styleToSave));
-        showSuccess('Estilo definido como padrão!');
+        showSuccess('Estilo definido como padrão.');
     });
     section.appendChild(defaultButton);
 
@@ -552,7 +552,7 @@ function buildDeleteButton(container, measurement, _onClose) {
             const { deleteMeasurement } = await getMeasurementTool();
             const result = await deleteMeasurement(measurement.id);
             if (result) {
-                showSuccess('Medição deletada!');
+                showSuccess('Medição excluída.');
                 // deleteMeasurement() already emits MEASUREMENT_3D_DESELECTED which closes panel
             }
         } catch (error) {

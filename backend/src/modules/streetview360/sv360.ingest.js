@@ -183,7 +183,7 @@ export function validatePyramidCoverage(tilesDbPath, manifest) {
   for (const id of livres) {
     const linha = piramides.get(id);
     if (!linha) {
-      throw new BadRequestError(`tiles.db has no pyramid for photo ${id}`);
+      throw new BadRequestError(`O banco de tiles não tem as imagens da foto ${id}.`);
     }
     // Uma escada degenerada e pior que ausente: ela passa na contagem e produz um
     // descritor que o cliente segue ate um nivel sem tile nenhum. `max_level` entra
@@ -569,7 +569,7 @@ export async function ingestBundle({ manifestPath, manifest, tilesTmpPath, orgId
     try {
       raw = JSON.parse(readFileSync(manifestPath, 'utf8'));
     } catch {
-      throw new BadRequestError('manifest.json is not valid JSON');
+      throw new BadRequestError('O manifesto (manifest.json) não é um JSON válido.');
     }
   }
   const validated = validateManifest(raw);

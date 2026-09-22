@@ -528,7 +528,7 @@ function renderPanel(s) {
         <div class="cal-panel__photo-nav">
             <button id="btn-prev-photo" class="cal-panel__btn cal-panel__btn--small cal-panel__btn--ghost" title="Foto anterior [Q]">&larr;</button>
             <span class="cal-panel__photo-counter">${photoIdx} / ${totalPhotos}</span>
-            <button id="btn-next-photo" class="cal-panel__btn cal-panel__btn--small cal-panel__btn--ghost" title="Proxima foto">&rarr;</button>
+            <button id="btn-next-photo" class="cal-panel__btn cal-panel__btn--small cal-panel__btn--ghost" title="Próxima foto">&rarr;</button>
         </div>
         <button id="btn-project-map" class="cal-panel__btn cal-panel__btn--small cal-panel__btn--ghost" title="Ver o projeto inteiro no mapa [M]">
             Mapa do projeto [M]
@@ -569,10 +569,10 @@ function renderPanel(s) {
         ${hasProject ? `
         <div class="cal-panel__review-actions">
             <button id="btn-toggle-reviewed" class="cal-panel__btn ${s.calibrationReviewed ? 'cal-panel__btn--ghost' : 'cal-panel__btn--reviewed'}">
-                ${s.calibrationReviewed ? 'Desmarcar revisao' : 'Marcar revisada'}
+                ${s.calibrationReviewed ? 'Desmarcar revisão' : 'Marcar revisada'}
             </button>
-            <button id="btn-review-next" class="cal-panel__btn cal-panel__btn--review-next" title="Salvar, marcar revisada e ir para proxima [E]">
-                Revisada &rarr; Proxima
+            <button id="btn-review-next" class="cal-panel__btn cal-panel__btn--review-next" title="Salvar, marcar revisada e ir para a próxima [E]">
+                Revisada &rarr; Próxima
             </button>
         </div>
         ` : ''}
@@ -684,7 +684,7 @@ function renderSlidersSection(s) {
 
     `;
 
-    return renderCollapsibleSection('sliders', 'Parametros de Calibração', content);
+    return renderCollapsibleSection('sliders', 'Parâmetros de calibração', content);
 }
 
 function renderBatchSection(s) {
@@ -708,7 +708,7 @@ function renderBatchSection(s) {
         </div>
         <div style="margin-top: 8px;">
             <button id="btn-reset-reviewed" class="cal-panel__btn cal-panel__btn--small cal-panel__btn--ghost cal-panel__btn--perigo">
-                Resetar Revisoes
+                Zerar revisões
             </button>
         </div>
     `;
@@ -874,8 +874,8 @@ function renderTargetItem(target, s) {
 // veio do bloco da faixa. E justamente a que mais merece o olho na revisao.
 const FONTES = {
     sol: { texto: 'sol', classe: 'sol', dica: 'O Sol foi detectado nesta foto e entrou no ajuste' },
-    imu: { texto: 'IMU', classe: 'imu', dica: 'Refinada pela rajada do giroscopio, sem sol utilizavel' },
-    manual: { texto: 'manual', classe: 'manual', dica: 'Angulo escrito na revisao' },
+    imu: { texto: 'IMU', classe: 'imu', dica: 'Refinada pelo giroscópio, sem Sol utilizável' },
+    manual: { texto: 'manual', classe: 'manual', dica: 'Ângulo escrito na revisão' },
 };
 
 /**
@@ -910,7 +910,7 @@ function renderFonteBadge(fonte, naLista = false) {
     const f = FONTES[fonte];
     if (!f) {
         return naLista ? '' : '<span class="cal-panel__fonte cal-panel__fonte--nenhuma"'
-            + ' title="Nada foi medido nesta foto: o angulo veio do bloco da faixa">sem medida</span>';
+            + ' title="Nada foi medido nesta foto: o ângulo veio da faixa">sem medida</span>';
     }
     return `<span class="cal-panel__fonte cal-panel__fonte--${f.classe}" title="${f.dica}">${f.texto}</span>`;
 }
@@ -1006,9 +1006,9 @@ function renderNearbyPhotos(s) {
             `).join('')}
         </select>
         <p class="cal-panel__hint">
-            Escada e vomitorio ligam andares diferentes. Fora deste andar, a
-            marca amarela diz qual e: a distancia sozinha engana, porque em
-            planta a foto de cima aparece colada.
+            Escadas e vomitórios ligam andares diferentes. A marca amarela
+            indica o andar da foto: em planta, a foto de cima parece colada
+            à de baixo.
         </p>
     ` : '';
 
@@ -1044,12 +1044,12 @@ function renderNearbyPhotos(s) {
         </div>`;
 
     const content = `
-        <p class="cal-panel__hint">Fotos nao conectadas dentro do raio de busca.</p>
+        <p class="cal-panel__hint">Fotos não conectadas dentro do raio de busca.</p>
         ${seletor}
         ${lista}
     `;
 
-    return renderCollapsibleSection('nearby', 'Fotos Proximas', content, {
+    return renderCollapsibleSection('nearby', 'Fotos próximas', content, {
         count: nearby.length,
         headerExtra: previewToggleBtn,
     });
@@ -1416,15 +1416,15 @@ async function handleApplyToRun(values) {
     const runId = getCurrentRunId();
     const faixa = state.runs.find(r => r.id === runId);
     if (!faixa) {
-        showToast('Foto sem faixa de coleta', 'error');
+        showToast('Esta foto não pertence a nenhuma faixa de coleta.', 'error');
         return;
     }
 
     const campos = Object.entries(values)
         .map(([k, v]) => `${k.replace('mesh_', '')}=${v.toFixed(1)}`)
         .join(', ');
-    const confirmado = await showConfirm(`Aplicar a faixa ${faixa.label}?`, {
-        message: `${campos} sera aplicado as ${faixa.total} fotos da faixa. Isso nao se desfaz.`,
+    const confirmado = await showConfirm(`Aplicar à faixa ${faixa.label}?`, {
+        message: `${campos} será aplicado às ${faixa.total} fotos da faixa. Isso não se desfaz.`,
         destructive: true,
         confirmText: 'Aplicar',
     });
@@ -1440,11 +1440,11 @@ async function handleApplyToRun(values) {
             state.projectPhotos.filter(p => p.runId === runId).map(p => p.id));
         const primeiro = Object.values(resultado.updated || {})[0];
         const n = primeiro?.photosUpdated ?? faixa.total;
-        showToast(`${n} fotos da faixa ${faixa.label} atualizadas (${campos})`, 'success');
+        showToast(`${n} fotos da faixa ${faixa.label} atualizadas (${campos}).`, 'success');
         renderPanel(state);
     } catch (err) {
         console.error('Batch por faixa falhou:', err);
-        showToast(`Erro ao aplicar na faixa: ${err.message}`, 'error');
+        showToast(`Não foi possível aplicar à faixa: ${err.message}`, 'error');
     }
 }
 
@@ -1455,7 +1455,7 @@ async function handleApplyToRun(values) {
 async function handleBatchUpdate(values) {
     const slug = state.currentProjectSlug;
     if (!slug) {
-        showToast('Projeto nao carregado', 'error');
+        showToast('Nenhum projeto carregado.', 'error');
         return;
     }
 
@@ -1465,8 +1465,8 @@ async function handleBatchUpdate(values) {
     if (values.mesh_rotation_z !== undefined) fields.push(`rotation_z=${values.mesh_rotation_z.toFixed(1)}`);
     const desc = fields.join(', ');
 
-    const confirmed = await showConfirm(`Aplicar a TODAS as fotos de "${slug}"?`, {
-        message: `${desc} sera aplicado ao projeto inteiro. Isso nao se desfaz.`,
+    const confirmed = await showConfirm(`Aplicar a todas as fotos de "${slug}"?`, {
+        message: `${desc} será aplicado ao projeto inteiro. Isso não se desfaz.`,
         destructive: true,
         confirmText: 'Aplicar a todas',
     });
@@ -1481,35 +1481,35 @@ async function handleBatchUpdate(values) {
         // O batch grava 'manual' em todas as fotos do projeto (queries.js).
         // Espelhado aqui para as etiquetas nao ficarem mentindo ate recarregar.
         setCalibrationSource('manual', state.projectPhotos.map(p => p.id));
-        showToast(`Batch atualizado: ${counts.join(', ')}`, 'success');
+        showToast(`Projeto atualizado: ${counts.join(', ')}.`, 'success');
     } catch (err) {
         console.error('Batch update failed:', err);
-        showToast(`Erro no batch: ${err.message}`, 'error');
+        showToast(`Não foi possível atualizar o projeto: ${err.message}`, 'error');
     }
 }
 
 async function handleResetReviewed() {
     const slug = state.currentProjectSlug;
     if (!slug) {
-        showToast('Projeto nao carregado', 'error');
+        showToast('Nenhum projeto carregado.', 'error');
         return;
     }
 
-    const confirmed = await showConfirm(`Resetar as revisoes de "${slug}"?`, {
-        message: 'Todas as fotos do projeto voltam a contar como nao revisadas. O alinhamento nao e '
-            + 'tocado; o que se perde e o registro de quem ja conferiu o que.',
+    const confirmed = await showConfirm(`Zerar as revisões de "${slug}"?`, {
+        message: 'Todas as fotos do projeto voltam a ficar como não revisadas. O alinhamento não '
+            + 'muda; perde-se só o registro do que já foi conferido.',
         destructive: true,
-        confirmText: 'Resetar revisoes',
+        confirmText: 'Zerar revisões',
     });
     if (!confirmed) return;
 
     try {
         const result = await resetProjectReviewed(slug);
         resetAllReviewedState();
-        showToast(`${result.photosReset} fotos resetadas`, 'success');
+        showToast(`${result.photosReset} fotos voltaram a não revisadas.`, 'success');
     } catch (err) {
         console.error('Reset reviewed failed:', err);
-        showToast(`Erro ao resetar: ${err.message}`, 'error');
+        showToast(`Não foi possível zerar as revisões: ${err.message}`, 'error');
     }
 }
 

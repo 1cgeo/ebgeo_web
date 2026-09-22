@@ -91,10 +91,8 @@ export function transferOutcomeNotice(layerName, targetMapName, result) {
         return {
             kind: 'warning',
             text: `A camada "${layerName}" foi copiada para "${targetMapName}" (${featureCount(count)}), `
-                + `mas o mapa de origem não pôde ser esvaziado na hora: ${clause}. Quem decide agora é o `
-                + 'servidor, em instantes: se ele aceitar a mudança, as feições saem do mapa de origem '
-                + `sozinhas; se recusar, a cópia em "${targetMapName}" é desfeita, a camada continua no `
-                + 'mapa de origem e o motivo é avisado na tela'
+                + `mas não saiu do mapa de origem: ${clause}. Em instantes ela fica em só um dos dois `
+                + 'mapas: no destino, se o servidor aceitar a mudança, ou na origem, se recusar'
                 + skippedSentence(r.skippedCount),
         };
     }

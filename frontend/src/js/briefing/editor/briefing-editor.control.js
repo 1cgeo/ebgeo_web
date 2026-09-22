@@ -1881,7 +1881,7 @@ export class BriefingEditorControl {
             this._briefing = await getBriefingById(this._briefing.id);
             this._renderSlideList();
 
-            showSuccess(`${newSlides.length} slide(s) importado(s)`);
+            showSuccess(newSlides.length === 1 ? '1 slide importado' : `${newSlides.length} slides importados`);
         } catch (error) {
             console.error('Error importing slides:', error);
             showError('Erro ao importar slides');

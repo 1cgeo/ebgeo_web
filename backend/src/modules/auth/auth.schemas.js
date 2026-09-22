@@ -44,9 +44,9 @@ export const registerSchema = Joi.object({
   // HTTP calls produced an immediately usable account that nobody could contact, revoke by
   // mailbox ownership, or correlate.
   //
-  // `POST /api/v1/users` (the administrative path) has NO email field and keeps creating
-  // e-mail-less accounts that log in right away. That is the legitimate case, and it is
-  // what the login gate must stay conditional for.
+  // `POST /api/v1/users` (the administrative path) has an OPTIONAL email field since
+  // 2026-09-22, and without it keeps creating e-mail-less accounts that log in right away.
+  // That is the legitimate case, and it is what the login gate must stay conditional for.
   //
   // NO `.messages()` here, and that is the convention, not an omission: `any.required` and
   // `string.email` are both in the central table of `utils/validation-messages.js`, which

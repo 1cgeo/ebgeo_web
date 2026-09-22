@@ -36,6 +36,17 @@ let isToolActive = false;
 let currentViewer = null;
 let currentTilesetId = null;
 const viewshedObjects = new Map(); // viewshedId -> { cesiumViewsheds: Viewshed3D[], originEntity: Cesium.Entity }
+// The viewshed as the STORE had it when the scene last drew it: the baseline of the live
+// reconcile (`syncViewshedsFromStore`), so an event that changed nothing here rebuilds nothing.
+// Rebuilding a viewshed is not a repaint, it is a new depth render per sub-viewshed.
+const loadedViewsheds = new Map(); // viewshedId -> viewshed data
+// Bumped by every path that changes the scene from THIS client (the gesture completing, a panel
+// edit, a deletion, a full render). A reconcile whose store read started before one of them may
+// hand back a list without the viewshed the person has just placed, and applying it would remove
+// that viewshed and close its panel; the reconcile reads again instead.
+let localSceneEpoch = 0;
+/** Coalescing window for scene repaints driven by viewshed ops (mirrors the marker tool). */
+const VIEWSHED_REFRESH_DEBOUNCE_MS = 80;
 let selectedViewshedId = null;
 let selectionHandler = null;
 let pendingViewshed = null; // Temporary storage for viewshed being created
@@ -53,6 +64,17 @@ const DEFAULT_VIEWSHED_PARAMS = {
     verticalAngle: 120,
     distance: 500
 };
+
+/**
+ * Eye height, in metres above the clicked point, of the observer a new viewshed is stored with.
+ *
+ * ONE CONSTANT FOR TWO PLACES, and the pair is why it is named: `handleViewshedComplete` stores it
+ * as `observerHeight`, and `activateViewshedTool` hands it to the engine as `previewEyeHeight`, so
+ * the sector previewed between the two clicks is drawn from the same eye the rebuilt analysis looks
+ * from. With two literals, changing one would make the preview promise a sector that is not the one
+ * computed.
+ */
+const DEFAULT_OBSERVER_HEIGHT = 1.5;
 
 // ===== UTILITY FUNCTIONS =====
 
@@ -366,6 +388,18 @@ export function activateViewshedTool(viewer, tilesetId) {
         return;
     }
 
+    // A gesture still pending from an earlier activation would keep its handler and, since the
+    // preview exists, its wireframe: two instances would answer the same clicks. Every caller
+    // deactivates first today; this makes the second activation safe without relying on that.
+    if (pendingViewshed) {
+        try {
+            pendingViewshed.destroy();
+        } catch (_e) {
+            // destroy() is idempotent; a throw here means it was already torn down.
+        }
+        pendingViewshed = null;
+    }
+
     currentViewer = viewer;
     currentTilesetId = tilesetId;
     isToolActive = true;
@@ -377,6 +411,9 @@ export function activateViewshedTool(viewer, tilesetId) {
         horizontalAngle: DEFAULT_VIEWSHED_PARAMS.horizontalAngle,
         verticalAngle: DEFAULT_VIEWSHED_PARAMS.verticalAngle,
         distance: DEFAULT_VIEWSHED_PARAMS.distance,
+        // The preview between the two clicks is drawn from the eye the analysis will be rebuilt
+        // with, not from the ground under the first click (see `DEFAULT_OBSERVER_HEIGHT`).
+        previewEyeHeight: DEFAULT_OBSERVER_HEIGHT,
         calback: function () {
             // Called when viewshed creation is complete
             handleViewshedComplete(pendingViewshed);
@@ -433,7 +470,7 @@ async function handleViewshedComplete(cesiumViewshed) {
 
     // Convert cameraPosition to geographic
     const cameraCarto = Cesium.Cartographic.fromCartesian(cameraPos);
-    const defaultObserverHeight = 1.5;
+    const defaultObserverHeight = DEFAULT_OBSERVER_HEIGHT;
 
     // Store position and terrain base height
     const cameraPosition = {
@@ -476,6 +513,7 @@ async function handleViewshedComplete(cesiumViewshed) {
         observerHeight: defaultObserverHeight  // Height above terrain
     };
 
+    const viewer = currentViewer;
     const viewshed = await addViewshed(currentTilesetId, viewshedData);
 
     // Destroy the interactive viewshed (placed at ground level) and recreate
@@ -486,23 +524,40 @@ async function handleViewshedComplete(cesiumViewshed) {
     } catch (e) {
         console.warn('Error destroying interactive viewshed:', e);
     }
-    pendingViewshed = null;
+    // ONLY THIS gesture's slot. During the write the tool may have been cleaned up and activated
+    // again on a reopened viewer: nulling the new gesture here would orphan its handler, which would
+    // keep answering clicks with nobody left to destroy it.
+    if (pendingViewshed === cesiumViewshed) pendingViewshed = null;
 
-    // Recreate with proper observer height offset (same path as reload)
-    const recreatedViewsheds = createCesiumViewsheds(viewshed);
+    // TORN DOWN DURING THE WRITE. The analysis is stored; the viewer that would draw it is gone, and
+    // the next opening draws it from the store like any other.
+    if (!currentViewer || currentViewer !== viewer || currentViewer.isDestroyed?.()) return;
 
-    // Create origin entity
-    const originEntity = createViewshedOriginEntity(viewshed);
+    // A REFUSED write returns null (role, lock, a map the atlas no longer has) and the store has
+    // already said why; recreating it would draw an analysis that exists nowhere.
+    if (viewshed) {
+        localSceneEpoch += 1;
+        loadedViewsheds.set(viewshed.id, viewshed);
+        // The store's own VIEWSHEDS_3D_CHANGED has already scheduled a reconcile; whatever it may
+        // have drawn for this id goes before the recreation, or its sub-viewsheds would be orphaned.
+        removeViewshedObjects(viewshed.id);
 
-    // Store the objects
-    viewshedObjects.set(viewshed.id, {
-        cesiumViewsheds: recreatedViewsheds,
-        originEntity: originEntity
-    });
+        // Recreate with proper observer height offset (same path as reload)
+        const recreatedViewsheds = createCesiumViewsheds(viewshed);
 
-    // Select the new viewshed and emit event
-    selectViewshed(viewshed.id);
-    emitViewshedClicked(viewshed);
+        // Create origin entity
+        const originEntity = createViewshedOriginEntity(viewshed);
+
+        // Store the objects
+        viewshedObjects.set(viewshed.id, {
+            cesiumViewsheds: recreatedViewsheds,
+            originEntity: originEntity
+        });
+
+        // Select the new viewshed and emit event
+        selectViewshed(viewshed.id);
+        emitViewshedClicked(viewshed);
+    }
 
     // Deactivate the tool
     try {
@@ -583,13 +638,20 @@ function emitViewshedDeselected() {
 export async function renderViewshedsForTileset(viewer, tilesetId) {
     currentViewer = viewer;
     currentTilesetId = tilesetId;
+    localSceneEpoch += 1;
 
     // Clear existing objects
     clearAllViewshedObjects();
 
     // Load and render
     const viewsheds = await getViewsheds(tilesetId);
+    // TORN DOWN OR SWITCHED DURING THE READ, the same check the live reconcile makes. The teardown
+    // nulls `currentViewer` and destroys this viewer, whose `canvas` getter then throws; without the
+    // check the selection handler below would be born on a dead viewer and never be destroyed.
+    if (currentViewer !== viewer || currentTilesetId !== tilesetId || viewer.isDestroyed?.()) return;
+    loadedViewsheds.clear();
     for (const viewshed of viewsheds) {
+        loadedViewsheds.set(viewshed.id, viewshed);
         const cesiumViewsheds = createCesiumViewsheds(viewshed);
         const originEntity = createViewshedOriginEntity(viewshed);
 
@@ -660,10 +722,23 @@ export async function updateViewshedProperties(viewshedId, updates) {
     const updatedViewshed = await updateViewshed(viewshedId, updates);
 
     if (updatedViewshed) {
+        markLocalViewshedWrite(viewshedId, updatedViewshed);
         updateViewshedVisuals(viewshedId, updatedViewshed);
     }
 
     return updatedViewshed;
+}
+
+/**
+ * Records that THIS client just changed a viewshed the scene already shows, so the live reconcile
+ * neither rebuilds it again (the baseline already holds the stored copy) nor applies a store read
+ * that started before the write (the epoch moves).
+ * @param {string} viewshedId - Viewshed ID
+ * @param {Object} stored - The viewshed as the store returned it
+ */
+function markLocalViewshedWrite(viewshedId, stored) {
+    localSceneEpoch += 1;
+    loadedViewsheds.set(viewshedId, stored);
 }
 
 /**
@@ -681,6 +756,7 @@ export async function updateViewshedDistance(viewshedId, newDistance) {
     const updatedParams = { ...(viewshed.parameters || {}), distance: newDistance };
     const updatedViewshed = await updateViewshed(viewshedId, { parameters: updatedParams });
     if (!updatedViewshed) return null;
+    markLocalViewshedWrite(viewshedId, updatedViewshed);
 
     const data = viewshedObjects.get(viewshedId);
     if (!data) return updatedViewshed;
@@ -711,6 +787,7 @@ export async function updateViewshedHorizontalAngle(viewshedId, newAngle) {
     const updatedParams = { ...(viewshed.parameters || {}), horizontalAngle: newAngle };
     const updatedViewshed = await updateViewshed(viewshedId, { parameters: updatedParams });
     if (!updatedViewshed) return null;
+    markLocalViewshedWrite(viewshedId, updatedViewshed);
 
     const data = viewshedObjects.get(viewshedId);
     if (!data) return updatedViewshed;
@@ -749,6 +826,9 @@ export async function updateViewshedObserverHeight(viewshedId, newHeight) {
     // Update the observer height in the store
     const updatedViewshed = await updateViewshed(viewshedId, { observerHeight: newHeight });
     if (!updatedViewshed) return null;
+    // The baseline is the STORED copy, not the one with the resolved terrain height drawn below:
+    // it is what the next store read will be compared against.
+    markLocalViewshedWrite(viewshedId, updatedViewshed);
 
     const data = viewshedObjects.get(viewshedId);
     if (!data) return updatedViewshed;
@@ -794,7 +874,9 @@ export async function deleteViewshed(viewshedId) {
     const result = await removeViewshed(viewshedId);
 
     if (result) {
+        localSceneEpoch += 1;
         removeViewshedObjects(viewshedId);
+        loadedViewsheds.delete(viewshedId);
         if (wasSelected) {
             selectedViewshedId = null;
             // Emit deselected event to close the panel (same contract as
@@ -849,16 +931,24 @@ export function cleanupViewshedTool() {
     }
     busUnsubscribers.length = 0;
 
+    loadedViewsheds.clear();
+    localSceneEpoch += 1;
     currentViewer = null;
     currentTilesetId = null;
+    // As the measurement twin does: a selection that outlives its viewer would be drawn highlighted
+    // on the next one, with no panel open for it.
+    selectedViewshedId = null;
 }
 
 /**
  * Refreshes viewsheds for the current tileset.
  */
 export async function refreshViewshedsForCurrentTileset() {
-    if (!currentViewer || !currentTilesetId) return;
+    const viewer = currentViewer;
+    const tilesetId = currentTilesetId;
+    if (!viewer || !tilesetId) return;
 
+    localSceneEpoch += 1;
     clearAllViewshedObjects();
 
     if (selectedViewshedId) {
@@ -866,8 +956,12 @@ export async function refreshViewshedsForCurrentTileset() {
         emitViewshedDeselected();
     }
 
-    const viewsheds = await getViewsheds(currentTilesetId);
+    const viewsheds = await getViewsheds(tilesetId);
+    // Same check as `renderViewshedsForTileset`: a read that outlived its viewer draws nothing.
+    if (currentViewer !== viewer || currentTilesetId !== tilesetId || viewer.isDestroyed?.()) return;
+    loadedViewsheds.clear();
     for (const viewshed of viewsheds) {
+        loadedViewsheds.set(viewshed.id, viewshed);
         const cesiumViewsheds = createCesiumViewsheds(viewshed);
         const originEntity = createViewshedOriginEntity(viewshed);
 
@@ -877,6 +971,81 @@ export async function refreshViewshedsForCurrentTileset() {
                 originEntity: originEntity
             });
         }
+    }
+}
+
+/**
+ * Reconciles the scene against the store WITHOUT disturbing what the local user is doing.
+ *
+ * UNTIL 2026-09-22 NOTHING INSIDE THE 3D VIEWER LISTENED TO `VIEWSHEDS_3D_CHANGED`. A colleague's
+ * viewshed reached this client, was written to the cesium3d side-store by the remote handler, the
+ * event was emitted, and the scene only showed it after the viewer was closed and reopened; the
+ * one the colleague deleted stayed on screen. Same defect, and same repair, as the marker tool
+ * (`syncMarkersFromStore`, 2026-09-16) and the measurement tool (`syncMeasurementsFromStore`).
+ *
+ * WHAT IT LEAVES ALONE, and each one is a reason it does not reuse
+ * `refreshViewshedsForCurrentTileset`, which clears everything and deselects:
+ *  - the local SELECTION, dropped only when the selected viewshed itself was deleted;
+ *  - every viewshed whose stored copy did not change: rebuilding one costs a new depth render per
+ *    sub-viewshed, and the drawing it would produce is identical;
+ *  - the INTERACTIVE GESTURE and its preview: `pendingViewshed` is not in `viewshedObjects`, so
+ *    nothing here can reach it, and a read that started before the gesture landed is discarded
+ *    (`localSceneEpoch`) instead of removing the viewshed the person has just placed.
+ *
+ * The drawing of a viewshed is not decided here: a rebuilt one goes through the same
+ * `createCesiumViewsheds` and `createViewshedOriginEntity` as the first render.
+ *
+ * @returns {Promise<void>}
+ */
+export async function syncViewshedsFromStore() {
+    const viewer = currentViewer;
+    const tilesetId = currentTilesetId;
+    if (!viewer || viewer.isDestroyed?.() || !tilesetId) return;
+
+    let viewsheds = null;
+    for (let tentativa = 0; tentativa < 3 && viewsheds === null; tentativa++) {
+        const epoch = localSceneEpoch;
+        const lidos = await getViewsheds(tilesetId);
+        // The viewer may have switched model or been torn down during the read, and painting the
+        // old model's viewsheds over the new one is worse than painting nothing.
+        if (currentViewer !== viewer || currentTilesetId !== tilesetId || viewer.isDestroyed?.()) return;
+        if (epoch === localSceneEpoch) viewsheds = lidos;
+    }
+    // A local writer kept moving under three reads in a row: its own VIEWSHEDS_3D_CHANGED is
+    // already on the way and reconciles again, so doing nothing now loses nothing.
+    if (viewsheds === null) return;
+
+    const vivos = new Set();
+    for (const viewshed of viewsheds) {
+        vivos.add(viewshed.id);
+        const anterior = loadedViewsheds.get(viewshed.id);
+        loadedViewsheds.set(viewshed.id, viewshed);
+
+        // Compared by whole content on purpose, like the marker tool: position, target, openings,
+        // distance and observer height all decide the drawing, and a version stamp some write
+        // path forgot to bump would leave the screen stale in silence.
+        const mudou = !anterior || JSON.stringify(anterior) !== JSON.stringify(viewshed);
+        if (!mudou && viewshedObjects.has(viewshed.id)) continue;
+
+        removeViewshedObjects(viewshed.id);
+        const cesiumViewsheds = createCesiumViewsheds(viewshed);
+        const originEntity = createViewshedOriginEntity(viewshed);
+        if (originEntity) {
+            viewshedObjects.set(viewshed.id, { cesiumViewsheds, originEntity });
+        } else {
+            // Same rule as the first render: no origin, no entry. The cones must not outlive it.
+            destroyCesiumViewsheds(cesiumViewsheds);
+        }
+    }
+
+    for (const id of new Set([...viewshedObjects.keys(), ...loadedViewsheds.keys()])) {
+        if (vivos.has(id)) continue;
+        if (selectedViewshedId === id) {
+            selectedViewshedId = null;
+            emitViewshedDeselected();
+        }
+        removeViewshedObjects(id);
+        loadedViewsheds.delete(id);
     }
 }
 
@@ -898,7 +1067,46 @@ export function initViewshedToolListeners() {
         }
     });
 
-    busUnsubscribers.push(offLayers);
+    // CLOSING THE VIEWER ENDS THE GESTURE. `closeViewer` pauses the scene and does not deactivate
+    // the active tool, so a gesture left after the first click kept its handler, and since the
+    // preview exists it would also keep its wireframe: hidden while paused, and back on reopen,
+    // frozen at the pointer's last position. The engine instance is dropped here at once (that is
+    // what removes the preview and the handler), and map_3d then resets the button and the chip,
+    // which it alone owns; its own pass through `deactivateViewshedTool` is a no-op by then.
+    const offClosed = eventBus.on(EventTypes.VIEWER_3D_CLOSED, () => {
+        if (!isToolActive) return;
+        deactivateViewshedTool();
+        import('../map_3d.js')
+            .then(({ deactivateActiveTool3D }) => deactivateActiveTool3D())
+            .catch((error) => console.warn('Could not deactivate tool:', error));
+    });
+
+    // THE SET OF VIEWSHEDS CHANGED, and the scene has to show it NOW (see
+    // `syncViewshedsFromStore` for what went wrong while nobody listened).
+    //
+    // Coalesced for the marker tool's reason: a sync batch or a snapshot emits a burst, and each op
+    // would otherwise cost a full read of the store. The reconciles are CHAINED, never overlapped:
+    // two reads in flight could finish out of order and the older one would remove what the newer
+    // one had just drawn.
+    let refreshTimer = null;
+    let syncChain = Promise.resolve();
+    const offViewsheds = eventBus.on(EventTypes.VIEWSHEDS_3D_CHANGED, () => {
+        if (!currentViewer || !currentTilesetId || refreshTimer !== null) return;
+        refreshTimer = setTimeout(() => {
+            refreshTimer = null;
+            syncChain = syncChain.then(syncViewshedsFromStore).catch((err) => {
+                console.error('Falha ao repintar as análises de visibilidade 3D:', err);
+            });
+        }, VIEWSHED_REFRESH_DEBOUNCE_MS);
+    });
+    busUnsubscribers.push(() => {
+        if (refreshTimer !== null) {
+            clearTimeout(refreshTimer);
+            refreshTimer = null;
+        }
+    });
+
+    busUnsubscribers.push(offLayers, offClosed, offViewsheds);
 }
 
 /**

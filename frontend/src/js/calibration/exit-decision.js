@@ -92,8 +92,8 @@ export function calibrationExitDecision({ dirty = false, voluntary = true } = {}
 export function calibrationExitNotice(valor) {
     if (valor === CalibrationExitParam.NAO_SALVA) {
         return {
-            message: 'A sessão terminou com alinhamento de calibração não salvo, e ele não pôde '
-                + 'ser gravado. Ao voltar à calibração, salve antes de deixar a tela parada.',
+            message: 'Sua sessão terminou e o alinhamento não salvo da calibração se perdeu. '
+                + 'Da próxima vez, salve antes de deixar a tela parada.',
             tone: 'warning',
         };
     }
@@ -101,15 +101,15 @@ export function calibrationExitNotice(valor) {
         return {
             // NOMEIA OS DOIS PAPÉIS QUE CALIBRAM, porque a recusa anterior não nomeava nenhum e
             // a pessoa não tinha o que pedir. E não manda recarregar: recarregar não muda papel.
-            message: 'A calibração 360 é de quem administra o sistema ou produz para uma OM. '
-                + 'Sua conta não tem nenhum dos dois; peça o papel a um administrador.',
+            message: 'Sua conta não pode abrir a calibração 360, que é de administradores e de '
+                + 'produtores de OM. Se precisar, peça acesso a um administrador.',
             tone: 'warning',
         };
     }
     if (valor === CalibrationExitParam.SEM_SESSAO) {
         return {
-            message: 'A calibração 360 exige entrar na conta. Entre e abra o mesmo endereço de '
-                + 'novo: a foto que você pediu continua guardada para esta aba.',
+            message: 'Entre na sua conta para abrir a calibração 360. A foto que você pediu '
+                + 'fica guardada nesta aba.',
             tone: 'info',
         };
     }

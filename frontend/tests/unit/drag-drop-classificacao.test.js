@@ -11,8 +11,12 @@
  * gets to them without editing `src/`.
  *
  * WHAT THIS SUITE PINS
- * - the ORDER of the drop guards: locked map first (before `dataTransfer` is even
- *   read), then the multi-file refusal, then the classification;
+ * - the ORDER of the drop guards: editing unavailable first, on BOTH axes (before
+ *   `dataTransfer` is even read), then the multi-file refusal, then the classification;
+ * - the two axes apart (2026-09-22): the POSTO (Leitor, Comentarista) does not draw the
+ *   overlay and the drop names the capability; the ESTADO (locked map) draws the overlay
+ *   and the drop names the lock. Until that day the door asked only about the lock, and a
+ *   Leitor's picture reached the upload queue before the store refused the feature;
  * - the extension table, case-insensitively, including the two shapes that look
  *   broken and are not: a name with NO dot, and a dotfile whose whole name is the
  *   extension;
@@ -40,12 +44,19 @@ vi.mock('@utils/toast_service.js', () => ({
     showInfo: vi.fn(),
 }));
 
-vi.mock('@store', () => ({
-    isCurrentMapLockedSync: vi.fn(() => false),
+/** The three answers of `edicaoIndisponivelSync` that the door has to tell apart. */
+const { LIVRE, POSTO, TRAVA } = vi.hoisted(() => ({
+    LIVRE: Object.freeze({ bloqueado: false, motivo: null, required: null }),
+    POSTO: Object.freeze({ bloqueado: true, motivo: 'permissao', required: 'canEdit' }),
+    TRAVA: Object.freeze({ bloqueado: true, motivo: 'map_locked', required: null }),
+}));
+
+vi.mock('@store/edicao-indisponivel.js', () => ({
+    edicaoIndisponivelSync: vi.fn(() => LIVRE),
 }));
 
 const { showError, showWarning } = await import('@utils/toast_service.js');
-const { isCurrentMapLockedSync } = await import('@store');
+const { edicaoIndisponivelSync } = await import('@store/edicao-indisponivel.js');
 const { default: DragDropHandler } = await import('../../src/js/import_export/drag-drop.handler.js');
 
 // ============================================================================
@@ -96,7 +107,7 @@ const dropOf = (names, extra = {}) => ({
 
 beforeEach(() => {
     vi.clearAllMocks();
-    isCurrentMapLockedSync.mockReturnValue(false);
+    edicaoIndisponivelSync.mockReturnValue(LIVRE);
 });
 
 // ============================================================================
@@ -104,18 +115,55 @@ beforeEach(() => {
 // ============================================================================
 
 describe('handleDrop - ordem dos portoes', () => {
-    it('mapa bloqueado recusa ANTES de ler o dataTransfer', () => {
-        isCurrentMapLockedSync.mockReturnValue(true);
-        const { handler, importControl } = makeHandler();
-        const event = {
-            preventDefault: vi.fn(),
-            get dataTransfer() { throw new Error('dataTransfer nao deveria ser lido'); },
+    /** A drop whose `dataTransfer` must not be read: the gate has to come first. */
+    const dropIntocavel = () => ({
+        preventDefault: vi.fn(),
+        get dataTransfer() { throw new Error('dataTransfer nao deveria ser lido'); },
+    });
+
+    it('mapa bloqueado recusa ANTES de ler o dataTransfer, NOMEANDO a trava', async () => {
+        edicaoIndisponivelSync.mockReturnValue(TRAVA);
+        const { handler, importControl, imageControl } = makeHandler();
+        const event = dropIntocavel();
+        await handler.handleDrop(event);
+        expect(showWarning).toHaveBeenCalledWith('Mapa bloqueado. Desbloqueie para editar.');
+        expect(importControl.processFileDirectly).not.toHaveBeenCalled();
+        expect(imageControl.addImageFeature).not.toHaveBeenCalled();
+        expect(event.preventDefault).toHaveBeenCalledTimes(1);
+    });
+
+    it('POSTO (Leitor, Comentarista) recusa ANTES de ler o dataTransfer, nomeando a CAPACIDADE', async () => {
+        // O defeito de 2026-09-22: a porta perguntava só pela trava, e a figura de um Leitor ia
+        // para a fila de subida (o servidor a recusava) antes de a store recusar a feição.
+        edicaoIndisponivelSync.mockReturnValue(POSTO);
+        const { handler, importControl, exportImportService, imageControl, toolManager } = makeHandler();
+        const event = dropIntocavel();
+        await handler.handleDrop(event);
+        expect(showWarning).toHaveBeenCalledTimes(1);
+        expect(showWarning).toHaveBeenCalledWith('Seu nível neste atlas não permite editar.');
+        expect(imageControl.addImageFeature).not.toHaveBeenCalled();
+        expect(importControl.processFileDirectly).not.toHaveBeenCalled();
+        expect(exportImportService.processFileDirectly).not.toHaveBeenCalled();
+        expect(toolManager.deactivateCurrentTool).not.toHaveBeenCalled();
+    });
+
+    it('o portão pergunta pela capacidade de TRAZER dado para o atlas, e só uma vez', async () => {
+        const { handler } = makeHandler();
+        await handler.handleDrop(dropOf([]));
+        expect(edicaoIndisponivelSync).toHaveBeenCalledTimes(1);
+        expect(edicaoIndisponivelSync).toHaveBeenCalledWith('IMPORT_DATA');
+    });
+
+    it('CONTROLE: livre, a mesma figura chega ao ferramental de imagem', async () => {
+        const { handler, imageControl } = makeHandler();
+        globalThis.FileReader = class {
+            readAsDataURL() { this.onload(); }
+            get result() { return 'data:image/png;base64,AA'; }
         };
-        return handler.handleDrop(event).then(() => {
-            expect(showWarning).toHaveBeenCalledWith('Mapa bloqueado');
-            expect(importControl.processFileDirectly).not.toHaveBeenCalled();
-            expect(event.preventDefault).toHaveBeenCalledTimes(1);
-        });
+        await handler.handleDrop(dropOf(['foto.png']));
+        expect(imageControl.addImageFeature).toHaveBeenCalledTimes(1);
+        expect(showWarning).not.toHaveBeenCalled();
+        delete globalThis.FileReader;
     });
 
     it('nenhum arquivo: sai calado, sem toast', async () => {
@@ -401,7 +449,7 @@ describe('processFile - ramo default', () => {
         const { handler, importControl } = makeHandler();
         importControl.processFileDirectly.mockRejectedValue(new Error('disco cheio'));
         await expect(handler.handleDrop(dropOf(['a.kml']))).resolves.toBeUndefined();
-        expect(showError).toHaveBeenCalledWith('Erro ao processar arquivo: disco cheio');
+        expect(showError).toHaveBeenCalledWith('Não foi possível abrir o arquivo: disco cheio');
     });
 });
 
@@ -459,6 +507,46 @@ describe('contador de arrasto', () => {
         handler.handleDragLeave(bare());
         expect(handler.dragCounter).toBe(0);
         expect(hide).toHaveBeenCalledTimes(1);
+    });
+
+    /** A dragenter carrying one file, which is what makes the overlay a candidate at all. */
+    const comArquivo = (name) => ({
+        preventDefault: vi.fn(),
+        dataTransfer: { items: [{ kind: 'file', getAsFile: () => ({ name }) }], files: [] },
+    });
+
+    it('LIVRE: a sobreposição é desenhada com a classe do arquivo', () => {
+        const { handler } = makeHandler();
+        const show = vi.fn();
+        handler.showDropOverlay = show;
+        handler.handleDragEnter(comArquivo('foto.png'));
+        expect(show).toHaveBeenCalledTimes(1);
+        expect(show).toHaveBeenCalledWith('IMAGE', 'foto.png');
+    });
+
+    it('POSTO: a sobreposição NÃO é desenhada, e o contador continua contando', () => {
+        // "Adicionar Imagem" e "Importar" são comandos que o Leitor nunca vai poder executar
+        // aqui: o posto some. O contador tem de subir mesmo assim, senão o dragleave o levaria a
+        // negativo e a sobreposição de um arrasto seguinte nunca mais apareceria.
+        edicaoIndisponivelSync.mockReturnValue(POSTO);
+        const { handler } = makeHandler();
+        const show = vi.fn();
+        handler.showDropOverlay = show;
+        handler.handleDragEnter(comArquivo('foto.png'));
+        expect(show).not.toHaveBeenCalled();
+        expect(handler.dragCounter).toBe(1);
+        handler.handleDragLeave({ preventDefault: vi.fn() });
+        expect(handler.dragCounter).toBe(0);
+    });
+
+    it('ESTADO: com o mapa travado a sobreposição É desenhada (a solta é que recusa nomeando a trava)', () => {
+        edicaoIndisponivelSync.mockReturnValue(TRAVA);
+        const { handler } = makeHandler();
+        const show = vi.fn();
+        handler.showDropOverlay = show;
+        handler.handleDragEnter(comArquivo('atlas.ebgeo'));
+        expect(show).toHaveBeenCalledTimes(1);
+        expect(show).toHaveBeenCalledWith('EBGEO', 'atlas.ebgeo');
     });
 
     it('dragover marca a copia como efeito', () => {

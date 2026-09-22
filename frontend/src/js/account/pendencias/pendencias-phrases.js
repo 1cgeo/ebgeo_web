@@ -65,8 +65,8 @@ export const PendenciaOrigem = Object.freeze({
 const CLASSE_LABEL = Object.freeze({
     [PendenciaClasse.CONFLITO]: 'Conflito',
     [PendenciaClasse.RECUSA]: 'Recusa do servidor',
-    [PendenciaClasse.DEPENDENCIA]: 'Dependência bloqueada',
-    [PendenciaClasse.REVISAO]: 'Quarentena de protocolo',
+    [PendenciaClasse.DEPENDENCIA]: 'Aguardando outra',
+    [PendenciaClasse.REVISAO]: 'De versão anterior',
     [PendenciaClasse.UPLOAD_PENDENTE]: 'Figura à espera de envio',
     [PendenciaClasse.UPLOAD_RECUSADO]: 'Figura recusada',
 });
@@ -77,8 +77,8 @@ const CLASSE_EXPLICACAO = Object.freeze({
         'O mesmo conteúdo mudou no servidor depois da versão que você viu. Escolha entre ficar '
         + 'com o que está no servidor ou reaplicar a sua alteração por cima do que há lá agora.',
     [PendenciaClasse.RECUSA]:
-        'O servidor não aceita esta alteração como ela está, e reenviar não muda o desfecho. '
-        + 'Guarde uma cópia se ela importa e aceite o que está no servidor para desbloquear a fila.',
+        'O servidor não aceita esta alteração como ela está, e reenviar não muda isso. Exporte '
+        + 'uma cópia se ela importa e aceite o que está no servidor para liberar as próximas.',
     [PendenciaClasse.DEPENDENCIA]:
         'Esta alteração não foi recusada: ela está parada atrás de outra que foi. Resolva a que '
         + 'está na frente e esta sai sozinha.',
@@ -86,11 +86,11 @@ const CLASSE_EXPLICACAO = Object.freeze({
         'Esta alteração foi criada por uma versão anterior do EBGeo e não pode ser reenviada sem '
         + 'revisão. Exporte para guardar o conteúdo, ou descarte.',
     [PendenciaClasse.UPLOAD_PENDENTE]:
-        'Os bytes desta figura ainda não chegaram ao servidor. Eles são retomados sozinhos quando '
-        + 'a conexão volta.',
+        'Esta figura ainda não chegou ao servidor. O envio é retomado sozinho quando a conexão '
+        + 'voltar.',
     [PendenciaClasse.UPLOAD_RECUSADO]:
-        'O servidor recusou os bytes desta figura, e nenhuma retentativa muda isso. A figura '
-        + 'continua neste computador e não está no servidor.',
+        'O servidor recusou esta figura, e tentar de novo não muda isso. Ela continua só neste '
+        + 'computador.',
 });
 
 /** Rótulo da origem. Só a quarentena ganha um, porque só ela muda o que a pessoa pode concluir. */
@@ -139,7 +139,7 @@ const UNIDADE_LABEL = Object.freeze({
     notas: 'Notas',
     grade: 'Grade',
     temporal: 'Linha do tempo',
-    travado: 'Travamento',
+    travado: 'Bloqueio',
     visivel: 'Visibilidade',
     opacidade: 'Opacidade',
     ordem: 'Ordem',
@@ -203,8 +203,8 @@ export const ESTADO_VAZIO_DETALHE =
  * @type {string}
  */
 export const ESTADO_VAZIO_LOCAL_DETALHE =
-    'Não há alteração guardada de uma sessão anterior à espera de decisão. Este atlas não tem fila '
-    + 'de envio: o que você faz nele fica neste computador.';
+    'Não há alteração guardada de uma sessão anterior à espera de decisão. Este atlas fica só '
+    + 'neste computador, então nada dele é enviado.';
 
 /**
  * O QUE ESTÁ A CAMINHO, que é a metade que o painel não listava e o crachá contava.
@@ -253,8 +253,7 @@ export function estadoVazio(aCaminho) {
     return {
         titulo: transitoTitulo(n),
         detalhe: 'Nada aqui exige decisão sua: estas alterações estão guardadas neste computador e '
-            + 'saem sozinhas assim que o servidor confirmar. Não há recusa do servidor, figura à '
-            + 'espera de envio nem alteração guardada de uma sessão anterior.',
+            + 'saem sozinhas assim que o servidor confirmar.',
     };
 }
 
@@ -279,8 +278,8 @@ export const ESTADO_FALHA_TITULO = 'Não foi possível ler as pendências';
 
 /** @type {string} */
 export const ESTADO_FALHA_DETALHE =
-    'Esta tela não conseguiu ler a fila deste computador, então não sabe dizer o que ficou para '
-    + 'trás. Não tome esta tela como prova de que não há nada guardado.';
+    'Não foi possível verificar o que ficou por enviar neste computador. Isso não quer dizer que '
+    + 'não haja nada guardado.';
 
 /**
  * @param {string} classe - Um valor de {@link PendenciaClasse}.
@@ -421,11 +420,9 @@ export const PendenciaBloqueio = Object.freeze({
 
 const BLOQUEIO_FRASE = Object.freeze({
     [PendenciaBloqueio.OFFLINE]:
-        'Sem conexão com o servidor agora. Aceitar o servidor precisa buscar o estado atual do '
-        + 'item, e sem isso a tela ficaria mostrando algo que o servidor não tem.',
+        'Sem conexão com o servidor. Tente de novo quando a conexão voltar.',
     [PendenciaBloqueio.MAPA_TRAVADO]:
-        'Este mapa está travado. Destrave o mapa (ou peça ao dono do atlas) para reaplicar a sua '
-        + 'alteração.',
+        'Mapa bloqueado. Desbloqueie o mapa para reaplicar a sua alteração.',
 });
 
 /**
@@ -451,7 +448,7 @@ export function acaoDetalhe(acao) {
  */
 export function bloqueioFrase(bloqueio) {
     return BLOQUEIO_FRASE[bloqueio]
-        ?? 'Esta ação não pode ser feita agora, e esta tela não soube dizer por quê.';
+        ?? 'Esta ação não está disponível agora.';
 }
 
 /**
@@ -510,15 +507,14 @@ export const EXPORTACAO_FALHOU =
  */
 export function reaplicacaoFeita(online) {
     return online === true
-        ? 'Alteração reenviada com a versão que o servidor informou. Se ela for aceita, a tela é '
-            + 'atualizada em seguida.'
-        : 'Alteração recolocada na fila. Ela sai quando a conexão voltar, e até lá a tela continua '
-            + 'mostrando o que veio do servidor.';
+        ? 'Alteração reenviada. Se o servidor aceitar, o mapa é atualizado em seguida.'
+        : 'Alteração guardada para envio. Ela sai quando a conexão voltar; até lá, o mapa mostra a '
+            + 'versão do servidor.';
 }
 
 /** Quando a reaplicação não conseguiu ser enfileirada. */
 export const REAPLICACAO_FALHOU =
-    'Não foi possível recolocar esta alteração na fila. Nada foi mudado.';
+    'Não foi possível reenviar esta alteração. Nada foi mudado.';
 
 /** Quando aceitar o servidor não conseguiu remover a tentativa. */
 export const ACEITE_FALHOU =

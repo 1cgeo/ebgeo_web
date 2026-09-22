@@ -181,9 +181,9 @@ describe('as frases do modo somente leitura', () => {
     });
 
     it('o excedente conjuga com a contagem, e cala quando não há excedente', () => {
-        expect(hiddenParticipantsLabel(1)).toBe('E mais 1 participante que esta lista não detalha.');
+        expect(hiddenParticipantsLabel(1)).toBe('E mais 1 participante, não listado aqui.');
         expect(hiddenParticipantsLabel(17))
-            .toBe('E mais 17 participantes que esta lista não detalha.');
+            .toBe('E mais 17 participantes, não listados aqui.');
 
         // DISCRIMINAÇÃO: zero, negativo e lixo não podem virar "E mais 0 participantes", que
         // afirmaria uma omissão inexistente.
@@ -192,7 +192,7 @@ describe('as frases do modo somente leitura', () => {
                 .toBe('');
         }
         // Fracionário trunca em vez de imprimir "2.5".
-        expect(hiddenParticipantsLabel(2.5)).toBe('E mais 2 participantes que esta lista não detalha.');
+        expect(hiddenParticipantsLabel(2.5)).toBe('E mais 2 participantes, não listados aqui.');
     });
 });
 

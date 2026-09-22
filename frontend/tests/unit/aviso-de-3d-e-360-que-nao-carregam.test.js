@@ -262,9 +262,10 @@ describe('o modelo 3D acusa no painel do mapa', () => {
         model3dFailures.report('t1', { name: 'Comando', status: 403 });
         passaARajada();
 
-        expect(detalhe()).toContain('O servidor respondeu 403.');
-        expect(detalhe()).toContain('não é conhecido daqui');
-        expect(detalhe()).not.toMatch(/você não tem acesso/i);
+        // Sem botao de tentar de novo nesta superficie, a acao nao o menciona; o codigo fecha o
+        // corpo como linha discreta, sem virar frase sobre o que o servidor respondeu.
+        expect(detalhe()).toBe('Verifique sua conexão. Se continuar, avise o administrador. Código: 403');
+        expect(detalhe()).not.toMatch(/acesso/i);
     });
 
     it('o botao de tentar de novo NAO se desenha: pedir de novo seria reabrir o visualizador', () => {
@@ -294,7 +295,7 @@ describe('o modelo 3D acusa no painel do mapa', () => {
             'A camada "Molduras" não pôde ser carregada. '
             + 'O modelo 3D "Comando" não pôde ser carregado.'
         );
-        expect(detalhe()).toContain('O servidor respondeu 403, 404.');
+        expect(detalhe()).toMatch(/ Códigos: 403, 404$/);
     });
 
     it('a retirada e por superficie: cada uma sai sozinha e deixa a outra de pe', () => {

@@ -66,8 +66,14 @@ npm run diag -- erros --desde 24h   # consulta o log em arquivo (tambem: lento, 
                       #   O log vira um .jsonl por dia em backend/data/logs, em DEV tambem, e e'
                       #   a unica evidencia que sobrevive ao fechamento do terminal. Ver
                       #   docs/wiki/observabilidade.md
-npm run diag -- resumo --desde 24h  # UMA tela com cinco blocos, e o UNICO comando que le o
-                      #   arquivo E o banco: bloco cuja fonte nao respondeu DIZ isso em vez de
+npm run diag -- enderecos --desde 7d  # os IPs DISTINTOS que usaram o produto: primeira e ultima
+                      #   vez na janela, requisicoes, abas e as contas vistas em cada um (anonimo
+                      #   e link publico contam como anonimo). Le o `ip` que o request-logger ja
+                      #   grava; o banco entra so para os NOMES, e sem ele a lista sai inteira com
+                      #   `contas.disponivel: false`. Porta HTTP: GET /api/v1/diag/enderecos, e a
+                      #   secao "Enderecos de acesso" da aba Diagnostico. Retencao: a do log.
+npm run diag -- resumo --desde 24h  # UMA tela com cinco blocos, lidos do arquivo E do
+                      #   banco: bloco cuja fonte nao respondeu DIZ isso em vez de
                       #   imprimir zero, e cada bloco publica a premissa dele. A MESMA composicao
                       #   e a secao Resumo no topo da aba Diagnostico (GET /diag/resumo): o dono
                       #   recusou digest por e-mail em 2026-09-02, a informacao se le na tela.
@@ -85,7 +91,7 @@ npm run diag -- resolver|ignorar|reabrir <uuid> --como <usuario> [--commit <hash
                       #   --json em qualquer um deles: UM documento no stdout e nada mais ali.
                       # SESSAO REMOTA ABRE POR GET /api/v1/diag/resumo (token de administrador,
                       #   nunca chave de API: requireAdmin recusa toda chave); a de host abre
-                      #   pelo CLI. Desde 2026-09-02 a porta HTTP e a PRIMARIA e cobre os onze
+                      #   pelo CLI. Desde 2026-09-02 a porta HTTP e a PRIMARIA e cobre os doze
                       #   comandos, bandeiras inclusive (?porRelease=1, ?intervalo=). Continuam
                       #   so do host: a janela SEM TETO, o --dir e o --mapas (nao ha ?dir= nem
                       #   ?mapas=, de proposito). Ver docs/wiki/observabilidade.md, secao "O
@@ -101,9 +107,10 @@ Arquivos `.js`/`.css` editados passam por lint automático (hook PostToolUse), e
 - **Comentário de caminho na linha 1** de todo arquivo JS, relativo ao `src/` do pacote: `// Path: js/draw_tools/point_tool/add_point_control.js`. Nunca remova.
 - **Sem estilo inline em JS.** Classes BEM em arquivo CSS; exceção só para valor computado em runtime (cor vinda do JS, posição calculada).
 - **Afordância que a pessoa não alcança: o POSTO some, o ESTADO recusa o clique.** Bloqueio por papel é permanente e o comando não se desenha; bloqueio reversível (mapa travado, atlas local, offline) desenha o comando e recusa o clique NOMEANDO o estado, porque o clique é como o motivo chega. Nunca a propriedade `disabled` no segundo caso: botão desabilitado não dispara clique. A frase da recusa deriva da CAPACIDADE negada (`denialNotice`, `frontend/src/js/store/denial-phrases.js`), nunca do papel. Detalhe e os modelos a copiar em [`.claude/rules/architecture.md`](.claude/rules/architecture.md) §UI Architecture.
+- **Texto de aviso é curto e diz o que a pessoa pode fazer** (dono, 2026-09-22): título com o que aconteceu, corpo de uma ou duas frases com a ação ("Verifique sua conexão e tente de novo. Se continuar, avise o administrador."). Fora da frase: código HTTP como frase principal (se útil, vai no fim, "Código: 502"), comentário sobre a própria tela ("a tela não sabe", "daqui") e jargão interno (fila, retrato, namespace, token, bytes). Continua valendo não afirmar causa que o código não conhece e dizer o número que o servidor mandou. As formas mecânicas reprovam em [`frontend/tests/unit/avisos-de-tela-estilo.test.js`](frontend/tests/unit/avisos-de-tela-estilo.test.js), que só varre argumento de toast e módulo de frase; o resto é leitura.
 - **XSS:** nunca `innerHTML` com dado de usuário. Use `textContent` ou `createElement`; `escapeHtml` de `@utils/html-escape.js` ao interpolar (ele escapa aspas, então vale dentro de atributo). HTML rico não se escapa, se sanitiza: conteúdo Quill de briefing passa por `sanitizeQuillHtml` (`@utils/quill-helpers.js`) em TODO ponto que o renderiza, e o slide chega por sync, escrito por outro usuário. Ícone SVG estático é ok.
 - **Limpeza de recurso** via `@utils/event-cleanup.js`. Todo `map.on()` do MapLibre pareado com `map.off()` no `onRemove()`; handler do Cesium com `.destroy()`; timer sempre limpo.
-- **Utilitários obrigatórios:** `deepClone()` (não `JSON.parse(JSON.stringify())`), `showToast()` (não `alert()`), `generateUUID()` para todo id, constantes `EventTypes.XXX` (nunca string literal de evento).
+- **Utilitários obrigatórios:** `deepClone()` (não `JSON.parse(JSON.stringify())`), `showToast()` (não `alert()`), `generateUUID()` para todo id, constantes `EventTypes.XXX` (nunca string literal de evento), e `carregarSobDemanda(() => import('...'))` (`frontend/src/js/utilities/carga-sob-demanda.js`, pelo arquivo) na PORTA de uma função carregada sob demanda, nunca `import()` cru: é o que dá a nova tentativa e o aviso com "Recarregar" quando o chunk não chega (rede, ou aba aberta antes de um deploy). O censo das portas é `frontend/tests/unit/carga-sob-demanda-portas.test.js`, e porta nova entra na lista dele.
 - **CSS** em `frontend/src/css/` com os custom properties de `design-tokens.css`. Anime com `transform: translateX()`, nunca `left` (evita layout thrashing).
 - **Sem em-dash na prosa** de documentação; vírgula, parênteses ou frase separada.
 

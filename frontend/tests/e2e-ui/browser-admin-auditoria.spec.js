@@ -244,7 +244,7 @@ describeOrSkip('Painel — aba Auditoria (navegador real + backend real)', () =>
         await expect(page.locator('[data-testid="admin-audit-pager"]'))
             .toContainText('Nenhum evento');
         await expect(page.locator('.admin-empty__message'))
-            .toContainText('Nenhum evento no período.');
+            .toContainText('Nenhum evento corresponde ao período e aos filtros.');
 
         // E VOLTAR PARA UM ATALHO LIMPA AS DATAS, que é o invariante do eixo único.
         await page.locator('[data-testid="admin-audit-periodo"]').selectOption('7');

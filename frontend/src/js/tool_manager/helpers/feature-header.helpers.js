@@ -124,7 +124,7 @@ export function createFeatureOptionsButton(selectedFeatures, selectionManager, u
     button.disabled = shouldDisable;
 
     if (shouldDisable) {
-        button.title = 'Disponível apenas para seleção de features do mesmo tipo';
+        button.title = 'Disponível apenas para feições do mesmo tipo';
     }
 
     button.addEventListener('click', (e) => {

@@ -207,16 +207,20 @@ export const CHECK_USERNAME_EXISTS_EXCLUDING = `
   SELECT id FROM users WHERE LOWER(username) = LOWER($1) AND id != $2
 `;
 
+// `email` e `email_verified` ENTRARAM em 2026-09-22 ($9 e $10), e o par chega JA RESOLVIDO pelo
+// service (`resolveCreationEmail`): sem endereco, NULL e falso, que e o estado de sempre deste
+// caminho; com endereco, confirmado so se o pedido o declarou. A resposta passa a devolver os dois
+// para que a tela possa dizer o que de fato foi gravado.
 export const INSERT_USER_ADMIN = `
   WITH new_user AS (
     INSERT INTO users (username, password_hash, nome, rank_id, organization_id, role,
-                       producer_org_id, nome_guerra)
-    VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6, $7::uuid, $8)
+                       producer_org_id, nome_guerra, email, email_verified)
+    VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6, $7::uuid, $8, $9, $10)
     RETURNING *
   )
   SELECT u.id, u.username, u.nome, u.nome_guerra, u.rank_id, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
          u.organization_id, o.nome AS organizacao_militar, u.role,
-         u.producer_org_id, u.is_active, u.created_at
+         u.producer_org_id, u.is_active, u.created_at, u.email, u.email_verified
   FROM new_user u
   LEFT JOIN ranks r ON r.id = u.rank_id
   LEFT JOIN organizations o ON o.id = u.organization_id
@@ -231,7 +235,7 @@ export const INSERT_USER_ADMIN = `
 // um 400 generico, sem dizer que o problema e um escopo orfao.
 // `email` USA A BANDEIRA, e nao um COALESCE, pela mesma razao dos FKs acima: sem ela nao ha
 // como LIMPAR o endereco de uma conta (voltar ao estado "conta administrativa sem e-mail", que
-// e legitimo e e como `POST /api/v1/users` cria). E a bandeira e o que separa "nao mandou o
+// e legitimo e e como `POST /api/v1/users` cria quando o corpo nao traz endereco). E a bandeira e o que separa "nao mandou o
 // campo" de "mandou vazio", que aqui significam coisas opostas.
 //
 // A REGRA QUE ACOMPANHA ESTE CAMPO NAO ESTA NO SQL: trocar o endereco DERRUBA

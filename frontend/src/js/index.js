@@ -95,6 +95,8 @@ import { installWindowBridge, setTracing, resolveTraceFlag } from '@store/sync/d
 import { showUnavailableScreen } from '@ui/unavailable-screen.js';
 import { initSecondaryServerNotice } from '@ui/secondary-server-notice.js';
 import { runLegacyUpgradeGate, watchLegacyChanges, showMigrationRecovery } from '@ui/migration-recovery.js';
+// Direct file, never the `@utils` barrel (same reason as `tab-lock.js` above).
+import { instalarRedeDeCargaSobDemanda } from '@utils/carga-sob-demanda.js';
 
 // ============================================================================
 // BOOTSTRAP
@@ -115,6 +117,12 @@ async function initApp() {
     // `pagina.vista`, que é o denominador de todo o resto, e um boot que morra no fail-fast do
     // `GET /api/config` continua tendo sido uma carga de página. Também síncrona e best-effort.
     instalarUso();
+
+    // Phase -1.8: A REDE DE CARGA SOB DEMANDA, antes do primeiro `import()` do boot. Todo `import()`
+    // do pacote que não chegar (rede instável, ou uma aba aberta antes de um deploy pedindo o nome
+    // de arquivo do build anterior) passa a terminar num aviso com "Recarregar", em vez de um
+    // clique que não faz nada. Síncrona, sem rede. Ver `utilities/carga-sob-demanda.js`.
+    instalarRedeDeCargaSobDemanda();
     if (!await runLegacyUpgradeGate()) return;
     watchLegacyChanges();
 

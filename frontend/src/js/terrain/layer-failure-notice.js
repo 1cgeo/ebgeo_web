@@ -84,7 +84,7 @@
 import { setupCleanup, addDomListener, trackTimer, cleanup, removeElement } from '@utils/event-cleanup.js';
 import {
     RETRY_ACTION_LABEL, DISMISS_ACTION_LABEL, layerDisplayName, SURFACE_NOUN,
-    layerLoadFailureCauseNotice, layerLoadFailureStatusDetail,
+    layerLoadFailureActionNotice, layerLoadFailureStatusDetail,
     loadFailureHeadline, layerNoticeRegionLabel,
 } from './data-layer-phrases.js';
 import { relatarErro } from '@js/session/erro-telemetria.js';
@@ -587,14 +587,14 @@ export class LayerFailureNotice {
             return;
         }
         this._noticeTextEl.textContent = headline;
-        // Measured fact first, declared ignorance second. Never the other way round: a sentence
-        // that opens by saying it does not know reads as an apology, and the status gets skipped.
+        // What the person can do first, the measured code last. The code is the line read out to
+        // whoever helps, not the news, so it trails the action instead of opening the body.
+        const retryable = this._hasRetryable();
+        const action = layerLoadFailureActionNotice({ retryable });
         const statusDetail = layerLoadFailureStatusDetail(statuses);
-        this._noticeDetailEl.textContent = statusDetail
-            ? `${statusDetail} ${layerLoadFailureCauseNotice()}`
-            : layerLoadFailureCauseNotice();
+        this._noticeDetailEl.textContent = statusDetail ? `${action} ${statusDetail}` : action;
         // The command that cannot act is not drawn: see the file header.
-        this._retryBtnEl.hidden = !this._hasRetryable();
+        this._retryBtnEl.hidden = !retryable;
         notice.hidden = false;
     }
 
@@ -645,7 +645,7 @@ export class LayerFailureNotice {
      * @private Silences the notice without retrying.
      *
      * `_failures` and `_announced` are KEPT on purpose: clearing them would let the very next
-     * failed tile of the same layer raise the notice again, which turns "Dispensar" into a button
+     * failed tile of the same layer raise the notice again, which turns "Fechar" into a button
      * that does nothing. The state is released when the surface recovers, is switched off, or is
      * rebuilt by a style reload.
      */

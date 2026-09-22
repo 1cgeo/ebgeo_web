@@ -111,6 +111,19 @@ describe('o MOTIVO, quando o servidor respondeu e quando não respondeu', () => 
         expect(n.message).toContain('erro forjado pela bancada');
     });
 
+    it('o eco "HTTP nnn" do cliente NÃO chega à tela: o status é console, não frase', () => {
+        // O proxy que responde 502 sem corpo faz o cliente inventar `HTTP 502` como mensagem, e
+        // ecoá-lo era a forma "o servidor respondeu 502" que a pessoa não sabe ler.
+        const e = new Error('HTTP 502');
+        e.stage = 'import';
+        e.status = 502;
+        const n = sendFailureNotice(e, { name: 'X' });
+        expect(n.message).not.toMatch(/HTTP \d{3}/);
+        expect(n.message).toMatch(/erro no servidor/i);
+        const desconhecido = Object.assign(new Error('HTTP 418'), { stage: 'import', status: 418 });
+        expect(sendFailureNotice(desconhecido, { name: 'X' }).message).not.toMatch(/\d{3}/);
+    });
+
     it('sessão expirada tem frase própria, porque o gesto que resolve é outro', () => {
         const e = new Error('Unauthorized');
         e.stage = 'import';

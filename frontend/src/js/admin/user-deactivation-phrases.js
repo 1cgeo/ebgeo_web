@@ -73,12 +73,12 @@ export function deactivationWarning({ username, liveGrants, hasAtlas = false } =
 
     if (n > 0) {
         partes.push(
-            `${grantLabel(n)} que ela concedeu deixam de valer, junto com o acesso de quem `
-            + 'recebeu através dela.',
+            `${grantLabel(n)} que ela concedeu ${n === 1 ? 'deixa' : 'deixam'} de valer, e quem `
+            + 'recebeu por meio dela perde o acesso.',
         );
     } else {
-        partes.push('Todo acesso que ela tiver concedido deixa de valer, junto com o acesso de '
-            + 'quem recebeu através dela.');
+        partes.push('Todo acesso que ela tiver concedido deixa de valer, e quem recebeu por meio '
+            + 'dela perde o acesso.');
     }
 
     if (hasAtlas) {
@@ -87,8 +87,8 @@ export function deactivationWarning({ username, liveGrants, hasAtlas = false } =
     }
 
     // A PARTE IRREVERSÍVEL, dita ANTES e não depois. Reativar devolve a entrada e mais nada.
-    partes.push('Reativar a conta depois devolve o acesso dela, e NÃO devolve as concessões '
-        + 'derrubadas nem as sessões abertas.');
+    partes.push('Reativar a conta depois devolve a entrada dela, mas NÃO devolve as concessões '
+        + 'revogadas nem as sessões encerradas.');
     return partes.join(' ');
 }
 
@@ -134,7 +134,7 @@ export function deactivationSummary(result) {
         frase += ` ${atlas} ${atlas === 1 ? 'atlas transferido' : 'atlas transferidos'}`;
         frase += daLixeira > 0 ? `, ${daLixeira} da lixeira dele.` : '.';
     }
-    if (revogadas > 0) frase += ` Concessões derrubadas: ${revogadas}.`;
+    if (revogadas > 0) frase += ` Concessões revogadas: ${revogadas}.`;
     if (mantidas > 0) frase += ` Mantidas por outro caminho: ${mantidas}.`;
     return frase;
 }
@@ -151,7 +151,7 @@ export function deactivationSummary(result) {
  * @returns {string}
  */
 export function reactivationNotice() {
-    return 'A conta volta a entrar, e só isso: as concessões derrubadas na desativação continuam '
-        + 'revogadas e precisam ser concedidas de novo, e as sessões que estavam abertas seguem '
-        + 'encerradas. A chave de API dela, essa sim, volta a valer.';
+    return 'A conta volta a entrar. As concessões revogadas na desativação não voltam (precisam '
+        + 'ser concedidas de novo), e as sessões encerradas continuam encerradas. A chave de API '
+        + 'dela volta a valer.';
 }

@@ -202,7 +202,7 @@ export async function collisionGuard(t, photoIds, orgId, slug) {
   const clashes = await t.any(AQ.CHECK_PHOTO_IDS_IN_OTHER_PROJECT, [photoIds, orgId, slug]);
   if (clashes.length > 0) {
     const ids = clashes.map((r) => r.id).join(', ');
-    throw new ConflictError(`Photo id(s) belong to another project: ${ids}`);
+    throw new ConflictError(`Estas fotos já pertencem a outro projeto: ${ids}.`);
   }
 }
 

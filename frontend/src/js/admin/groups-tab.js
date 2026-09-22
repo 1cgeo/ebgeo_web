@@ -79,6 +79,7 @@ import {
 // compartilhada com as telas de compartilhamento de atlas e de recurso. Import por ARQUIVO,
 // nunca pelo barril `@utils`, que arrastaria a store para `admin.html`.
 import { militaryPersonLabel } from '@utils/person-label.js';
+import { serverMessageOr } from '@utils/request-failure.js';
 
 /** The user search waits this long after the last keystroke before hitting the backend. */
 const SEARCH_DEBOUNCE_MS = 250;
@@ -201,7 +202,7 @@ class GroupsTab {
             loading.replaceChildren(failureState('Falha ao carregar os grupos.', {
                 onRetry: () => { if (this._alive) this._renderList(); },
             }));
-            showError(meus.reason?.message || 'Falha ao carregar os grupos.');
+            showError(serverMessageOr(meus.reason, 'Falha ao carregar os grupos.'));
         } else {
             this._groups = Array.isArray(meus.value) ? meus.value : [];
             this._renderTable(wrap);
@@ -521,7 +522,7 @@ class GroupsTab {
                 }
                 if (this._alive) this._renderList();
             } catch (err) {
-                showFormError(error, err?.message || 'Falha ao salvar o grupo.');
+                showFormError(error, serverMessageOr(err, 'Falha ao salvar o grupo.'));
                 saveBtn.disabled = false;
             }
         });
@@ -577,7 +578,7 @@ class GroupsTab {
             showSuccess(groupDeletionSummary({ ...result, name: result?.name || group.name }));
             if (this._alive) this._renderList();
         } catch (err) {
-            showError(err?.message || 'Falha ao apagar o grupo.');
+            showError(serverMessageOr(err, 'Falha ao apagar o grupo.'));
             // A LISTA É RELIDA NO ERRO, e este é o caso que motivou a regra: um 404 aqui significa
             // que o grupo já não existe (apagado noutra sessão, ou noutra aba), e a tela ficava
             // mostrando a linha com os três botões, todos condenados a falhar de novo.
@@ -615,7 +616,7 @@ class GroupsTab {
             showSuccess(leaveGroupSummary({ ...result, name: group.name || '' }));
             if (this._alive) this._renderList();
         } catch (error) {
-            showError(error?.message || 'Falha ao sair do grupo.');
+            showError(serverMessageOr(error, 'Falha ao sair do grupo.'));
             // Mesma regra de `_delete`: o grupo pode ter deixado de existir entre o desenho e o
             // clique, e a linha morta com o botão "Sair" é o mesmo erro esperando repetição.
             if (this._alive) this._renderList();
@@ -665,7 +666,7 @@ class GroupsTab {
             loading.replaceChildren(failureState('Falha ao carregar os membros.', {
                 onRetry: () => { if (this._alive) this._renderList(); },
             }));
-            showError(error?.message || 'Falha ao carregar os membros.');
+            showError(serverMessageOr(error, 'Falha ao carregar os membros.'));
             return;
         }
         if (!this._alive) return;
@@ -743,7 +744,7 @@ class GroupsTab {
         try {
             resposta = await apiClient.searchUsers(q);
         } catch (error) {
-            if (this._alive) showError(error?.message || 'Falha ao buscar pessoas.');
+            if (this._alive) showError(serverMessageOr(error, 'Falha ao buscar pessoas.'));
             return;
         }
         if (!this._alive) return;
@@ -911,7 +912,7 @@ class GroupsTab {
             ));
             if (this._alive) this._renderMembers(group);
         } catch (error) {
-            showError(error?.message || 'Falha ao adicionar a pessoa ao grupo.');
+            showError(serverMessageOr(error, 'Falha ao adicionar a pessoa ao grupo.'));
             // SEM RE-RENDERIZAR AQUI, ao contrário dos três atos irmãos, e a assimetria é medida: a
             // linha que pode estar morta neste caminho é um RESULTADO DE BUSCA, e redesenhar a tela
             // apagaria o termo que a pessoa digitou junto com ele. O roster em si não mudou.
@@ -951,7 +952,7 @@ class GroupsTab {
             }));
             if (this._alive) this._renderMembers(group);
         } catch (error) {
-            showError(error?.message || 'Falha ao remover a pessoa do grupo.');
+            showError(serverMessageOr(error, 'Falha ao remover a pessoa do grupo.'));
             // O ROSTER É RELIDO NO ERRO TAMBÉM. A causa mais provável de uma falha aqui é a linha
             // já não existir (a pessoa saiu do grupo, ou outra sessão a removeu), e deixar a linha
             // morta na tela com o mesmo botão é oferecer o mesmo erro de novo.

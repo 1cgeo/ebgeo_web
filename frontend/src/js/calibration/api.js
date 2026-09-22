@@ -113,7 +113,7 @@ export function setWriteAuthHandlers({ onUnauthorized = null, onForbidden = null
     authHandlers.onForbidden = onForbidden;
 }
 
-const MSG_401 = 'Sua sessao expirou. Entre de novo para continuar calibrando.';
+const MSG_401 = 'Sua sessão expirou. Entre de novo para continuar calibrando.';
 // A CAUSA REAL E A OM DONA DO PROJETO, NAO O PAPEL, e a frase anterior afirmava o contrario:
 // 'Voce nao tem o papel de admin'. Ela era falsa para o caso comum desde que o gate desta pagina
 // passou a aceitar `isProducer()`: o produtor TEM papel que calibra, e o 403 que ele leva diz
@@ -123,13 +123,15 @@ const MSG_401 = 'Sua sessao expirou. Entre de novo para continuar calibrando.';
 // A escada do servidor confirma a leitura: `enforceProjectWritable` responde 404 quando o projeto
 // nem e legivel e 403 quando e legivel e nao gravavel, ou seja, um 403 aqui significa exatamente
 // 'voce ve este projeto e nao o mantem'.
-const MSG_403 = 'Este projeto e mantido por outra OM: voce pode ve-lo e nao gravar nele.';
+const MSG_403 = 'Este projeto é mantido por outra OM: você pode vê-lo, mas não salvar nele.';
 
 /**
  * Executa uma escrita e traduz a recusa por credencial numa falha que se explica.
  *
- * Qualquer outro erro sai com a MESMA forma que a origem produzia (`... (HTTP nnn): texto`),
- * porque `app.js` e `calibration-panel.js` interpolam `err.message` direto no toast.
+ * Qualquer outro erro sai com a frase do SERVIDOR e o status entre parenteses, porque `app.js` e
+ * `calibration-panel.js` interpolam `err.message` direto no toast, depois de um "Nao foi possivel
+ * salvar:" deles. O rotulo `what` vai para o console, e nao para a tela: ele e texto de suporte, em
+ * ingles, e a moldura do toast ja diz o que estava sendo gravado.
  * @param {() => Promise<*>} fn - A chamada ao apiClient.
  * @param {string} what - O que estava sendo gravado, para a mensagem de erro.
  * @returns {Promise<*>} O corpo da resposta.
@@ -147,7 +149,13 @@ async function write(fn, what) {
             throw new CalibrationAuthError(MSG_403, 403);
         }
         if (error instanceof ApiError) {
-            throw new Error(`${what} (HTTP ${error.status}): ${error.message}`);
+            console.error(`[calibracao] ${what}:`, error);
+            // O eco "HTTP nnn" do cliente (resposta sem mensagem) nao e frase de ninguem.
+            const bruto = typeof error.message === 'string' ? error.message.trim() : '';
+            const doServidor = bruto && !/^HTTP \d{3}$/.test(bruto)
+                ? bruto
+                : 'o servidor não aceitou a gravação';
+            throw new Error(`${doServidor} (código ${error.status})`);
         }
         throw error;
     }
@@ -194,6 +202,26 @@ function withTimeout(externalSignal, timeoutMs = DEFAULT_TIMEOUT_MS) {
 }
 
 /**
+ * A leitura que NAO TEVE RESPOSTA, dita em portugues.
+ *
+ * `app.js` e `calibration-panel.js` interpolam `err.message` no toast e no cartao do seletor, e
+ * sem esta traducao o que chegava ali era o texto do navegador (`Failed to fetch`, ou `The
+ * operation timed out` do prazo de `withTimeout`). O cancelamento do CHAMADOR (`AbortError`)
+ * passa intacto, porque `loadPhoto` o reconhece pelo nome para calar a carga superada.
+ * @param {*} err - A rejeicao do `fetch`.
+ * @param {string} what - O que se tentava carregar, ja em portugues.
+ * @returns {Error}
+ */
+function semResposta(err, what) {
+    if (err?.name === 'AbortError') return err;
+    const motivo = err?.name === 'TimeoutError'
+        ? 'o servidor demorou demais para responder'
+        : 'não houve resposta do servidor';
+    return new Error(`Não foi possível carregar ${what}: ${motivo}. Verifique a conexão e tente de novo.`,
+        { cause: err });
+}
+
+/**
  * Faz uma leitura JSON no modulo 360, com credencial quando houver sessao.
  * @param {string} path - Caminho relativo ao prefixo do modulo (ex.: '/projects').
  * @param {Object} [options]
@@ -209,12 +237,12 @@ async function read(path, { signal, what = path } = {}) {
             cache: 'no-cache',
             headers,
             signal: reqSignal,
-        });
+        }).catch((err) => { throw semResposta(err, what); });
         if (!response.ok) {
             // EM PORTUGUES E SEM O NUMERO CRU NA FRENTE: este texto cai direto no cartao de erro
             // do seletor e nos toasts, entao ele e texto de INTERFACE, nao log. O status fica no
             // fim, entre parenteses, porque ainda serve a quem for pedir suporte.
-            throw new Error(`Nao foi possivel carregar ${what} (HTTP ${response.status}).`);
+            throw new Error(`Não foi possível carregar ${what} (código ${response.status}).`);
         }
         return await response.json();
     } finally {
@@ -241,7 +269,7 @@ async function read(path, { signal, what = path } = {}) {
  * @returns {Promise<Array>} Projetos, na forma que o seletor desenha.
  */
 export async function fetchProjects({ signal } = {}) {
-    const data = await read('/admin/projects', { signal, what: 'projects' });
+    const data = await read('/admin/projects', { signal, what: 'a lista de projetos' });
     const linhas = Array.isArray(data) ? data : (data?.projects ?? []);
     // NORMALIZA PARA A FORMA QUE O SELETOR JA CONSOME. A rota de leitura devolvia camelCase por
     // `publicProjectView`; esta devolve a linha do banco. Converter aqui, e nao no seletor, e o
@@ -272,9 +300,9 @@ export async function fetchPhotoMetadata(photoId, { signal } = {}) {
             cache: 'no-cache',
             headers,
             signal: reqSignal,
-        });
+        }).catch((err) => { throw semResposta(err, `a foto ${photoId}`); });
         if (!response.ok) {
-            throw new Error(`Foto nao encontrada: ${photoId} (HTTP ${response.status}).`);
+            throw new Error(`Não foi possível carregar a foto ${photoId} (código ${response.status}).`);
         }
         return await response.json();
     } finally {
@@ -291,7 +319,7 @@ export async function fetchPhotoMetadata(photoId, { signal } = {}) {
 export async function fetchProjectPhotos(slug, { signal } = {}) {
     return read(`/projects/${encodeURIComponent(slug)}/photos`, {
         signal,
-        what: `photos for project ${slug}`,
+        what: `as fotos do projeto ${slug}`,
     });
 }
 
@@ -304,7 +332,7 @@ export async function fetchProjectPhotos(slug, { signal } = {}) {
  * @returns {Promise<Record<string, {total: number, reviewed: number}>>} Stats por slug
  */
 export async function fetchAllReviewStats({ signal } = {}) {
-    const data = await read('/projects/review-stats', { signal, what: 'review stats' });
+    const data = await read('/projects/review-stats', { signal, what: 'o progresso da revisão' });
     return data.stats || {};
 }
 
@@ -321,7 +349,7 @@ export async function fetchAllReviewStats({ signal } = {}) {
 export async function fetchProjectRuns(slug, { signal } = {}) {
     const data = await read(`/projects/${encodeURIComponent(slug)}/runs`, {
         signal,
-        what: `runs for project ${slug}`,
+        what: `as faixas do projeto ${slug}`,
     });
     return data.runs || [];
 }
@@ -337,7 +365,7 @@ export async function fetchProjectRuns(slug, { signal } = {}) {
 export async function fetchProjectFloors(slug, { signal } = {}) {
     const data = await read(`/projects/${encodeURIComponent(slug)}/floors`, {
         signal,
-        what: `floors for project ${slug}`,
+        what: `os andares do projeto ${slug}`,
     });
     return data.floors || [];
 }
@@ -353,7 +381,7 @@ export async function fetchProjectFloors(slug, { signal } = {}) {
 export async function fetchProjectMap(slug, { signal } = {}) {
     return read(`/projects/${encodeURIComponent(slug)}/map`, {
         signal,
-        what: `map for project ${slug}`,
+        what: `o mapa do projeto ${slug}`,
     });
 }
 
@@ -371,7 +399,7 @@ export async function fetchNearbyPhotos(photoId, radius = 100, { signal, floor }
         ? '' : `&floor=${encodeURIComponent(floor)}`;
     return read(`/photos/${encodeURIComponent(photoId)}/nearby?radius=${radius}${qFloor}`, {
         signal,
-        what: `nearby photos for ${photoId}`,
+        what: `as fotos próximas de ${photoId}`,
     });
 }
 

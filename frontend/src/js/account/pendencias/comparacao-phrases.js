@@ -34,8 +34,7 @@ export const COMPARACAO_ROTULO = 'Sua cópia e a do servidor:';
 
 /** O que se diz quando não há o outro lado do par para comparar. */
 export const COMPARACAO_SEM_SERVIDOR =
-    'O servidor não devolveu o conteúdo atual deste item, então esta tela não tem com o que '
-    + 'comparar a sua cópia.';
+    'Não foi possível obter a versão do servidor para comparar com a sua.';
 
 /**
  * @param {string|null|undefined} tipo - Tipo GeoJSON.

@@ -425,7 +425,7 @@ export function horizonteEncurtadoNotice({ fonte, alcance, janela, agora, timeZo
     const pedidos = diasDaJanela(janela);
     const cobertos = diasEntre(alcance, agora ?? Date.now());
     const quanto = cobertos !== null && cobertos < pedidos
-        ? ` — ${cobertos} dos ${pedidos} dias pedidos`
+        ? ` (${cobertos} dos ${pedidos} dias pedidos)`
         : '';
     const desde = data ? ` desde ${data}` : '';
     return `Você pediu ${janelaEmPalavras(janela)}, mas ${nome} só alcança${desde}${quanto}. `
@@ -436,8 +436,8 @@ export function horizonteEncurtadoNotice({ fonte, alcance, janela, agora, timeZo
         // verbo que mora noutro arquivo, e a primeira que não concordasse sairia agramatical em
         // silêncio, porque nenhum teste lê português. Com um sujeito FIXO ("o que depende dele"),
         // o texto variável vira aposto e a concordância deixa de depender de quem escreve a lista.
-        + `Então o que depende dele (${alvo}) mostra um trecho mais curto que o pedido: uma queda `
-        + 'aí pode ser histórico que não existe mais, e não uso menor.';
+        + `O que depende dele (${alvo}) cobre um trecho mais curto que o pedido: uma queda aí `
+        + 'pode ser histórico que não existe mais, e não uso menor.';
 }
 
 /**
@@ -1172,7 +1172,7 @@ export function topVazioNotice(janela) {
 
 /** @returns {string} */
 export function topHint() {
-    return 'A contagem é de operações de sync recebidas pelo servidor, e não de horas de uso.';
+    return 'A contagem é de operações de edição recebidas pelo servidor, e não de horas de uso.';
 }
 
 /** @returns {string} */
@@ -1234,7 +1234,7 @@ export const PASSOS_DO_FUNIL = Object.freeze([
         rotulo: 'Fizeram a primeira edição',
         denominador: 'fez a primeira edição',
         regime: REGIME.PERIODO,
-        detalhe: 'dessas, as que geraram ao menos uma operação de sync depois de criar o atlas',
+        detalhe: 'dessas, as que editaram o atlas depois de criá-lo',
         mediana: 'horasAteProducao',
         dependeDaProducao: true,
     }),
@@ -1342,17 +1342,15 @@ export function funilPassos(funil, { piso = false } = {}) {
 export function funilPisoNotice(estado) {
     if (estado === HORIZONTE.ENCURTADO) {
         return 'O último passo é um PISO: o registro de produção não alcança o começo do período, '
-            + 'então quem editou antes disso não aparece nele, e a conversão desenhada é a menor '
-            + 'possível. Os dois primeiros passos não dependem dele e estão inteiros.';
+            + 'e quem editou antes disso não aparece nele. Os dois primeiros passos estão completos.';
     }
     if (estado === HORIZONTE.VAZIO) {
-        return 'Não há uma linha sequer no registro de produção, então o último passo está zerado '
-            + 'por essa razão, e não porque ninguém editou. Os dois primeiros passos não '
-            + 'dependem dele e continuam valendo.';
+        return 'O registro de produção está vazio, por isso o último passo está zerado, e não '
+            + 'porque ninguém editou. Os dois primeiros passos continuam valendo.';
     }
     if (estado === HORIZONTE.DESCONHECIDO) {
         return 'O servidor não informou até onde o registro de produção alcança, então o último '
-            + 'passo é um piso: não dá para afirmar que ele está completo.';
+            + 'passo é um piso: pode estar incompleto.';
     }
     return '';
 }
@@ -1386,8 +1384,8 @@ export function funilSubtitulo(janela) {
  */
 export function funilHint() {
     return 'O período escolhe a coorte (quem criou conta nele); os dois passos seguintes contam '
-        + 'até hoje, mesmo que a pessoa tenha chegado lá depois do fim do período. Sem isso, a '
-        + 'coorte mais recente pareceria a que menos converte só por ter tido menos tempo.';
+        + 'até hoje, para que a coorte mais recente não pareça converter menos só por ter tido '
+        + 'menos tempo.';
 }
 
 /**
@@ -1396,9 +1394,8 @@ export function funilHint() {
  * @returns {string}
  */
 export function funilEscopoHint() {
-    return 'O terceiro passo conta a edição no atlas que a própria pessoa criou. Quem só edita '
-        + 'atlas de outra pessoa não aparece nele, e é essa restrição que mantém cada passo como '
-        + 'subconjunto do anterior.';
+    return 'O terceiro passo conta só a edição no atlas que a própria pessoa criou: quem só '
+        + 'edita atlas de outra pessoa não aparece nele.';
 }
 
 /**
@@ -1425,10 +1422,9 @@ export function funilInformado(funil) {
  * @returns {string}
  */
 export function funilNaoInformadoNotice() {
-    return 'O servidor não informou o funil de entrada, então ele não é desenhado aqui. '
-        + 'Daqui não dá para dizer se é um servidor de versão anterior ou se ele não '
-        + 'conseguiu montar o bloco desta vez, e nenhum dos dois quer dizer que ninguém '
-        + 'tenha criado conta no período.';
+    return 'O servidor não informou o funil de entrada. Ou ele é de versão anterior, ou não '
+        + 'conseguiu montar os dados desta vez, e não dá para dizer qual; nenhum dos dois quer '
+        + 'dizer que ninguém tenha criado conta no período.';
 }
 
 /** @param {*} janela @returns {string} */
@@ -1509,8 +1505,8 @@ export function celulaDeRetencao(valor, cadastrados, coluna) {
             percentual: null,
             aberta: true,
             desconhecida: false,
-            titulo: 'Esta semana ainda não passou por inteiro, e o número só fecha quando ela '
-                + 'passa: publicá-lo agora seria mostrar um valor que ainda vai crescer.',
+            titulo: 'Esta semana ainda não terminou, e o número ainda vai crescer. Ele aparece '
+                + 'quando a semana fechar.',
         };
     }
     if (!numeroContavel(valor)) {
@@ -1592,10 +1588,9 @@ export function retencaoSubtitulo(janela) {
  * @returns {string}
  */
 export function retencaoHint() {
-    return 'Cada célula é "pelo menos": o login é registrado em best-effort, então uma falha de '
-        + 'escrita da trilha some da conta. As semanas são contadas a partir da segunda-feira da '
-        + 'coorte, e não do instante de cada cadastro, para que a mesma célula signifique o mesmo '
-        + 'intervalo para todo mundo da linha.';
+    return 'Cada célula é "pelo menos": um login cujo registro falhou não entra na conta. As '
+        + 'semanas contam a partir da segunda-feira da coorte, e não do dia de cada cadastro, para '
+        + 'que a mesma célula signifique o mesmo intervalo para todo mundo da linha.';
 }
 
 /**
@@ -1617,11 +1612,9 @@ export function retencaoInformada(retencao) {
  * @returns {string}
  */
 export function retencaoNaoInformadaNotice() {
-    return 'O servidor não informou a retenção por semana de cadastro, então a tabela não é '
-        + 'desenhada aqui. '
-        + 'Daqui não dá para dizer se é um servidor de versão anterior ou se ele não '
-        + 'conseguiu montar o bloco desta vez, e nenhum dos dois quer dizer que ninguém '
-        + 'tenha criado conta no período.';
+    return 'O servidor não informou a retenção por semana de cadastro. Ou ele é de versão anterior, ou não '
+        + 'conseguiu montar os dados desta vez, e não dá para dizer qual; nenhum dos dois quer '
+        + 'dizer que ninguém tenha criado conta no período.';
 }
 
 /** @param {*} janela @returns {string} */
@@ -1699,13 +1692,12 @@ export function usoHorizonteNotice(estado, { alcance, janela, timeZone } = {}) {
         const data = dataLocal(alcance, { timeZone });
         const desde = data ? ` desde ${data}` : '';
         return `O uso do produto é medido${desde}, e você pediu ${janelaEmPalavras(janela)}: as `
-            + 'quatro seções abaixo cobrem só o trecho medido. Um começo baixo aqui é a idade da '
+            + 'quatro seções abaixo cobrem só o trecho medido. Um começo baixo é a idade da '
             + 'medição, e não uma queda de uso.';
     }
     if (estado === HORIZONTE.VAZIO) {
-        return 'Nenhum navegador relatou uso ainda. É o estado de uma instalação que acabou de '
-            + 'receber a medição: as quatro seções abaixo se preenchem à medida que as pessoas '
-            + 'usarem o produto.';
+        return 'Nenhum navegador relatou uso ainda. As quatro seções abaixo se preenchem à medida '
+            + 'que as pessoas usarem o produto.';
     }
     if (estado === HORIZONTE.DESCONHECIDO) {
         return 'O servidor não informou desde quando o uso do produto é medido, então não dá para '
@@ -1724,8 +1716,8 @@ export function usoHorizonteNotice(estado, { alcance, janela, timeZone } = {}) {
  */
 export function usoDoProdutoHint() {
     return 'Estas quatro seções vêm do navegador de quem usa, e não do servidor: cada número é um '
-        + 'PISO. O lote é mandado a cada 30 segundos e na saída da página, sem fila, então o que '
-        + 'não sai é perdido em vez de guardado.';
+        + 'PISO. Os dados são enviados a cada 30 segundos e ao sair da página, sem nova tentativa: '
+        + 'o que não chega se perde.';
 }
 
 // ===== sessões =====
@@ -1743,11 +1735,9 @@ export function sessoesInformado(sessoes) {
 
 /** @returns {string} */
 export function sessoesNaoInformadoNotice() {
-    return 'O servidor não informou as sessões do produto, então esta seção não é desenhada '
-        + 'aqui. '
-        + 'Daqui não dá para dizer se é um servidor de versão anterior ou se ele não '
-        + 'conseguiu montar o bloco desta vez, e nenhum dos dois quer dizer que ninguém '
-        + 'tenha usado o EBGeo no período.';
+    return 'O servidor não informou as sessões do produto. Ou ele é de versão anterior, ou não '
+        + 'conseguiu montar os dados desta vez, e não dá para dizer qual; nenhum dos dois quer '
+        + 'dizer que ninguém tenha usado o EBGeo no período.';
 }
 
 /**
@@ -1904,9 +1894,9 @@ export function sessoesRetidasNotice(sessoes) {
     const retidas = sessoes.sessoesRetidas;
     if (total === 0) return '';
     if (!numeroContavel(retidas) || retidas > 0) return '';
-    return 'As pessoas distintas e a duração mediana saem das sessões ainda guardadas uma a uma, '
-        + 'e nesta janela não sobrou nenhuma: a retenção já as removeu. O total, as anônimas e as '
-        + 'com erro vêm do resumo diário, que não é podado, e continuam valendo.';
+    return 'As pessoas distintas e a duração mediana saem das sessões guardadas uma a uma, e as '
+        + 'deste período já foram removidas pela retenção. O total, as anônimas e as com erro vêm '
+        + 'do resumo diário, e continuam valendo.';
 }
 
 /** @returns {string} */
@@ -1927,8 +1917,7 @@ export function sessoesVaziaNotice(janela) {
 
 /** @returns {string} */
 export function sessoesVaziaHint() {
-    return 'Ou ninguém abriu o EBGeo no período, ou nenhum lote conseguiu chegar ao servidor. As '
-        + 'duas coisas desenham esta mesma tela.';
+    return 'Ou ninguém abriu o EBGeo no período, ou os dados de uso não chegaram ao servidor.';
 }
 
 /** @returns {string} */
@@ -2159,16 +2148,14 @@ export function ferramentasHint() {
     return 'Contagens por categoria; até 20 alvos em cada uma. A fatia usa o total da categoria, '
         + 'incluindo alvos fora da lista. Acionamentos não medem pessoas, preferência declarada ou tempo: '
         + 'abrir dez vezes conta dez. Bases incluem carregamentos do mapa. Sem qualificador indica cliente antigo. '
-        + 'A coleta pode perder lotes por expiração, mudança de conta ou armazenamento indisponível.';
+        + 'A coleta pode perder dados por expiração, troca de conta ou armazenamento indisponível.';
 }
 
 /** @returns {string} */
 export function ferramentasNaoInformadoNotice() {
-    return 'O servidor não informou o que foi mais usado, então esta seção não é desenhada '
-        + 'aqui. '
-        + 'Daqui não dá para dizer se é um servidor de versão anterior ou se ele não '
-        + 'conseguiu montar o bloco desta vez, e nenhum dos dois quer dizer que ninguém '
-        + 'tenha acionado nada no período.';
+    return 'O servidor não informou o que foi mais usado. Ou ele é de versão anterior, ou não '
+        + 'conseguiu montar os dados desta vez, e não dá para dizer qual; nenhum dos dois quer '
+        + 'dizer que ninguém tenha acionado nada no período.';
 }
 
 // ===== desempenho no cliente =====
@@ -2292,9 +2279,8 @@ export const ORIGENS_DE_DESEMPENHO = Object.freeze({
     diario: Object.freeze({
         unidadeSingular: 'dia',
         unidadePlural: 'dias',
-        detalhe: 'As sessões desta janela já foram podadas, então o número é a MEDIANA dos p75 '
-            + 'de cada dia, e não o p75 do período. É a melhor resposta que sobra, e não a mesma '
-            + 'conta.',
+        detalhe: 'As sessões desta janela já foram removidas pela retenção, então o número é a '
+            + 'MEDIANA dos p75 de cada dia, e não o p75 do período.',
     }),
 });
 
@@ -2437,11 +2423,9 @@ export function desempenhoVaziaHint() {
 
 /** @returns {string} */
 export function desempenhoNaoInformadoNotice() {
-    return 'O servidor não informou o desempenho no cliente, então esta seção não é desenhada '
-        + 'aqui. '
-        + 'Daqui não dá para dizer se é um servidor de versão anterior ou se ele não '
-        + 'conseguiu montar o bloco desta vez, e nenhum dos dois quer dizer que ninguém '
-        + 'tenha usado o EBGeo no período.';
+    return 'O servidor não informou o desempenho no cliente. Ou ele é de versão anterior, ou não '
+        + 'conseguiu montar os dados desta vez, e não dá para dizer qual; nenhum dos dois quer '
+        + 'dizer que ninguém tenha usado o EBGeo no período.';
 }
 
 // ===== indisponibilidade vista pelo cliente =====
@@ -2514,11 +2498,9 @@ export function disponibilidadeVaziaNotice(janela) {
 
 /** @returns {string} */
 export function disponibilidadeNaoInformadoNotice() {
-    return 'O servidor não informou a indisponibilidade vista pelo cliente, então esta seção '
-        + 'não é desenhada aqui. '
-        + 'Daqui não dá para dizer se é um servidor de versão anterior ou se ele não '
-        + 'conseguiu montar o bloco desta vez, e nenhum dos dois quer dizer que ninguém '
-        + 'tenha visto a tela no período.';
+    return 'O servidor não informou a indisponibilidade vista pelo cliente. Ou ele é de versão anterior, ou não '
+        + 'conseguiu montar os dados desta vez, e não dá para dizer qual; nenhum dos dois quer '
+        + 'dizer que ninguém tenha visto a tela no período.';
 }
 
 /**

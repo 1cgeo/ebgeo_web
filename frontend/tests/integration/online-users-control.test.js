@@ -224,6 +224,24 @@ describe('OnlineUsersControl — roster render', () => {
         expect(maps[0].textContent).toBe('Mapa Tático');
     });
 
+    it('case V: diz em qual visualizador o colega está, e sem nome quando o recurso não chegou (dono, 2026-09-22)', () => {
+        presenceStoreMock.getOthers.mockReturnValue([
+            peer({
+                clientId: 'c1', userId: 'u1', currentMap: 'Mapa Tático',
+                viewer: { surface: '360', recurso: { tipo: 'sv360_project', id: 'p1', nome: 'Quartel', foto: 'IMG_7.jpg' } },
+            }),
+            // Um privado que ESTE cliente não lê: o servidor mandou o tipo de visualizador sem o recurso.
+            peer({ clientId: 'c2', userId: 'u2', userName: 'Bruno', viewer: { surface: '3d', recurso: null } }),
+            peer({ clientId: 'c3', userId: 'u3', userName: 'Carla', viewer: null }),
+        ]);
+        firePresenceChanged();
+
+        const vistos = container.queryAllByTestId('online-user-viewer').map((el) => el.textContent);
+        expect(vistos).toEqual(['no 360°: Quartel, foto IMG_7.jpg', 'no visualizador 3D']);
+        // O colega que está no mapa continua com o mapa e sem linha de visualizador.
+        expect(container.queryAllByTestId('online-user-map').map((el) => el.textContent)).toEqual(['Mapa Tático']);
+    });
+
     it('case G: renders the away state (dimmed + "ausente")', () => {
         presenceStoreMock.getOthers.mockReturnValue([peer({ away: true })]);
         firePresenceChanged();

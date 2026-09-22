@@ -71,6 +71,10 @@ import {
     frustumOutlineAngles,
     directionFromAngles,
 } from './viewshed-geometry.js';
+// The preview between the two clicks, same leaf discipline (`frontend/tests/unit/viewshed-3d-preview.test.js`).
+import { previewRange, previewFrame, previewPolylines } from './viewshed-preview.js';
+// The range label reads exactly like the 3D measurement overlay's, and that is the point of reusing it.
+import { formatDistanceLabel } from './cesium-measure.js';
 
 // ============================================================================
 // SHADER
@@ -348,6 +352,10 @@ export class Viewshed3D {
      *   CONTRACT: the caller passes `calback`, one L, inherited from the replaced plugin. Fixing it
      *   here without fixing `viewshed_tool_3d.js` gives an interactive mode that never completes,
      *   silently.
+     * @param {number} [options.previewEyeHeight] - Interactive mode only: metres above the first
+     *   click at which the PREVIEW apex is drawn. The caller rebuilds the viewshed with the observer
+     *   at eye height after the second click, so passing that same height makes the preview the
+     *   sector that will actually be analysed. Absent, zero or not a number draws it on the click.
      */
     constructor(viewer, options = {}) {
         if (!viewer) return;
@@ -373,6 +381,16 @@ export class Viewshed3D {
         this._postProcess = null;
         this._outline = null;
         this._handler = null;
+
+        // The interactive preview (see `_bindPickingEvents`). `_preview` holds the three
+        // collections it draws with, `_hoverPosition` the last window position the pointer
+        // reported, and `_hoverFrame` the pending animation frame that coalesces pointer moves.
+        this._previewEyeHeight = Number.isFinite(options.previewEyeHeight) && options.previewEyeHeight > 0
+            ? options.previewEyeHeight
+            : 0;
+        this._preview = null;
+        this._hoverPosition = null;
+        this._hoverFrame = 0;
 
         if (this.cameraPosition && this.viewPosition) {
             this._addToScene();
@@ -441,6 +459,9 @@ export class Viewshed3D {
         this._destroyed = true;
 
         this._unbindPickingEvents();
+        // Destroying mid-gesture (Escape, another tool, the viewer closing) is the normal way the
+        // preview ends when no second click comes, so it goes here and not only on that click.
+        this._clearPreview();
 
         const viewer = this.viewer;
         if (viewer && !viewer.isDestroyed?.()) {
@@ -745,8 +766,15 @@ export class Viewshed3D {
     // ---- interactive mode ------------------------------------------------
 
     /**
-     * Two clicks: the first fixes the observer, the second the target. Moving the mouse in between
-     * keeps the range live, which is what makes the gesture readable.
+     * Two clicks: the first fixes the observer, the second the target. In between, the pointer
+     * drives a PREVIEW of the sector (the same wireframe the analysis will draw, an aim line and the
+     * range), which is what makes the gesture readable.
+     *
+     * THE PREVIEW IS CHEAP ON PURPOSE. It is outline only: no shadow map and no post-process until
+     * the second click, because those are the whole cost of a viewshed (6 to 9 ms of frame each,
+     * measured on 2026-09-15). And pointer moves are COALESCED to one pick per animation frame,
+     * because `pickScenePosition` renders a pick pass, and a high-rate mouse reports several moves
+     * per frame. The frame id is a timer like any other: `_unbindPickingEvents` cancels it.
      * @private
      */
     _bindPickingEvents() {
@@ -758,10 +786,17 @@ export class Viewshed3D {
             if (!picked) return;
             if (!this.cameraPosition) {
                 this.cameraPosition = picked;
+                // The observer mark shows at once, before any move: the first click has to be
+                // answered on the screen, or the person clicks again and that click is the target.
+                this._drawPreview(null);
                 return;
             }
             if (!this.viewPosition) {
                 this.viewPosition = picked;
+                // The preview leaves BEFORE the real sector joins the scene, so the two never share
+                // a frame: the frame after this click shows the analysis, not the analysis plus a
+                // stale wireframe from the last pointer position.
+                this._clearPreview();
                 this._addToScene();
                 this._unbindPickingEvents();
                 if (this.calback) this.calback();
@@ -769,12 +804,16 @@ export class Viewshed3D {
         }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
         handler.setInputAction((movement) => {
-            if (!this.cameraPosition) return;
-            const hovered = pickScenePosition(scene, movement.endPosition);
-            if (!hovered) return;
-            this._distance = Number(
-                Cesium.Cartesian3.distance(this.cameraPosition, hovered).toFixed(1),
+            if (!this.cameraPosition || this.viewPosition) return;
+            this._hoverPosition = Cesium.Cartesian2.clone(
+                movement.endPosition,
+                this._hoverPosition ?? new Cesium.Cartesian2(),
             );
+            if (this._hoverFrame) return;
+            this._hoverFrame = requestAnimationFrame(() => {
+                this._hoverFrame = 0;
+                this._previewHover();
+            });
         }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
         this._handler = handler;
@@ -782,10 +821,170 @@ export class Viewshed3D {
 
     /** @private */
     _unbindPickingEvents() {
+        if (this._hoverFrame) {
+            cancelAnimationFrame(this._hoverFrame);
+            this._hoverFrame = 0;
+        }
+        this._hoverPosition = null;
         if (!this._handler) return;
         this._handler.destroy();
         this._handler = null;
     }
+
+    /**
+     * The coalesced pointer move: one pick, then the preview follows it.
+     *
+     * The range is still kept live on the instance, as it always was: it is part of what the
+     * interactive mode promised before the preview existed, and the second click overwrites it
+     * with the same arithmetic anyway (`_createObserverCamera`).
+     * @private
+     */
+    _previewHover() {
+        if (this._destroyed || !this._handler || !this.cameraPosition || this.viewPosition) return;
+        if (!this._hoverPosition) return;
+
+        const hovered = pickScenePosition(this.viewer.scene, this._hoverPosition);
+        // Nothing under the pointer (sky, off the model): the last preview stays, like the range.
+        if (!hovered) return;
+
+        const range = previewRange(this.cameraPosition, hovered);
+        if (Number.isFinite(range)) this._distance = range;
+
+        this._drawPreview(hovered);
+    }
+
+    /**
+     * Draws (or updates) the preview. With no pointer, only the observer mark.
+     *
+     * THE COLLECTIONS ARE BUILT ONCE PER GESTURE AND UPDATED IN PLACE. A pointer move rewrites the
+     * positions of the same polylines and the text of the same label, instead of removing and
+     * re-adding a collection per frame, which is what the replaced plugin did with a whole entity.
+     *
+     * TRANSLUCENT, ALL THREE, for the reason `_rebuildOutline` gives about its alpha: something
+     * that writes depth is tinted by the post-process of every viewshed ALREADY in the scene, and an
+     * annotation would start lying about what some other observer sees. It also keeps the preview
+     * out of `pickPosition`, which reads opaque depth only (`scene.pickTranslucentDepth` is false by
+     * default and nothing here turns it on): `scene.pick` may well hit a preview line, but the
+     * position the next move takes is the ground under the wireframe, never a point on it.
+     * @private
+     * @param {object|null} pointer - Cesium.Cartesian3 under the cursor, or null.
+     */
+    _drawPreview(pointer) {
+        if (this._destroyed || !this.viewer || !this.cameraPosition) return;
+        const scene = this.viewer.scene;
+
+        if (!this._preview) {
+            const eye = liftAlongVertical(this.cameraPosition, this._previewEyeHeight);
+            const lines = new Cesium.PolylineCollection();
+            const marks = new Cesium.PointPrimitiveCollection({
+                blendOption: Cesium.BlendOption.TRANSLUCENT,
+            });
+            const labels = new Cesium.LabelCollection({
+                blendOption: Cesium.BlendOption.TRANSLUCENT,
+            });
+            marks.add({
+                position: eye,
+                pixelSize: 10,
+                // The colour of the origin marker the tool draws once the viewshed exists.
+                color: Cesium.Color.DARKORANGE,
+                outlineColor: Cesium.Color.WHITE,
+                outlineWidth: 2,
+                disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            });
+            const label = labels.add({
+                show: false,
+                text: '',
+                font: '14px monospace',
+                showBackground: true,
+                horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
+                verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                // Off the cursor, so the text never hides the point the next click will take.
+                pixelOffset: new Cesium.Cartesian2(14, -14),
+                disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            });
+            scene.primitives.add(lines);
+            scene.primitives.add(marks);
+            scene.primitives.add(labels);
+            this._preview = { eye, lines, marks, labels, label, polylines: [] };
+        }
+
+        const preview = this._preview;
+        const frame = pointer ? previewFrame(this.cameraPosition, preview.eye, pointer) : null;
+        const drawn = frame
+            ? previewPolylines(frame, preview.eye, pointer, this._horizontalAngle, this._verticalAngle)
+            : null;
+
+        if (!drawn) {
+            // No sector to show (no pointer yet, or the pointer on the observer): the mark stays,
+            // the sector and the range go, rather than freezing at a position that no longer holds.
+            for (const polyline of preview.polylines) polyline.show = false;
+            preview.label.show = false;
+            scene.requestRender();
+            return;
+        }
+
+        const paths = [...drawn.outline, drawn.aim];
+        if (preview.polylines.length !== paths.length) {
+            preview.lines.removeAll();
+            preview.polylines = paths.map(() => preview.lines.add({
+                width: 1,
+                // Same material as the final outline, for the same reason (see `_rebuildOutline`).
+                material: Cesium.Material.fromType('Color', {
+                    color: Cesium.Color.WHITE.withAlpha(0.99),
+                }),
+            }));
+        }
+        paths.forEach((path, index) => {
+            const polyline = preview.polylines[index];
+            polyline.positions = path.map((p) => new Cesium.Cartesian3(p.x, p.y, p.z));
+            polyline.show = true;
+        });
+
+        preview.label.position = pointer;
+        preview.label.text = formatDistanceLabel(frame.range);
+        preview.label.show = true;
+
+        // The open viewer renders continuously today (`resumeRendering` turns `requestRenderMode`
+        // off), so this costs nothing; it is here so that a render-on-demand viewer does not leave
+        // the moved preview waiting for the next unrelated frame.
+        scene.requestRender();
+    }
+
+    /**
+     * Removes the preview. Idempotent, and safe after the viewer is gone.
+     * @private
+     */
+    _clearPreview() {
+        const preview = this._preview;
+        this._preview = null;
+        if (!preview) return;
+
+        const viewer = this.viewer;
+        if (!viewer || viewer.isDestroyed?.()) return;
+        const primitives = viewer.scene.primitives;
+        // `remove` also destroys: the collection's `destroyPrimitives` is true by default.
+        primitives.remove(preview.lines);
+        primitives.remove(preview.marks);
+        primitives.remove(preview.labels);
+        viewer.scene.requestRender();
+    }
+}
+
+/**
+ * The point `height` metres above `position` along the ellipsoid normal: how the tool lifts the
+ * observer to eye height when it rebuilds the viewshed (`Cartesian3.fromDegrees` with the clicked
+ * height plus the observer height), done here without the round trip through degrees.
+ * @param {object} position - Cesium.Cartesian3.
+ * @param {number} height - Metres; zero or less returns a copy of `position`.
+ * @returns {object} Cesium.Cartesian3.
+ */
+function liftAlongVertical(position, height) {
+    const copy = Cesium.Cartesian3.clone(position, new Cesium.Cartesian3());
+    if (!(height > 0)) return copy;
+    const carto = Cesium.Cartographic.fromCartesian(position);
+    if (!carto) return copy;
+    carto.height += height;
+    return Cesium.Cartographic.toCartesian(carto);
 }
 
 /**

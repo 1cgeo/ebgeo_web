@@ -37,10 +37,14 @@
 //      middleware nenhum (ele nasce em `wss.on('connection')`, fora da pilha do Express), então a
 //      cobertura dele é o embrulho por socket instalado em `onConnection`. Cada sítio declara em
 //      qual socket escreve.
-//   4. TIPO DE MENSAGEM WS — todo `type: '<nome>'` literal dentro de uma chamada de emissão
-//      (`broadcastToRoom`/`closeRoom`/`broadcastOperations`/`.send(`). Pega o que a varredura 3
-//      não pega: OITO dos 26 tipos nascem em controllers HTTP, fora do módulo `collab`, e uma
-//      varredura restrita à pasta do socket não os enxergaria.
+//   4. TIPO DE MENSAGEM WS — todo `type: '<nome>'` literal, por DUAS regras. Fora do módulo do
+//      socket, só o que estiver dentro de uma chamada de emissão
+//      (`broadcastToRoom`/`closeRoom`/`broadcastOperations`/`difundirRecortado`/`.send(`). Dentro
+//      de `src/modules/collab/`, todo literal, esteja onde estiver, porque desde o recorte por
+//      destinatário (2026-09-22) o quadro é MONTADO longe do envio. Pega o que a varredura 3 não
+//      pega: OITO dos 27 tipos nascem em controllers HTTP, fora do módulo `collab`, e uma varredura
+//      restrita à pasta do socket não os enxergaria. As duas regras e o que a divisão custou estão
+//      no JSDoc de `tiposDeMensagemWs`.
 //
 // O INVENTÁRIO VEM DO GIT, `--cached --others --exclude-standard`, e as duas bandeiras não são
 // detalhe: `git ls-files` puro lista só o rastreado, e o arquivo que a fase corrente acabou de
@@ -61,7 +65,11 @@
 //       por isso que existe o caso-piso com as contagens medidas: uma varredura que deixasse de
 //       casar passaria todos os outros casos comparando vazio com vazio.
 //   (c) a remoção de comentário é textual, não é parser: `//` dentro de literal cai junto.
-//   (d) tipo de mensagem cujo `type` venha de variável não casa. Nenhum hoje; o piso cobra 26.
+//   (d) tipo de mensagem cujo `type` venha de variável não casa. O único hoje é o redator da
+//       seleção (`type: quadro.type`), que copia o tipo do quadro que ele redige, e o literal
+//       daquele quadro é contado. O piso cobra 27, e desde 2026-09-22 a direção inversa também:
+//       entrada do censo que nenhum sítio casa reprova, que é o que teria acusado sozinho o
+//       `viewer_context` classificado e nunca visto.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -86,6 +94,7 @@ const W_EMBRULHADO = 'socket-embrulhado-em-onConnection';
 // --- classes da varredura 4 (tipo de mensagem WS) -------------------------------------
 const M_ENTIDADE = 'carrega-entidade';
 const M_SEM_ENTIDADE = 'sem-carga-de-entidade';
+const M_ESCOPO_RECORTADO = 'escopo-de-recurso-recortado';
 
 const json = (arquivo, rota) => ({ arquivo, rota, classe: R_JSON });
 const bytes = (arquivo, rota, emissor) => ({ arquivo, rota, classe: R_BYTES, emissor });
@@ -216,6 +225,11 @@ const CENSO_ROTA = [
   // referência, não definição, e a poda por conteúdo resolve DEFINIÇÃO. O corpo sai por
   // `res.json`, logo pela poda global, como todas as irmãs.
   json('src/modules/diag/diag.routes.js', 'GET /linhas'),
+  // OS ENDEREÇOS DISTINTOS (2026-09-22): agregação do `ip` das linhas de requisição (contagem,
+  // instantes, abas) mais login e nome das contas vistas em cada endereço, lidos de `users`.
+  // Nenhuma definição de recurso de catálogo, 360 ou 3D atravessa, e o corpo sai por `res.json`,
+  // logo pela poda global, como as irmãs.
+  json('src/modules/diag/diag.routes.js', 'GET /enderecos'),
   // O RELATÓRIO DE UMA TELA (2026-09-02), única rota HÍBRIDA do módulo: agregação do log em
   // arquivo (percentil, contagem por faixa, buracos na série de amostras) somada a contagens de
   // `defeitos`. Mesma família das irmãs: nenhuma definição de recurso de catálogo, 360 ou 3D
@@ -548,11 +562,27 @@ const CENSO_ENVIO_WS = [
   { arquivo: 'src/modules/collab/collab.rooms.js', texto: 'client.send(payload);', n: 2, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
   { arquivo: 'src/modules/collab/collab.rooms.js', texto: 'client.send(fullPayload);', n: 1, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
   { arquivo: 'src/modules/collab/collab.rooms.js', texto: 'client.send(readPayload);', n: 1, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
+
+  // O CONTEXTO DE VISUALIZADOR (2026-09-22): o nome de um recurso PRIVADO só vai a quem
+  // `fn_can_see_resource` responde sim no escopo do atlas da sala, e o resto recebe o mesmo quadro
+  // com o recurso nulo. Os dois sítios são o leque da sala e o COMPLEMENTO do retrato de entrada,
+  // que desde o mesmo dia leva também o cursor e a seleção de escopo privado a quem pode lê-los
+  // (o cursor e a seleção ao vivo saem por `broadcastToRoom` com `somenteA`, um grupo por classe
+  // de acesso, em `difundirRecortado` e no lote de cursor). Todos em sockets da sala.
+  { arquivo: 'src/modules/collab/collab.viewer.js', texto: 'client.send(!permitidos || permitidos.has(client) ? completo : oculto);', n: 1, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
+  { arquivo: 'src/modules/collab/collab.viewer.js', texto: 'if (quadro) novo.send(JSON.stringify(quadro));', n: 1, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
 ];
 
 const RELAY = "Relay de operação de sync: carrega documento de entidade escrito por um cliente e reenviado à sala inteira, visitante anônimo de link público incluído. Atravessa o embrulho de `ws.send`, e o lote é podado como OBJETO antes do fan-out para não pagar a varredura por destinatário.";
 const SNAPSHOT = "Resposta de `sync_request`: snapshot inteiro do atlas ou trecho do log. É o único frame que carrega definição AUTORIZADA, por isso é entregue ao `send` como OBJETO — a autorização é por identidade e não sobrevive a um `JSON.stringify` feito antes da fronteira.";
-const PRESENCA = "Frame de presença/consciência: identidade, cursor, seleção, entrada e saída de par. Não carrega documento de entidade.";
+const PRESENCA = "Frame de presença/consciência: identidade, entrada, saída e ausência de par, e o aviso de edição de briefing. Não carrega documento de entidade nem nomeia recurso de catálogo.";
+const RECORTE = 'Frame de presença que NOMEIA um recurso de catálogo (o `tilesetId` do modelo 3D ou da cena '
+  + 'caminhável, o `photoName` da foto 360, e no visualizador também o NOME), às vezes com uma posição '
+  + 'DENTRO dele. Não carrega documento de entidade, e é por isso que as outras duas classes não o '
+  + 'descrevem: a poda de `ws.send` resolve DEFINIÇÃO, não referência. O recurso público vai a todos; o '
+  + 'PRIVADO (ou que não resolve, que é privado para todos) vai inteiro só a quem `fn_can_see_resource` '
+  + 'libera no escopo do atlas da sala (`quemPodeVer`, collab.recorte.js), e o resto recebe a forma do '
+  + 'redator nomeado na entrada.';
 const CONTROLE = "Frame de controle do protocolo (handshake, keepalive, ack, erro, ajuste adaptativo). Carrega id, versão e texto de erro, nunca payload de entidade.";
 const AVISO = "Aviso de mudança no ATLAS emitido por rota HTTP: o cliente reage buscando o dado novo. Carrega id, e no caso de `atlas_updated` a linha de `atlas` (schema fechado, sem coluna livre) e as `settings` (schema declarado, `stripUnknown`). Nenhum carrega documento de mapa.";
 
@@ -563,20 +593,48 @@ const AVISO = "Aviso de mudança no ATLAS emitido por rota HTTP: o cliente reage
  * de `ws.send`, e o `sync_response` é o único que também carrega definição AUTORIZADA (por isso é
  * entregue ao `send` como OBJETO, não como string: a autorização é por identidade e não sobrevive
  * a `JSON.stringify` feito antes da fronteira).
+ *
+ * `escopo-de-recurso-recortado` (2026-09-22) são os frames de presença que NOMEIAM um recurso de
+ * catálogo. Até aquela data a pergunta deste censo era só "carrega documento?", e um cursor que
+ * levava o id de um modelo privado (e uma coordenada sobre ele) à sala inteira, visitante anônimo
+ * incluído, respondia "não" e passava. Quem os protege não é o embrulho de `ws.send`, é o recorte
+ * por destinatário, e por isso a entrada precisa NOMEAR o `redator` (a função que produz a forma
+ * entregue a quem não pode ver), conferido contra o código do módulo do socket, do mesmo jeito que
+ * a rota de bytes precisa nomear um emissor que exista.
  */
 const CENSO_TIPO_WS = [
-  { tipo: 'connected', classe: M_SEM_ENTIDADE, motivo: PRESENCA },
+  // O handshake leva o RETRATO da sala (`usersOnline`): cursor, seleção e visualizador de cada par.
+  { tipo: 'connected', classe: M_ESCOPO_RECORTADO, redator: 'getRoomUsers',
+    motivo: `${RECORTE} O retrato é o mesmo para todo recém-chegado e é montado sem ir ao banco, então `
+      + 'leva só a projeção que TODO membro pode ler (escopo privado sai sem id, sem posição e sem '
+      + 'marcadores); o privado chega depois, num quadro à parte e só a quem pode lê-lo '
+      + '(`enviarContextosAoRecemChegado`, collab.viewer.js).' },
   { tipo: 'pong', classe: M_SEM_ENTIDADE, motivo: CONTROLE },
   { tipo: 'error', classe: M_SEM_ENTIDADE, motivo: CONTROLE },
   { tipo: 'ack', classe: M_SEM_ENTIDADE, motivo: CONTROLE },
   { tipo: 'ack_batch', classe: M_SEM_ENTIDADE, motivo: CONTROLE },
   { tipo: 'adaptive-settings', classe: M_SEM_ENTIDADE, motivo: CONTROLE },
-  { tipo: 'cursor', classe: M_SEM_ENTIDADE, motivo: PRESENCA },
+  { tipo: 'cursor', classe: M_ESCOPO_RECORTADO, redator: 'redigirCursor',
+    motivo: `${RECORTE} Quem não pode ver recebe o quadro sem escopo e SEM POSIÇÃO, que é a metade `
+      + 'que mais importa: no 3D a posição é uma coordenada geográfica sobre o modelo.' },
   // O LOTE de cursor: mesma natureza do frame singular, so que agrupado por sala. Carrega uma
-  // lista de `{ clientId, userId, position, mapId }` e nada mais; nenhum documento de entidade
-  // atravessa. Ver a decisao de 2026-08-28.
-  { tipo: 'cursors', classe: M_SEM_ENTIDADE, motivo: PRESENCA },
-  { tipo: 'selection', classe: M_SEM_ENTIDADE, motivo: PRESENCA },
+  // lista de `{ clientId, userId, position, mapId, surface, tilesetId, photoName }` e nada mais;
+  // nenhum documento de entidade atravessa. Ver a decisao de 2026-08-28. Desde 2026-09-22 o lote
+  // com escopo PRIVADO sai uma vez por CLASSE de acesso, e a classe que nao ve o recurso recebe o
+  // item sem escopo e sem posicao (`redigirCursor`, collab.recorte.js).
+  { tipo: 'cursors', classe: M_ESCOPO_RECORTADO, redator: 'redigirCursor',
+    motivo: `${RECORTE} O lote sai uma vez por CLASSE de acesso (a assinatura do que cada destinatário `
+      + 'pode ver), e o item que a classe não vê sai redigido.' },
+  { tipo: 'selection', classe: M_ESCOPO_RECORTADO, redator: 'redigirSelecao',
+    motivo: `${RECORTE} Quem não pode ver recebe uma seleção VAZIA na mesma superfície, que apaga o `
+      + 'destaque que desenhava; os marcadores e os tipos por feição vão junto com o escopo.' },
+  // O visualizador aberto por cada par (2026-09-22): superfície mais o NOME do recurso, resolvido
+  // no servidor a partir do catálogo e entregue por destinatário (`collab.viewer.js`). O quadro é
+  // MONTADO numa função e serializado uma vez por classe, longe do envio: foi a forma que a
+  // varredura de tipo não via, e esta entrada ficou um dia escrita aqui casando nada.
+  { tipo: 'viewer_context', classe: M_ESCOPO_RECORTADO, redator: 'viewerNoFio',
+    motivo: `${RECORTE} O nome é resolvido no servidor, nunca tomado do remetente; quem não pode ver `
+      + 'recebe o quadro com `recurso` nulo e fica sabendo só a superfície ("no visualizador 3D").' },
   // HOUVE UM `temporal` AQUI, e ele saiu em 2026-09-21 com o quadro inteiro (o instante da linha
   // do tempo de uma pessoa não se propaga). A entrada saiu junto de propósito: o censo cobra que
   // todo tipo EMITIDO esteja classificado, então religar a emissão sem reclassificá-la reprova
@@ -736,35 +794,69 @@ function sitiosDeEnvioWs(arquivos) {
 /** Soma das ocorrências de um mapa de achados, que é a contagem de SÍTIOS. */
 const totalDe = (achados) => [...achados.values()].reduce((a, b) => a + b, 0);
 
-/** Chamada de emissão: as três do módulo de salas, mais qualquer `.send(`. */
-const RE_EMISSAO_WS = /\b(?:broadcastToRoom|broadcastOperations|closeRoom)\s*\(|\.send\s*\(/g;
+/** Chamada de emissão: as quatro do módulo de salas, mais qualquer `.send(`. */
+const RE_EMISSAO_WS = /\b(?:broadcastToRoom|broadcastOperations|closeRoom|difundirRecortado)\s*\(|\.send\s*\(/g;
 const RE_TIPO = /type:\s*(['"`])([\w-]+)\1/;
+
+/** O módulo do socket: ali todo `type` literal é discriminador de quadro. Ver `tiposDeMensagemWs`. */
+const ehDoModuloDoSocket = (arquivo) => arquivo.startsWith('src/modules/collab/');
 
 /**
  * VARREDURA 4 — todo tipo de mensagem WS literal, onde quer que a emissão seja escrita.
  *
- * A janela de 400 caracteres a partir da chamada é o que casa tanto a forma de uma linha
- * (`broadcastToRoom(id, { type: 'x' })`) quanto a de várias, sem precisar de um parser. Uma chamada
- * sem `type` literal (`broadcastOperations(...)`, `client.send(payload)`) não produz achado: o tipo
- * dela é escrito onde a mensagem é montada, e ali ele casa.
+ * DUAS REGRAS, e o que as divide é ONDE o quadro é montado.
+ *
+ * FORA DO MÓDULO DO SOCKET (os controllers HTTP que avisam a sala), a janela de 400 caracteres a
+ * partir de uma chamada de emissão casa tanto a forma de uma linha
+ * (`broadcastToRoom(id, { type: 'x' })`) quanto a de várias, sem precisar de um parser. Ali a janela
+ * é necessária e não só suficiente: `type:` é chave comum fora do protocolo (a fonte `raster-dem` da
+ * configuração, o `FeatureCollection` do 360), e contar todo literal acusaria o que não é quadro.
+ *
+ * DENTRO DO MÓDULO DO SOCKET, todo `type: '<literal>'` conta, esteja onde estiver. A janela sozinha
+ * valeu enquanto todo quadro era montado dentro da chamada que o enviava, e o recorte por
+ * destinatário de 2026-09-22 separou as duas coisas: `collab.viewer.js` MONTA o quadro numa função
+ * (`quadroDoVisualizador`), serializa uma vez por classe de acesso e só depois escreve no socket,
+ * com o `type` ANTES do `.send(`, fora de qualquer janela; e o cursor e a seleção passaram a sair por
+ * `difundirRecortado`, que a lista de emissores não conhecia. O efeito medido foi o pior que um censo
+ * tem: `selection` saiu da varredura (26 tipos viraram 25), `viewer_context` nunca entrou, com a
+ * entrada dele escrita no censo casando nada, e `cursor` só continuou visto por ACASO (a janela de um
+ * `.send(` do visualizador alcançava o `type` do construtor de cursor logo abaixo). O caso "todo tipo
+ * está no censo" continuou verde, porque o que a varredura não vê ela também não cobra; só o piso
+ * gritou. No módulo do socket o `type` de um objeto literal tem um sentido só, o discriminador do
+ * protocolo (conferido em 2026-09-22: todo literal do módulo era quadro), então a regra larga não abre
+ * falso positivo ali, e se um dia abrir ela falha FECHADO, pedindo classificação.
+ *
+ * Uma chamada sem `type` literal (`broadcastOperations(...)`, `client.send(payload)`) não produz
+ * achado pela janela: o tipo dela é escrito onde a mensagem é montada, e é para esse caso que a
+ * regra do módulo do socket existe.
  *
  * @param {string[]} arquivos
+ * @param {{ doSocket?: (arquivo: string) => boolean }} [opts] - Quem conta como módulo do socket.
+ *   Só o controle negativo troca, para dirigir as duas regras sobre a mesma fixture.
  * @returns {Map<string, string[]>} tipo -> sítios.
  */
-function tiposDeMensagemWs(arquivos) {
+function tiposDeMensagemWs(arquivos, { doSocket = ehDoModuloDoSocket } = {}) {
   const porTipo = new Map();
+  const anotar = (tipo, arquivo, src, indice) => {
+    if (!porTipo.has(tipo)) porTipo.set(tipo, []);
+    porTipo.get(tipo).push(`${arquivo}:${src.slice(0, indice).split('\n').length}`);
+  };
   for (const arquivo of arquivos) {
     const src = lerCodigo(arquivo);
+    if (doSocket(arquivo)) {
+      const re = new RegExp(RE_TIPO.source, 'g');
+      let t = re.exec(src);
+      while (t !== null) {
+        anotar(t[2], arquivo, src, t.index);
+        t = re.exec(src);
+      }
+      continue;
+    }
     const re = new RegExp(RE_EMISSAO_WS.source, 'g');
     let m = re.exec(src);
     while (m !== null) {
-      const janela = src.slice(m.index, m.index + 400);
-      const t = RE_TIPO.exec(janela);
-      if (t) {
-        const linha = src.slice(0, m.index).split('\n').length;
-        if (!porTipo.has(t[2])) porTipo.set(t[2], []);
-        porTipo.get(t[2]).push(`${arquivo}:${linha}`);
-      }
+      const t = RE_TIPO.exec(src.slice(m.index, m.index + 400));
+      if (t) anotar(t[2], arquivo, src, m.index);
       m = re.exec(src);
     }
   }
@@ -776,6 +868,28 @@ function tiposNaoClassificados(porTipo) {
   return [...porTipo.keys()]
     .filter((t) => !CENSO_TIPO_WS.some((e) => e.tipo === t))
     .sort();
+}
+
+/**
+ * A DIREÇÃO INVERSA: entrada do censo que nenhum sítio casa. É cobertura vazia, o defeito mais
+ * repetido do livro-razão, e as varreduras 2 e 3 já a cobravam (`naoClassificados`); a de tipo não,
+ * e foi assim que `viewer_context` ficou classificado sem nunca ser visto.
+ */
+function tiposDoCensoSemSitio(porTipo) {
+  return CENSO_TIPO_WS.filter((e) => !porTipo.has(e.tipo)).map((e) => e.tipo).sort();
+}
+
+/**
+ * O redator de uma entrada `escopo-de-recurso-recortado` precisa ser uma função DECLARADA no módulo
+ * do socket: a classe não pode ser uma frase, como a rota de bytes não pode nomear emissor que não
+ * existe.
+ * @param {unknown} nome
+ * @param {string} codigoDoSocket
+ * @returns {boolean}
+ */
+function redatorDeclarado(nome, codigoDoSocket) {
+  if (typeof nome !== 'string' || !/^[A-Za-z_$][\w$]*$/.test(nome)) return false;
+  return new RegExp(`\\bfunction\\s+${nome.replace(/\$/g, '\\$')}\\s*\\(`).test(codigoDoSocket);
 }
 
 // =============================================================================
@@ -815,7 +929,11 @@ describe('Censo das saídas de conteúdo (fase F13)', () => {
     // PISO 26, de 29: três sítios saíram com o módulo de zonas.
     assert.ok(totalDe(emissoresNaoJson(inventario)) >= 26, 'a varredura de emissor precisa achar os sítios medidos');
     assert.ok(totalDe(sitiosDeEnvioWs(arquivosDeCollab(inventario))) >= 18, 'a varredura de envio WS precisa achar os 18 sítios medidos');
-    assert.ok(tiposDeMensagemWs(inventario).size >= 26, 'a varredura de tipo WS precisa achar os tipos existentes');
+    // PISO 27, de 26: entrou `viewer_context` (2026-09-22). Foi este piso, e nada mais, que acusou
+    // a varredura cega ao recorte por destinatário (ver `tiposDeMensagemWs`): ele sobe com a
+    // medição e só desce com uma remoção escrita aqui.
+    const tipos = tiposDeMensagemWs(inventario);
+    assert.ok(tipos.size >= 27, `a varredura de tipo WS precisa achar os tipos existentes; achei ${tipos.size}`);
   });
 
   it('toda ROTA está no censo, de qualquer método', () => {
@@ -874,9 +992,29 @@ describe('Censo das saídas de conteúdo (fase F13)', () => {
       `frame novo sem classificação: ${acusados.join(', ')}`
     );
     const ruins = CENSO_TIPO_WS
-      .filter((e) => ![M_ENTIDADE, M_SEM_ENTIDADE].includes(e.classe) || !e.motivo)
+      .filter((e) => ![M_ENTIDADE, M_SEM_ENTIDADE, M_ESCOPO_RECORTADO].includes(e.classe) || !e.motivo)
       .map((e) => e.tipo);
     assert.deepEqual(ruins, [], 'entrada de tipo sem classe válida ou sem motivo escrito');
+
+    // A classe do recorte NOMEIA o redator, e ele precisa existir no código do socket.
+    const codigoDoSocket = arquivosDeCollab(inventario).map(lerCodigo).join('\n');
+    const semRedator = CENSO_TIPO_WS
+      .filter((e) => e.classe === M_ESCOPO_RECORTADO && !redatorDeclarado(e.redator, codigoDoSocket))
+      .map((e) => `${e.tipo} (redator: ${e.redator})`);
+    assert.deepEqual(
+      semRedator, [],
+      `entrada ${M_ESCOPO_RECORTADO} sem redator declarado no módulo do socket: ${semRedator.join(', ')}`
+    );
+  });
+
+  it('toda entrada de TIPO DE MENSAGEM WS casa um sítio (a direção inversa)', () => {
+    const semSitio = tiposDoCensoSemSitio(tiposDeMensagemWs(inventario));
+    assert.deepEqual(
+      semSitio, [],
+      `entrada do censo que nenhum sítio casa (cobertura vazia): ${semSitio.join(', ')}. Ou o tipo `
+      + 'saiu do código e a entrada sai junto, com o piso, ou a varredura deixou de enxergar a forma '
+      + 'como ele é emitido, e é ela que precisa aprender.'
+    );
   });
 
   // ==========================================================================
@@ -980,6 +1118,48 @@ describe('Censo das saídas de conteúdo (fase F13)', () => {
     // Discriminação nas duas.
     assert.deepEqual(naoClassificados(sitiosDeEnvioWs(arquivosDeCollab(inventario)), CENSO_ENVIO_WS), []);
     assert.deepEqual(tiposNaoClassificados(tiposDeMensagemWs(inventario)), []);
+  });
+
+  it('a varredura de tipo ENXERGA o quadro montado longe do envio e o entregue a `difundirRecortado` (provado com fixture)', () => {
+    // AS DUAS FORMAS QUE O RECORTE POR DESTINATÁRIO TROUXE, lado a lado: um construtor de quadro
+    // serializado uma vez por classe e escrito no socket depois, e uma chamada a `difundirRecortado`.
+    const fixture = 'tests/fixtures/censo-saidas/exemplo-quadro-montado-longe-do-envio.js';
+
+    // O PONTO CEGO EM PESSOA: pela janela (a regra de fora do módulo do socket) o quadro montado
+    // longe do envio NÃO aparece, porque o `type` dele vem antes do `.send(`.
+    const pelaJanela = tiposDeMensagemWs([fixture], { doSocket: () => false });
+    assert.deepEqual(
+      [...pelaJanela.keys()], ['difundido_sem_classificacao'],
+      'pela janela, só o quadro entregue a `difundirRecortado` pode aparecer'
+    );
+    // E quem o viu foi a CHAMADA de `difundirRecortado`, não um `.send(` vizinho por acaso: é isto
+    // que reprova se o nome sair de `RE_EMISSAO_WS`.
+    const linhas = lerCodigo(fixture).split('\n');
+    const linhaDaChamada = linhas.findIndex((l) => /\bdifundirRecortado\s*\(/.test(l)) + 1;
+    assert.ok(linhaDaChamada > 0, 'a fixture precisa conter a chamada a `difundirRecortado`');
+    assert.ok(
+      pelaJanela.get('difundido_sem_classificacao').includes(`${fixture}:${linhaDaChamada}`),
+      `a chamada a \`difundirRecortado\` precisa ser um sítio de emissão; sítios: ${pelaJanela.get('difundido_sem_classificacao')}`
+    );
+
+    // Pela regra do módulo do socket os dois aparecem, e os dois são acusados.
+    const peloSocket = tiposDeMensagemWs([fixture], { doSocket: () => true });
+    assert.deepEqual(
+      tiposNaoClassificados(peloSocket),
+      ['difundido_sem_classificacao', 'quadro_montado_sem_classificacao'],
+      'no módulo do socket, o quadro montado longe do envio precisa ser VISTO e ACUSADO'
+    );
+
+    // A direção inversa acusa: sobre a fixture, nenhuma entrada do censo tem sítio...
+    assert.deepEqual(tiposDoCensoSemSitio(peloSocket), CENSO_TIPO_WS.map((e) => e.tipo).sort());
+    // ...e discrimina: sobre o inventário real, nenhuma fica sem.
+    assert.deepEqual(tiposDoCensoSemSitio(tiposDeMensagemWs(inventario)), []);
+
+    // O redator também discrimina: um nome inventado não passa, um declarado passa.
+    const codigoDoSocket = arquivosDeCollab(inventario).map(lerCodigo).join('\n');
+    assert.equal(redatorDeclarado('redatorQueNinguemDeclarou', codigoDoSocket), false);
+    assert.equal(redatorDeclarado(undefined, codigoDoSocket), false);
+    assert.equal(redatorDeclarado('redigirCursor', codigoDoSocket), true);
   });
 
   it('o inventário ENXERGA arquivo NOVO ainda não rastreado (provado, não afirmado)', () => {

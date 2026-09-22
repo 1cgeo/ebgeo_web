@@ -125,6 +125,13 @@ const CENSO = [
     // anota esta superfície, que o cliente não tem. É rótulo de tela, não sítio de referência: o
     // id nunca chega ao documento do cliente, que é a definição de `poda-so-no-servidor`.
     { arquivo: 'src/js/catalog/resource-reference.resolver.js', campo: 'default_basemap', n: 1, classe: PODA_SERVIDOR, superficies: ['settings.default_basemap'] },
+    // As quatro listas restantes entraram em 2026-09-22 pela MESMA razão: o relatório de poda do
+    // servidor as anota, e sem rótulo a linha delas saía na tela com a chave crua do documento.
+    // Mesma classe da linha acima: rótulo de tela, id nenhum.
+    { arquivo: 'src/js/catalog/resource-reference.resolver.js', campo: 'available_data_layers', n: 1, classe: PODA_SERVIDOR, superficies: ['settings.available_data_layers'] },
+    { arquivo: 'src/js/catalog/resource-reference.resolver.js', campo: 'available_analysis_layers', n: 1, classe: PODA_SERVIDOR, superficies: ['settings.available_analysis_layers'] },
+    { arquivo: 'src/js/catalog/resource-reference.resolver.js', campo: 'available_3d_models', n: 1, classe: PODA_SERVIDOR, superficies: ['settings.available_3d_models'] },
+    { arquivo: 'src/js/catalog/resource-reference.resolver.js', campo: 'available_360_views', n: 1, classe: PODA_SERVIDOR, superficies: ['settings.available_360_views'] },
     { arquivo: 'src/js/3d_models_viewer_tool/add_3d_models_viewer_control.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/3d_models_viewer_tool/marker-features.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/3d_models_viewer_tool/components/marker-panel-3d.js', campo: 'tilesetId', classe: RUNTIME },
@@ -146,7 +153,12 @@ const CENSO = [
     // mesma razão de `events/event_types.js` logo abaixo, que também só carrega o NOME.
     { arquivo: 'src/js/admin/uso-phrases.js', campo: 'baseLayer', classe: RUNTIME },
     { arquivo: 'src/js/base-layer-selector/base-layer-selector.control.js', campo: 'baseLayer', classe: RUNTIME },
-    { arquivo: 'src/js/baselayers/base-layer.control.js', campo: 'baseLayer', classe: RUNTIME },
+    // RUNTIME -> PERSISTE em 2026-09-22: o seletor passou a LEMBRAR a base escolhida neste
+    // computador (`executeLayerChange` -> `rememberMapView`), e a entrada no mapa a lê de volta
+    // (`_rememberedBaseLayer`). O documento lembrado é local (`store/vista-da-pessoa-disco.js`,
+    // abaixo), mas a regra da classe é a do `map.manager.js`: quem entrega o id a quem persiste
+    // é sítio de persistência, e apagar uma dessas linhas É a regressão.
+    { arquivo: 'src/js/baselayers/base-layer.control.js', campo: 'baseLayer', n: 16, classe: PERSISTE },
     { arquivo: 'src/js/baselayers/base-layer.control.js', campo: 'catalogLayers', classe: RUNTIME },
     { arquivo: 'src/js/briefing/editor/briefing-editor.control.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/briefing/editor/briefing-editor.control.js', campo: 'photoName', classe: RUNTIME },
@@ -267,7 +279,16 @@ const CENSO = [
     // nasce (`getEmptyMapData().baseLayer`) para o gesto de LIMPAR a vista salva: `clearMapView`
     // grava essa base no documento do mapa, pela mesma superfície `mapa.baseLayer`. É base pública
     // por construção, a mesma que todo mapa novo já carrega.
-    { arquivo: 'src/js/store/map-view.operations.js', campo: 'baseLayer', n: 4, classe: PERSISTE },
+    // 4 -> 5 em 2026-09-22: salvar a vista esquece a vista LEMBRADA de quem salvou, campo por campo,
+    // e o campo da base é o que a vista carregou (`carriesBase`). Uma linha nova que nomeia a base
+    // para decidir o esquecimento, nenhuma superfície nova.
+    { arquivo: 'src/js/store/map-view.operations.js', campo: 'baseLayer', n: 5, classe: PERSISTE },
+    // A VISTA LEMBRADA DA PESSOA (2026-09-22): a base que ela escolheu por mapa, em `localStorage`.
+    // PERSISTE, e NÃO é superfície podável do registro, por construção: o registro é chaveado pelo
+    // SUFIXO do namespace, então "Salvar como local", o clone e a cópia de atlas local (que criam
+    // outro sufixo) não o levam, o `.ebgeo` e o envio ao servidor não leem `localStorage`, e a
+    // destruição do namespace o esquece (`clearAtlasDatabases`/`dropAtlasDatabases`).
+    { arquivo: 'src/js/store/vista-da-pessoa-disco.js', campo: 'baseLayer', n: 4, classe: PERSISTE },
     { arquivo: 'src/js/map/map.manager.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/store/briefing.operations.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/briefing/slide-view.js', campo: 'baseLayer', n: 6, classe: PERSISTE },

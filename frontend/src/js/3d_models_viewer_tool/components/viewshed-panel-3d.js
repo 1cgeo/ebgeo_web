@@ -444,7 +444,7 @@ function buildDeleteButton(container, viewshed, _onClose) {
             const { deleteViewshed } = await getViewshedTool();
             const result = await deleteViewshed(viewshed.id);
             if (result) {
-                showSuccess('Análise de visibilidade deletada!');
+                showSuccess('Análise de visibilidade excluída.');
                 // No onClose() here: deleteViewshed now emits VIEWSHED_3D_DESELECTED,
                 // which the sidebar already turns into a panel close. Calling both
                 // closes twice. This mirrors measurement-panel-3d.js, which never

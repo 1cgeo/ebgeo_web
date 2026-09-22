@@ -191,7 +191,7 @@ export function createBatchPointsPanel(options = {}) {
         }
 
         if (errors > 0) {
-            showError(`${errors} coordenada(s) inválida(s)`);
+            showError(errors === 1 ? '1 coordenada inválida. Corrija antes de continuar.' : `${errors} coordenadas inválidas. Corrija antes de continuar.`);
             return;
         }
 

@@ -108,8 +108,15 @@ export const getUser = asyncHandler(async (req, res) => {
 
 // `req` e o id do ator seguem para o service porque a auditoria participa da
 // MESMA transação da escrita — o `req` carrega ip e user-agent da trilha.
+/**
+ * Cria uma conta pelo caminho administrativo.
+ *
+ * `origin` pela MESMA razão de `changeMyEmail`: uma conta criada com endereço nasce pendente e
+ * recebe o link de confirmação, cuja base só é honrada quando é a origem que o deployment confia.
+ */
 export const createUser = asyncHandler(async (req, res) => {
-  const user = await usersService.createUser(req.body, req, req.user.id);
+  const origin = req.headers.origin || `${req.protocol}://${req.get('host') || ''}`;
+  const user = await usersService.createUser(req.body, req, req.user.id, origin);
   res.status(201).json({ data: user });
 });
 

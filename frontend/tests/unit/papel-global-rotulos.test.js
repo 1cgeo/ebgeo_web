@@ -108,7 +108,7 @@ describe('role-labels — o papel DESCONHECIDO não some da tela nem a quebra', 
     it('a frase do desconhecido DIZ que é desconhecido, e o nomeia', () => {
         const frase = getGlobalRoleDescription('auditor');
         expect(frase).toContain('auditor');
-        expect(frase).toMatch(/não sabe descrevê-lo/);
+        expect(frase).toMatch(/sem descrição/);
         // E não empresta a frase de nenhum papel conhecido.
         expect(Object.values(GLOBAL_ROLE_DESCRIPTIONS)).not.toContain(frase);
     });
@@ -153,7 +153,7 @@ describe('globalRoleBadge — a palavra mais o title que a explica', () => {
     it('o desconhecido também ganha selo, com o aviso dentro', () => {
         const selo = globalRoleBadge('auditor');
         expect(selo.label).toBe('auditor');
-        expect(selo.title).toMatch(/não sabe descrevê-lo/);
+        expect(selo.title).toMatch(/sem descrição/);
     });
 });
 

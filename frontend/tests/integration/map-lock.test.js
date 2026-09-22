@@ -309,7 +309,8 @@ describe('map-lock.controller', () => {
             const next = await controller.toggleMapLock();
 
             expect(next).toBe(false);
-            expect(showErrorMock).toHaveBeenCalledWith('Apenas o dono ou um gestor pode bloquear ou desbloquear o mapa');
+            // The refusal is phrased by the CAPABILITY the gate consulted, never by role names.
+            expect(showErrorMock).toHaveBeenCalledWith('Bloquear e desbloquear o mapa exige o nível Gestor neste atlas.');
             expect(storeMock.toggleMapLock).not.toHaveBeenCalled();
             expect(logMapOperationMock).not.toHaveBeenCalled();
             expect(eventBusMock.emit).not.toHaveBeenCalled();

@@ -60,7 +60,7 @@ class MapManager {
 
             const allMapNames = await getAllMapNamesStore();
             if (allMapNames.length >= MAP_LIMIT) {
-                return { success: false, message: 'Limite de 100 mapas atingido' };
+                return { success: false, message: 'Este atlas já tem 100 mapas, o limite. Exclua um para criar outro.' };
             }
 
             const trimmed = mapName.trim();
@@ -71,7 +71,7 @@ class MapManager {
             return { success: true, message: `Mapa "${mapName}" criado` };
         } catch (error) {
             console.error('Erro ao criar mapa:', error);
-            return { success: false, message: 'Erro ao criar mapa' };
+            return { success: false, message: 'Não foi possível criar o mapa. Tente de novo.' };
         }
     }
 
@@ -82,7 +82,7 @@ class MapManager {
             if (allMapNames.length <= 1) {
                 return {
                     success: false,
-                    message: 'Não é possível deletar o último mapa. O sistema precisa de pelo menos um mapa.'
+                    message: 'Não é possível excluir o único mapa do atlas.'
                 };
             }
 
@@ -97,7 +97,7 @@ class MapManager {
                 if (result.reason === 'PERMISSION_DENIED') {
                     return { success: false, silent: true, reason: result.reason };
                 }
-                return { success: false, message: 'Erro ao deletar mapa' };
+                return { success: false, message: 'Não foi possível excluir o mapa. Tente de novo.' };
             }
 
             if (result.wasCurrentMap) {
@@ -105,13 +105,13 @@ class MapManager {
             }
 
             const message = result.wasCurrentMap
-                ? `Mapa deletado. Você foi redirecionado para "${result.newCurrentMap}"`
-                : `Mapa "${mapName}" deletado com sucesso`;
+                ? `Mapa excluído. Agora você está em "${result.newCurrentMap}".`
+                : `Mapa "${mapName}" excluído.`;
 
             return { success: true, message, wasCurrentMap: result.wasCurrentMap };
         } catch (error) {
             console.error('Erro ao deletar mapa:', error);
-            return { success: false, message: 'Erro ao deletar mapa: ' + error.message };
+            return { success: false, message: 'Não foi possível excluir o mapa. Tente de novo.' };
         }
     }
 
@@ -130,7 +130,7 @@ class MapManager {
             // it at a name that does not exist, which is worse than the false success message.
             const renamed = await renameMap(oldName, trimmed);
             if (!renamed) {
-                return { success: false, message: 'Não foi possível renomear o mapa (mapa bloqueado ou sem permissão)' };
+                return { success: false, message: 'Não foi possível renomear o mapa: ele está bloqueado ou você não tem permissão.' };
             }
 
             await setCurrentMap(trimmed);
@@ -138,7 +138,7 @@ class MapManager {
             return { success: true, message: `Mapa renomeado para "${newName}"` };
         } catch (error) {
             console.error('Erro ao renomear mapa:', error);
-            return { success: false, message: 'Erro ao renomear mapa' };
+            return { success: false, message: 'Não foi possível renomear o mapa. Tente de novo.' };
         }
     }
 
@@ -150,12 +150,12 @@ class MapManager {
 
             const allMapNames = await getAllMapNamesStore();
             if (allMapNames.length >= MAP_LIMIT) {
-                return { success: false, message: 'Limite de 100 mapas atingido' };
+                return { success: false, message: 'Este atlas já tem 100 mapas, o limite. Exclua um para criar outro.' };
             }
 
             const originalMapData = await getMapDataStore(mapName);
             if (!originalMapData) {
-                return { success: false, message: 'Dados do mapa não encontrados' };
+                return { success: false, message: 'O mapa não foi encontrado.' };
             }
 
             const trimmed = newMapName.trim();
@@ -184,7 +184,7 @@ class MapManager {
             return { success: true, message: `Mapa "${mapName}" duplicado como "${newMapName}"` };
         } catch (error) {
             console.error('Erro ao duplicar mapa:', error);
-            return { success: false, message: 'Erro ao duplicar mapa: ' + error.message };
+            return { success: false, message: 'Não foi possível duplicar o mapa. Tente de novo.' };
         }
     }
 
@@ -260,7 +260,7 @@ class MapManager {
             return { success: true, message: `Vista ${verb} para ${resolvedName}: posição, mapa base e controle temporal` };
         } catch (error) {
             console.error('Erro ao salvar posição:', error);
-            return { success: false, message: 'Erro ao salvar posição' };
+            return { success: false, message: 'Não foi possível salvar a posição. Tente de novo.' };
         }
     }
 
@@ -274,7 +274,7 @@ class MapManager {
             return { success: true, message: `Posição salva removida de "${mapName}", com o mapa base e o controle temporal salvos` };
         } catch (error) {
             console.error('Erro ao limpar posição:', error);
-            return { success: false, message: 'Erro ao limpar posição salva' };
+            return { success: false, message: 'Não foi possível limpar a posição salva. Tente de novo.' };
         }
     }
 
@@ -425,7 +425,7 @@ class MapManager {
                 const groupNames = groupedFeatures.map(gf => gf.groupName).join(', ');
                 return {
                     success: false,
-                    message: `Não é possível mover feições agrupadas individualmente. Grupos encontrados: ${groupNames}. Desfaça os grupos primeiro ou use a funcionalidade "Puxar outros mapas" para mover grupos completos.`
+                    message: `Não é possível mover feições agrupadas uma a uma (grupos: ${groupNames}). Desfaça os grupos primeiro, ou use "Puxar outros mapas" para mover os grupos inteiros.`
                 };
             }
 
@@ -442,11 +442,11 @@ class MapManager {
 
             return {
                 success: true,
-                message: `${featureCount} ${featureText} movida(s) para "${targetMapName}"`
+                message: `${featureCount} ${featureText} ${featureCount === 1 ? 'movida' : 'movidas'} para "${targetMapName}"`
             };
         } catch (error) {
             console.error('Erro ao mover feições:', error);
-            return { success: false, message: `Erro ao mover feições: ${error.message}` };
+            return { success: false, message: 'Não foi possível mover as feições. Tente de novo.' };
         }
     }
 
@@ -515,7 +515,7 @@ class MapManager {
             return { success: true, message: 'Todos os dados foram apagados' };
         } catch (error) {
             console.error('Erro ao limpar dados:', error);
-            return { success: false, message: 'Erro ao limpar dados' };
+            return { success: false, message: 'Não foi possível limpar os dados. Tente de novo.' };
         }
     }
 

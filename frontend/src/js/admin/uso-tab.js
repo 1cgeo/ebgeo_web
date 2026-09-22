@@ -1,6 +1,7 @@
 // Path: js/admin/uso-tab.js
 import { montarPresenca } from '@js/admin/presenca-panel.js';
 import { showError } from '@utils/toast_service.js';
+import { withFailureDetail } from '@utils/request-failure.js';
 
 /**
  * @fileoverview Aba "Uso": quem usa o EBGeo, o que se produz nele e quanto, em seções sobre o
@@ -366,8 +367,7 @@ class UsoTab {
         // A MENSAGEM DO SERVIDOR NÃO SE PERDE: "404" aqui significa rota ausente nesta implantação,
         // e "403" significa que o papel mudou no meio da sessão. A frase da casa entra antes, para
         // que a mensagem crua não fique sozinha.
-        const bruta = typeof erro?.message === 'string' ? erro.message.trim() : '';
-        const frase = bruta ? `${falhaNotice()} ${bruta}` : falhaNotice();
+        const frase = withFailureDetail(falhaNotice(), erro);
         this._corpo.appendChild(failureState(frase, {
             onRetry: () => { if (this._alive) this._carregar(); },
         }));
@@ -622,7 +622,7 @@ class UsoTab {
         sec.className = 'admin-uso__section';
         sec.dataset.testid = 'admin-uso-producao';
         sec.appendChild(sectionHeader('Produção', {
-            subtitle: 'Operações de sync recebidas pelo servidor no período',
+            subtitle: 'Operações de edição recebidas pelo servidor no período',
         }));
 
         const wrap = card({ testid: 'admin-uso-producao-card' });
@@ -640,7 +640,7 @@ class UsoTab {
             regime: REGIME.PERIODO,
             texto: numeroLabel(producao?.total),
             regimeTexto: janelaEmPalavras(janela),
-            detalhe: `operações de sync recebidas pelo servidor ${janelaEmPalavras(janela)}`,
+            detalhe: `operações de edição recebidas pelo servidor ${janelaEmPalavras(janela)}`,
             destaque: true,
         }));
         wrap.appendChild(total);

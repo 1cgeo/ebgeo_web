@@ -207,8 +207,9 @@ describe('S2 — a frase nomeia o desfecho REAL, incluindo a metade que não aco
     it('recusado: avisa e diz que o Dia D ficou onde estava', () => {
         const aviso = avisoDoReagendamento(decisaoDoReagendamento({ changed: 0, hadCandidates: true }));
         expect(aviso.tipo).toBe('warning');
-        expect(aviso.texto).toContain('recusada');
-        expect(aviso.texto).toContain('Dia D continua onde estava');
+        expect(aviso.texto).toContain('Nenhuma feição foi reagendada');
+        expect(aviso.texto).toContain('o Dia D não mudou');
+        expect(aviso.texto).toContain('bloqueado');
     });
 
     it('sem controle: avisa', () => {

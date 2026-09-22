@@ -53,7 +53,9 @@ describe('confirmed voluntary logout', () => {
     it('cancellation leaves every queue, namespace and peer untouched', async () => {
         fake.count.mockImplementation(async id => id === 'B' ? 2 : 0);
         expect(await confirmLogoutWithPendingWork()).toBe(false);
-        expect(fake.confirm.mock.calls[0][1].message).toContain('2 operações');
+        // O diálogo nomeia a CONTAGEM somada do censo (0 em A, 2 em B), na palavra de quem lê
+        // ("alteração"; "operação" era vocabulário da fila e saiu dos avisos em 2026-09-22).
+        expect(fake.confirm.mock.calls[0][1].message).toContain('2 alterações que ainda não chegaram ao servidor');
         expect(fake.discard).not.toHaveBeenCalled();
         expect(fake.announce).not.toHaveBeenCalled();
         expect(fake.resumeWrites).toHaveBeenCalledOnce();
@@ -139,7 +141,7 @@ describe('confirmed voluntary logout', () => {
         fake.quarantine.mockResolvedValue(0);
         await confirmLogoutWithPendingWork();
         const semQuarentena = fake.confirm.mock.calls[0][1].message;
-        expect(semQuarentena).toContain('10 operações com envio pendente');
+        expect(semQuarentena).toContain('10 alterações que ainda não chegaram ao servidor');
         expect(semQuarentena).not.toContain('revisão');
     });
     it('quarentena ilegível continua avisando, com a frase de um número só', async () => {
@@ -147,7 +149,7 @@ describe('confirmed voluntary logout', () => {
         fake.quarantine.mockRejectedValue(new Error('disco indisponível'));
         expect(await confirmLogoutWithPendingWork()).toBe(false);
         const message = fake.confirm.mock.calls[0][1].message;
-        expect(message).toContain('8 operações com envio pendente');
+        expect(message).toContain('8 alterações que ainda não chegaram ao servidor');
         expect(message).not.toContain('guardada');
     });
     it('não pergunta nada à quarentena quando o censo é vazio', async () => {

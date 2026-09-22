@@ -79,10 +79,17 @@
  * AND THE MEASUREMENT THAT PUTS ALL OF THE ABOVE IN PROPORTION: on 2026-09-14 a
  * sweep of `frontend/src` and `frontend/tests` found ZERO callers for every
  * drawing entry point of this file. What `map_3d.js` does is construct it, park
- * it on `window.measure`, and call the two `remove*` methods plus
- * `_drawLayer.entities.removeAll()` defensively on teardown. So this is a live
- * object with a dead API, and the poda question belongs to the owner alongside
- * the other vendor podas, not to this adoption.
+ * it on `window.measure`, call the two `remove*` methods plus
+ * `_drawLayer.entities.removeAll()` defensively when tools are cleared, and
+ * `destroy()` when the viewer is torn down. So this is a live object with a dead
+ * API, and the poda question belongs to the owner alongside the other vendor
+ * podas, not to this adoption.
+ *
+ * THE LIVE HALF IS NOT HARMLESS, and `destroy()` exists because of it: the
+ * constructor adds a `CustomDataSource` to `viewer.dataSources`, which is what
+ * makes the viewer's `DataSourceDisplay` put its own primitive collections into
+ * the scene in every session. See `services/viewer-teardown.js` for the defect
+ * that sat on top of that (2026-09-21).
  *
  * It sits under `services/` next to `cesium-compat.js` because the chunk rules
  * in `vite.config.js` route `3d_models_viewer_tool/services/` to the lazy
@@ -154,6 +161,27 @@ export class CesiumMeasure {
             this._basePath = options.basePath || '';
 
             this._viewer = viewer;
+        }
+    }
+
+    /**
+     * Releases what this instance put into the viewer, while the viewer is alive.
+     *
+     * The data source was added here, so it is removed here, with `destroy`
+     * true: one owner. It must happen BEFORE `viewer.destroy()`, never be
+     * replaced by emptying the viewer's collections from outside, which is the
+     * defect `services/viewer-teardown.js` describes. Idempotent.
+     */
+    destroy() {
+        this.removeDrawLineMeasureGraphics();
+        this.removeDrawAreaMeasureGraphics();
+
+        const viewer = this._viewer;
+        const layer = this._drawLayer;
+        this._viewer = undefined;
+        this._drawLayer = undefined;
+        if (viewer && layer && !viewer.isDestroyed()) {
+            viewer.dataSources.remove(layer, true);
         }
     }
 
@@ -449,10 +477,16 @@ export class CesiumMeasure {
 
     /**
      * Tears down the distance handler left behind by an abandoned measurement.
+     *
+     * Idempotent since 2026-09-22. The right click of the gesture destroys the
+     * handler itself and this field kept pointing at it, so a later call
+     * destroyed a destroyed handler, which the npm build of Cesium turns into a
+     * `DeveloperError` (see `services/viewer-teardown.js`).
      */
     removeDrawLineMeasureGraphics() {
         const _handlers = this.lineMeasureHandlers;
-        if (!_handlers) return;
+        this.lineMeasureHandlers = null;
+        if (!_handlers || _handlers.isDestroyed()) return;
         _handlers.destroy();
     }
 
@@ -569,10 +603,12 @@ export class CesiumMeasure {
 
     /**
      * Tears down the area handler left behind by an abandoned measurement.
+     * Idempotent, for the reason given on the distance twin.
      */
     removeDrawAreaMeasureGraphics() {
         const _handlers = this.areaMeasureHandlers;
-        if (!_handlers) return;
+        this.areaMeasureHandlers = null;
+        if (!_handlers || _handlers.isDestroyed()) return;
         _handlers.destroy();
     }
 

@@ -29,13 +29,15 @@
  * `criarCensoDeEnderecos`, que é o par dele: a leitura de um grupo com endereço único depende
  * do censo da janela e não do grupo.
  *
- * O ÚNICO IMPORT DAQUI é o marcador da amostra de saúde, e ele é import justamente para não
- * ser uma string digitada duas vezes: `amostra-de-saude.js` é folha de zero imports (não
- * arrasta `config.js`, que exigiria `DATABASE_URL` para ler log), e é essa propriedade que
- * torna o símbolo barato. Ver `resumirAmostras`.
+ * OS DOIS IMPORTS DAQUI são marcadores, e são import justamente para não serem strings
+ * digitadas duas vezes: o da amostra de saúde (`amostra-de-saude.js`, folha de zero imports) e o
+ * do desligamento do log em arquivo (`log-diario.js`, folha que só importa `node:fs` e
+ * `node:path`). Nenhum dos dois arrasta `config.js`, que exigiria `DATABASE_URL` para ler log, e
+ * é essa propriedade que torna os símbolos baratos. Ver `resumirAmostras` e `montarResumo`.
  */
 
 import { MARCADOR_AMOSTRA } from './amostra-de-saude.js';
+import { MARCADOR_LOG_DESLIGADO } from './log-diario.js';
 
 /** Quanto tempo cada sufixo vale, em ms. */
 const UNIDADES = Object.freeze({ m: 60_000, h: 3_600_000, d: 86_400_000 });
@@ -262,10 +264,15 @@ export const MAX_ENDERECOS_PRINCIPAIS = 5;
  * ele olhou o socket e não havia endereço. Este lado devolve `null` para o primeiro e a
  * string para o segundo, que é o que faz `'unknown'` aparecer no relatório como o valor que
  * ele é, em vez de sumir dentro da contagem de quem não tem campo nenhum.
+ *
+ * EXPORTADA DESDE 2026-09-22 para o relatório de endereços distintos
+ * (`src/utils/diag-enderecos.js`): uma segunda leitura do campo lá divergiria desta no dia em
+ * que uma das duas passasse a aparar diferente, e as duas telas contariam endereços diferentes
+ * sobre as mesmas linhas.
  * @param {Object} reg
  * @returns {string|null}
  */
-function enderecoDe(reg) {
+export function enderecoDe(reg) {
   const ip = reg && reg.ip;
   if (typeof ip !== 'string') return null;
   const limpo = ip.trim();
@@ -1043,7 +1050,9 @@ export function compararP95(agora, antes) {
  *  1. `defeitos`     — novos, regressões, os cinco maiores e o recorte cliente/servidor;
  *  2. `latencia`     — p95 das rotas mais chamadas, contra a janela ANTERIOR do mesmo
  *                      tamanho, mais a contagem de queries lentas;
- *  3. `saude`        — buracos na série de amostras e o disco da última;
+ *  3. `saude`        — buracos na série de amostras e o disco da última, mais o desligamento
+ *                      do log em arquivo que o servidor registrou como defeito (`logEmArquivo`,
+ *                      fonte BANCO, com `disponivel` próprio);
  *  4. `indisponivel` — os defeitos de origem `indisponivel`, que é a queda vista pelo
  *                      CLIENTE;
  *  5. `status`       — requisições, erros e taxa.
@@ -1218,11 +1227,41 @@ export function montarResumo({
       queriesLentas: queriesLentas ?? { janela: 0, anterior: 0 },
     };
 
+  // O DESLIGAMENTO DO LOG EM ARQUIVO, visto pelo BANCO, e ele viaja dentro do bloco de saúde nos
+  // DOIS ramos, com `disponivel` próprio, como a sonda viaja dentro do de disponibilidade. A razão
+  // é a ambiguidade que o `fileoverview` de `resumirAmostras` descreve: quando o destino de
+  // arquivo se desliga, a série some com o processo VIVO, e o arquivo não tem como dizer isso de
+  // si. Quem diz é o defeito de servidor que o boot grava (`defeitoDoLogDesligado`), com a
+  // assinatura aberta por `MARCADOR_LOG_DESLIGADO`. É por isso que ele não pode morar só no ramo
+  // disponível: "sem amostras" é justamente o caso em que ele mais importa.
+  //
+  // `null` NÃO ENTRA na lista como "nenhum desligamento": com o banco fora o sub-bloco se declara
+  // cego, e lista vazia significa que o servidor não registrou desligamento nenhum na janela.
+  const logEmArquivo = bancoCego
+    ? { disponivel: false, motivo: motivoDeBanco, premissa: null }
+    : {
+      disponivel: true,
+      premissa: premissaDeBanco,
+      desligamentos: itens
+        .filter((d) => d.origem === 'servidor'
+          && typeof d.assinatura === 'string'
+          && d.assinatura.startsWith(MARCADOR_LOG_DESLIGADO))
+        .map((d) => ({
+          id: d.id,
+          mensagem: d.mensagem,
+          estado: d.estado,
+          ocorrencias: d.ocorrencias,
+          primeiraEm: d.primeiraEm,
+          ultimaEm: d.ultimaEm,
+        })),
+    };
+
   const blocoSaude = arquivoCego || amostras === null
-    ? { disponivel: false, motivo: motivoDeArquivo, premissa: null }
+    ? { disponivel: false, motivo: motivoDeArquivo, premissa: null, logEmArquivo }
     : {
       disponivel: true,
       premissa: premissaDeArquivo,
+      logEmArquivo,
       // O RESUMO INTEIRO NÃO CABE NUMA TELA, então o bloco carrega o RECORTE que responde
       // "o processo esteve de pé?" e nada mais. Quem precisa dos buracos um a um tem
       // `diag -- saude`, que é o comando dedicado, e o campo `situacao` viaja junto para

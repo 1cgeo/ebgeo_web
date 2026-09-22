@@ -10,9 +10,12 @@
  *     Ela cunha um convite para o endereço novo e devolve o MESMO 200 quando o endereço pertence
  *     a outra conta. Logo, nenhuma frase da tela pode dizer que o e-mail foi trocado, e nenhuma
  *     pode prometer que uma confirmação está a caminho.
- *   - o endereço tem TRÊS estados e não dois. Uma conta criada por `POST /api/v1/users` não tem
- *     e-mail nenhum, e desenhar "não confirmado" sobre ela seria acusar de pendência quem não
- *     tem o que confirmar.
+ *   - o endereço tem TRÊS estados e não dois. Uma conta criada por `POST /api/v1/users` sem
+ *     endereço no corpo não tem e-mail nenhum, e desenhar "não confirmado" sobre ela seria acusar
+ *     de pendência quem não tem o que confirmar.
+ *   - e é por esse terceiro estado que a seção muda de nome (2026-09-22, pedido do dono): sobre a
+ *     conta sem endereço ela é "Cadastrar um e-mail", porque "Trocar" sobre nada parece tela que
+ *     não carregou.
  *
  * O PISO DE CADA CASO: as asserções de prosa afirmam PRESENÇA de conteúdo antes de julgar o
  * conteúdo, senão uma constante esvaziada do outro lado passaria verde contra `''`.
@@ -21,10 +24,14 @@
 import { describe, it, expect } from 'vitest';
 import {
     EMAIL_ABSENT_TEXT,
+    EMAIL_ADMIN_ONLY_NOTE,
     EMAIL_CHANGE_SENT_TEXT,
     EMAIL_CHANGE_WARNING,
+    EMAIL_SET_WARNING,
     MAX_EMAIL_LENGTH,
+    emailAddressProblem,
     emailPresentation,
+    emailSectionCopy,
     validateEmailChangeForm,
 } from '../../src/js/admin/account-model.js';
 
@@ -127,6 +134,20 @@ describe('as sentenças não podem prometer o que o servidor não faz', () => {
         expect(EMAIL_CHANGE_WARNING).toMatch(/nada muda|continua/i);
     });
 
+    it('o aviso de CADASTRAR diz o mesmo, sobre uma conta que continua sem e-mail', () => {
+        expect(EMAIL_SET_WARNING.length).toBeGreaterThan(40);
+        expect(EMAIL_SET_WARNING).toMatch(/confirmação/);
+        expect(EMAIL_SET_WARNING).toMatch(/continua sem e-mail/);
+        // O aviso de troca fala do "e-mail atual", que a conta sem endereço não tem.
+        expect(EMAIL_SET_WARNING).not.toMatch(/e-mail atual/);
+    });
+
+    it('onde o servidor não entrega, a nota diz QUEM cadastra o endereço', () => {
+        expect(EMAIL_ADMIN_ONLY_NOTE.length).toBeGreaterThan(30);
+        expect(EMAIL_ADMIN_ONLY_NOTE).toMatch(/não envia e-mail/);
+        expect(EMAIL_ADMIN_ONLY_NOTE).toMatch(/administrador/);
+    });
+
     it('a sentença do pedido é CONDICIONAL, e não anuncia envio', () => {
         expect(EMAIL_CHANGE_SENT_TEXT.length).toBeGreaterThan(40);
         // "Se o endereço puder ser usado…" — a resposta é a mesma nos dois desfechos, então
@@ -134,5 +155,55 @@ describe('as sentenças não podem prometer o que o servidor não faz', () => {
         expect(EMAIL_CHANGE_SENT_TEXT).toMatch(/\bSe\b/);
         expect(EMAIL_CHANGE_SENT_TEXT).not.toMatch(/e-mail (foi )?enviado|enviamos o link/i);
         expect(EMAIL_CHANGE_SENT_TEXT).not.toMatch(/e-mail trocado|endereço trocado/i);
+    });
+});
+
+describe('emailSectionCopy — a seção se chama pelo que a pessoa vai fazer', () => {
+    it('conta SEM endereço: "Cadastrar", com o aviso de quem continua sem e-mail', () => {
+        const c = emailSectionCopy('absent');
+        expect(c.title).toBe('Cadastrar um e-mail');
+        expect(c.fieldLabel).toBe('E-mail');
+        expect(c.warning).toBe(EMAIL_SET_WARNING);
+    });
+
+    it('conta COM endereço, confirmado ou não: "Trocar", com o aviso de troca', () => {
+        for (const state of ['verified', 'unverified']) {
+            const c = emailSectionCopy(state);
+            expect(c.title).toBe('Trocar o e-mail');
+            expect(c.fieldLabel).toBe('Novo e-mail');
+            expect(c.warning).toBe(EMAIL_CHANGE_WARNING);
+        }
+    });
+
+    it('estado desconhecido (perfil ainda não lido) cai no texto de troca, que não promete nada', () => {
+        expect(emailSectionCopy(null).title).toBe('Trocar o e-mail');
+        expect(emailSectionCopy(undefined).title).toBe('Trocar o e-mail');
+    });
+
+    it('o estado vem de `emailPresentation`, e os dois concordam sobre a ausência', () => {
+        const ausente = emailPresentation({ email: null });
+        expect(emailSectionCopy(ausente.state).title).toBe('Cadastrar um e-mail');
+        const presente = emailPresentation({ email: 'a@b.mil', email_verified: true });
+        expect(emailSectionCopy(presente.state).title).toBe('Trocar o e-mail');
+    });
+});
+
+describe('emailAddressProblem — a regra frouxa que as duas telas compartilham', () => {
+    it('endereço com forma passa com frase vazia', () => {
+        expect(emailAddressProblem('alguem@example.mil')).toBe('');
+    });
+
+    it('sem forma, ou acima do teto, devolve a frase da recusa', () => {
+        expect(emailAddressProblem('sem-arroba')).toMatch(/não parece válido/);
+        expect(emailAddressProblem(`${'a'.repeat(MAX_EMAIL_LENGTH)}@example.mil`))
+            .toContain(String(MAX_EMAIL_LENGTH));
+    });
+
+    it('é a MESMA regra que a troca de e-mail aplica, na mesma ordem', () => {
+        for (const ruim of ['sem-arroba', 'a@b', `${'a'.repeat(MAX_EMAIL_LENGTH)}@example.mil`]) {
+            const troca = validateEmailChangeForm({ email: ruim, currentPassword: 'x' });
+            expect(troca.valid).toBe(false);
+            expect(troca.message).toBe(emailAddressProblem(ruim));
+        }
     });
 });

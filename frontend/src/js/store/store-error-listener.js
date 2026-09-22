@@ -58,7 +58,7 @@ export function registerStoreErrorListeners(eventBus) {
     eventBus.on(StoreErrorEvents.STORE_PERSIST_ERROR, (payload) => {
         showInChannel(
             'store-persist-error',
-            'Erro ao salvar dados. Verifique o armazenamento do navegador.',
+            'Não foi possível salvar neste computador. Verifique o espaço disponível no navegador.',
             'error',
             { duration: 5000 }
         );
@@ -73,7 +73,8 @@ export function registerStoreErrorListeners(eventBus) {
         if (payload.consecutiveFailures >= 3) {
             showInChannel(
                 'store-sync-error',
-                'Erro na fila de sincronização. Algumas alterações podem não ser sincronizadas.',
+                'Algumas alterações não estão chegando ao servidor. Elas continuam guardadas neste '
+                + 'computador.',
                 'warning',
                 { duration: 4000 }
             );

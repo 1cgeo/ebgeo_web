@@ -1180,7 +1180,7 @@ describe('a coorte de retenção', () => {
         // O piso NÃO vem de poda (a trilha não é podada): vem do LOGIN best-effort. Dizer "piso"
         // sem dizer de onde ele vem faria a pessoa procurar poda que não houve.
         expect(retencaoHint()).toMatch(/pelo menos/);
-        expect(retencaoHint()).toMatch(/best-effort/);
+        expect(retencaoHint()).toMatch(/registro falhou/);
         expect(retencaoHint()).toMatch(/segunda-feira/);
         expect(retencaoTitulo()).toBe('Retenção por semana de cadastro');
         expect(retencaoSubtitulo('90d')).toMatch(/nos últimos 90 dias/);

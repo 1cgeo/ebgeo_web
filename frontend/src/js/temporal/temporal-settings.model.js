@@ -89,7 +89,7 @@ export function resolverPatchDaConfig(pendente, { origemFallback = null, unitMs 
             return {
                 ok: false,
                 campo: 'fim',
-                mensagem: 'O "Fim" precisa ser posterior ao "Início". Ajuste o offset antes de salvar.',
+                mensagem: 'O "Fim" precisa ser depois do "Início". Ajuste o valor D+N antes de salvar.',
             };
         }
         return { ok: true, patch: { modo, unidade, inicio, fim, origem } };
@@ -101,7 +101,7 @@ export function resolverPatchDaConfig(pendente, { origemFallback = null, unitMs 
         return {
             ok: false,
             campo: 'fim',
-            mensagem: 'O "Fim do mapa" precisa ser posterior ao "Início do mapa".',
+            mensagem: 'O "Fim do mapa" precisa ser depois do "Início do mapa".',
         };
     }
     return { ok: true, patch: { modo, unidade, inicio, fim } };
@@ -154,13 +154,13 @@ export function avisoDoReagendamento(decisao, { gravou = null } = {}) {
     if (motivo === MOTIVO_REAGENDAMENTO.SEM_CONTROLE) {
         return {
             tipo: 'warning',
-            texto: 'O controle temporal não está disponível: nenhuma feição foi reagendada.',
+            texto: 'Nenhuma feição foi reagendada: a linha do tempo não está disponível.',
         };
     }
     if (motivo === MOTIVO_REAGENDAMENTO.RECUSADO) {
         return {
             tipo: 'warning',
-            texto: 'Nenhuma feição foi reagendada: a escrita foi recusada (permissão insuficiente ou mapa bloqueado). O Dia D continua onde estava.',
+            texto: 'Nenhuma feição foi reagendada e o Dia D não mudou: o mapa está bloqueado ou você não tem permissão para editá-lo.',
         };
     }
     if (motivo === MOTIVO_REAGENDAMENTO.DESLOCADAS) {

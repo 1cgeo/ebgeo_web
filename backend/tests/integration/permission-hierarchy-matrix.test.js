@@ -121,7 +121,7 @@ describe('requireAtlasPermission — the 5x5 hierarchy', () => {
     assert.equal(res.allowed, false);
     assert.equal(res.error.statusCode, 404, 'no relation to the atlas is 404, not 403');
     assert.equal(res.error.code, 'NOT_FOUND');
-    assert.match(res.error.message, /Atlas not found/);
+    assert.match(res.error.message, /Atlas não encontrado/);
     assert.equal(res.resolved, undefined, 'nothing must be attached to req on denial');
   });
 

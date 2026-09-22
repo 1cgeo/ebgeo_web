@@ -1,7 +1,8 @@
 // Path: tests/integration/users-admin-fk-and-login.test.js
 // Items 177 and 178 — the admin-provisioning path end to end.
 //
-// 177. `INSERT_USER_ADMIN` never writes `email`, and the login gate only applies when
+// 177. `INSERT_USER_ADMIN` writes no `email` unless the body carries one (optional since
+//      2026-09-22, see admin-cria-conta-com-email.test.js), and the login gate only applies when
 //      `user.email IS NOT NULL` (auth.service.js). So an admin-created account logs in
 //      immediately despite email_verified = false. Tightening that gate to require
 //      email_verified unconditionally would lock out every provisioned account and NO

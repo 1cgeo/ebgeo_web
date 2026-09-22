@@ -57,7 +57,11 @@ export const MAP2D_BASE = {
   minZoom: 2,
   maxZoom: 21,
   maxPitch: 65,
-  globe_projection: true,
+  // SEM `globe_projection` desde 2026-09-22 (decisão do dono). A projeção é do ATLAS
+  // (`atlas.settings.globeProjection`, globo por padrão) desde 2026-08-16, e a chave de deploy
+  // passou um mês servida aqui sem nenhum leitor no cliente, com a caixa do painel ligada a ela:
+  // desmarcá-la não mudava nada. O schema a recusa e o documento gravado a perde nas duas
+  // passadas (`config.admin.schemas.js`, `podarProjecaoDoPainel` em `config.service.js`).
   // NÍVEL DE DETALHE DOS TILES COM A CÂMERA INCLINADA,
   // `[maxZoomLevelsOnScreen, tileCountMaxMinRatio]`, e `null` desde 2026-09-04, por decisão
   // do dono. `null` NÃO é omissão: significa "mantém o padrão do MapLibre", que é

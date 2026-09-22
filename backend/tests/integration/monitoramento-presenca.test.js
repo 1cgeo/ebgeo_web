@@ -125,6 +125,44 @@ describe('Presença, identidade e inventário administrativo', () => {
     const expirado = await agora();
     assert.equal(expirado.body.data.deslogados, 0);
   });
+  // A SAÍDA EXPLÍCITA (relato do dono, 2026-09-22: "ainda diz que tem usuário presente mesmo que
+  // depois de sair"). Até esta data a linha só deixava de contar quando a janela de 90 s passava,
+  // e quem fechava a aba seguia "logado" no painel por um minuto e meio. Os três casos são a regra
+  // e as duas ordens em que a saída chega errada; o controle negativo é tirar `aba_id = $2` do
+  // DELETE, que faz o segundo e o terceiro reprovarem.
+  it('a saída do documento que pulsou por último tira o navegador do painel NA HORA', async () => {
+    await db.query('DELETE FROM uso_presenca');
+    const navegador = randomUUID();
+    const aba = randomUUID();
+    await pulso(navegador, userToken, { abaId: aba }).expect(204);
+    assert.equal((await agora()).body.data.logados, 1, 'piso: o pulso conta antes da saída');
+    await pulso(navegador, null, { abaId: aba, saindo: true }).expect(204);
+    const { body } = await agora();
+    assert.equal(body.data.logados, 0);
+    assert.equal(body.data.deslogados, 0);
+  });
+
+  it('a saída ATRASADA da página que navegou não apaga a página nova do mesmo navegador', async () => {
+    // Mapa -> `atlas.html`: a página nova pulsa ANTES de a saída da velha chegar.
+    await db.query('DELETE FROM uso_presenca');
+    const navegador = randomUUID();
+    const velha = randomUUID();
+    const nova = randomUUID();
+    await pulso(navegador, userToken, { abaId: velha }).expect(204);
+    await pulso(navegador, userToken, { abaId: nova }).expect(204);
+    await pulso(navegador, null, { abaId: velha, saindo: true }).expect(204);
+    assert.equal((await agora()).body.data.logados, 1, 'a saída da página velha apagou a nova');
+  });
+
+  it('a saída sem `abaId` não apaga às cegas, e o pulso sem `abaId` (aba antiga) continua contando', async () => {
+    await db.query('DELETE FROM uso_presenca');
+    const navegador = randomUUID();
+    await pulso(navegador, userToken).expect(204);
+    await pulso(navegador, null, { saindo: true }).expect(204);
+    assert.equal((await agora()).body.data.logados, 1);
+    await pulso(navegador, null, { abaId: 'nao-e-uuid' }).expect(422);
+  });
+
   it('somente administrador lê a presença', async () => {
     await supertest(app).get('/api/v1/uso/agora').expect(401);
     await supertest(app).get('/api/v1/uso/agora').set('Authorization', `Bearer ${userToken}`).expect(403);

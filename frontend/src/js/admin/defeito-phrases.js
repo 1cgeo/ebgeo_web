@@ -151,7 +151,7 @@ export function estadoTom(estado) {
  */
 export function estadoDescricao(estado) {
     const achado = ESTADOS.find((e) => e.valor === estado);
-    return achado ? achado.descricao : 'Estado que esta versão da tela não conhece.';
+    return achado ? achado.descricao : 'Estado que esta versão do EBGeo não conhece.';
 }
 
 /**
@@ -256,8 +256,8 @@ export function acaoEmVooLabel(acao) {
 
 /** @returns {string} */
 export function acaoEmVooNotice() {
-    return 'Há um pedido em voo para este defeito. Espere a resposta: o número e o estado que a '
-        + 'linha vai mostrar são os que o servidor devolver, não os que o clique pediu.';
+    return 'Aguarde a resposta do servidor para este defeito: a linha vai mostrar o número e o '
+        + 'estado que ele devolver.';
 }
 
 /**
@@ -832,7 +832,7 @@ export const NUMEROS_DA_SAUDE_DO_SERVIDOR = Object.freeze([
         rotulo: 'taxa',
         formato: 'percentual',
         titulo: 'A fração das sessões desta build que viu ao menos um erro. Sem sessão não há '
-            + 'fração, e a tela mostra um travessão em vez de 0%.',
+            + 'fração, e aparece um travessão em vez de 0%.',
     }),
     Object.freeze({
         campo: 'defeitosNovos',
@@ -895,8 +895,8 @@ export function saudeFonteNotice(fonte) {
     const conta = 'Contado pelo CLIENTE, sobre os defeitos que esta lista carregou: a janela, os '
         + 'filtros e o teto da consulta valem aqui também. ';
     if (fonte === FONTE_DA_SAUDE.INDISPONIVEL) {
-        return `${conta}Não deu para ler o resumo do servidor nesta carga, e daqui não dá para `
-            + 'dizer se foi a requisição ou o banco dele; o que está acima é a conta do cliente.';
+        return `${conta}Não deu para ler o resumo do servidor agora, e não dá para dizer se `
+            + 'falhou o pedido ou o banco dele; o que aparece acima foi contado da lista carregada.';
     }
     return `${conta}O servidor desta instalação não informa o resumo por release.`;
 }
@@ -1206,8 +1206,7 @@ export function defeitosEmptyNotice(quando) {
 
 /** @returns {string} */
 export function defeitosEmptyHint() {
-    return 'É a boa notícia desta tela: o período fechou sem nenhuma falha registrada, nem do '
-        + 'navegador nem do servidor.';
+    return 'Nenhuma falha registrada no período, nem no navegador nem no servidor.';
 }
 
 /**
@@ -1222,8 +1221,7 @@ export function defeitosFiltradosEmptyNotice(quando) {
 
 /** @returns {string} */
 export function defeitosFiltradosEmptyHint() {
-    return 'Isto não é a boa notícia da tela: com outro recorte pode haver defeito. Limpe os '
-        + 'filtros para ver a janela inteira.';
+    return 'Com outros filtros pode haver defeito. Limpe os filtros para ver o período inteiro.';
 }
 
 /** @returns {string} */

@@ -106,7 +106,7 @@ describe('resourceAccessNotice: o que a tela diz, e para quem', () => {
         expect(detail).toMatch(/catálogo/i);
         expect(detail).toMatch(/público/i);
         // A metade que só a tela sabe: nada foi tirado de ninguém.
-        expect(detail).toMatch(/permissões continuam/i);
+        expect(detail).toMatch(/permissões não mudaram/i);
         // E NUNCA a causa técnica. Um endpoint, um 500 ou um token não são coisas sobre as
         // quais quem lê possa fazer alguma coisa, e nenhum deles é o que aconteceu com ela.
         expect(detail).not.toMatch(/endpoint|http|token|500|api|json/i);

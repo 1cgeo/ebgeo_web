@@ -141,7 +141,7 @@ export class BriefingPresenterControl {
             }
 
             if (validation.warnings.length > 0) {
-                showWarning(`${validation.warnings.length} aviso(s) encontrado(s). A apresentação pode ter problemas.`);
+                showWarning(`${validation.warnings.length === 1 ? '1 aviso encontrado' : `${validation.warnings.length} avisos encontrados`}. A apresentação pode ter problemas.`);
             }
 
             // Validate that all referenced maps still exist
@@ -163,7 +163,7 @@ export class BriefingPresenterControl {
                 s => !s.position || s.position.longitude === null
             );
             if (slidesWithoutPosition.length > 0) {
-                showWarning(`${slidesWithoutPosition.length} slide(s) sem posição definida. Salve a posição de todos os slides antes de apresentar.`);
+                showWarning(`${slidesWithoutPosition.length === 1 ? '1 slide está' : `${slidesWithoutPosition.length} slides estão`} sem posição definida. Salve a posição de todos os slides antes de apresentar.`);
                 return false;
             }
 

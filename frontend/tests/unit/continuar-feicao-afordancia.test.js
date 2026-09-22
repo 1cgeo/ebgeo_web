@@ -242,7 +242,7 @@ describe('estado: mapa travado, feição bloqueada, camada ou grupo travado', ()
 
         expect(showExtensionHandles(map, linha(), makeControl())).toBe(false);
         expect(marcadores).toHaveLength(0);
-        expect(extensionDenialReason(linha())).toMatch(/mapa está bloqueado/i);
+        expect(extensionDenialReason(linha())).toMatch(/mapa bloqueado/i);
     });
 
     it('feição com o próprio cadeado NÃO desenha, com a frase do modelo', () => {

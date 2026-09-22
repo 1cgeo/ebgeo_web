@@ -92,9 +92,9 @@ import { isStreetView360Open } from '@utils/streetview360-state.js';
  * @constant {Object<string, string>}
  */
 const TRANSFER_REFUSAL_PHRASES = Object.freeze({
-    target_map_locked: 'O mapa de destino está travado. Destrave-o para receber a camada.',
-    map_locked: 'Mapa travado. Destrave-o para mover a camada, ou copie-a.',
-    layer_locked: 'Camada travada. Destrave-a para movê-la, ou copie-a.',
+    target_map_locked: 'O mapa de destino está bloqueado. Desbloqueie-o para receber a camada.',
+    map_locked: 'Mapa bloqueado. Desbloqueie-o para mover a camada, ou copie-a.',
+    layer_locked: 'Camada bloqueada. Desbloqueie-a para movê-la, ou copie-a.',
     layer_not_found: 'A camada não existe mais neste mapa.',
     target_write_incomplete: 'Não foi possível gravar no mapa de destino. Nada saiu da origem.'
 });
@@ -418,8 +418,8 @@ export class FeaturesTab {
 
         const isLastLayer = layers.length <= 1;
         const message = isLastLayer
-            ? 'Todas as feições desta camada serão PERMANENTEMENTE excluídas!\n\nUma nova camada "Padrão" vazia será criada automaticamente.'
-            : 'Todas as feições desta camada serão PERMANENTEMENTE excluídas!';
+            ? 'Todas as feições desta camada serão excluídas. Esta ação não pode ser desfeita.\n\nUma camada "Padrão" vazia será criada no lugar.'
+            : 'Todas as feições desta camada serão excluídas. Esta ação não pode ser desfeita.';
 
         const confirmed = await showConfirm(`Excluir a camada "${layer.name}"?`, {
             message,
@@ -456,7 +456,7 @@ export class FeaturesTab {
         } catch (error) {
             this._suppressLayersChangedRefresh = false;
             console.error('Error deleting layer:', error);
-            showError('Erro ao excluir camada: ' + error.message);
+            showError('Não foi possível excluir a camada. Tente de novo.');
         }
     }
 
@@ -540,7 +540,7 @@ export class FeaturesTab {
         } catch (error) {
             this._suppressLayersChangedRefresh = false;
             console.error('Error transferring layer:', error);
-            showError('Erro ao transferir camada: ' + error.message);
+            showError('Não foi possível transferir a camada. Tente de novo.');
         }
     }
 

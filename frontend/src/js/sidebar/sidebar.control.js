@@ -37,6 +37,7 @@ import {
 import { createNotesPanelContent } from './panels/notes-panel.js';
 import { createVectorInfoPanelContent } from './panels/vector-info-panel.js';
 import { createFeaturePanelContent } from './panels/feature-panel-content.js';
+import { finishFeaturePanelBuild, commitOpenNameFields } from './panels/feature-panel-flush.js';
 import {
     handleMarker3dClick,
     handleMarker3dDeselect,
@@ -504,6 +505,9 @@ export class SidebarControl {
      * @param {string} payload.tab - Tab being expanded
      */
     _onSidebarExpanded(payload) {
+        // A feature build still in flight must not reopen the panel over the sidebar.
+        this._featureContentVersion++;
+
         // Hide feature panel when sidebar expands, saving any pending changes
         this._featurePanel.hide(true);
         this._cleanupFeaturePanelContent();
@@ -555,6 +559,16 @@ export class SidebarControl {
      * @private
      */
     _onFeaturePanelClosed() {
+        // A CLOSE INVALIDATES THE BUILD IN FLIGHT. Only a newer build used to, so a deselect or
+        // an Escape that arrived while the panel was still being built let that build finish by
+        // reopening the panel for a feature no longer selected (`panels/feature-panel-flush.js`).
+        this._featureContentVersion++;
+
+        // An open name field is still confirmed: a close that does not come from a pointer
+        // (keyboard, code) arrives without the blur that would have confirmed it. The staged
+        // edits are NOT saved here, on purpose (Discard also closes through this handler).
+        commitOpenNameFields(this._featurePanel.getContentContainer());
+
         // Hide without saving (save already triggered in _handleFeaturePanelClose)
         this._featurePanel.hide(false);
         this._cleanupFeaturePanelContent();
@@ -859,7 +873,7 @@ export class SidebarControl {
      * @param {string} featureType - Feature type (source)
      */
     async _showFeatureContent(featureId, featureType) {
-        // Increment version to invalidate any in-flight async render
+        // Increment version to invalidate any in-flight async render (a close invalidates too)
         const version = ++this._featureContentVersion;
 
         // Preserve the currently active tab so we can restore it after rebuild
@@ -876,12 +890,13 @@ export class SidebarControl {
         const contentWrapper = document.createElement('div');
         contentWrapper.className = 'feature-panel-wrapper';
 
-        // Create attribute content using the extracted module
-        if (this._uiManager && this._selectionManager) {
-            const selectedFeatures = this._selectionManager.getAllSelectedFeatures();
-
-            if (selectedFeatures.length > 0) {
-                const result = await createFeaturePanelContent({
+        await finishFeaturePanelBuild({
+            // Create attribute content using the extracted module
+            build: async () => {
+                if (!this._uiManager || !this._selectionManager) return null;
+                const selectedFeatures = this._selectionManager.getAllSelectedFeatures();
+                if (selectedFeatures.length === 0) return null;
+                return createFeaturePanelContent({
                     selectedFeatures,
                     featureType,
                     selectionManager: this._selectionManager,
@@ -889,22 +904,24 @@ export class SidebarControl {
                     map: this._mapManager?.map,
                     activeTab: previousActiveTab
                 });
-
-                // Discard if a newer selection happened while awaiting
-                if (version !== this._featureContentVersion) {
-                    if (result?.cleanup) result.cleanup();
-                    return;
-                }
-
+            },
+            // Discard if a newer selection, or a close, happened while awaiting
+            isCurrent: () => version === this._featureContentVersion,
+            // The content still on screen stayed interactive during the build, and what was
+            // edited on it after the save above is saved now, by its own closure.
+            flushOutgoing: () => this._featurePanel._triggerSave(),
+            show: (result) => {
                 if (result) {
                     contentWrapper.appendChild(result.element);
                     this._currentFeaturePanelCleanup = result.cleanup;
                 }
+                // Show in feature panel with fixed title
+                this._featurePanel.show(contentWrapper, 'Detalhes da Feição');
+            },
+            discard: (result) => {
+                if (result?.cleanup) result.cleanup();
             }
-        }
-
-        // Show in feature panel with fixed title
-        this._featurePanel.show(contentWrapper, 'Detalhes da Feição');
+        });
     }
 
     /**

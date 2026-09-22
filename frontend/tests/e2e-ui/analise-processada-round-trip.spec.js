@@ -297,9 +297,9 @@ async function importarPelaTela(page, arquivo) {
     // A tela NAVEGA; quem importa é o boot do mapa.
     await page.waitForURL((url) => !url.pathname.endsWith('atlas.html'), { timeout: 30000 });
     await esperarMapa(page);
-    // Pluralização do produto, reproduzida como está no código: com UM mapa ele escreve
-    // "1 mapa carregados!" (`showLoadSuccess`).
-    await expect(page.locator('.toast', { hasText: `${MAPAS} mapa carregados!` }))
+    // Com UM mapa o produto escreve "1 mapa carregado." (`showLoadSuccess`; até 2026-09-22 era
+    // "1 mapa carregados!", com o plural errado).
+    await expect(page.locator('.toast', { hasText: `${MAPAS} mapa carregado.` }))
         .toBeVisible({ timeout: 60000 });
 }
 
@@ -672,7 +672,7 @@ describeOrSkip('.ebgeo: feicao de analise processada atravessa o ciclo', () => {
         // spec irmã de lacunas, o toast já não estava no DOM quando `await baixado` resolvia.
         // `expect(...).toBeVisible()` começa a sondar no instante em que é chamado, então guardar
         // a promessa aqui cobre a janela inteira.
-        const toastDeExportacao = expect(page.locator('.toast', { hasText: `${MAPAS} mapa exportado!` }))
+        const toastDeExportacao = expect(page.locator('.toast', { hasText: `${MAPAS} mapa exportado.` }))
             .toBeVisible({ timeout: 60000 });
         const baixado = page.waitForEvent('download', { timeout: 180000 });
         await confirmarExportacao.click();

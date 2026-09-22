@@ -38,7 +38,9 @@ describe('blockingScreenContent', () => {
         // O defeito medido, palavra por palavra.
         const { message } = blockingScreenContent(BlockingCause.APP_ERROR);
         expect(message).not.toMatch(/conex|conectar|rede|internet/i);
-        expect(message).toMatch(/servidor respondeu/i);
+        // O que ela manda fazer é o que resolve um erro do programa: recarregar e avisar.
+        expect(message).toMatch(/Recarregue/);
+        expect(message).toMatch(/administrador/);
     });
 
     it('e o de rede continua dizendo o que sempre disse, porque ali está certo', () => {

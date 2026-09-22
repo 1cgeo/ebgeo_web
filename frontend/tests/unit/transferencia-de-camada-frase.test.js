@@ -53,15 +53,17 @@ describe('a frase da transferência de camada', () => {
             mover({ sourceEmptied: false, sourceLayerRemoved: false, sourceRefusal: 'map_locked' }));
         expect(aviso.kind).toBe('warning');
         expect(aviso.text).toContain('foi copiada para "Mapa B" (3 feições)');
-        expect(aviso.text).toContain('não pôde ser esvaziado na hora: ele está bloqueado');
+        expect(aviso.text).toContain('mas não saiu do mapa de origem: ele está bloqueado');
         // O QUE VEM DEPOIS FOI MEDIDO TRÊS VEZES EM 2026-09-21, e cada medição desmentiu a anterior
         // (o cabeçalho de `layer-transfer-phrases.js` conta as três). O que ficou de pé: o duplicado
         // some sozinho em cerca de um segundo, para LADOS OPOSTOS conforme o servidor aceite ou
         // recuse, e com a trava REAL de um colega ele RECUSA, porque o gate dele confere também o
-        // mapa de ORIGEM de um mover. A frase diz os dois desfechos e não promete qual.
-        expect(aviso.text).toContain('se ele aceitar a mudança, as feições saem do mapa de origem sozinhas');
-        expect(aviso.text).toContain('se recusar, a cópia em "Mapa B" é desfeita, a camada continua no mapa de origem');
-        expect(aviso.text).toContain('o motivo é avisado na tela');
+        // mapa de ORIGEM de um mover. A frase diz os dois desfechos e não promete qual. Desde
+        // 2026-09-22 ela os diz em uma frase, sem falar da própria tela.
+        expect(aviso.text).toContain('Em instantes ela fica em só um dos dois mapas');
+        expect(aviso.text).toContain('no destino, se o servidor aceitar a mudança');
+        expect(aviso.text).toContain('ou na origem, se recusar');
+        expect(aviso.text).not.toMatch(/tela/i);
         expect(aviso.text).not.toContain('Recarregue');
         expect(aviso.text).not.toContain('estado do servidor');
         expect(aviso.text).not.toContain('movida');

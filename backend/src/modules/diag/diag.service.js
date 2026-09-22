@@ -36,6 +36,7 @@ import {
   agruparErros, resumirLatencia, resumirStatus, resumirAmostras,
 } from '../../utils/diag-consulta.js';
 import { MARCADOR_AMOSTRA } from '../../utils/amostra-de-saude.js';
+import { relatorioDeEnderecos } from '../../utils/diag-enderecos.js';
 
 /** O prefixo que `criarLogDiario` usa por padrão, e portanto o que existe no disco. */
 export const PREFIXO_PADRAO = 'ebgeo';
@@ -407,6 +408,38 @@ export async function saude({ diretorio, desde, intervalo = null, agora }) {
     inicio: j.inicio.getTime(),
   });
   return { janela: premissa(j, desde, quando), ...resto, janelaDaSerie };
+}
+
+/**
+ * OS ENDEREÇOS DISTINTOS da janela, com contagem, abas e contas por endereço (2026-09-22).
+ *
+ * É a segunda porta de `npm run diag -- enderecos`, e a agregação é literalmente a mesma função
+ * (`criarRelatorioDeEnderecos`, pura, em `src/utils/diag-enderecos.js`). O que sai daqui é a metade
+ * de ARQUIVO do documento; os NOMES das contas são a metade de banco, e quem a acrescenta é o
+ * controller (`nomearContas`), porque este arquivo não importa o banco nem `config`.
+ *
+ * A PROCEDÊNCIA VAI ANINHADA EM `janela` (`premissa`), como em `saude` e `linhas`, e não espalhada
+ * na raiz como nas três rotas antigas: é a forma que deixa o espelho com o comando ser "tire o
+ * envelope dos dois e compare o resto".
+ *
+ * O ANEL É A PREMISSA DA PRIMEIRA VEZ VISTO, e não do "agora": ele descarta o mais ANTIGO, então sob
+ * `janela.truncado` a primeira aparição de um endereço pode ser mais tarde que a real, e um endereço
+ * visto só no começo da janela pode faltar. O fim da janela (quem está usando agora) é sempre o que
+ * sobrevive.
+ *
+ * O `agora` DO RELATÓRIO É O MESMO DA LEITURA, e é ele que decide o `recente` de cada endereço: um
+ * relógio lido duas vezes deixaria a janela de leitura e a de "agora" terminarem em instantes
+ * diferentes.
+ *
+ * @param {{diretorio: string, desde: string, limite: number, agora?: Date}} opts
+ */
+export async function enderecos({ diretorio, desde, limite, agora }) {
+  const quando = agora ?? new Date();
+  const j = await lerJanela({ diretorio, desdeMs: parseJanela(desde), agora: quando });
+  return {
+    janela: premissa(j, desde, quando),
+    ...relatorioDeEnderecos(j.registros, { agora: quando.getTime(), limite }),
+  };
 }
 
 /**

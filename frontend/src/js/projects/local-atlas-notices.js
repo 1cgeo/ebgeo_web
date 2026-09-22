@@ -34,7 +34,7 @@ import { atlasContentsLines } from '@store/atlas-contents.js';
 // Pelo ARQUIVO, e ele NÃO TEM IMPORTS: é a definição única desta casa para "por que o pedido
 // falhou", a mesma que `projects-page.js`, `index.js` e `admin-page.js` consomem. Escrever aqui um
 // segundo `if (status === 401)` seria a quarta cópia da mesma regra.
-import { classifyRequestFailure, requestStatus, RequestFailure } from '@utils/request-failure.js';
+import { classifyRequestFailure, RequestFailure } from '@utils/request-failure.js';
 
 /** Severity of a notice, matching the three toast helpers of `@utils/toast_service.js`. */
 export const NoticeKind = Object.freeze({
@@ -153,9 +153,9 @@ export function deleteNotice(result) {
     if (result.blockedDatabases?.length > 0) {
         return {
             kind: NoticeKind.WARNING,
-            message: `${nome ? `"${nome}"` : 'O atlas'} saiu da lista, mas outra aba ainda segurava `
-                + 'os dados dele neste navegador. Feche as outras abas do EBGeo e recarregue esta '
-                + 'página para concluir a exclusão.'
+            message: `${nome ? `"${nome}"` : 'O atlas'} saiu da lista, mas outra aba do EBGeo ainda `
+                + 'usa os dados dele. Feche as outras abas e recarregue esta página para concluir '
+                + 'a exclusão.'
         };
     }
     return {
@@ -220,9 +220,8 @@ export function deleteAttempt(count) {
  * SEM CRASE E SEM MARCAÇÃO: `ConfirmModal` desenha a mensagem como texto puro.
  */
 const ACERVO_HERDADO =
-    'ATENÇÃO: este é o acervo que veio da versão anterior do EBGeo, o único atlas que existia '
-    + 'antes de o produto ter vários. Se quiser guardá-lo, abra o atlas e exporte um arquivo '
-    + '.ebgeo ANTES de excluir.';
+    'Atenção: este é o único atlas que existia na versão anterior do EBGeo. Para guardá-lo, abra '
+    + 'o atlas e exporte um arquivo .ebgeo antes de excluir.';
 
 /**
  * O CORPO DO DIÁLOGO DE EXCLUSÃO, que muda com a existência de conta E com o que o atlas contém.
@@ -401,7 +400,7 @@ function fraseDeFalta(result) {
 
     const clausulas = eixos.map(([singular, plural, subiu, tem]) =>
         `${contado(subiu, singular, plural)} de ${tem}`);
-    return `Subiram só ${comEs(clausulas)}: parte deste atlas NÃO chegou ao servidor.`;
+    return `Subiram só ${comEs(clausulas)}: parte deste atlas não chegou ao servidor.`;
 }
 
 /**
@@ -463,9 +462,8 @@ function frasePoda(prunedResourceRefs) {
         });
     if (itens.length === 0) return null;
 
-    return `O servidor descartou ${comEs(itens)}, porque o modelo 3D ou o projeto 360 a que `
-        + 'eles apontam não está no catálogo deste servidor. Peça ao administrador para cadastrar '
-        + 'esses recursos e envie de novo.';
+    return `O servidor descartou ${comEs(itens)}, porque o modelo 3D ou o projeto 360 usado não `
+        + 'está no catálogo dele. Peça ao administrador para cadastrá-los e envie de novo.';
 }
 
 /**
@@ -546,8 +544,8 @@ export function sendToServerNotice(result) {
     // O preço está escrito: quem cai neste ramo fica na lista e abre o atlas com um clique a mais.
     return {
         kind: NoticeKind.WARNING,
-        message: `${base} ${avisos.join(' ')} O atlas local continua aqui, inteiro, e o novo já `
-            + 'está no servidor, na lista de cima.',
+        message: `${base} ${avisos.join(' ')} O atlas local continua aqui, e o novo já está no `
+            + 'servidor, na lista acima.',
         openAtlasId: null,
     };
 }
@@ -566,14 +564,16 @@ export function sendToServerNotice(result) {
  */
 function motivoDaFalha(error) {
     const classe = classifyRequestFailure(error);
-    const status = requestStatus(error);
-    const doServidor = texto(error?.message);
+    // O ECO "HTTP nnn" que o cliente inventa quando a resposta não trouxe mensagem é texto de
+    // console, nunca de tela: o status fica no erro, para quem abrir o console.
+    const bruto = texto(error?.message);
+    const doServidor = bruto && !/^HTTP \d{3}$/.test(bruto) ? bruto : null;
 
     if (classe === RequestFailure.NETWORK) {
         return 'não foi possível falar com o servidor. Confira a conexão e tente de novo.';
     }
     if (classe === RequestFailure.CREDENTIAL) {
-        return 'a sua sessão não vale mais. Entre de novo e repita o envio.';
+        return 'sua sessão terminou. Entre de novo e repita o envio.';
     }
     // O 429 TEM DUAS CAUSAS, E SÓ UMA PASSA COM O TEMPO. Desde 14/09/2026 `POST /atlas/import`
     // recusa com 429 quando a conta já bateu a cota de atlas (decisão D12), e esse envelope traz
@@ -586,9 +586,9 @@ function motivoDaFalha(error) {
 
     const cabeca = {
         [RequestFailure.MISSING]: 'o servidor não encontrou o endereço do envio',
-        [RequestFailure.RATE_LIMITED]: 'o servidor pediu para esperar (pedidos demais em sequência)',
-        [RequestFailure.SERVER]: 'o servidor falhou ao processar o envio',
-    }[classe] ?? `o servidor respondeu com um erro inesperado (HTTP ${status})`;
+        [RequestFailure.RATE_LIMITED]: 'houve pedidos demais em pouco tempo; espere um instante',
+        [RequestFailure.SERVER]: 'houve um erro no servidor',
+    }[classe] ?? 'o servidor não aceitou o envio';
 
     return doServidor ? `${cabeca}: ${doServidor}.` : `${cabeca}.`;
 }
@@ -633,19 +633,19 @@ export function sendFailureNotice(error, { name = null } = {}) {
         return { kind: NoticeKind.ERROR, message: texto(error?.message) ?? RECUSA_GENERICA };
     }
 
-    const local = 'O atlas local continua neste navegador, inteiro.';
+    const local = 'O atlas local continua neste navegador, intacto.';
     if (stage === 'preparation') {
         return { kind: NoticeKind.ERROR,
             message: `Não foi possível concluir ou confirmar o envio de ${alvo}. ${local} `
-                + `Tente novamente com o mesmo conteúdo: a preparação será retomada, ou o resultado já publicado será recuperado. Motivo: ${motivoDaFalha(error)}` };
+                + 'Tente de novo sem alterar o atlas: o envio retoma de onde parou, sem criar '
+                + `outra cópia. Motivo: ${motivoDaFalha(error)}` };
     }
     if (stage === 'images') {
         return {
             kind: NoticeKind.ERROR,
-            message: `O envio de ${alvo} parou no meio: o atlas JÁ FOI criado no servidor e `
-                + 'aparece na lista de cima, mas parte das imagens não subiu, e lá elas vão '
-                + `faltar. ${local} Abra o atlas do servidor para conferir, ou exclua-o e envie de `
-                + `novo. Motivo: ${motivoDaFalha(error)}`,
+            message: `O envio de ${alvo} ficou incompleto: o atlas já foi criado no servidor, na `
+                + `lista acima, mas parte das imagens não subiu. ${local} Abra o atlas do servidor `
+                + `para conferir, ou exclua-o e envie de novo. Motivo: ${motivoDaFalha(error)}`,
         };
     }
 
@@ -655,7 +655,7 @@ export function sendFailureNotice(error, { name = null } = {}) {
     // pessoa procurar na lista do servidor um atlas que não existe.
     return {
         kind: NoticeKind.ERROR,
-        message: `Não foi possível enviar ${alvo} ao servidor, e NADA foi criado lá. `
+        message: `Não foi possível enviar ${alvo} ao servidor, e nada foi criado lá. `
             + `${local} Motivo: ${motivoDaFalha(error)}`,
     };
 }

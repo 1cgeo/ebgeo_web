@@ -596,10 +596,10 @@ const MONITOR_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24
     + '<line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>';
 
 const OVERLAY_TEXT = Object.freeze({
-    [TabLockKeyKind.REMOTE]: 'Este atlas do servidor já está aberto em outra aba. Um mesmo '
-        + 'atlas só pode ser editado em uma aba por vez.',
-    [TabLockKeyKind.LOCAL]: 'Este atlas local já está aberto em outra aba. Continue o trabalho '
-        + 'por lá, ou traga o controle para cá.'
+    [TabLockKeyKind.REMOTE]: 'Este atlas do servidor já está aberto em outra aba, e só pode ser '
+        + 'editado em uma aba por vez.',
+    [TabLockKeyKind.LOCAL]: 'Este atlas local já está aberto em outra aba. Continue por lá, ou '
+        + 'use "Usar aqui" para trabalhar nesta.'
 });
 
 /**
@@ -612,10 +612,9 @@ const OVERLAY_TEXT = Object.freeze({
  */
 const TEARDOWN_OVERLAY = Object.freeze({
     title: 'Este atlas foi encerrado em outra aba',
-    message: 'Outra aba saiu da conta, então este atlas do servidor não pode mais ser editado '
-        + 'aqui: esta aba parou de gravar. O que ainda não foi enviado continua guardado neste '
-        + 'computador enquanto esta aba ficar aberta. Entre novamente e abra o atlas para '
-        + 'enviá-lo; recarregar esta aba antes disso descarta esse trabalho.',
+    message: 'Outra aba saiu da conta, e esta aba parou de gravar. O que não foi enviado continua '
+        + 'guardado enquanto ela ficar aberta: entre de novo e abra o atlas para enviá-lo. '
+        + 'Recarregar antes disso descarta esse trabalho.',
     button: 'Recarregar'
 });
 
@@ -630,9 +629,8 @@ const TEARDOWN_OVERLAY = Object.freeze({
  */
 const TEARDOWN_OVERLAY_LOCAL_DELETED = Object.freeze({
     title: 'Este atlas local foi excluído',
-    message: 'Outra aba deste navegador excluiu o atlas que estava aberto aqui, então esta aba '
-        + 'parou de gravar: o que ainda aparece na tela já não existe neste computador. Recarregue '
-        + 'para continuar em outro atlas.',
+    message: 'Outra aba excluiu este atlas, e esta aba parou de gravar: o que aparece na tela não '
+        + 'existe mais neste computador. Recarregue para continuar em outro atlas.',
     button: 'Recarregar'
 });
 
@@ -657,10 +655,9 @@ const TEARDOWN_OVERLAY_BY_REASON = Object.freeze({
  */
 const DEGRADED_NOTICE = Object.freeze({
     title: 'Proteção contra abas duplicadas indisponível',
-    message: 'Este navegador não deixa as abas do EBGeo se enxergarem, então nada impede que o '
-        + 'mesmo atlas seja aberto duas vezes aqui. Feche as outras abas do EBGeo e trabalhe '
-        + 'em uma só: duas abas no mesmo atlas gravam nos mesmos dados, e a última a gravar '
-        + 'apaga o trabalho da outra.',
+    message: 'Este navegador não permite que as abas do EBGeo se coordenem. Trabalhe em uma aba '
+        + 'só: duas abas no mesmo atlas gravam nos mesmos dados, e a última apaga o trabalho da '
+        + 'outra.',
     button: 'Entendi'
 });
 

@@ -46,20 +46,18 @@ export function catalogDeletionWarning({ nome = '', id = '', atlasCount = null }
     const qual = nome ? `"${nome}"` : 'este item';
     const n = Number(atlasCount);
     const quantos = Number.isFinite(n) && n > 0
-        ? `${n} ${n === 1 ? 'atlas guarda' : 'atlas guardam'} uma referência a ele hoje: ${n === 1 ? 'ele continua' : 'eles continuam'} abrindo, e o recurso simplesmente não desenha mais ${n === 1 ? 'nele' : 'neles'}.`
-        : 'Os atlas que já o referenciam continuam abrindo, e o recurso simplesmente não desenha '
-          + 'mais neles.';
+        ? `${n} ${n === 1 ? 'atlas o usa' : 'atlas o usam'} hoje e ${n === 1 ? 'continua' : 'continuam'} abrindo, mas sem este recurso.`
+        : 'Os atlas que o usam continuam abrindo, mas sem este recurso.';
     const partes = [
-        `Excluir ${qual} tira o recurso do catálogo de todo mundo, e as concessões de acesso a ele `
-        + 'deixam de valer.',
+        `Excluir ${qual} o tira do catálogo para todos e cancela as concessões de acesso a ele.`,
         quantos,
     ];
     // O ID SÓ APARECE QUANDO EXISTE, e a frase muda com ele: prometer um caminho de volta que
     // depende de um id que não estamos mostrando seria pior que não prometer nada.
     partes.push(id
-        ? `Isto não se desfaz pela interface. O único caminho de volta é criar um item novo com o `
-          + `mesmo id (${id}), então anote-o antes de confirmar.`
-        : 'Isto não se desfaz pela interface.');
+        ? `Não há como desfazer pela interface: para recriá-lo, anote o id (${id}) e crie um item `
+          + 'novo com o mesmo id.'
+        : 'Não há como desfazer pela interface.');
     return partes.join(' ');
 }
 
@@ -77,9 +75,8 @@ export function catalogDeletionWarning({ nome = '', id = '', atlasCount = null }
 export function projectStatusChangeWarning({ nome = '', para = '' } = {}) {
     if (para !== 'disabled') return null;
     const qual = nome ? `"${nome}"` : 'este projeto';
-    return `Desativar ${qual} o esconde de todo mundo fora da OM dona, inclusive de quem já o `
-        + 'recebeu por concessão e de quem o vê num atlas. É o eixo mais amplo desta tela: '
-        + 'privado restringe quem abre, desativado remove da vista. Reativar desfaz.';
+    return `Desativar ${qual} o esconde de todos fora da OM dona, inclusive de quem recebeu `
+        + 'concessão ou o vê num atlas. Isso vai além de torná-lo privado. Reativar desfaz.';
 }
 
 /**
@@ -98,7 +95,7 @@ export function projectDeletionWarning({ nome = '', fotos = null } = {}) {
     const quantas = Number.isFinite(fotos) && fotos > 0
         ? ` e as ${fotos} fotos dele`
         : '';
-    return `Excluir ${qual}${quantas} remove o acervo do servidor, junto com a calibração de cada `
-        + 'foto. Isto não se desfaz, e reenviar o bundle não devolve o alinhamento: ele teria de '
-        + 'ser refeito foto a foto.';
+    return `Excluir ${qual}${quantas} apaga o acervo do servidor e a calibração de cada foto. `
+        + 'Isto não se desfaz: reenviar o projeto não recupera o alinhamento, que teria de ser '
+        + 'refeito foto a foto.';
 }

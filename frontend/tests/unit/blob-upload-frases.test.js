@@ -97,7 +97,9 @@ describe('a causa vira frase em pt-BR', () => {
 
     it('sem bytes é a única frase que também se escreve fora daqui, e é a mesma', () => {
         expect(fraseDeFalhaDeBlob({ causa: CausaDeFalha.SEM_BYTES })).toBe(FALHA_SEM_BYTES);
-        expect(FALHA_SEM_BYTES).toMatch(/não estão mais neste computador/);
+        expect(FALHA_SEM_BYTES).toMatch(/não está mais neste computador/);
+        // "bytes" é vocabulário de quem escreveu o código, não de quem lê o aviso.
+        expect(FALHA_SEM_BYTES).not.toMatch(/bytes/i);
     });
 });
 

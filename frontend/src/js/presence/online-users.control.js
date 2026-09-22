@@ -6,6 +6,7 @@ import { EventTypes } from '@events/event_types.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
 // BY FILE, never through the `@utils` barrel: the leaf has zero imports.
 import { militaryPersonLabel } from '@utils/person-label.js';
+import { viewerLabel } from '@js/presence/viewer-label.js';
 import {
     setupCleanup,
     subscribe,
@@ -50,6 +51,7 @@ function rosterLabel(user) {
 /**
  * Builds the short awareness label suffix for a roster row, in pt-BR:
  *   - active map ("Mapa Y") — case C
+ *   - open viewer ("no 3D: Museu", "no 360°: Projeto, foto F") — case V, 2026-09-22
  *   - briefing edit ("editando briefing") — case D
  *   - away ("ausente") — case G
  * Returns a list of { text, testid } parts so the renderer can tag each with a
@@ -72,6 +74,12 @@ function awarenessParts(user) {
         // currentMap already carries the map's full NAME (e.g. "Mapa Tático"), so do NOT
         // prefix "Mapa " — that produced "Mapa Mapa Tático". Show the name as-is.
         parts.push({ text: String(user.currentMap), testid: 'online-user-map' });
+    }
+    // Case V: the viewer on top of the map. The name inside was decided by the server for THIS
+    // recipient, so a private resource this client may not read shows only the viewer kind.
+    const viewerText = viewerLabel(user.viewer);
+    if (viewerText) {
+        parts.push({ text: viewerText, testid: 'online-user-viewer' });
     }
     if (user.briefingEdit && user.briefingEdit.briefingId) {
         parts.push({ text: 'editando briefing', testid: 'online-user-briefing' });

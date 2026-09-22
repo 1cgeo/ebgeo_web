@@ -82,7 +82,7 @@ async function refusalForFile(file) {
         return importVersionRefusal(data);
     } catch (error) {
         console.warn('[boot] the pending .ebgeo could not be read:', error);
-        return `Erro ao carregar o arquivo: ${error.message}`;
+        return `Não foi possível abrir o arquivo: ${error.message}`;
     }
 }
 

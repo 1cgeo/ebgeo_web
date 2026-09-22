@@ -67,6 +67,12 @@ describe('a recusa por cota chega à tela com a frase do servidor', () => {
         expect(frase).toMatch(/conex/i);
     });
 
+    it('criar: o eco "HTTP nnn" do cliente não é frase do servidor, e o código não vai à tela', () => {
+        const frase = createServerAtlasFailureNotice(apiError('HTTP 502', { status: 502 }));
+        expect(frase).toBe('Não foi possível criar o atlas. Tente de novo.');
+        expect(frase).not.toMatch(/\d{3}/);
+    });
+
     it('criar: nunca silenciosa, nem com entrada que não é erro nenhum', () => {
         for (const entrada of [undefined, null, {}, 'texto solto']) {
             const frase = createServerAtlasFailureNotice(entrada);

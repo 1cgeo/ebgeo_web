@@ -9,6 +9,7 @@
 
 import { setupCleanup, addDomListener, cleanup } from '@utils/event-cleanup.js';
 import { showError } from '@utils/index.js';
+import { carregarSobDemanda } from '@utils/carga-sob-demanda.js';
 import { getAllMapNamesStore, getCurrentMapName } from '@store';
 
 /**
@@ -211,7 +212,7 @@ export class KmzExportSection {
         try {
             // Loaded on demand so JSZip and the symbol generators stay out of
             // the sidebar bundle until an export is actually requested.
-            const { exportMapAsKmz } = await import('@js/import_export/kmz/index.js');
+            const { exportMapAsKmz } = await carregarSobDemanda(() => import('@js/import_export/kmz/index.js'));
             await exportMapAsKmz({
                 mapName,
                 options: {

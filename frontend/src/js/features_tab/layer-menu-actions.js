@@ -64,11 +64,11 @@ const BLOCKED_BY_SOURCE_LOCK = new Set([LayerMenuAction.MOVE]);
 
 /** The sentence shown when the command refuses because the current map is locked. */
 export const LOCKED_SOURCE_MAP_NOTICE =
-    'Este mapa está travado. Destrave-o para mover a camada, ou copie-a.';
+    'Este mapa está bloqueado. Desbloqueie-o para mover a camada, ou copie-a.';
 
 /** The sentence shown when the command refuses because the layer itself is locked. */
 export const LOCKED_LAYER_NOTICE =
-    'Esta camada está travada. Destrave-a para movê-la, ou copie-a.';
+    'Esta camada está bloqueada. Desbloqueie-a para movê-la, ou copie-a.';
 
 /**
  * The sentence shown when the atlas has a single map.

@@ -25,14 +25,19 @@
  *
  * Add the ordinary causes (the network is down, the tile server is down, the URL an
  * administrator typed by hand is wrong) and the honest count of what the client actually knows
- * is: the request did not succeed. That is the whole of it. So the notice states the fact, names
- * the HTTP status when there IS one because a status is measured and not guessed, declares the
- * cause unknown out loud, and offers to try again.
+ * is: the request did not succeed. That is the whole of it. So the notice states the fact and
+ * then says what the person CAN DO, which is the same whatever the cause: check the connection,
+ * try again, and tell an administrator if it persists. An administrator is the one reader who
+ * can tell a network drop from a missing grant, so the action routes the diagnosis to them
+ * instead of asking the person to make it.
  *
- * SAYING "I DO NOT KNOW" IS INFORMATION, not filler. Without that line the silence about the
- * cause reads as an accusation anyway: a person who sees a layer fail and no explanation
- * concludes they were shut out, which is the exact false belief 10.1 produces. The same choice
- * is already made in `groupPhrases.participatingReachUnknownNotice`.
+ * THE ACTION REPLACED A LIST OF HYPOTHESES, on the owner's word of 2026-09-22. Until then the
+ * body read "O motivo não é conhecido daqui: pode ser a rede, o servidor [...] ou uma restrição
+ * de acesso", followed by a sentence about the screen itself. It was honest and it was useless:
+ * three causes the person cannot tell apart and nothing to do about any of them. The restraint
+ * above still holds, in a shorter form: the text names no cause, and "acesso" is not one of its
+ * words. The HTTP status did not disappear either: it is a trailing "Código: 502", the line a
+ * person reads out to whoever they ask for help, and never the sentence that opens the body.
  *
  * THE COUNT IS PER LAYER, NEVER PER REQUEST. A single visible layer at a low zoom asks for
  * dozens of tiles and MapLibre fires one `error` event per failed request. A phrase built from
@@ -67,7 +72,7 @@
 export const RETRY_ACTION_LABEL = 'Tentar de novo';
 
 /** Label of the affordance that dismisses the notice without retrying. */
-export const DISMISS_ACTION_LABEL = 'Dispensar';
+export const DISMISS_ACTION_LABEL = 'Fechar';
 
 /**
  * The nouns the notice can speak about, other than the basemap.
@@ -201,21 +206,26 @@ export function layerLoadFailureNotice(names, noun = SURFACE_NOUN.CAMADA) {
 }
 
 /**
- * THE IGNORANCE, said out loud. See the file header for why this line is not filler.
+ * WHAT THE PERSON CAN DO, which is the body of the notice. See the file header for why it is an
+ * action and not a list of causes.
  *
- * It lists candidate causes WITHOUT choosing one, and it deliberately puts access LAST, after
- * the two mundane causes, because access is the reading a person arrives at on their own and
- * the one most likely to be wrong (clause 10.1).
+ * `retryable` decides only whether the sentence points at trying again. When nothing accused can
+ * be re-requested (the basemap alone, a 3D model, a 360 photo, a scene) the panel draws no retry
+ * button, and a sentence telling the person to "tentar de novo" beside a panel that offers no way
+ * to do it is the command the constitution says not to draw, in words.
+ * @param {{retryable?: boolean}} [options]
  * @returns {string}
  */
-export function layerLoadFailureCauseNotice() {
-    return 'O motivo não é conhecido daqui: pode ser a rede, o servidor que publica a camada, '
-        + 'ou uma restrição de acesso. A tela não sabe qual dos três, e não vai adivinhar.';
+export function layerLoadFailureActionNotice({ retryable = false } = {}) {
+    return retryable === true
+        ? 'Verifique sua conexão e tente de novo. Se continuar, avise o administrador.'
+        : 'Verifique sua conexão. Se continuar, avise o administrador.';
 }
 
 /**
- * THE MEASURED DETAIL, when there is one. A status code is something the client OBSERVED, so
- * it belongs on screen; what the code MEANS is not, and is not written here.
+ * THE MEASURED DETAIL, when there is one, as a discreet trailing code. A status code is
+ * something the client OBSERVED, so it may be shown; what the code MEANS is not, and is not
+ * written here. It is the line a person reads out to the administrator the body sends them to.
  *
  * Statuses arrive aggregated per layer, so more than one can be present (a 403 on one tile and
  * a 500 on the next). They are printed in ascending order, without interpretation.
@@ -233,8 +243,8 @@ export function layerLoadFailureStatusDetail(statuses) {
     }
     if (codes.length === 0) return '';
     codes.sort((a, b) => a - b);
-    if (codes.length === 1) return `O servidor respondeu ${codes[0]}.`;
-    return `O servidor respondeu ${codes.join(', ')}.`;
+    if (codes.length === 1) return `Código: ${codes[0]}`;
+    return `Códigos: ${codes.join(', ')}`;
 }
 
 /**

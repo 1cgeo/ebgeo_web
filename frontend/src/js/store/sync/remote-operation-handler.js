@@ -45,15 +45,19 @@ import {
 } from '@store/atlas-namespace.js';
 import { readGeneration, writeGeneration } from '../namespace-generation.js';
 import { pauseStoreWrites } from '../write-coordinator.js';
-import { createAtlas } from '../atlas/atlas.entity.js';
+import { ATLAS_SCHEMA_VERSION, createAtlas } from '../atlas/atlas.entity.js';
 import { generateUUID } from '../../utilities/uuid.js';
 import { isClearedPositionPayload } from '../map-position-clear.js';
 import {
     clearConfirmedVersion,
+    readConfirmedVersion,
     stampConfirmedVersion,
     stampConfirmedVersionFromRow,
     stampConfirmedVersionFromRows,
 } from './confirmed-version.js';
+
+/** Key of the schema marker in a scope's settings database (`repository.js` reads it at boot). */
+const SCHEMA_VERSION_KEY = 'schemaVersion';
 
 // ============================================================================
 // MODULE STATE
@@ -703,22 +707,22 @@ async function applyRemoteOperationInner(operation, guarded) {
             await applyRemoteCommentOp(operationType, entityId, mapId, data);
             break;
         case EntityType.MARKER_3D:
-            await applyRemoteCesium3dEntityOp('markers', EventTypes.MARKERS_3D_CHANGED, operationType, entityId, mapId, data);
+            await applyRemoteCesium3dEntityOp('markers', EventTypes.MARKERS_3D_CHANGED, operationType, entityId, mapId, data, operation.localRepair === true);
             break;
         case EntityType.MEASUREMENT_3D:
-            await applyRemoteCesium3dEntityOp('measurements', EventTypes.MEASUREMENTS_3D_CHANGED, operationType, entityId, mapId, data);
+            await applyRemoteCesium3dEntityOp('measurements', EventTypes.MEASUREMENTS_3D_CHANGED, operationType, entityId, mapId, data, operation.localRepair === true);
             break;
         case EntityType.VIEWSHED_3D:
-            await applyRemoteCesium3dEntityOp('viewsheds', EventTypes.VIEWSHEDS_3D_CHANGED, operationType, entityId, mapId, data);
+            await applyRemoteCesium3dEntityOp('viewsheds', EventTypes.VIEWSHEDS_3D_CHANGED, operationType, entityId, mapId, data, operation.localRepair === true);
             break;
         case EntityType.CAMERA_POSITION_3D:
-            await applyRemoteCameraOp(operationType, entityId, mapId, data);
+            await applyRemoteCameraOp(operationType, entityId, mapId, data, operation.localRepair === true);
             break;
         case EntityType.ORIENTATION_360:
-            await applyRemoteOrientation360Op(operationType, entityId, mapId, data);
+            await applyRemoteOrientation360Op(operationType, entityId, mapId, data, operation.localRepair === true);
             break;
         case EntityType.MARKER_360:
-            await applyRemoteMarker360Op(operationType, entityId, mapId, data);
+            await applyRemoteMarker360Op(operationType, entityId, mapId, data, operation.localRepair === true);
             break;
         case EntityType.MAP_POSITION:
         case EntityType.BASE_LAYER:
@@ -1599,6 +1603,35 @@ async function invalidateStreetview360Cache() {
 }
 
 /**
+ * @private The inbound 3D/360 entity as it is STORED, on a copy, with the confirmed revision it
+ * may honestly carry.
+ *
+ * The payload of a 3D/360 op is the AUTHOR's document, never a row the server serialised, so the
+ * `confirmedVersion` inside it is the base the author observed BEFORE the edit, which the server
+ * has just moved past. Stored verbatim, it is a stale base, and a stale base is worse than none
+ * (`confirmed-version.js`): the next local edit of the entity declares it and the server refuses
+ * a change the person has already seen. Two cases, and they differ:
+ *  - a PEER's op: no base, which is the rule the layer and the map already follow for a payload
+ *    the server did not date (`mergedLayerRevision`, `mergeRemoteMapUpdate`);
+ *  - the author's OWN op re-applied (`localRepair`: the ack-time repair of `resolveLocalEdit`,
+ *    and the pending-intent replay of a snapshot): the STORED entry is the one to believe,
+ *    because `confirmEntityVersion` stamps it from that very receipt. Until 2026-09-22 the repair
+ *    wrote the op's payload over the entry and threw the stamp away right after it was written,
+ *    so the author's second consecutive 3D/360 edit declared the pre-edit base and lost to itself.
+ *
+ * @param {Object|null} data - Inbound entity, or null for a deletion.
+ * @param {Object|null|undefined} stored - The entry currently on disk for the same id.
+ * @param {boolean} localRepair - Whether the op is this client's own, re-applied.
+ * @returns {Object|null} What to store.
+ */
+function inboundSideEntity(data, stored, localRepair) {
+    if (!data || typeof data !== 'object') return data;
+    const entity = { ...data };
+    const confirmed = localRepair ? readConfirmedVersion(stored) : null;
+    return confirmed !== null ? stampConfirmedVersion(entity, confirmed) : clearConfirmedVersion(entity);
+}
+
+/**
  * Applies a remote cesium3d ARRAY-entity op (markers / measurements / viewsheds). Persists into
  * the per-map cesium3d store's array bucket (replace-by-id / remove-by-id), then emits.
  *
@@ -1608,9 +1641,10 @@ async function invalidateStreetview360Cache() {
  * @param {string} entityId - The entity id (matches the stored item's `id`).
  * @param {string} mapId - Map UUID.
  * @param {Object|null} data - The entity (CREATE/UPDATE) or null (DELETE).
+ * @param {boolean} [localRepair=false] - The author's own op re-applied (see `inboundSideEntity`).
  * @returns {Promise<void>}
  */
-async function applyRemoteCesium3dEntityOp(bucket, changeEvent, opType, entityId, mapId, data) {
+async function applyRemoteCesium3dEntityOp(bucket, changeEvent, opType, entityId, mapId, data, localRepair = false) {
     const repo = handlerRepository();
     const mapName = mapResolver.resolveToName(mapId) || mapId;
     // A TRAVA DO DOCUMENTO LATERAL, PELO MESMO MOTIVO QUE O COMENTARIO JA TOMAVA A DELE. O par e
@@ -1627,7 +1661,8 @@ async function applyRemoteCesium3dEntityOp(bucket, changeEvent, opType, entityId
         if (opType === OperationType.DELETE) {
             if (idx !== -1) c3d[bucket].splice(idx, 1);
         } else if (data) {
-            if (idx !== -1) c3d[bucket][idx] = data; else c3d[bucket].push(data);
+            const entity = inboundSideEntity(data, idx !== -1 ? c3d[bucket][idx] : null, localRepair);
+            if (idx !== -1) c3d[bucket][idx] = entity; else c3d[bucket].push(entity);
         }
         await repo.saveCesium3d?.(mapName, c3d);
         await present(invalidateCesium3dCache);
@@ -1646,9 +1681,10 @@ async function applyRemoteCesium3dEntityOp(bucket, changeEvent, opType, entityId
  * @param {string} entityId - The camera position id.
  * @param {string} mapId - Map UUID.
  * @param {Object|null} [data] - Camera position ({ id, tilesetId, ... }) or null (DELETE).
+ * @param {boolean} [localRepair=false] - The author's own op re-applied (see `inboundSideEntity`).
  * @returns {Promise<void>}
  */
-async function applyRemoteCameraOp(opType, entityId, mapId, data) {
+async function applyRemoteCameraOp(opType, entityId, mapId, data, localRepair = false) {
     const repo = handlerRepository();
     const mapName = mapResolver.resolveToName(mapId) || mapId;
     // Mesmo documento `cesium3d:<mapa>` dos marcadores, mesma trava: a camera salva de um par
@@ -1661,7 +1697,7 @@ async function applyRemoteCameraOp(opType, entityId, mapId, data) {
             const key = Object.keys(c3d.cameraPositions).find((k) => c3d.cameraPositions[k]?.id === entityId);
             if (key) delete c3d.cameraPositions[key];
         } else if (data?.tilesetId) {
-            c3d.cameraPositions[data.tilesetId] = data;
+            c3d.cameraPositions[data.tilesetId] = inboundSideEntity(data, c3d.cameraPositions[data.tilesetId], localRepair);
         }
         await repo.saveCesium3d?.(mapName, c3d);
         await present(invalidateCesium3dCache);
@@ -1680,9 +1716,10 @@ async function applyRemoteCameraOp(opType, entityId, mapId, data) {
  * @param {string} entityId - The orientation id.
  * @param {string} mapId - Map UUID.
  * @param {Object|null} [data] - Orientation ({ id, photoName, ... }) or null (DELETE).
+ * @param {boolean} [localRepair=false] - The author's own op re-applied (see `inboundSideEntity`).
  * @returns {Promise<void>}
  */
-async function applyRemoteOrientation360Op(opType, entityId, mapId, data) {
+async function applyRemoteOrientation360Op(opType, entityId, mapId, data, localRepair = false) {
     const repo = handlerRepository();
     const mapName = mapResolver.resolveToName(mapId) || mapId;
     // Orientacao e marcador 360 moram no MESMO documento `sv360:<mapa>`, entao a trava e a mesma
@@ -1695,7 +1732,7 @@ async function applyRemoteOrientation360Op(opType, entityId, mapId, data) {
             const key = Object.keys(sv.orientations).find((k) => sv.orientations[k]?.id === entityId);
             if (key) delete sv.orientations[key];
         } else if (data?.photoName) {
-            sv.orientations[data.photoName] = data;
+            sv.orientations[data.photoName] = inboundSideEntity(data, sv.orientations[data.photoName], localRepair);
         }
         await repo.saveStreetview360?.(mapName, sv);
         await present(invalidateStreetview360Cache);
@@ -1713,9 +1750,10 @@ async function applyRemoteOrientation360Op(opType, entityId, mapId, data) {
  * @param {string} entityId - The 360 marker id.
  * @param {string} mapId - Map UUID.
  * @param {Object|null} data - The marker (CREATE/UPDATE) or null (DELETE).
+ * @param {boolean} [localRepair=false] - The author's own op re-applied (see `inboundSideEntity`).
  * @returns {Promise<void>}
  */
-async function applyRemoteMarker360Op(opType, entityId, mapId, data) {
+async function applyRemoteMarker360Op(opType, entityId, mapId, data, localRepair = false) {
     const repo = handlerRepository();
     const mapName = mapResolver.resolveToName(mapId) || mapId;
     // Mesma trava que `addMarker360`/`removeMarker360` tomam do lado local; ver a nota em
@@ -1728,7 +1766,8 @@ async function applyRemoteMarker360Op(opType, entityId, mapId, data) {
         if (opType === OperationType.DELETE) {
             if (idx !== -1) sv.markers.splice(idx, 1);
         } else if (data) {
-            if (idx !== -1) sv.markers[idx] = data; else sv.markers.push(data);
+            const marker = inboundSideEntity(data, idx !== -1 ? sv.markers[idx] : null, localRepair);
+            if (idx !== -1) sv.markers[idx] = marker; else sv.markers.push(marker);
         }
         await repo.saveStreetview360?.(mapName, sv);
         await present(invalidateStreetview360Cache);
@@ -2203,6 +2242,11 @@ export function applyRemoteSnapshot(snapshot, options = {}) {
             const atlas = { ...createAtlas(snapshot.atlas.name), ...snapshot.atlas,
                 mapOrder: snapshot.maps.map(map => map.id), lastActiveMapId: null };
             await context.repo.saveAtlas(atlas);
+            // A GERAÇÃO NASCE CARIMBADA, como todo escopo que nasce vazio (`seedAtlasRecord`,
+            // `prepareIsolatedScope`). Sem o carimbo do settings, o boot seguinte lia "carimbo
+            // ausente sobre escopo com dado" e relatava ESCOPO PRESERVADO como erro, a cada F5 num
+            // atlas de servidor, para sempre: nada mais escreve nesta chave de uma geração.
+            await context.repo.saveSetting(SCHEMA_VERSION_KEY, ATLAS_SCHEMA_VERSION);
             await applyRemoteSnapshotInner(snapshot);
             context.assertActive();
             // The pointer and cursor are a single durable commit; until this line every reader
@@ -2467,6 +2511,8 @@ async function applyRemoteSnapshotInner(snapshot) {
 
     const maps = Array.isArray(snapshot.maps) ? snapshot.maps : [];
     const keepMaps = new Set(maps.map(map => map.id));
+    // Whether any map of this snapshot carried a cesium3d document; see the announcement at the end.
+    let carriedCesium3d = false;
     for (const [id] of await repo.getAllMaps?.() ?? []) {
         if ('maps' in snapshot && !keepMaps.has(id)) await repo.deleteMap(id);
     }
@@ -2518,15 +2564,26 @@ async function applyRemoteSnapshotInner(snapshot) {
                     });
                 }
             }
+            // THE 3D AND 360 MEMORY MIRRORS DROP WITH THE WRITE, exactly as the live-op path already
+            // did (`applyRemoteCesium3dEntityOp`). Until 2026-09-22 the snapshot wrote the side
+            // document and left `memoryStore.cesium3d` holding what `setCurrentMap` had loaded,
+            // and every reader of the current map asks the mirror before the disk
+            // (`getCesium3dDataWithCache`). On a snapshot into a session already open (the
+            // `resync` of a structural marker, a recovery) the marker a colleague created while
+            // this client was away was on disk and invisible, and the NEXT local 3D edit wrote the
+            // stale mirror back over the disk, erasing it from this client with no error.
             if (map.cesium3d && typeof map.cesium3d === 'object') {
                 stampBucketedRevisions(map.cesium3d, CESIUM3D_BUCKETS);
                 await withSideDocument('cesium3d', map.id, 'applyRemoteSnapshot:cesium3d',
                     () => repo.saveCesium3d?.(map.id, map.cesium3d));
+                await present(invalidateCesium3dCache);
+                carriedCesium3d = true;
             }
             if (map.streetview360 && typeof map.streetview360 === 'object') {
                 stampBucketedRevisions(map.streetview360, STREETVIEW360_BUCKETS);
                 await withSideDocument('sv360', map.id, 'applyRemoteSnapshot:sv360',
                     () => repo.saveStreetview360?.(map.id, map.streetview360));
+                await present(invalidateStreetview360Cache);
             }
             // Spatial comments: the backend snapshot sends them as an ARRAY per map; normalize to
             // the { [id]: comment } shape the side-store + overlay expect. Absent for read-only
@@ -2582,6 +2639,14 @@ async function applyRemoteSnapshotInner(snapshot) {
     emit(EventTypes.GROUPS_CHANGED, {});
     // Signal the comment overlay to reload the active map's comments from the side-store.
     emit(EventTypes.COMMENT_UPDATED, {});
+    // The same announcement a live 3D op makes, once per snapshot and not per map: the open 3D
+    // scene reconciles against the store on these, and the 2D model badges only recount on them.
+    // Emitted AFTER the pending-intent replay above, so whoever reads sees the final projection.
+    if (carriedCesium3d) {
+        emit(EventTypes.MARKERS_3D_CHANGED, { mapName: null });
+        emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: null });
+        emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: null });
+    }
 }
 
 // ============================================================================
@@ -2777,6 +2842,13 @@ async function writeConfirmedEntityVersion(entityType, entityId, mapId, entityVe
     // Carimbar a revisao tambem e leitura-modificacao-escrita do documento inteiro, entao toma a
     // mesma trava que o apply e o escritor local: o recibo do proprio push chega enquanto o
     // usuario continua desenhando, e este era o terceiro escritor sem porta.
+    //
+    // AND THE MEMORY MIRROR DROPS WITH THE WRITE, as in every other writer of these documents that
+    // lives outside the store funnel (the live op, the snapshot). The cesium3d editor reads the
+    // mirror BEFORE the disk (`getCesium3dDataWithCache`), so a stamp written only to disk was
+    // invisible to the author's next edit, which declared the pre-stamp base and then wrote the
+    // mirror back over the stamp. The 360 editor reads the disk, but its readers use the mirror,
+    // and one rule for both documents is the one that stays true.
     const cesiumBucket = CESIUM3D_ENTITY_BUCKET[entityType];
     if (cesiumBucket) {
         return withSideDocument('cesium3d', mapName, 'confirmEntityVersion:cesium3d', async () => {
@@ -2784,6 +2856,7 @@ async function writeConfirmedEntityVersion(entityType, entityId, mapId, entityVe
             if (!stampInBucket(document?.[cesiumBucket], entityId, entityVersion)) return false;
             context.assertActive();
             await repo.saveCesium3d?.(mapName, document);
+            await present(invalidateCesium3dCache);
             return true;
         });
     }
@@ -2794,6 +2867,7 @@ async function writeConfirmedEntityVersion(entityType, entityId, mapId, entityVe
             if (!stampInBucket(document?.[streetviewBucket], entityId, entityVersion)) return false;
             context.assertActive();
             await repo.saveStreetview360?.(mapName, document);
+            await present(invalidateStreetview360Cache);
             return true;
         });
     }

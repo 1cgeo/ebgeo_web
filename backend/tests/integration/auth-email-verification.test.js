@@ -10,7 +10,7 @@
 // leaving both would make this suite contract the two opposite behaviours at once.
 //
 // The e-mail-less account did not disappear from the product — it moved to the path that
-// always owned it, `POST /api/v1/users` (admin), whose schema has no e-mail field. That is
+// always owned it, `POST /api/v1/users` (admin), where the e-mail field is optional. That is
 // why the gate in login() is `user.email && !user.email_verified` and must stay
 // conditional; the discrimination for it lives in auto-cadastro-exige-email.test.js.
 

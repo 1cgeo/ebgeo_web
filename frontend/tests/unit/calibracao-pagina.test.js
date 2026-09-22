@@ -346,13 +346,14 @@ describe('pagina de calibracao 360 (porte do ebgeo_360)', () => {
         // PostGIS, e o modo mapa daqui nem consome tile vetorial: desenha uma
         // fonte geojson montada do payload de `/projects/:slug/map`.
         //
-        // A forma da assercao foi decidida depois do grep, nao antes. Existem hoje
-        // DUAS mencoes ao termo, e as duas sao negacoes: o cabecalho de
-        // project-map.js ("Nada de PMTiles: este backend declara o PMTiles
-        // descontinuado") e o texto do dialogo de exclusao em app.js ("e nao um
-        // PMTiles a regenerar"). A segunda esta numa STRING de interface, nao num
-        // comentario, entao "so em comentario" reprovaria o codigo certo. A regra
-        // que passa pelo motivo certo e esta: qualquer mencao tem de NEGAR o uso.
+        // A forma da assercao foi decidida depois do grep, nao antes. Havia DUAS
+        // mencoes ao termo, e as duas eram negacoes: o cabecalho de project-map.js
+        // ("Nada de PMTiles: este backend declara o PMTiles descontinuado") e o
+        // texto do dialogo de exclusao em app.js. A segunda saiu em 2026-09-22, na
+        // reescrita dos avisos (era arquitetura dita ao operador), mas uma mencao
+        // numa STRING de interface continua possivel, entao "so em comentario"
+        // reprovaria o codigo certo. A regra que passa pelo motivo certo e esta:
+        // qualquer mencao tem de NEGAR o uso.
         const CODIGO_PMTILES = /\bnew\s+PMTiles\b|\baddProtocol\b|pmtiles:\/\/|\.pmtiles\b|from\s+['"][^'"]*pmtiles|\btippecanoe\b/i;
         const comoCodigo = linhasQueCasam(CODIGO_PMTILES);
         expect(

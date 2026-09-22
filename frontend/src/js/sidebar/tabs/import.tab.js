@@ -24,6 +24,8 @@ import { isViewer3DOpen } from '@utils/viewer3d-state.js';
 import { isCurrentMapLockedSync } from '@store/index.js';
 import { SIDEBAR_TABS } from '@sidebar/sidebar.constants.js';
 import { getStateManager } from '@store/services.js';
+import { serverMessageOr } from '@utils/request-failure.js';
+import { carregarSobDemanda } from '@utils/carga-sob-demanda.js';
 
 /**
  * Import format configurations.
@@ -387,7 +389,7 @@ export class ImportTab {
             showSuccess('Arquivo importado com sucesso');
         } catch (error) {
             console.error('Import error:', error);
-            showError(`Erro ao importar: ${error.message}`);
+            showError(`Não foi possível importar o arquivo: ${serverMessageOr(error, 'erro inesperado.')}`);
         }
     }
 
@@ -410,7 +412,7 @@ export class ImportTab {
                 return;
             }
 
-            const { createCSVConfigPanel } = await import('../../import_export/csv/index.js');
+            const { createCSVConfigPanel } = await carregarSobDemanda(() => import('../../import_export/csv/index.js'));
 
             const panelResult = createCSVConfigPanel({
                 csvText,
@@ -433,7 +435,7 @@ export class ImportTab {
             );
         } catch (error) {
             console.error('CSV import error:', error);
-            showError(`Erro ao processar CSV: ${error.message}`);
+            showError(`Não foi possível ler o CSV: ${serverMessageOr(error, 'erro inesperado.')}`);
         }
     }
 
@@ -483,7 +485,7 @@ export class ImportTab {
         }
 
         try {
-            const { createBatchPointsPanel } = await import('@modals/batch-points.modal.js');
+            const { createBatchPointsPanel } = await carregarSobDemanda(() => import('@modals/batch-points.modal.js'));
 
             const panelResult = createBatchPointsPanel({
                 onSuccess: () => {

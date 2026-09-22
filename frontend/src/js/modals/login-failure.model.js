@@ -31,14 +31,14 @@ import { classifyRequestFailure, RequestFailure } from '@utils/request-failure.j
 
 /** Frases por classe de falha que NÃO é o servidor respondendo sobre a identidade de quem pede. */
 const POR_CLASSE = Object.freeze({
-    [RequestFailure.NETWORK]: 'Não foi possível falar com o servidor. Verifique sua conexão e '
-        + 'tente de novo; sua senha não está em questão.',
-    [RequestFailure.SERVER]: 'O servidor teve um problema ao responder. Tente de novo em '
-        + 'instantes; sua senha não está em questão.',
+    [RequestFailure.NETWORK]: 'Não foi possível conectar ao servidor. Verifique a conexão e '
+        + 'tente de novo (o problema não é a senha).',
+    [RequestFailure.SERVER]: 'Houve um erro no servidor. Tente de novo em instantes (o '
+        + 'problema não é a senha).',
     [RequestFailure.RATE_LIMITED]: 'Muitas tentativas em pouco tempo. Espere alguns minutos antes '
         + 'de tentar de novo.',
-    [RequestFailure.MISSING]: 'O servidor respondeu que este endereço não existe. Avise quem '
-        + 'administra o EBGeo.'
+    [RequestFailure.MISSING]: 'O serviço de entrada não foi encontrado no servidor. Avise o '
+        + 'administrador do EBGeo.'
 });
 
 /** Última linha, quando nem a classe nem o servidor dizem algo utilizável. */

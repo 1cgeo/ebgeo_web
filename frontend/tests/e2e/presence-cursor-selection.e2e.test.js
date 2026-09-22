@@ -32,6 +32,17 @@ import {
     newClientId,
     waitFor,
 } from './helpers/harness.js';
+import { seedPublicCatalogRefs } from './helpers/db.js';
+
+/**
+ * A CENA DA PRIMEIRA PESSOA É UMA LINHA PÚBLICA DO CATÁLOGO, e não um nome inventado, desde
+ * 2026-09-22. O escopo de um cursor 3D, de cena ou de 360 passou a ser resolvido no servidor e
+ * recortado por destinatário (`backend/src/modules/collab/collab.recorte.js`), e um identificador
+ * que não resolve é privado para todos: com `'museum'` solto, este caso passaria a medir a
+ * redação, e não o transporte que ele existe para prender. O recorte em si é
+ * `backend/tests/ws/presenca-escopo-recortado.repro.test.js`.
+ */
+const CENA = `museum-${generateUUID().slice(0, 8)}`;
 
 describe.skipIf(E2E_SKIP)('§Awareness — presence, cursor & selection over real WS', () => {
     /** Owner / user A. @type {import('../../src/js/store/sync/api-client.js').ApiClient} */
@@ -62,6 +73,7 @@ describe.skipIf(E2E_SKIP)('§Awareness — presence, cursor & selection over rea
     const idOf = (u) => u.id ?? u.userId ?? u.sub;
 
     beforeAll(async () => {
+        await seedPublicCatalogRefs({ tilesets: [CENA] });
         apiA = makeApi();
         apiB = makeApi();
 
@@ -150,9 +162,9 @@ describe.skipIf(E2E_SKIP)('§Awareness — presence, cursor & selection over rea
 
     it('relays first-person metres and preserves the pose in a late join snapshot', async () => {
         const position = { x: 3.82, y: 0.55, z: 1.42 };
-        wsA.sendCursor({ surface: 'fp', tilesetId: 'museum', position, mapId });
+        wsA.sendCursor({ surface: 'fp', tilesetId: CENA, position, mapId });
         const frame = await waitFor(() => bCursors.find((c) => c.surface === 'fp'));
-        expect(frame).toMatchObject({ surface: 'fp', tilesetId: 'museum', position, mapId });
+        expect(frame).toMatchObject({ surface: 'fp', tilesetId: CENA, position, mapId });
         let snapshot;
         const late = makeWs(apiB, { clientId: newClientId() });
         late.on('connected', (msg) => { snapshot = msg; });
@@ -160,11 +172,11 @@ describe.skipIf(E2E_SKIP)('§Awareness — presence, cursor & selection over rea
             await late.connect(atlasId);
             const peer = snapshot.usersOnline.find((u) => u.id === userIdA);
             expect(peer.cursorPosition).toEqual(position);
-            expect(peer.cursorContext).toMatchObject({ surface: 'fp', tilesetId: 'museum', mapId });
+            expect(peer.cursorContext).toMatchObject({ surface: 'fp', tilesetId: CENA, mapId });
         } finally {
             late.disconnect();
         }
-        wsA.sendCursor({ surface: 'fp', tilesetId: 'museum', position: null, mapId });
+        wsA.sendCursor({ surface: 'fp', tilesetId: CENA, position: null, mapId });
         await waitFor(() => bCursors.some((c) => c.surface === 'fp' && c.position === null));
     });
 

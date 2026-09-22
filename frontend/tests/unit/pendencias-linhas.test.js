@@ -166,7 +166,8 @@ describe('montarPendencias: as três fontes viram uma lista', () => {
         expect(preservada.origemLabel).toBe('Guardada de uma sessão anterior');
         expect(preservada.atlasId).toBe('atlas-a');
         expect(antiga.classe).toBe(PendenciaClasse.REVISAO);
-        expect(antiga.classeLabel).toBe('Quarentena de protocolo');
+        // Rótulo na língua de quem usa: "quarentena de protocolo" era vocabulário interno.
+        expect(antiga.classeLabel).toBe('De versão anterior');
     });
 
     it('separa figura à espera de envio de figura recusada e ignora a confirmada', () => {

@@ -131,7 +131,7 @@ class TemporalSettingsModal {
         this._body = body;
 
         body.appendChild(
-            this._field('Modo', 'Datas reais (absoluto) ou offsets militares D+N (relativo).', this._modeSelect())
+            this._field('Modo', 'Datas reais (absoluto) ou contagem militar D+N (relativo).', this._modeSelect())
         );
         body.appendChild(
             this._field('Unidade de divisão', 'Granularidade da régua de tempo e do passo do cursor.', this._unitSelect())
@@ -160,7 +160,7 @@ class TemporalSettingsModal {
         relGroup.className = 'temporal-settings-group';
         relGroup.dataset.when = TEMPORAL_MODES.RELATIVO;
         relGroup.appendChild(
-            this._field('Início', 'Offset da origem (normalmente 0 = D).', this._relativeOffsetField('inicio'))
+            this._field('Início', 'Deslocamento a partir do Dia D (normalmente 0).', this._relativeOffsetField('inicio'))
         );
         relGroup.appendChild(
             this._field('Fim', 'Ex.: 300 para D+300.', this._relativeOffsetField('fim'))
@@ -173,7 +173,7 @@ class TemporalSettingsModal {
         relGroup.appendChild(
             this._field(
                 'Data de D (origem)',
-                'Apenas a referência de exibição do D+N. NÃO move as feições — só rotula a régua. Para mover, use "Reagendar".',
+                'Só muda o rótulo D+N da régua; as feições não se movem. Para movê-las, use "Reagendar".',
                 this._dDateInput
             )
         );
@@ -409,14 +409,14 @@ class TemporalSettingsModal {
             const refD = Number.isFinite(cfg.origem) ? cfg.origem : this._defaultOrigin();
             const delta = newD - refD;
             if (delta === 0) {
-                showToast('A data do Dia D não mudou — nada a reagendar.', 'info');
+                showToast('A data do Dia D não mudou. Não há nada a reagendar.', 'info');
                 return;
             }
 
             const confirmed = await showConfirm('Reagendar todas as feições?', {
                 message:
-                    'As feições temporais e trajetórias serão deslocadas no tempo para o novo Dia D.\n' +
-                    'Os offsets D+N são mantidos; as datas reais mudam. Esta ação não pode ser desfeita.',
+                    'As feições temporais e as trajetórias passam para o novo Dia D. Os valores D+N não mudam; as datas, sim.\n' +
+                    'Esta ação não pode ser desfeita.',
                 confirmText: 'Reagendar',
             });
             if (!confirmed) return;
@@ -435,7 +435,7 @@ class TemporalSettingsModal {
             if (gravou === true) this._close();
         } catch (error) {
             console.warn('Failed to reschedule features:', error);
-            showWarning('Falha ao reagendar as feições.');
+            showWarning('Não foi possível reagendar as feições. Tente de novo.');
         } finally {
             this._busy = false;
         }
@@ -499,7 +499,7 @@ class TemporalSettingsModal {
             if (config === null) return;
         } catch (error) {
             console.warn('Failed to persist temporal settings:', error);
-            showWarning('Falha ao salvar as configurações temporais.');
+            showWarning('Não foi possível salvar a linha do tempo. Tente de novo.');
             return;
         } finally {
             this._busy = false;

@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAdminUser, loginUser } from '../helpers/fixtures.js';
+import { invalidateAppConfigCache } from '../../src/modules/config/config.cache.js';
 
 describe('Config — admin overrides (F4)', () => {
   let app, db, adminTok, userTok;
@@ -73,6 +74,66 @@ describe('Config — admin overrides (F4)', () => {
     assert.equal(cfg.body.data.features.grid, true);
     // The earlier app.title override must still be there (the merge did not wipe it).
     assert.equal(cfg.body.data.app.title, 'Meu EBGeo');
+  });
+
+  // A CHAVE PODADA (2026-09-22, decisão do dono). `map2d.globe_projection` era a caixa "Projeção
+  // globo" da aba Sistema, e desde 2026-08-16 nenhum leitor no cliente a consultava: a projeção é
+  // do ATLAS, globo por padrão. O dono desmarcou a caixa, o mapa continuou globo, e ela foi lida
+  // como invertida. A caixa saiu, e com ela a chave: o servidor a RECUSA no corpo e a PODA do
+  // documento gravado, na leitura e na escrita (`podarProjecaoDoPainel`).
+  //
+  // O INSUMO É A LINHA DE UMA INSTALAÇÃO QUE SALVOU A CAIXA ANTES DA ATUALIZAÇÃO, e ele é escrito
+  // DIRETO NO BANCO, fundido sobre o que os casos anteriores gravaram, porque a API já não o
+  // produz. É a mesma forma de `config-effective-invariant.repro.test.js` para o zoom.
+  //
+  // CONTROLE NEGATIVO: tire a poda da leitura e o GET serve `false`; tire a da escrita e a chave
+  // sobrevive ao salvamento; troque o `forbidden()` por nada e o último PUT responde 200 e grava.
+  it('map2d.globe_projection: a linha antiga não quebra nada, não é servida e cicatriza; o corpo que a mande leva 422', async () => {
+    const linhaGravada = async () =>
+      (await db.query("SELECT value FROM config_settings WHERE key = 'app_config'")).rows[0].value;
+    const put = (body) => supertest(app)
+      .put('/api/v1/config/admin')
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send(body);
+
+    await db.query(
+      `INSERT INTO config_settings (key, value) VALUES ('app_config', $1::jsonb)
+         ON CONFLICT (key) DO UPDATE SET value = config_settings.value
+           || jsonb_build_object('map2d',
+                COALESCE(config_settings.value->'map2d', '{}'::jsonb) || ($1::jsonb->'map2d'))`,
+      [JSON.stringify({ map2d: { globe_projection: false, maxPitch: 70 } })],
+    );
+    // Off under NODE_ENV=test anyway; called so the case stays honest if the memo is forced on.
+    invalidateAppConfigCache();
+
+    // Controle do insumo: a linha TEM a chave, senão o resto mediria um banco limpo.
+    assert.strictEqual((await linhaGravada()).map2d.globe_projection, false);
+
+    // A LEITURA não quebra e não serve a chave, em nenhum dos três lugares.
+    const cfg = await supertest(app).get('/api/v1/config').expect(200);
+    assert.ok(!('globe_projection' in cfg.body.data.map2d), 'o GET /config não serve a chave');
+    assert.equal(cfg.body.data.map2d.maxPitch, 70, 'a poda é cirúrgica: a vizinha da linha velha vale');
+    assert.equal(cfg.body.data.map2d.minZoom, 2);
+
+    const adminView = await supertest(app)
+      .get('/api/v1/config/admin')
+      .set('Authorization', `Bearer ${adminTok}`)
+      .expect(200);
+    assert.ok(!('globe_projection' in adminView.body.data.effective.map2d), 'nem o efetivo do painel');
+    assert.ok(!('globe_projection' in adminView.body.data.overrides.map2d), 'nem o eco do documento gravado');
+
+    // O SALVAMENTO SEGUINTE, de outra chave, passa e CICATRIZA a linha.
+    await put({ map2d: { maxPitch: 65 } }).expect(200);
+    const cicatrizada = await linhaGravada();
+    assert.ok(!('globe_projection' in cicatrizada.map2d), 'a chave morta sai do documento gravado');
+    assert.equal(cicatrizada.map2d.maxPitch, 65);
+
+    // O CORPO que ainda a mande (uma aba do painel aberta antes da atualização) é recusado
+    // nomeando o campo, em vez de um 200 sobre nada, e nada é gravado.
+    const recusa = await put({ map2d: { globe_projection: true } });
+    assert.equal(recusa.status, 422);
+    assert.match(JSON.stringify(recusa.body), /globe_projection/);
+    assert.ok(!('globe_projection' in (await linhaGravada()).map2d), 'a recusa não gravou nada');
   });
 
   it('validation rejects bad types and empty payloads (422)', async () => {

@@ -34,6 +34,7 @@ import mapManager from './store-state-manager.js';
 import { withGestureBatch } from './sync/gesture-batch.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
+import { forgetRememberedMapView, personViewTarget } from './vista-da-pessoa.js';
 
 /**
  * Saves the view of a map: what whoever enters it next will see.
@@ -68,6 +69,8 @@ export async function saveMapView(view, mapName = null) {
     }
 
     const targetMap = mapName || mapManager.getCurrentMapName();
+    // The remembered view of the person saving, resolved NOW, in the atlas the gesture happened in.
+    const alvoDaVistaLembrada = personViewTarget(targetMap);
     if (await isMapLocked(targetMap)) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
             operation: 'saveMapView', reason: 'map_locked'
@@ -75,9 +78,10 @@ export async function saveMapView(view, mapName = null) {
         return false;
     }
 
-    const baseChanged = typeof view.baseLayer === 'string' && view.baseLayer.length > 0
-        && view.baseLayer !== await getCurrentBaseLayer(targetMap);
-    const temporalChanged = typeof view.temporalEnabled === 'boolean'
+    const carriesBase = typeof view.baseLayer === 'string' && view.baseLayer.length > 0;
+    const carriesTemporal = typeof view.temporalEnabled === 'boolean';
+    const baseChanged = carriesBase && view.baseLayer !== await getCurrentBaseLayer(targetMap);
+    const temporalChanged = carriesTemporal
         && view.temporalEnabled !== await isMapTemporalSavedEnabled(targetMap);
 
     await withGestureBatch(async () => {
@@ -86,6 +90,14 @@ export async function saveMapView(view, mapName = null) {
         if (baseChanged) await setBaseLayer(view.baseLayer, targetMap);
         if (temporalChanged) await setMapTemporalSaved(targetMap, view.temporalEnabled);
     });
+
+    // THE SAVER NOW LOOKS AT EXACTLY WHAT WAS SAVED, so their remembered deviation for this map is
+    // forgotten, field by field (owner, 2026-09-22): a base or a switch the view did not carry
+    // stays remembered. From here on this person follows the saved view like anyone who never
+    // chose, and a colleague saving later reaches them on the next entry. Other people's remembered
+    // views are theirs, on their computers. Writing the saved values AS the remembered view was the
+    // alternative rejected: it would freeze the saver on this save forever.
+    forgetRememberedMapView(alvoDaVistaLembrada, { baseLayer: carriesBase, temporalEnabled: carriesTemporal });
     return true;
 }
 

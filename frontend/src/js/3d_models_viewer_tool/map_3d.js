@@ -1,6 +1,11 @@
 // Path: js/3d_models_viewer_tool/map_3d.js
 import config from '@js/config.js';
-import { alternarModoComentario3D, modoComentario3DAtivo } from './tools/comments-3d.js';
+import {
+    alternarModoComentario3D,
+    modoComentario3DAtivo,
+    iniciarComentarios3D,
+    pararComentarios3D
+} from './tools/comments-3d.js';
 import {
     saveCameraPosition,
     getCameraPosition,
@@ -39,7 +44,9 @@ import {
 } from '@catalog/forma-3d.js';
 import { requestStatus } from '@utils/request-failure.js';
 import { model3dFailures, statusOfCesiumTileFailure } from './model3d-failure.js';
+import { layerLoadFailureNotice, SURFACE_NOUN } from '@js/terrain/data-layer-phrases.js';
 import { cacheDeTileset } from './services/orcamento-de-memoria.js';
+import { teardownCesiumViewer, throwIfTeardownFailed } from './services/viewer-teardown.js';
 
 // ===== GLOBAL STATE MANAGEMENT =====
 let cesiumState = {
@@ -53,6 +60,37 @@ let cesiumState = {
     currentTilesetId: null,  // Track currently active tileset
     screenSpaceHandler: null  // Track ScreenSpaceEventHandler for cleanup
 };
+
+/**
+ * Bumped by every teardown (`cleanup3DFeatures`). An opening that started before it compares the
+ * value it captured, because before the viewer exists there is no `isDestroyed()` to ask.
+ */
+let teardownGeneration = 0;
+
+/**
+ * An opening step found the viewer it was building on torn down under it.
+ *
+ * Not a failure of the model: nothing is reported and no toast is shown. The opening stops where it
+ * noticed, without touching the destroyed viewer again (every getter of a destroyed `Viewer` reads
+ * a widget that is gone and throws a `TypeError`), and `openViewerWithTileset` returns quietly.
+ */
+class ViewerTornDownError extends Error {
+    constructor() {
+        super('3D viewer torn down while it was opening');
+        this.name = 'ViewerTornDownError';
+    }
+}
+
+/**
+ * Stops an opening whose viewer is no longer the live one.
+ * @param {object|null} viewer - The viewer the opening step is working on.
+ * @throws {ViewerTornDownError}
+ */
+function assertViewerStillOpen(viewer) {
+    if (!viewer || viewer.isDestroyed() || cesiumState.viewer !== viewer) {
+        throw new ViewerTornDownError();
+    }
+}
 
 // Track if navigation help has been initialized
 let navHelpInitialized = false;
@@ -121,7 +159,10 @@ async function loadCesiumAndInit() {
             cesiumState.isLoaded = true;
 
         } catch (error) {
-            console.error('Error loading Cesium:', error);
+            // A teardown during the load is not a load error: the page asked for it.
+            if (!(error instanceof ViewerTornDownError)) {
+                console.error('Error loading Cesium:', error);
+            }
             cesiumState.loadPromise = null;
             throw error;
         }
@@ -131,6 +172,7 @@ async function loadCesiumAndInit() {
 }
 
 async function initCesiumMap() {
+    const generation = teardownGeneration;
     const { bounds } = config.map3d;
     const extent = Cesium.Rectangle.fromDegrees(bounds.west, bounds.south, bounds.east, bounds.north);
     Cesium.Camera.DEFAULT_VIEW_RECTANGLE = extent;
@@ -158,6 +200,10 @@ async function initCesiumMap() {
         console.warn('Error creating terrain provider, using ellipsoid:', error);
         terrainProvider = new Cesium.EllipsoidTerrainProvider();
     }
+
+    // A teardown during the terrain request found no viewer to destroy; building one now would
+    // leave a live viewer behind a teardown that already ran.
+    if (generation !== teardownGeneration) throw new ViewerTornDownError();
 
     // Cesium 1.107+ uses baseLayer instead of imageryProvider
     let baseLayer = false;
@@ -240,6 +286,7 @@ async function initCesiumMap() {
     cesiumState.viewer = viewer;
 
     await setupTools(viewer);
+    assertViewerStillOpen(viewer);
 
     return viewer;
 }
@@ -287,6 +334,13 @@ async function createOptimizedTileset(viewer, tilesetConfig) {
         cullRequestsWhileMovingMultiplier: 60.0,
         foveatedScreenSpaceError: true,
     });
+
+    // THE VIEWER MAY HAVE GONE DURING THE REQUEST. The tileset is in no collection yet, so this
+    // function is its only owner, and it destroys it instead of orphaning its cache.
+    if (viewer.isDestroyed() || cesiumState.viewer !== viewer) {
+        tileset.destroy();
+        throw new ViewerTornDownError();
+    }
 
     viewer.scene.primitives.add(tileset);
 
@@ -352,6 +406,11 @@ async function createGlbModel(viewer, tilesetConfig) {
     }
 
     const model = await Cesium.Model.fromGltfAsync(modelOptions);
+    // Same as the tileset: torn down during the request, the model has no other owner.
+    if (viewer.isDestroyed() || cesiumState.viewer !== viewer) {
+        model.destroy();
+        throw new ViewerTornDownError();
+    }
     viewer.scene.primitives.add(model);
 
     return model;
@@ -367,12 +426,20 @@ async function setupTools(viewer) {
 
     try {
         const mouseCoordModule = await import('./tools/mouse_coordinates_3d.js');
-        cesiumState.modules.mouseCoordinates = mouseCoordModule;
-
         const screenshotModule = await import('./tools/screenshot_tool.js');
-        cesiumState.modules.screenshot = screenshotModule;
-
         const markerModule = await import('./tools/marker_tool_3d.js');
+        const presenceCursorModule = await import('./tools/presence_cursor_3d.js');
+        const measurementModule = await import('./tools/measurement_tool_3d.js');
+        const viewshedToolModule = await import('./tools/viewshed_tool_3d.js');
+
+        // ALL THE IMPORTS FIRST, AND ONE CHECK BEFORE ANY WIRING. A teardown during these awaits
+        // has already run every cleanup it could find; wiring now would hang bus listeners that
+        // nothing unhooks and hand the presence module a destroyed viewer. `initCesiumMap` sees
+        // the same fact right after this returns and stops the opening.
+        if (viewer.isDestroyed()) return;
+
+        cesiumState.modules.mouseCoordinates = mouseCoordModule;
+        cesiumState.modules.screenshot = screenshotModule;
         cesiumState.modules.markers = markerModule;
 
         // Initialize marker tool event listeners for map change detection
@@ -382,20 +449,15 @@ async function setupTools(viewer) {
 
         // Multiusuario: o ponteiro dos colegas dentro da cena. O tileset aberto e desta casa, e
         // por isso ele entra como provedor, em vez de o modulo importar este arquivo de volta.
-        const presenceCursorModule = await import('./tools/presence_cursor_3d.js');
         cesiumState.modules.presenceCursor = presenceCursorModule;
         presenceCursorModule.initPresenceCursor3D(viewer, { tilesetIdProvider: () => _currentTilesetId });
 
-        // Load new measurement tool
-        const measurementModule = await import('./tools/measurement_tool_3d.js');
         cesiumState.modules.measurements = measurementModule;
 
         if (measurementModule.initMeasurementToolListeners) {
             measurementModule.initMeasurementToolListeners();
         }
 
-        // Load new viewshed tool
-        const viewshedToolModule = await import('./tools/viewshed_tool_3d.js');
         cesiumState.modules.viewshedTool = viewshedToolModule;
 
         if (viewshedToolModule.initViewshedToolListeners) {
@@ -477,61 +539,69 @@ function resumeRendering() {
 // ===== MEMORY CLEANUP =====
 
 /**
- * Cleans up all 3D features and destroys the Cesium viewer
- * Removes all tilesets, entities, and event listeners to prevent memory leaks
+ * Cleans up all 3D features and destroys the Cesium viewer.
+ *
+ * ONE OWNER PER CESIUM OBJECT (`services/viewer-teardown.js`, which tells the defect of 2026-09-21
+ * at length): every tool releases what it added while the viewer is alive, and then
+ * `viewer.destroy()` releases what the viewer owns. This function used to empty `scene.primitives`
+ * and `scene.groundPrimitives` right before that, which destroyed the `DataSourceDisplay`'s own
+ * collections from outside and made `viewer.destroy()` throw on every page unload after the 3D
+ * viewer had been opened. Do not bring any `removeAll()` back here: the tileset, the viewshed
+ * sectors that some tool failed to release and every data source still attached are the scene's
+ * and the viewer's to destroy.
+ *
+ * Every step runs even when an earlier one throws, and what threw is rethrown AFTER the state below
+ * is reset, so the next opening starts clean and the defect table still hears about it.
+ * @throws {*} What a release step or the viewer's own `destroy()` threw.
  */
 export function cleanup3DFeatures() {
-    try {
-        if (cesiumState.modules.viewshedTool) {
-            cesiumState.modules.viewshedTool.clearAllViewField();
-        }
+    teardownGeneration += 1;
 
-        if (cesiumState.modules.mouseCoordinates) {
-            cesiumState.modules.mouseCoordinates.cleanupMouseCoordinates3D();
-        }
+    const viewer = cesiumState.viewer;
+    const modules = cesiumState.modules;
+    const measure = window.measure;
 
-        if (cesiumState.modules.presenceCursor) {
-            cesiumState.modules.presenceCursor.cleanupPresenceCursor3D();
-        }
+    const failures = teardownCesiumViewer(viewer, [
+        // The comment layer is mounted per model by `loadSingleTileset` and only `closeViewer`
+        // stopped it: a ScreenSpaceEventHandler, three bus listeners and entities on this viewer.
+        { name: 'comments', run: () => pararComentarios3D() },
+        { name: 'mouse coordinates', run: () => modules.mouseCoordinates?.cleanupMouseCoordinates3D() },
+        { name: 'presence cursors', run: () => modules.presenceCursor?.cleanupPresenceCursor3D() },
+        // The three tools below also clear their debounce timers and bus listeners, and null the
+        // viewer they hold, which is what their pending store reads compare against on return.
+        { name: 'markers', run: () => modules.markers?.cleanupMarkerTool?.() },
+        { name: 'measurements', run: () => modules.measurements?.cleanupMeasurementTool?.() },
+        { name: 'viewsheds', run: () => modules.viewshedTool?.cleanupViewshedTool?.() },
+        // Its data source was added by it, so it is removed by it, before the viewer goes.
+        { name: 'ephemeral measure', run: () => measure?.destroy?.() },
+        {
+            name: 'scene handler',
+            run: () => {
+                const handler = cesiumState.screenSpaceHandler;
+                cesiumState.screenSpaceHandler = null;
+                handler?.destroy();
+            }
+        },
+        {
+            // The tileset itself is the scene's (it was added to `scene.primitives`, which destroys
+            // what it holds); what is ours is the listener on its event.
+            name: 'model listener',
+            run: () => {
+                const remove = removeTileFailedListener;
+                removeTileFailedListener = null;
+                remove?.();
+            }
+        },
+    ]);
 
-        // Cleanup marker tool
-        if (cesiumState.modules.markers && cesiumState.modules.markers.cleanupMarkerTool) {
-            cesiumState.modules.markers.cleanupMarkerTool();
-        }
-
-        // Cleanup measurement tool
-        if (cesiumState.modules.measurements && cesiumState.modules.measurements.cleanupMeasurementTool) {
-            cesiumState.modules.measurements.cleanupMeasurementTool();
-        }
-
-        // Cleanup viewshed tool
-        if (cesiumState.modules.viewshedTool && cesiumState.modules.viewshedTool.cleanupViewshedTool) {
-            cesiumState.modules.viewshedTool.cleanupViewshedTool();
-        }
-    } catch (error) {
-        console.warn('Error cleaning modules:', error);
-    }
+    currentTileset = null;
+    _currentTilesetId = null;
+    activeToolId = null;
 
     // Detach the toolbar map-lock listener
     if (mapLockUnsub) {
         mapLockUnsub();
         mapLockUnsub = null;
-    }
-
-    // Cleanup ScreenSpaceEventHandler
-    if (cesiumState.screenSpaceHandler) {
-        cesiumState.screenSpaceHandler.destroy();
-        cesiumState.screenSpaceHandler = null;
-    }
-
-    if (cesiumState.viewer && !cesiumState.viewer.isDestroyed()) {
-        const scene = cesiumState.viewer.scene;
-
-        cesiumState.viewer.entities.removeAll();
-        cesiumState.viewer.dataSources.removeAll();
-        scene.primitives.removeAll();
-        scene.groundPrimitives.removeAll();
-        cesiumState.viewer.destroy();
     }
 
     if (cesiumState.resizeObserver) {
@@ -572,6 +642,8 @@ export function cleanup3DFeatures() {
 
     window.map = null;
     window.measure = null;
+
+    throwIfTeardownFailed(failures);
 }
 
 // ===== TOOLS INITIALIZATION =====
@@ -1024,6 +1096,10 @@ async function loadSingleTileset(viewer, tilesetId) {
 
     // Check for saved camera position
     const hasSavedPosition = await restoreCameraPosition(tilesetId);
+    // EVERY AWAIT BELOW IS A WINDOW FOR A TEARDOWN, and every getter of a destroyed `Viewer`
+    // (`camera`, `canvas`, `entities`, `scene`) reads a widget that is gone. The opening stops where
+    // it notices, instead of handing the destroyed viewer to the next tool.
+    assertViewerStillOpen(viewer);
 
     if (!hasSavedPosition) {
         // Use default location from config
@@ -1041,27 +1117,30 @@ async function loadSingleTileset(viewer, tilesetId) {
     // Render markers for this tileset (without activating the tool)
     if (cesiumState.modules.markers) {
         await cesiumState.modules.markers.renderMarkersForTileset(viewer, tilesetId);
+        assertViewerStillOpen(viewer);
     }
 
     // A CAMADA DE COMENTARIOS DESTE MODELO (2026-09-17). Montada a cada tileset aberto, como os
     // marcadores: a ancora do comentario 3D e o MODELO, entao trocar de modelo troca o conjunto.
-    // The viewer itself is loaded lazily; its tools share one comment layer.
+    // The module is a static import of this file, so there is no `import()` window before the
+    // layer takes the viewer.
     try {
-        const comentarios = await import('./tools/comments-3d.js');
-        await comentarios.iniciarComentarios3D(viewer, tilesetId);
-
+        await iniciarComentarios3D(viewer, tilesetId);
     } catch (erro) {
         console.error('Falha ao montar os comentarios do 3D:', erro);
     }
+    assertViewerStillOpen(viewer);
 
     // Render measurements for this tileset
     if (cesiumState.modules.measurements) {
         await cesiumState.modules.measurements.renderMeasurementsForTileset(viewer, tilesetId);
+        assertViewerStillOpen(viewer);
     }
 
     // Render viewsheds for this tileset
     if (cesiumState.modules.viewshedTool) {
         await cesiumState.modules.viewshedTool.renderViewshedsForTileset(viewer, tilesetId);
+        assertViewerStillOpen(viewer);
     }
 
     return currentTileset;
@@ -1100,16 +1179,23 @@ async function loadCesiumAndInitWithTileset(tilesetId) {
         await loadCesiumAndInit();
     }
 
-    await loadSingleTileset(cesiumState.viewer, tilesetId);
+    const viewer = cesiumState.viewer;
+    assertViewerStillOpen(viewer);
+    await loadSingleTileset(viewer, tilesetId);
 
-    return cesiumState.viewer;
+    return viewer;
 }
 
 // Active MAP_LOCK_CHANGED unsubscribe for the 3D toolbar (see registerToolEventListeners).
 let mapLockUnsub = null;
 
 function registerToolEventListeners() {
+    const generation = teardownGeneration;
     setTimeout(() => {
+        // A teardown inside this window already unhooked everything; wiring now would leave the
+        // map-lock subscription below hanging with nothing to release it.
+        if (generation !== teardownGeneration) return;
+
         const buttons = document.querySelectorAll('.button-tool-3d');
 
         if (buttons.length === 0) {
@@ -1175,7 +1261,7 @@ function initCameraButtons() {
             if (semEdicaoSync()) return;
             const success = await saveCurrentCameraPosition();
             if (success) {
-                showSuccess('Posição da câmera salva!');
+                showSuccess('Posição da câmera salva.');
             }
         });
     }
@@ -1407,6 +1493,12 @@ export async function openViewerWithTileset(tilesetId) {
         }
         resumeRendering();
     } catch (error) {
+        // The page tore the viewer down while it opened (the unload, in practice). Nothing failed
+        // to load, so nothing is reported, and none of the wiring below runs over a dead viewer.
+        if (error instanceof ViewerTornDownError) {
+            hideLoading3DScreen();
+            return;
+        }
         console.error(`Error loading 3D model "${tilesetId}":`, error);
         // THE ROOT DOCUMENT FAILED, and this is the choke point every door goes through: the
         // control, the catalog, the briefing and the deep link all end up in
@@ -1422,7 +1514,10 @@ export async function openViewerWithTileset(tilesetId) {
             requestStatus(error)
         );
         hideLoading3DScreen();
-        showError('Erro ao carregar modelo 3D');
+        // The panel's own sentence, as the 360 and the scene already do, so the toast and the
+        // panel cannot say two different things about one failure.
+        const modelName = config.tilesets?.find(t => t.id === tilesetId)?.name;
+        showError(layerLoadFailureNotice([modelName], SURFACE_NOUN.MODELO_3D));
         throw error;
     }
 
@@ -1469,8 +1564,9 @@ export async function openViewerWithTileset(tilesetId) {
  */
 export function closeViewer() {
     // A camada de comentarios sai junto: ela guarda um handler do Cesium, ouvintes do barramento e
-    // um cartao no DOM.
-    import('./tools/comments-3d.js').then((m) => m.pararComentarios3D()).catch(() => {});
+    // um cartao no DOM. Synchronous, through the static import this file already had of that module:
+    // the stop no longer hangs on a promise that nothing orders against the next opening.
+    pararComentarios3D();
 
     if (cesiumState.viewer && !cesiumState.viewer.isDestroyed() && cesiumState.isVisible) {
         // Deselect any selected marker and close its panel

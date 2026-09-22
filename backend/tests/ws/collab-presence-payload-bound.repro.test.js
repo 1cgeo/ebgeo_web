@@ -31,6 +31,10 @@ import {
   createMap,
   createShare,
   loginUser,
+  seedCatalogRefs,
+  dropCatalogRefs,
+  seedPublic360Photos,
+  drop360Fixture,
 } from '../helpers/fixtures.js';
 import { createWsClient } from '../helpers/ws-client.js';
 
@@ -46,10 +50,24 @@ const SNAPSHOT_CEILING_BYTES = 64 * 1024;
 /** Size of the abusive blob: comfortably under the 10 MB frame ceiling, fast to build. */
 const HUGE = 'A'.repeat(2 * 1024 * 1024);
 
+/**
+ * OS ESCOPOS DE 3D E DE 360 SÃO RECURSOS DE VERDADE, e PÚBLICOS, desde 2026-09-22. O escopo de um
+ * cursor ou de uma seleção nessas superfícies passou a ser resolvido no catálogo e recortado por
+ * destinatário (`collab.recorte.js`), e um identificador que não resolve é privado para todos: os
+ * casos deste arquivo, que usavam nomes inventados e esperavam vê-los chegar ao par, mediriam a
+ * redação e não o transporte. Semeados públicos, eles continuam medindo o que sempre mediram, que é
+ * o quadro inteiro atravessando. O recorte em si tem arquivo próprio,
+ * `tests/ws/presenca-escopo-recortado.repro.test.js`.
+ */
+const SUFIXO = randomUUID().slice(0, 8);
+const TILE = `3d-PCL-${SUFIXO}`;
+const FOTO = `IMG_20240712_143201-${SUFIXO}.jpg`;
+
 describe('WebSocket collab — presence payload is validated and bounded (achado #9)', () => {
   let app, db, server;
   let owner, ownerToken, viewer, viewerToken, commenter, commenterToken, editor, editorToken;
   let openClients;
+  let projeto360;
 
   before(async () => {
     const env = await setupTestEnv();
@@ -69,10 +87,14 @@ describe('WebSocket collab — presence payload is validated and bounded (achado
     viewerToken = await loginUser(app, viewer.username, viewer.password);
     commenterToken = await loginUser(app, commenter.username, commenter.password);
     editorToken = await loginUser(app, editor.username, editor.password);
+    await seedCatalogRefs(db, { tilesets: [TILE] });
+    projeto360 = await seedPublic360Photos(db, [FOTO]);
   });
 
   after(async () => {
     if (server) await new Promise((resolve) => server.close(resolve));
+    await dropCatalogRefs(db, { tilesets: [TILE] });
+    await drop360Fixture(db, projeto360);
     await teardownTestEnv(db);
   });
 
@@ -225,10 +247,10 @@ describe('WebSocket collab — presence payload is validated and bounded (achado
     const peer = await connect(atlas.id, ownerToken, `p4-${randomUUID().slice(0, 8)}`);
 
     const markerId = randomUUID();
-    e.send({ type: 'selection', surface: '3d', featureIds: [markerId], mapId: map.name, tilesetId: '3d-PCL' });
+    e.send({ type: 'selection', surface: '3d', featureIds: [markerId], mapId: map.name, tilesetId: TILE });
     const r3d = await peer.waitForType('selection');
     assert.equal(r3d.surface, '3d');
-    assert.equal(r3d.tilesetId, '3d-PCL');
+    assert.equal(r3d.tilesetId, TILE);
     assert.deepEqual(r3d.featureIds, [markerId]);
 
     peer.clearMessages();
@@ -238,16 +260,16 @@ describe('WebSocket collab — presence payload is validated and bounded (achado
       surface: '360',
       featureIds: [poiId],
       mapId: map.name,
-      photoName: 'IMG_20240712_143201.jpg',
+      photoName: FOTO,
     });
     const r360 = await peer.waitForType('selection');
     assert.equal(r360.surface, '360');
-    assert.equal(r360.photoName, 'IMG_20240712_143201.jpg');
+    assert.equal(r360.photoName, FOTO);
     assert.deepEqual(r360.featureIds, [poiId]);
 
     // Deselect (empty list) must still travel — it is what clears the peer's highlight.
     peer.clearMessages();
-    e.send({ type: 'selection', surface: '3d', featureIds: [], mapId: map.name, tilesetId: '3d-PCL' });
+    e.send({ type: 'selection', surface: '3d', featureIds: [], mapId: map.name, tilesetId: TILE });
     const cleared = await peer.waitForType('selection');
     assert.deepEqual(cleared.featureIds, []);
   });
@@ -295,11 +317,11 @@ describe('WebSocket collab — presence payload is validated and bounded (achado
       surface: '360',
       position: { heading: 187.53, pitch: -0.2137 },
       mapId: map.name,
-      photoName: 'IMG_20240712_143201.jpg',
+      photoName: FOTO,
     });
     const c360 = await peer.waitForCursor();
     assert.equal(c360.surface, '360');
-    assert.equal(c360.photoName, 'IMG_20240712_143201.jpg');
+    assert.equal(c360.photoName, FOTO);
     assert.deepEqual(c360.position, { heading: 187.53, pitch: -0.2137 });
 
     // 3D: ponto picado no tileset, com altura, escopado pelo modelo.
@@ -309,11 +331,11 @@ describe('WebSocket collab — presence payload is validated and bounded (achado
       surface: '3d',
       position: { lng: -43.2099, lat: -22.9011, alt: 15.75 },
       mapId: map.name,
-      tilesetId: '3d-PCL',
+      tilesetId: TILE,
     });
     const c3d = await peer.waitForCursor();
     assert.equal(c3d.surface, '3d');
-    assert.equal(c3d.tilesetId, '3d-PCL');
+    assert.equal(c3d.tilesetId, TILE);
     assert.deepEqual(c3d.position, { lng: -43.2099, lat: -22.9011, alt: 15.75 });
 
     // E o que o late joiner recebe carrega a superficie junto: sem ela o roster desenharia o
@@ -324,7 +346,7 @@ describe('WebSocket collab — presence payload is validated and bounded (achado
     assert.ok(entry, 'editor missing from the join snapshot');
     assert.deepEqual(entry.cursorPosition, { lng: -43.2099, lat: -22.9011, alt: 15.75 });
     assert.equal(entry.cursorContext?.surface, '3d');
-    assert.equal(entry.cursorContext?.tilesetId, '3d-PCL');
+    assert.equal(entry.cursorContext?.tilesetId, TILE);
   });
 
   it('RECUSA a posicao da superficie errada, em vez de repassar meia coordenada', async () => {

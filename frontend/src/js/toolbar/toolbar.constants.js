@@ -201,11 +201,19 @@ export const STANDALONE_TOOLS = [];
  */
 export const TOGGLE_TOOLS = [
     {
+        // `requiresEdit` HIDES THE SNAP ON BOTH AXES, like undo and redo below: the POSTO through
+        // the `edit-affordance` mark (`view-mode.css`, for Leitor and Comentarista) and the ESTADO
+        // through the lock pass of `toolbar.control.js`. Hiding it on a locked map too, instead of
+        // drawing it and refusing the click, is the owner's decision of 2026-09-22, and the reason
+        // is written in `snapping/snap-availability.js`: the snap modifies drawing, and on a locked
+        // map there is no drawing left for it to modify. Until that day the flag was missing and
+        // the button stayed on screen for a Leitor.
         id: 'snapping',
         label: 'Snap',
         icon: TOOLBAR_ICONS.snapping,
         shortcut: 'G',
         statePath: 'ui.snapping.enabled',
+        requiresEdit: true,
     },
 ];
 

@@ -19,7 +19,7 @@
  *   | anônimo                    | (nenhum)      | (nenhuma)                                                   |
  *   | administrador global       | Administração | users, groups, config, catalog, personnel, grants, audit, diagnostico, uso, account |
  *   | produtor                   | Catálogo      | catalog, groups, grants, audit, account                     |
- *   | qualquer outro autenticado | Acessos       | groups, grants, account                                     |
+ *   | qualquer outro autenticado | Acessos       | grants, groups, account                                     |
  *
  * `account` ENTROU EM 2026-08-25, por decisão do chefe, e nas TRÊS de uma vez: "Minha conta"
  * deixou de ser modal (`modals/account-settings.modal.js`, apagado) e virou aba
@@ -68,7 +68,8 @@
  * O CREDENCIADO NÃO TEM LINHA PRÓPRIA, e a ausência é a decisão: desde 2026-08-20 o grupo de
  * acesso é entidade de USUÁRIO, com dono, e a autoridade sobre ele deixou de ser papel global
  * (`fn_can_administer_group`, no servidor). O credenciado mantém o eixo de RECURSO (lê todo
- * privado, concede e revoga) e sobre grupo pode o que qualquer autenticado pode: os dele. Isso
+ * privado, concede, e revoga o que ele mesmo originou) e sobre grupo pode o que qualquer
+ * autenticado pode: os dele. Isso
  * SUPERA por escrito a decisão de 2026-08-19 que lhe dava a aba Grupos como privilégio. E ele
  * continua SEM a aba Auditoria: a trilha do sistema não é acervo privado nem grupo próprio, e
  * como o gate do servidor lhe dá 403, oferecê-la seria a pior forma de dizer não.
@@ -154,15 +155,25 @@ const ABAS_DO_ADMINISTRADOR = Object.freeze([
 const ABAS_DO_PRODUTOR = Object.freeze(['catalog', 'groups', 'grants', 'audit', 'account']);
 
 /**
- * A de todo o resto de quem entrou: os grupos dele, as concessões dele e a conta dele, nessa ordem.
+ * A de todo o resto de quem entrou: as concessões dele, os grupos dele e a conta dele, nessa ordem.
  *
- * A ORDEM É A DE MONTAGEM, e a primeira aba é a que o painel abre. "Grupos" continua na frente
- * porque é a tela que já existia e onde a pessoa AGE (cria, põe gente, tira gente); "Concessões" é
- * inventário, e quem abre o painel vem quase sempre para agir — o mesmo raciocínio que pôs `audit`
- * por último na linha do administrador.
+ * A ORDEM É A DE MONTAGEM, e a primeira aba é a que o painel abre. "Concessões" passou à frente em
+ * 2026-09-22, por pedido do dono (item 19a: a porta "Acessos" do credenciado leva à tela de
+ * Concessões), e o raciocínio que punha "Grupos" primeiro caiu no mesmo dia: ele dizia que Grupos
+ * é onde a pessoa AGE e Concessões é inventário, e Concessões passou a ter o ato de CONCEDER
+ * ("Conceder acesso", item 19b). O mecanismo é o de sempre (sem `?aba=`, a primeira aba abre),
+ * então TODA porta que leva a `admin.html` sem parâmetro chega em Concessões, e nenhuma precisou de
+ * endereço novo.
+ *
+ * A LINHA INTEIRA MUDA, e não só o credenciado, porque esta função não o distingue: a decisão D1
+ * de 2026-08-20 tirou dele a linha própria, e reintroduzir uma pergunta de papel global aqui para
+ * escolher a aba de abertura desfaria aquilo por outra porta. Para o usuário comum a troca também é
+ * a certa: "Acessos" nomeia acesso, e "Recebidos por mim" é a resposta à pergunta com que ele chega
+ * ("o que me deram?"), com Grupos a um clique no trilho. Administrador e produtor NÃO mudam: o
+ * rótulo da porta deles ("Administração", "Catálogo") nomeia a primeira aba que eles recebem.
  * @type {ReadonlyArray<string>}
  */
-const ABAS_DE_QUEM_ENTROU = Object.freeze(['groups', 'grants', 'account']);
+const ABAS_DE_QUEM_ENTROU = Object.freeze(['grants', 'groups', 'account']);
 
 /**
  * @typedef {Object} AdminAudience

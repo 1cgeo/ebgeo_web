@@ -5,7 +5,7 @@ import {
     layerDisplayName,
     formatLayerNameList,
     layerLoadFailureNotice,
-    layerLoadFailureCauseNotice,
+    layerLoadFailureActionNotice,
     layerLoadFailureStatusDetail,
     layerRetryStillFailingNotice,
     layerNoticeRegionLabel,
@@ -25,8 +25,11 @@ import {
 // que o cliente sabe é uma coisa só: o pedido não deu certo.
 //
 // Por isso a DISCRIMINAÇÃO cobrada aqui não é de redação: é que nenhuma frase afirme causa, e que
-// a linha de ignorância exista. Uma asserção que só checasse `toContain('camada')` passaria verde
-// com "você não tem acesso a esta camada", que é exatamente o texto proibido.
+// o corpo diga o que a pessoa PODE FAZER. Até 2026-09-22 o corpo era uma lista de hipóteses ("pode
+// ser a rede, o servidor [...] ou uma restrição de acesso") seguida de uma frase sobre a própria
+// tela, e o dono a reprovou por inútil: três causas que a pessoa não distingue e nenhuma ação.
+// Uma asserção que só checasse `toContain('camada')` passaria verde com "você não tem acesso a
+// esta camada", que é exatamente o texto proibido.
 //
 // E A CONTAGEM É POR CAMADA, NUNCA POR PEDIDO. Uma camada visível em zoom baixo pede dezenas de
 // tiles, e o MapLibre dispara um evento `error` por pedido falho. Toda função daqui recebe NOMES
@@ -109,36 +112,51 @@ describe('layerLoadFailureNotice — o fato, e só o fato', () => {
     });
 });
 
-describe('layerLoadFailureCauseNotice — a ignorância, dita em voz alta', () => {
-    const frase = layerLoadFailureCauseNotice();
+describe('layerLoadFailureActionNotice — o que a pessoa pode fazer', () => {
+    const comBotao = layerLoadFailureActionNotice({ retryable: true });
+    const semBotao = layerLoadFailureActionNotice({ retryable: false });
 
-    it('declara que o motivo NÃO é conhecido', () => {
-        expect(frase).toMatch(/não é conhecido|não sabe/i);
+    it('manda conferir a conexão e, se persistir, avisar quem administra', () => {
+        for (const frase of [comBotao, semBotao]) {
+            expect(frase).toContain('Verifique sua conexão');
+            expect(frase).toContain('avise o administrador');
+        }
     });
 
-    it('lista os três candidatos SEM escolher um', () => {
-        expect(frase).toMatch(/rede/i);
-        expect(frase).toMatch(/servidor/i);
-        expect(frase).toMatch(/acesso/i);
-        // DISCRIMINAÇÃO: "pode ser" é o que separa hipótese de acusação. Sem esta asserção,
-        // trocar a frase por "você não tem acesso" ainda casaria com as três de cima.
-        expect(frase).toContain('pode ser');
-        expect(frase).not.toMatch(/você não tem/i);
+    it('só manda "tentar de novo" quando há o botão que faz isso', () => {
+        // O painel não desenha o botão quando nada acusado é retentável (o mapa base sozinho, o
+        // 3D, o 360, a cena). Mandar tentar de novo ao lado de um painel sem o botão é o comando
+        // que não se desenha, escrito em palavras.
+        expect(comBotao).toContain('tente de novo');
+        expect(semBotao).not.toContain('tente de novo');
+        // O padrão é o conservador: sem a informação, não promete o botão.
+        expect(layerLoadFailureActionNotice()).toBe(semBotao);
     });
 
-    it('põe o acesso por ÚLTIMO, depois dos dois motivos triviais', () => {
-        // É a leitura a que a pessoa chega sozinha, e a mais provável de estar errada (10.1).
-        expect(frase.indexOf('rede')).toBeLessThan(frase.indexOf('acesso'));
-        expect(frase.indexOf('servidor')).toBeLessThan(frase.indexOf('acesso'));
+    it('NÃO afirma causa, e "acesso" não é palavra dele (10.1)', () => {
+        for (const frase of [comBotao, semBotao]) {
+            expect(frase).not.toMatch(/acesso/i);
+            expect(frase).not.toMatch(/permiss/i);
+            expect(frase).not.toMatch(/você não tem/i);
+        }
+    });
+
+    it('não fala da própria tela nem cita código', () => {
+        for (const frase of [comBotao, semBotao]) {
+            expect(frase).not.toMatch(/tela|daqui|adivinhar|conhecido/i);
+            expect(frase).not.toMatch(/[0-9]{3}/);
+        }
     });
 
     it('é pt-BR acentuado e sem em-dash', () => {
-        expect(frase).not.toContain('—');
-        expect(frase).toMatch(/[áàâãéêíóôõúç]/i);
+        for (const frase of [comBotao, semBotao]) {
+            expect(frase).not.toContain('—');
+            expect(frase).toMatch(/[áàâãéêíóôõúç]/i);
+        }
     });
 });
 
-describe('layerLoadFailureStatusDetail — só o que foi observado', () => {
+describe('layerLoadFailureStatusDetail — só o que foi observado, como código discreto', () => {
     it('nada observado, nada escrito (o caso comum da falha de rede)', () => {
         expect(layerLoadFailureStatusDetail([])).toBe('');
         expect(layerLoadFailureStatusDetail(null)).toBe('');
@@ -146,12 +164,16 @@ describe('layerLoadFailureStatusDetail — só o que foi observado', () => {
     });
 
     it('um código', () => {
-        expect(layerLoadFailureStatusDetail([403])).toBe('O servidor respondeu 403.');
+        expect(layerLoadFailureStatusDetail([403])).toBe('Código: 403');
+    });
+
+    it('é um rótulo de código, nunca uma frase sobre o que o servidor respondeu', () => {
+        expect(layerLoadFailureStatusDetail([502])).not.toMatch(/respondeu/i);
     });
 
     it('vários, em ordem e sem repetir', () => {
-        expect(layerLoadFailureStatusDetail([500, 403, 403])).toBe('O servidor respondeu 403, 500.');
-        expect(layerLoadFailureStatusDetail(new Set([404, 403]))).toBe('O servidor respondeu 403, 404.');
+        expect(layerLoadFailureStatusDetail([500, 403, 403])).toBe('Códigos: 403, 500');
+        expect(layerLoadFailureStatusDetail(new Set([404, 403]))).toBe('Códigos: 403, 404');
     });
 
     it('NÃO interpreta o código: um 403 não vira "sem acesso"', () => {
@@ -163,7 +185,7 @@ describe('layerLoadFailureStatusDetail — só o que foi observado', () => {
 
     it('zero NÃO é resposta: o fetch usa 0 para pedido bloqueado ou abortado', () => {
         expect(layerLoadFailureStatusDetail([0])).toBe('');
-        expect(layerLoadFailureStatusDetail([0, 403])).toBe('O servidor respondeu 403.');
+        expect(layerLoadFailureStatusDetail([0, 403])).toBe('Código: 403');
     });
 
     it('recusa tudo que não é código HTTP de verdade', () => {
@@ -173,7 +195,7 @@ describe('layerLoadFailureStatusDetail — só o que foi observado', () => {
         expect(layerLoadFailureStatusDetail([403.5])).toBe('');
         expect(layerLoadFailureStatusDetail([-403])).toBe('');
         // String numérica ainda é o código que chegou pela rede.
-        expect(layerLoadFailureStatusDetail(['404'])).toBe('O servidor respondeu 404.');
+        expect(layerLoadFailureStatusDetail(['404'])).toBe('Código: 404');
     });
 });
 
@@ -206,7 +228,7 @@ describe('layerRetryStillFailingNotice — a segunda falha não é a primeira', 
 describe('rótulos das ações e da região', () => {
     it('o botão OFERECE tentar de novo, que é o que o produto pede', () => {
         expect(RETRY_ACTION_LABEL).toBe('Tentar de novo');
-        expect(DISMISS_ACTION_LABEL).toBe('Dispensar');
+        expect(DISMISS_ACTION_LABEL).toBe('Fechar');
         expect(RETRY_ACTION_LABEL).not.toBe(DISMISS_ACTION_LABEL);
     });
 

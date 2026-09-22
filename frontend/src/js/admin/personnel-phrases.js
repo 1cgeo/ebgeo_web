@@ -61,15 +61,14 @@ export function orgDeactivationWarning({ nome, contagens = null, ehMinhaLotacao 
     // que precisa carregar o que o ato faz.
     const lotados = toCount(contagens?.activeMembers);
     partes.push(lotados > 0
-        ? `Desativar ${qual} tira do ar o acesso de ${contas(lotados)} lotada${lotados === 1 ? '' : 's'} `
-          + 'nela: o servidor passa a recusar cada requisição delas, e elas também não conseguem '
-          + 'entrar de novo.'
-        : `Desativar ${qual} tira do ar o acesso de toda conta lotada nela: o servidor passa a `
-          + 'recusar cada requisição dessas contas, e elas também não conseguem entrar de novo.');
+        ? `Desativar ${qual} bloqueia ${contas(lotados)} lotada${lotados === 1 ? '' : 's'} nela: `
+          + `${lotados === 1 ? 'ela perde' : 'elas perdem'} o acesso na hora e não ${lotados === 1 ? 'consegue' : 'conseguem'} entrar de novo.`
+        : `Desativar ${qual} bloqueia toda conta lotada nela: elas perdem o acesso na hora e `
+          + 'não conseguem entrar de novo.');
 
     const produtores = toCount(contagens?.activeProducers);
     if (produtores > 0) {
-        partes.push(`${contas(produtores)} produzem por ela e perdem o escopo de produção.`);
+        partes.push(`${contas(produtores)} ${produtores === 1 ? 'produz' : 'produzem'} por ela e ${produtores === 1 ? 'deixa' : 'deixam'} de manter o acervo dela.`);
     }
 
     const itens = toCount(contagens?.catalogItems);
@@ -79,15 +78,14 @@ export function orgDeactivationWarning({ nome, contagens = null, ehMinhaLotacao 
 
     // A REVERSIBILIDADE É DITA, porque ela é a diferença entre este ato e uma exclusão, e porque
     // sem ela a pessoa hesita no ato certo e não hesita no errado.
-    partes.push('Nada é apagado: a organização continua na lista, marcada como inativa, e '
-        + 'Reativar devolve tudo.');
+    partes.push('Nada é apagado: a organização fica na lista como inativa, e Reativar desfaz.');
 
     if (ehMinhaLotacao) {
         // ESTE RAMO NÃO DEVE SER ALCANÇADO, e existe por isso mesmo. O servidor recusa com 409, e
         // esta frase é a segunda linha de defesa, para o DOM velho e para a lotação que muda entre
         // o desenho da tela e o clique.
-        partes.push('ATENÇÃO: esta é a sua própria lotação. Desativá-la trancaria você para fora '
-            + 'do sistema, inclusive da tela que desfaria o ato. O servidor vai recusar.');
+        partes.push('Atenção: esta é a sua própria lotação. Desativá-la bloquearia você também, '
+            + 'inclusive desta tela, por isso o servidor vai recusar.');
     }
     return partes.join(' ');
 }
@@ -126,9 +124,8 @@ export function orgDeactivationSummary(nome, contagens = null) {
  */
 export function rankDeactivationWarning(nome) {
     const qual = (nome || '').trim() ? `"${nome}"` : 'este posto';
-    return `Desativar ${qual} o retira dos seletores de cadastro de todo o sistema. Quem já o tem `
-        + 'continua com ele, e nada é apagado: a linha fica aqui, marcada como inativa, e Reativar '
-        + 'devolve.';
+    return `Desativar ${qual} o retira das listas de cadastro. Quem já o tem continua com ele, e `
+        + 'nada é apagado: Reativar desfaz.';
 }
 
 /**

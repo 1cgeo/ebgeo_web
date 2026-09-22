@@ -3031,7 +3031,9 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
 - **Compatibilidade:** a fila de saída é append-only, então ops de mapa base e de config temporal de
   builds antigos ainda chegam; o servidor segue aceitando os dois subtipos e o par só grava o documento.
 - **Onde se lê:** [`../wiki/vista-da-pessoa-e-vista-salva.md`](../wiki/vista-da-pessoa-e-vista-salva.md).
-- **Status:** aceita.
+- **Status:** aceita; a metade "Onde a escolha pessoal mora" foi SUPERADA em 2026-09-22 pela entrada
+  "a vista da pessoa passa a ser LEMBRADA neste computador", abaixo (a escolha é lembrada por
+  dispositivo e vence a vista salva na entrada). O resto continua valendo.
 
 ### 2026-09-20: a apresentação de briefing é um palco limpo, e o slide escolhe o que volta
 
@@ -3777,3 +3779,420 @@ instável, e cada uma foi atribuída antes de ser tocada.
   última escrita, senão a medição é do build velho.
 - **Status:** aceita.
 
+### 2026-09-22: o snap some para quem não desenha, e some também no mapa travado
+
+- **Contexto (do dono):** "esconder snap no somente leitura, ou no bloqueado, ou comentário". O
+  interruptor de snap da barra aparecia para Leitor e Comentarista num atlas de servidor. A trava
+  do mapa já o escondia (a passada de trava da barra percorria os interruptores); o posto não,
+  porque o interruptor não lia a bandeira `requiresEdit` que desfazer e refazer já liam, e por isso
+  não levava a marca `edit-affordance`.
+- **Decisão:** o snap é modificador de desenho e existe só onde há desenho. Ele some pelo POSTO
+  (Leitor, Comentarista) e também pelo ESTADO (mapa travado). A segunda metade contraria de
+  propósito a regra "o ESTADO recusa o clique", pelo mesmo argumento da alça de continuação de
+  linha (`.claude/rules/architecture.md`, seção da continuação pela ponta): com o mapa travado
+  todas as ferramentas que o snap modifica já sumiram, e um snap desenhado com `aria-disabled`
+  seria a única superfície acionável de uma barra inerte, cujo clique não ensinaria nada que a
+  ausência das ferramentas já não diga. Enquanto escondido o snap não age, com o Ctrl inclusive, e
+  a preferência da pessoa (`ui.snapping.enabled`) não é escrita: quando a condição cai, o botão
+  volta mostrando o estado que ela deixou.
+- **Onde mora:** a regra em `frontend/src/js/snapping/snap-availability.js` (folha sem imports,
+  `isSnapAvailable` e `isSnapEffective`); a barra lê `requiresEdit` da tabela
+  (`frontend/src/js/toolbar/toolbar.constants.js`) pelo mesmo ajudante das ações; o serviço de snap
+  recebe a regra por injeção em `frontend/src/js/map_sig.js`, perguntada à conta única dos dois
+  eixos (`edicaoIndisponivelSync`). Guarda: `frontend/tests/unit/snap-some-sem-edicao.test.js`.
+- **Alternativas rejeitadas:** desenhar o snap no mapa travado e recusar o clique nomeando a trava,
+  pelo motivo acima; desligar o snap escrevendo `ui.snapping.enabled` como falso ao esconder, porque
+  apagaria a escolha da pessoa e exigiria lembrar o valor antigo em algum lugar para devolvê-lo;
+  importar a store dentro do serviço de snap, porque ele é carregado por suítes em node puro e roda
+  em todo movimento de mouse.
+- **Consequências:** o modo de visualização voluntário (Shift+E) também esconde o snap, porque a
+  marca é a mesma que esconde as barras de desenho ali; nesse modo o snap continua valendo para um
+  Editor que ative uma ferramenta pelo teclado, como as próprias ferramentas continuam.
+- **Status:** aceita.
+
+### 2026-09-22: o menu do clique direito deixa de oferecer "Exportar QAN", para geometria nenhuma
+
+- **Contexto (do dono):** pedido de tirar o QAN do menu de botão direito do polígono. Desde
+  2026-09-20 o menu o oferecia só para polígono (a linha tinha saído naquela data, também a pedido).
+- **Decisão:** o menu de contexto do mapa não oferece "Exportar QAN" para geometria nenhuma. O item,
+  o handler e o portão puro que decidia "só polígono" saíram de `frontend/src/js/context-menu/`; o
+  portão foi APAGADO, e não deixado como predicado sem leitor.
+- **O que fica:** a exportação continua pela aba Azimutes do painel da feição, para linha e
+  polígono (`createObservationsSection`,
+  `frontend/src/js/tool_manager/helpers/observations-editor.helpers.js`), porque essa porta não fez
+  parte do pedido. O gerador `generateQAN` não muda.
+- **Guarda:** `frontend/tests/unit/qan-fora-do-menu-de-linha.test.js`, que varre a PASTA do menu, e
+  não só o controle, e prende na outra metade que a porta do painel continua existindo. O tutorial
+  (`frontend/public/docs/README.md`) deixou de prometer o item.
+- **Status:** aceita.
+
+### 2026-09-22: a caixa "Projeção globo" sai da Administração, e a chave de deploy é podada de ponta a ponta
+
+- **Contexto (do dono):** na aba Sistema de `admin.html`, a caixa "Projeção globo" parecia
+  invertida: desmarcada, o mapa continuava globo.
+- **Causa:** não era inversão, era caixa inerte. Em 2026-08-16 a projeção virou escolha do ATLAS
+  (`atlas.settings.globeProjection`, globo por padrão) e o mapa parou de ler a config de deploy;
+  a chave `map2d.globe_projection` continuou sendo gravada pela aba, validada pelo Joi, fundida pelo
+  servidor e servida por `GET /api/config`, sem nenhum leitor no cliente, por um mês. O servidor
+  estava coerente consigo mesmo; o que faltou foi podar a chave quando o leitor saiu.
+- **Decisão (do dono):** a decisão de 2026-08-16 VOLTA A VALER inteira. O padrão é SEMPRE globo, e
+  quem muda é o atlas, pela barra "Globo / Plano" das configurações dele. A caixa sai da aba
+  Sistema, e a chave sai dos dois pacotes: do piso de `frontend/src/js/config.js`, de `MAP2D_BASE`
+  (`backend/src/modules/config/config.static.js`), do importador do legado
+  (`dev/import-config-catalog.mjs`) e do schema, que passa a RECUSÁ-LA com 422 nomeado
+  (`Joi.any().forbidden()`, o mesmo gesto da faixa de zoom, porque `map2d` é `.unknown(true)` e uma
+  chave só apagada voltaria a ser gravada em silêncio). O modal do atlas acende a barra por
+  `resolveGlobeProjection`, a mesma função que o mapa usa, e o texto "Todo atlas começa como globo"
+  continua verdadeiro.
+- **O dado já gravado:** a instalação que salvou a caixa antes da atualização tem a chave na linha
+  `app_config`. Ela é DESCARTADA na leitura e na fusão, pelo desenho de `podarZoomDeAplicacao`:
+  `podarProjecaoDoPainel` (`backend/src/modules/config/config.service.js`) roda em
+  `getConfigOverrides`, que alimenta o `GET /api/config` e o eco `overrides` do painel, e na escrita,
+  onde a linha cicatriza no primeiro salvamento seguinte. Salvar pelo painel não reprova, porque o
+  schema valida só o corpo que chega e a aba não manda mais a chave; quem ainda a mande (uma aba
+  aberta antes da atualização) leva 422 nomeando o campo, em vez de um 200 sobre nada.
+- **Alternativa recusada:** uma primeira versão do mesmo dia REANIMOU a chave, como padrão do atlas
+  que não escolheu (duas camadas, com uma folha de regra compartilhada entre o mapa e o painel). O
+  dono a recusou no mesmo dia: o padrão é sempre globo, e quem muda é o atlas. Aceitar a chave no
+  corpo e ignorá-la também foi recusado, porque reproduz o defeito podado: um 200 que não faz nada.
+- **Guardas:** `frontend/tests/unit/projecao-globo-do-painel.repro.test.js` (o resolvedor não lê
+  config de deploy, a aba não desenha a caixa nem manda a chave, a casca não a declara, o servidor
+  não a serve e a recusa, o modal acende o valor efetivo), `frontend/tests/unit/atlas-appearance.test.js`
+  (com `config.map2d.globe_projection: false` plantado, o atlas sem escolha continua globo) e o caso
+  de `globe_projection` em `backend/tests/integration/config-admin.test.js` (a linha antiga, escrita
+  direto no banco, não quebra a leitura, não é servida, cicatriza no salvamento seguinte, e o corpo
+  que a mande leva 422).
+- **Status:** aceita. Supera a versão reanimada, que não chegou a ser commitada.
+
+### 2026-09-22: o administrador informa o e-mail ao criar a conta, e o endereço novo nasce pendente
+
+- **Contexto (do dono):** dois pedidos. Na aba "Minha conta", a pessoa define ou altera o próprio
+  e-mail; na criação de usuário pela Administração, o administrador informa o e-mail. O primeiro já
+  existia desde 2026-08-23 (`PUT /users/me/email`, convite para a caixa nova com a senha atual, a
+  resposta uniforme contra enumeração e a conta intocada até o clique); o que faltava era a tela
+  dizer "Cadastrar" sobre a conta sem endereço e dizer quem cadastra onde o servidor não entrega
+  e-mail. O segundo não existia: `createUserAdminSchema` não tinha o campo.
+- **Decisão:** a criação administrativa aceita `email`, opcional. Com endereço, a conta nasce
+  PENDENTE, salvo se o mesmo pedido mandar `email_verified: true`, que é a regra da edição
+  (`resolveAdminEmail`) aplicada a uma linha nova (`resolveCreationEmail`,
+  `backend/src/modules/users/users.service.js`). A pendente recebe o MESMO link `?verify=` do
+  auto-cadastro, depois do COMMIT e só onde `canDeliverAccountMail` vale. Endereço tomado responde
+  409 com o motivo, como na edição administrativa. A trilha de `USER_CREATE` diz se houve endereço e
+  se ele foi declarado conferido, nunca o endereço.
+- **Alternativas rejeitadas:** nascer confirmada por padrão, que manteria a conta entrando na hora,
+  porque o endereço confirmado é o canal de recuperação de senha e um erro de digitação entregaria o
+  código de recuperação a um estranho; guardar o endereço só no token, como a troca do titular, que
+  não reserva nada e não tranca o login, porque o administrador não veria o que gravou, a mensagem
+  de "troca de e-mail" seria a errada para uma conta nova e numa produção sem relay o endereço nunca
+  chegaria à conta; tornar o campo obrigatório como no auto-cadastro, porque a conta sem endereço
+  continua sendo o estado legítimo deste caminho.
+- **O que a tela corrige junto:** a caixa "E-mail verificado" do formulário de edição nascia com o
+  estado guardado e era enviada sempre, então corrigir o endereço de uma conta confirmada sem tocar
+  nela mandava a confirmação para um endereço que ninguém conferiu, e limpar o endereço com a caixa
+  marcada gravava confirmado sobre NULL. Hoje a caixa mora ao lado do campo nas duas telas, aparece
+  só com endereço, desmarca quando o endereço muda, e a marca só viaja com endereço
+  (`frontend/src/js/admin/user-email-model.js`).
+- **Consequência que se lê errado:** a conta criada com endereço e sem a marca NÃO entra na hora; o
+  erro de login oferece o reenvio do link, e numa produção sem relay quem a destranca é o
+  administrador (botão Aprovar da linha, ou a caixa). A dica do formulário e o aviso depois de criar
+  dizem isso antes e depois do clique.
+- **Guardas:** `backend/tests/integration/admin-cria-conta-com-email.test.js`,
+  `frontend/tests/unit/admin-email-na-criacao.test.js`, o bloco novo de
+  `frontend/tests/unit/recuperacao-e-email-espelham-servidor.test.js` (o cliente nunca recusa o que o
+  servidor aceita) e o de `emailSectionCopy` em `frontend/tests/unit/conta-email-modelo.test.js`.
+- **Status:** aceita.
+
+### 2026-09-22: a vista da pessoa passa a ser LEMBRADA neste computador, por mapa, e continua sem viajar
+
+- **Contexto (do dono):** "apesar do basemap e controle temporal não sincronizarem, ele tem que
+  salvar a preferência do usuário naquele mapa localmente". Desde 2026-09-20 a base escolhida e o
+  liga/desliga da linha do tempo moravam em memória, e um F5 devolvia a pessoa à vista salva do mapa.
+- **Decisão:** o GESTO da pessoa (o seletor de mapa base e o interruptor sem `automatico`) é
+  lembrado neste computador, por atlas e por mapa, em `localStorage`
+  (`frontend/src/js/store/vista-da-pessoa.js`, sobre a folha `frontend/src/js/store/vista-da-pessoa-disco.js`).
+  Nada disso vira op, entra no retrato, na fila de saída ou no banco de ajustes do atlas, e o
+  gesto continua sem perguntar por papel nem por trava. A precedência na ENTRADA do mapa (troca de
+  mapa, F5, reabrir o atlas) é: a lembrança da pessoa, quando válida; senão a vista salva; senão o
+  que já valia (a tela fica, ou a base do documento na primeira pintura). A câmera não é lembrada.
+- **Onde, e a alternativa recusada:** o banco de ajustes do namespace foi recusado, por três fatos
+  do código: os bancos de dado de um atlas de servidor são geracionais (todo retrato completo os
+  refaz, e a chave sumiria calada na próxima reparação de catálogo); "Salvar como local" copia
+  aqueles bancos e poda só as referências que conhece, e um id de mapa base privado sairia por
+  fora; e a entrada lê isso dentro de `setCurrentMap` e de `switchMap`, onde uma leitura síncrona
+  com a chave do namespace capturada no mesmo tique não tem como responder por outro atlas. O
+  banco global foi recusado pelo mesmo motivo da leitura síncrona. A chave é o sufixo do banco, e o
+  mapa é chaveado pelo ID (nunca pelo nome, pela lição da contagem de cores); o mapa local legado
+  sem id fica pelo nome e é levado no rename.
+- **Por pessoa:** num atlas de servidor lembra-se para a conta que entrou, e outra conta no mesmo
+  computador não lê nem herda (o registro tem dono e é substituído na primeira escolha dela). Num
+  atlas local o dono é o computador, como a vista salva dele. O visitante de link público não é
+  lembrado: o namespace dele é destruído no boot seguinte sem sessão, e a vista dele vale pela visita,
+  em memória, como antes.
+- **Salvar e restaurar:** salvar a vista ESQUECE a lembrança de quem salvou, campo por campo (o que
+  a vista não levou fica), e "Restaurar posição" esquece tudo daquele mapa, então os dois gestos que
+  alinham a tela com a vista salva devolvem a pessoa a segui-la. A lembrança dos outros é deles.
+  Recusado: gravar os valores salvos COMO lembrança de quem salvou, que o congelaria naquele
+  salvamento e faria um colega salvando depois nunca o alcançar.
+- **Validade:** uma base lembrada que o catálogo da pessoa não oferece é pulada sem aviso (o aviso
+  de base que não resolve continua sendo só de `switchLayer`) e FICA guardada, porque uma concessão
+  que chegue depois a torna válida na próxima entrada.
+- **Ciclo de vida:** a lembrança morre com o namespace (`clearAtlasDatabases`, `dropAtlasDatabases`)
+  e com o wipe de conteúdo (`clearAllAtlasStores`); a reabertura de atlas não a apaga. Ficam de fora,
+  declarados: a cópia de atlas local, o clone, "Salvar como local" e o `.ebgeo` não a levam.
+- **Guardas:** `frontend/tests/integration/vista-da-pessoa-lembrada.test.js` (F5, precedência, por
+  conta, nada na fila nem no banco de ajustes, morte com o atlas, salvar alinha quem salvou),
+  `frontend/tests/unit/vista-da-pessoa-disco.test.js` (formato, dono, teto, degradação muda) e os
+  blocos novos de `frontend/tests/integration/mapa-base-e-vista-da-pessoa.repro.test.js` e de
+  `frontend/tests/integration/temporal-interruptor-e-vista.test.js`.
+- **Status:** aceita. Supera a metade "Onde a escolha pessoal mora" da entrada de 2026-09-20.
+
+### 2026-09-22: a presença sai quando a pessoa sai, e diz em qual visualizador ela está
+
+- **Contexto (do dono):** dois relatos. "Tem algo errado na presença, ainda diz que tem usuário
+  presente mesmo que depois de sair", e o pedido de saber, na tela de presença, em qual foto 360 ou
+  em qual modelo 3D cada pessoa está.
+- **Diagnóstico do primeiro, por superfície, lido no caminho vivo.** A lista do MAPA tinha um
+  fantasma PERMANENTE e três transitórios. O permanente: o servidor anuncia `user_left` na hora e
+  manda o cursor num lote por sala no tique seguinte (`enfileirarCursor`), então o último quadro de
+  quem fechou a aba saía DEPOIS do anúncio, e `setCursor` do armazém cria a entrada quando a chave é
+  desconhecida; a pessoa voltava à lista sem nome e nada mais anunciaria a saída dela. É provável
+  sempre que o mouse ainda anda no fechamento, e quase certo na cena caminhável, que republica a
+  pose a cada segundo. Os transitórios: as cenas 3D e 360 só repintam em evento de cursor e de
+  seleção, e a saída não emitia nenhum dos dois; o `1006` do socket zumbi de quem já reconectou
+  anunciava `user_away` que nada limpava; e a conexão PRÓPRIA caída congelava a lista inteira. O
+  PAINEL DO ADMINISTRADOR tinha a outra metade: a linha de `uso_presenca` só deixava de contar
+  quando a janela de 90 s passava, e a aba oculta nem pulsava.
+- **Decisão 1, a lista do mapa:** o servidor descarta o cursor pendente de quem sai, no ramo de
+  `removeConnection` que anuncia (`descartarCursorPendente`); o armazém põe a chave que saiu numa
+  lápide de 30 s contra quadro de percepção atrasado, desfeita pelo `user_joined` de quem recarrega
+  e pelo retrato novo; `userLeft`, `clear` e `setInitial` avisam as superfícies que perderam alguém;
+  o `1006` com gêmeo vivo do mesmo par `(userId, clientId)` sai em silêncio (`temGemeoVivo`); e a
+  ponte esvazia a lista quando a própria conexão sai de ONLINE. A graça de `away` para a queda de
+  rede de um colega continua como estava.
+- **Decisão 2, o painel do administrador:** o pulso ganha uma SAÍDA explícita no `pagehide`
+  (`saindo: true`, com `keepalive`), que apaga a linha só se o último pulso foi do MESMO documento
+  (coluna `aba_id` em `uso_presenca`, acrescentada por `backend/src/database/migrations/012_presenca_aba_e_miniaturas.sql`: a primeira tentativa editou a base de uso e presença, e foi desfeita no mesmo dia porque o stack de teste do servidor já aplicou as bases e guarda dados dos testadores);
+  as abas irmãs são avisadas e pulsam na hora; e a aba OCULTA passa a pulsar, porque a pergunta do
+  painel é quem está com o produto aberto. A janela de 90 s fica como rede de segurança do que não
+  avisa. O pulso ao ENTRAR em segundo plano continua de fora, agora de propósito, porque ele antecede o `pagehide` e chegaria depois
+  da saída.
+- **Decisão 3, o contexto de visualizador, e onde ele aparece:** na LISTA DE QUEM ESTÁ ONLINE do
+  mapa, e não no painel do administrador. É a tela que já diz "em que mapa" por pessoa; o painel só
+  conta navegadores, e transformá-lo em lista nominal de onde cada um está seria outro produto (a
+  página dele já recusa ler a contagem como desempenho individual). O quadro novo `viewer_context` leva a
+  superfície (`3d`, `fp`, `360` ou `2d`) e o IDENTIFICADOR; o NOME sai do servidor, resolvido no
+  catálogo, e é entregue POR DESTINATÁRIO: público a todos, privado com nome só a quem
+  `fn_can_see_resource` responde sim no escopo do atlas da sala (o empréstimo conta), e com
+  `recurso: null` ao resto. O retrato de entrada leva só a projeção que todos leem, e o privado
+  chega ao recém-chegado que pode lê-lo num quadro à parte.
+- **Decisão 4, o visitante de link público:** o contexto dele NÃO viaja nem fica retido, pela mesma
+  razão que prendeu o cursor em 2026-09-20 (ele é contado, não acompanhado). Como destinatário ele é
+  julgado com principal nulo e lê o público e o empréstimo do atlas.
+- **P1 continua valendo:** o quadro novo não carrega instante nenhum da linha do tempo, e os dois
+  guardas estruturais (`frontend/tests/unit/presenca-temporal-nao-volta.test.js` e
+  `backend/tests/unit/presenca-temporal-nao-volta.test.js`) não citam nada do que entrou.
+- **Alternativas recusadas:** resolver o nome no CLIENTE, pelo catálogo de quem lê (escondia o nome
+  da tela e deixava o id privado no fio); mandar o nome pelo REMETENTE (poria na lista de todos o
+  que o remetente escrevesse, e o privado junto); apagar a linha do painel pela saída sem conferir o
+  documento (a navegação do mapa para `atlas.html` e a aba irmã apagariam navegador aberto); e
+  encurtar a janela de 90 s em vez de mandar a saída (cobraria ausência de toda aba oculta
+  estrangulada).
+- **Decisão 5 (autorizada pelo dono no mesmo dia), o achado que esta entrada abriu:** os quadros de
+  cursor e de seleção do 3D, da cena e do 360 levavam `tilesetId` e `photoName` à sala inteira
+  desde 2026-09-16, visitante incluído, e a POSIÇÃO de um cursor 3D é uma coordenada geográfica
+  sobre o modelo. Eles passaram pela MESMA regra do contexto de visualizador, num módulo só
+  (`backend/src/modules/collab/collab.recorte.js`): escopo público vai inteiro a todos, escopo
+  privado vai inteiro só a quem `fn_can_see_resource` libera no atlas da sala (empréstimo contando),
+  e o resto recebe o quadro REDIGIDO: o cursor sem escopo e sem posição, a seleção vazia na mesma
+  superfície. O visitante segue a regra vigente do cursor (sai sem posição) e, como destinatário,
+  lê o público e o emprestado. O retrato de entrada leva o escopo privado redigido, e quem pode
+  lê-lo recebe cursor e seleção à parte.
+- **Por que redigir e não descartar:** o quadro redigido é o que limpa, na tela de quem não enxerga
+  o modelo, o último ponteiro 2D do colega e o destaque antigo; descartado, o ponteiro ficaria
+  congelado no mapa enquanto o colega está dentro do modelo. O redigido não diz mais que o contexto
+  de visualizador já diz (a superfície e o mapa).
+- **Identificador que não resolve é privado para todos:** mandá-lo em claro enquanto se esconde o
+  privado conhecido faria da redação um oráculo de existência sobre o acervo privado. Os testes que
+  usavam nomes inventados de modelo e de foto passaram a semear recurso público.
+- **O custo do lote de 2026-08-28 fica:** sem escopo privado no tique, uma serialização por sala;
+  com escopo privado, uma por classe de acesso (os destinatários agrupados pelo que podem ver), com
+  a pergunta ao banco no memo de 30 s. Alternativa recusada: um payload por destinatário, que é o
+  custo que o lote existe para eliminar. As descargas ficaram em série, e o lote confere na saída
+  que o remetente ainda está na sala.
+- **Guardas:** `backend/tests/ws/presenca-fantasma-apos-saida.repro.test.js`,
+  `backend/tests/ws/presenca-escopo-recortado.repro.test.js`,
+  `backend/tests/ws/presenca-contexto-do-visualizador.test.js`, os casos novos de
+  `backend/tests/integration/monitoramento-presenca.test.js`, `frontend/tests/unit/presenca-saida-explicita.test.js`,
+  `frontend/tests/unit/presenca-rotulo-do-visualizador.test.js`, os blocos novos de
+  `frontend/tests/integration/presence-store.test.js`, `frontend/tests/integration/presence-bridge.test.js`
+  e `frontend/tests/integration/online-users-control.test.js`, e o spec de duas browsers
+  `frontend/tests/e2e-ui/presenca-saida-sem-fantasma.spec.js`. Detalhe em
+  [presença colaborativa](../wiki/presenca-colaborativa.md) e
+  [presença administrativa](../wiki/presenca-administrativa.md).
+- **Status:** aceita.
+
+### 2026-09-22: os endereços IP distintos entram no monitoramento, lidos do log que já os gravava
+
+- **Contexto (do dono):** "na parte de monitoramento do admin poder ver os IPs distintos que estão
+  usando o EBGeo ou usaram o EBGeo". O endereço já era gravado desde 2026-08-31 em toda linha de
+  requisição do `.jsonl` (`clientAddress`, `backend/src/middleware/request-logger.js`), com a conta e
+  a aba ao lado, e só aparecia agregado por grupo de erro no `npm run diag -- erros`. A trilha de
+  auditoria também guarda o endereço de cada ato, o `LOGIN` inclusive. Presença, relato de erro e
+  telemetria de uso não guardam endereço nenhum.
+- **Decisão:** um relatório novo sobre o log existente, nas duas portas com um acumulador só
+  (`criarRelatorioDeEnderecos`, `backend/src/utils/diag-enderecos.js`): `npm run diag -- enderecos`
+  e `GET /api/v1/diag/enderecos`, atrás de `auth` e `requireAdmin`, e a seção "Endereços de acesso"
+  no fim da aba Diagnóstico, sob a janela da aba. Por endereço: primeira e última requisição na
+  janela, requisições (e quantas com erro), abas identificadas e as contas vistas; o anônimo e o
+  visitante de link público contam como anônimo. "Usando agora" é o endereço com requisição nos
+  últimos cinco minutos, tráfego e não presença. Os nomes das contas vêm do banco num bloco que se
+  declara cego sozinho (`nomearContas`), e com o Postgres fora a lista sai inteira.
+- **Nada novo é gravado, e a retenção é a do log:** `LOG_RETENTION_DAYS`, trinta dias por padrão,
+  com a poda por idade do arquivo que já existia. A tela alcança sete dias, o teto de toda rota de
+  log; o comando alcança a retenção inteira.
+- **Privacidade e alcance:** só o administrador vê (`requireAdmin`, que recusa toda chave de API).
+  O endereço NÃO entra em relato de erro, migalha nem lote de uso, e isso passou a ter guarda: os
+  schemas daquelas duas rotas anônimas não declaram campo de endereço, a migalha recusa a chave, e
+  as tabelas de defeito e de uso não têm coluna para ele. O `exemplo` do grupo de erros continua
+  sem `ip`. Com NAT, um endereço pode ser uma OM inteira, e a tela diz isso.
+- **Alternativas rejeitadas:** uma tabela de endereços no Postgres, que duplicaria o que o log já
+  guarda e criaria um segundo prazo de retenção para dado pessoal; ler o endereço da trilha de
+  auditoria, que só vê quem entrou (não o anônimo, nem a sessão que se renova) e não é podada; pôr
+  a seção na aba Uso, que lê o banco, tem outro teto de janela e não tem a maquinaria de leitor cego
+  das seções de log do Diagnóstico; e ler o "agora" do painel de presença, que é outra pergunta e
+  outro código.
+- **O que depende de produção:** o endereço é o do CLIENTE enquanto o nginx acrescentar o par TCP ao
+  `X-Forwarded-For` (a forma `$proxy_add_x_forwarded_for`) e `TRUST_PROXY_HOPS` casar com os proxies
+  à frente. A configuração de produção não mora nesta árvore; o requisito passou a estar escrito em
+  [deploy do backend](../wiki/deploy-backend.md), ao lado do parágrafo de `trust proxy`, e precisa
+  ser conferido lá: sem a linha toda requisição traz o endereço do nginx, e a ressalva do endereço
+  único acende. Em DEV o proxy do Vite não repassa o cabeçalho, e todo endereço é o de loopback.
+- **Guardas:** `backend/tests/unit/diag-enderecos-distintos.test.js`,
+  `backend/tests/integration/diag-enderecos.test.js` (inclui o espelho entre a rota e o comando),
+  `frontend/tests/unit/enderecos-frases.test.js`, `frontend/tests/e2e/diag-enderecos.e2e.test.js` e
+  a varredura de seções de log de `frontend/tests/unit/diagnostico-secoes-de-log.test.js`, que
+  alcança a seção nova sem edição. Detalhe em [observabilidade](../wiki/observabilidade.md).
+- **Status:** aceita.
+
+### 2026-09-22: a porta "Acessos" abre em Concessões, concede-se pelo painel, e cada um vê só as concessões que fez
+
+- **Contexto (do dono, item 19):** três pedidos. (a) O botão "Acessos" que aparece para o
+  credenciado deve levar à tela de Concessões; ele abria o painel na primeira aba da audiência, que
+  era Grupos. (b) Deve ser possível compartilhar recurso na tela de Concessões; a única porta era o
+  modal do recurso, dentro do mapa, e a decisão de 2026-08-24 (perfil produtor, item 6) dizia que o
+  botão não nasce no painel, porque o motor de sync que o modal carregava não cabe numa página sem
+  store. (c) As concessões listadas, no modal do recurso e em Concessões, devem ser só as que a
+  própria conta fez; o modal listava a árvore inteira do recurso, com o que outras pessoas tinham
+  concedido.
+- **Decisão:**
+  1. **"Concessões" passa a ser a primeira aba da audiência "Acessos"** (`ABAS_DE_QUEM_ENTROU`,
+     `frontend/src/js/admin/admin-audience.js`). O mecanismo é o que já existia: sem `?aba=`, a
+     primeira aba abre, então TODA porta que leva a `admin.html` sem parâmetro (o menu da conta no
+     mapa, a barra de `atlas.html`, o rodapé do catálogo) chega lá sem mudar de endereço. A linha
+     inteira muda, e não só o credenciado, porque a audiência não o distingue (D1 de 2026-08-20) e
+     reintroduzir uma pergunta de papel global para escolher a aba de abertura desfaria aquilo. Para
+     o usuário comum a troca também é a certa: "Acessos" nomeia acesso, e "Recebidos por mim" é a
+     pergunta com que ele chega. Administrador e produtor NÃO mudam, porque o rótulo da porta deles
+     ("Administração", "Catálogo") nomeia a primeira aba que eles recebem.
+  2. **"Conceder acesso" nasce em "Concedidos por mim"**, e **supera o item 6 da decisão de
+     2026-08-24** do perfil produtor. A lista de onde escolher o recurso é a do SERVIDOR: o payload
+     aditivo sem atlas em foco, `shareable` mais a procedência `papel`, que juntos são exatamente o
+     gate de repasse (`shareableResources`, `frontend/src/js/admin/shareable-resources.js`). O modal
+     é o MESMO do mapa, partido em núcleo sem store (`frontend/src/js/catalog/resource-share.modal.core.js`)
+     e entrada do mapa (`frontend/src/js/catalog/resource-share.modal.js`), no molde de
+     `modals/sharing.modal.core.js`: a re-soma do catálogo privado depois de revogar, que era o que
+     trazia o motor de sync, virou efeito INJETADO (`onAccessChanged`), que a entrada do mapa liga e a
+     aba troca por reler as próprias listas. O motivo técnico da decisão superada continua valendo
+     como restrição, e o grafo é o guarda. O POSTO SOME: sem recurso para compartilhar, o comando não
+     se desenha e uma frase curta diz por quê. A dica da aba Catálogo passou a apontar esta porta.
+  3. **A listagem de concessões de um recurso devolve só a autoria de quem pergunta**
+     (`LIST_GRANTS_FOR_RESOURCE` com `granted_by` igual ao chamador, lido do token), decidido no
+     servidor para que a concessão alheia nem chegue ao cliente. Vale para o administrador. A queda de
+     cada linha continua sendo avisada, CONTADA e não nomeada, por `REVOCATION_FALL_PREVIEW`, montada
+     com as mesmas quatro CTEs de leitura da poda (`CTES_DE_LEITURA_DA_PODA`); a poda continua byte a
+     byte o statement de antes, conferido por comparação da string. "Concedidos por mim" já era só
+     autoria (`grants/issued` filtra por `granted_by`) e não mudou. "Recebidos por mim" continua.
+- **O que o administrador perde e onde a autoridade sobrevive:** perde a TELA que listava as
+  concessões dos outros sobre um recurso, e com ela o caminho de clique até revogá-las. O gate de
+  revogar (`requireGrantRevoker`) continua com o ramo largo, e sobrevivem a rota de revogação (o
+  identificador da concessão está em cada `PERMISSION_GRANT` da trilha), a desativação da conta de
+  quem concedeu e o rebaixamento de papel ou de escopo, que podam tudo o que a pessoa originou, e a
+  exclusão do grupo beneficiário. Nenhuma tela nova de revogação administrativa foi criada.
+- **Alternativas rejeitadas:**
+  - *Um parâmetro de aba na URL de cada porta* (`admin.html?aba=grants` no menu da conta e na barra
+    de `atlas.html`): três endereços para lembrar de manter, e a porta esquecida abriria em Grupos. A
+    primeira aba já é o mecanismo.
+  - *Uma rota nova de "recursos que posso compartilhar"*: o payload aditivo já responde, e uma
+    segunda resposta à mesma pergunta divergiria no ramo do papel global.
+  - *Filtrar a lista do modal na tela*: o dado alheio continuaria chegando ao cliente.
+  - *Mandar ao cliente as linhas da subárvore para ele contar*: seriam as concessões alheias que o
+    recorte existe para não entregar, e o resgate por grupo continuaria impossível de prever lá.
+- **Guardas:** `backend/tests/integration/concessoes-do-recurso-so-autoria.test.js` (o recorte nos
+  dois sentidos, a contagem por tipo e a prévia batendo com a revogação no caso de resgate),
+  `backend/tests/integration/resource-grants-escalonamento.test.js` (ajustado ao recorte),
+  `frontend/tests/unit/conceder-pelo-painel.test.js`, `frontend/tests/unit/compartilhar-sem-a-store.test.js`
+  (o núcleo cabe em `admin.html`, e a página o alcança sem nenhum proibido) e
+  `frontend/tests/unit/admin-audiencia.test.js`. Cláusula nova: 3.9 da
+  [`CONSTITUICAO.md`](../../CONSTITUICAO.md). Detalhe em
+  [acesso a recurso privado](../wiki/acesso-a-recurso-privado.md).
+- **Status:** aceita e implementada; falta a captura de UI do comando e do modal no painel.
+
+### 2026-09-22: o boot recusa subir com diretório de dados sem escrita, e o log desligado em runtime deixa rastro
+
+- **Contexto (medido no stack de teste):** a imagem nova roda como `ebgeo`, uid 1001, e faz `chown`
+  de `/app/data` na construção; o compose de lá monta `./data:/app/data`, e o diretório do host era
+  1000:1000, criado por uma versão anterior. O bind mount mascarou o chown: desde a subida, às
+  09:49, o log em arquivo se desligou na primeira linha (EACCES) e todo envio de imagem em lote
+  respondeu 500 (EACCES no mkdir da pasta do atlas), com o healthcheck verde. Ninguém soube até ler
+  o `docker logs`. A página de deploy já dizia que volume não gravável dava EACCES "na primeira
+  escrita, não no boot": o risco estava escrito como limite, e o "fala alto ao nascer" do log só
+  perguntava se o diretório podia ser CRIADO, o que o `mkdir` recursivo responde que sim sobre
+  qualquer diretório que já exista.
+- **Decisão 1, a sonda de escrita (do dono, no mesmo dia):** antes do `listen`,
+  `verificarDiretoriosDeDados` (`backend/src/utils/sonda-de-escrita.js`) cria se faltar, escreve e
+  apaga um arquivo de teste em cada diretório que o processo escreve (`LOG_DIR` só com o log em
+  arquivo ligado, `IMAGES_DIR`, `CATALOG_VIDEO_DIR`, `SV360_DB_DIR`, `SV360_TMP_DIR`). Falha sai
+  com código 1 e UMA mensagem em pt-BR com cada diretório, a variável, a função, o erro e a etapa, o
+  uid/gid do processo, o dono atual (ou o do ancestral que recusou a criação) e o conserto provável
+  por família de erro (`chown -R <uid>:<gid>` na origem do mount, tirar o `:ro`, liberar espaço). Os
+  erros de `validateEnvVariables` entram no mesmo lançamento, para que um deploy errado nas duas
+  coisas as descubra num reinício só.
+- **O que fica de fora da sonda, de propósito:** os diretórios que o servidor só LÊ
+  (`MODELS_3D_DIR`, `ASSETS_3D_DIR`, `ASSETS_3D_SQLITE`, `SONDA_DIR`, `EBGEO_MAPAS_DIR`), onde `:ro`
+  é montagem legítima; e o subdiretório ou arquivo que já existe com outro dono (a pasta de um
+  atlas, o arquivo do dia do log), que exigiria varrer o acervo no boot e acusaria diretório alheio,
+  como o `lost+found` da raiz de um volume. É por isso que o conserto proposto é `chown -R`.
+- **Preço declarado:** disco cheio também recusa o boot. Um volume sem espaço nem para o arquivo de
+  teste quebra toda escrita, e o laço de reinício passa a repetir a causa em vez de subir um
+  servidor que só lê. E o acervo 360 montado só leitura deixa de subir, porque o servidor escreve
+  nele (ingestão pelo painel, miniaturas); não há variável que declare esse caso.
+- **Decisão 2, o `Dockerfile`:** os cinco diretórios passam a existir na imagem com dono 1001. Sem
+  isso o volume nomeado `ebgeo_logs` do compose de desenvolvimento, montado num caminho ausente da
+  imagem, nasce com a raiz de root, e a sonda recusaria aquele stack. A premissa vem da cópia de
+  conteúdo e dono que o Docker faz para um volume nomeado vazio, e não foi medida nesta sessão.
+- **Decisão 3, o desligamento em runtime deixa rastro:** o log em arquivo continua resistente (disco
+  cheio no meio da execução não derruba o processo), mas o desligamento fica em
+  `estadoDoLogEmArquivo`, publicado por `GET /api/v1/diag/saude` e `/resumo` dentro de `janela`, e
+  vira defeito de servidor (`defeitoDoLogDesligado`, assinatura aberta por `MARCADOR_LOG_DESLIGADO`
+  e separada por código de erro), que o bloco de saúde do `resumo` acha e publica nos dois ramos,
+  inclusive com a série vazia. O comando `saude` só lê disco e aponta para as duas testemunhas no
+  "sem amostras".
+- **Decisão 4, o `/health` não reprova pelo log desligado:** ele é a testemunha de disponibilidade
+  da sonda externa, e um 503 ali escreveria queda com o produto atendendo; e um orquestrador que
+  reinicia container unhealthy cairia na sonda de escrita, que recusa volume cheio ou sem permissão,
+  transformando a perda do log em indisponibilidade total. Diretório sem escrita no BOOT nem chega
+  ao `/health`, porque o processo não escuta. A decisão está escrita também ao lado do handler, em
+  `backend/src/app.js`.
+- **Alternativas rejeitadas:** o `/health` reprovando (acima); avisar no boot e seguir de pé, que é
+  o estado que o incidente mediu; perguntar por permissão de acesso em vez de escrever, que não
+  prova escrita sob ACL, SELinux ou volume de rede e economiza um arquivo de três bytes; varrer os
+  subdiretórios; e o uid da imagem configurável por argumento de build, que resolveria o bind mount
+  do lado da imagem mas amarra cada imagem a um host, e fica como proposta.
+- **Guardas:** `backend/tests/unit/sonda-de-escrita.test.js`, os casos de sonda de
+  `backend/tests/integration/boot-fail-fast.test.js` (subprocesso real que recusa subir e junta os
+  dois portões), `backend/tests/unit/log-desligado-deixa-rastro.test.js`, os casos novos de
+  `backend/tests/unit/log-diario.test.js`, `backend/tests/integration/diag-cli-resumo.test.js`,
+  `backend/tests/integration/diag-rota-de-resumo.test.js` e
+  `backend/tests/integration/diag-rotas-de-log-espelham-o-cli.test.js`. Detalhe em
+  [deploy do backend](../wiki/deploy-backend.md) e [observabilidade](../wiki/observabilidade.md).
+- **Status:** aceita; os testes foram escritos e não rodados nesta sessão.

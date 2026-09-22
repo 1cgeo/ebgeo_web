@@ -5,14 +5,20 @@
  * Delegates current layer state to StateManager.
  *
  * THE BASE LAYER ON SCREEN IS VIEW STATE OF THE PERSON, LIKE THE CAMERA (decision of the owner,
- * 2026-09-20, registered in docs/decisions/decisions-2026.md). NOTHING IN THIS FILE WRITES: the
- * selector, the fallback and every `switchMap` only DRAW. The base stored on the map document is
- * the SAVED one, written by exactly one gesture, "save view" (`saveMapView`,
+ * 2026-09-20, registered in docs/decisions/decisions-2026.md). NOTHING IN THIS FILE WRITES THE MAP
+ * DOCUMENT: the selector, the fallback and every `switchMap` only DRAW. The base stored on the map
+ * document is the SAVED one, written by exactly one gesture, "save view" (`saveMapView`,
  * `store/map-view.operations.js`), and READ here in two moments only: on entering a map that has
  * a saved view, and on the first paint after a boot or a wipe. Until then every base-layer
  * choice enqueued a `baseLayer` op, so the taste of one person in basemaps repainted the screen
  * of everyone in the atlas, a reader could not choose at all, and an editor WITHOUT access to a
  * private basemap overwrote it for everybody just by opening the map (the fallback persisted).
+ *
+ * THE CHOICE IS REMEMBERED ON THIS COMPUTER SINCE 2026-09-22 (owner's request), per map, and only
+ * the SELECTOR remembers (`executeLayerChange`): `localStorage`, no op, no document
+ * (`store/vista-da-pessoa.js`). On entering the map again (a map switch, an F5, reopening the
+ * atlas) the remembered base outranks the saved one; a remembered base the catalogue of this person
+ * no longer offers is skipped in silence, and the saved or default one takes over.
  */
 
 import {
@@ -24,8 +30,11 @@ import {
     getEventBus,
     getStateManager,
     getControl,
-    applySavedMapTemporalView
+    applyMapEntryTemporalView
 } from '../store';
+// BY FILE: the remembered view of the person is read and written only by this control, the pin of
+// `setCurrentMap` and the temporal switch, and it is not a store operation (no op, no document).
+import { forgetRememberedMapView, personViewTarget, rememberMapView, rememberedMapView } from '../store/vista-da-pessoa.js';
 import { EventTypes } from '../events/event_types.js';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
 import { currentGlobeProjection } from '../store/atlas-appearance.service.js';
@@ -37,7 +46,7 @@ import bdgexLayer from './bdgex_layer.js';
 import config from '../config.js';
 import { resolveBasemapStyle, firstStyledBasemap } from './basemap-style.js';
 import { faixaDeZoom, aplicarFaixaDeZoom } from './basemap-zoom.js';
-import { baseStyleAlreadyOnMap, collectStyleIds, mergeApplicationStyle } from './style-transform.js';
+import { baseStyleAlreadyOnMap, collectStyleIds, mergeApplicationStyle, withSwitchAppearance } from './style-transform.js';
 import { applyTileLodParams } from '../map/tile-lod.js';
 // DO ARQUIVO, e não do barrel `@js/terrain`: o barrel arrasta os dois gerentes de camada, e
 // este controle é do caminho de boot do mapa.
@@ -144,6 +153,22 @@ class BaseLayerControl {
         return config.getEnabledBasemaps()
             .map(([id]) => id)
             .filter((id) => !!this._styleFor(id));
+    }
+
+    /**
+     * The base this person remembers for a map on this computer, when it is still APPLICABLE.
+     *
+     * "Applicable" is `availableBasemaps`, the same list the selector offers: a base that left the
+     * catalogue, or a private one this person lost access to (or that only arrives with a grant
+     * still on its way), answers null and the saved view decides. The remembered entry is KEPT,
+     * because a grant that arrives later makes it valid again on the next entry.
+     * @private
+     * @param {string} mapName
+     * @returns {string|null}
+     */
+    _rememberedBaseLayer(mapName) {
+        const id = rememberedMapView(mapName).baseLayer;
+        return typeof id === 'string' && this.availableBasemaps.includes(id) ? id : null;
     }
 
     get currentLayer() {
@@ -280,13 +305,16 @@ class BaseLayerControl {
     }
 
     /**
-     * The person picked a base layer. DRAW ONLY: nothing is persisted and nothing is enqueued, so
-     * the gesture cannot be refused by role, by map lock or by a recovery in progress.
+     * The person picked a base layer. It DRAWS and it is REMEMBERED on this computer for this map;
+     * nothing is written to the map document and nothing is enqueued, so the gesture cannot be
+     * refused by role, by map lock or by a recovery in progress.
      * @param {string} newLayer - Base layer id picked in the selector (desktop or phone).
      */
     async executeLayerChange(newLayer) {
         this.isChanging = true;
         const previousLayer = this.currentLayer;
+        // Resolved BEFORE the switch: the choice belongs to the atlas and the map it was made on.
+        const alvoDaVistaLembrada = personViewTarget();
 
         try {
             // MESMO mapa do atlas, base nova: o que está desenhado sobrevive ao
@@ -294,6 +322,9 @@ class BaseLayerControl {
             // `layers/setup-mode.js` sobre por que reescrever aqui apaga o traço
             // que o despachante de diff ainda não entregou.
             await this.switchMap(false, { sameMap: true, baseLayer: newLayer });
+            // ONLY WHAT WAS ASKED AND DRAWN is remembered. When `switchLayer` fell back to another
+            // base, the person did not choose that one, and remembering it would pin a fallback.
+            if (this.currentLayer === newLayer) rememberMapView(alvoDaVistaLembrada, { baseLayer: newLayer });
         } catch (error) {
             console.error('Error changing base layer:', error);
             this.syncVisualState(previousLayer);
@@ -392,11 +423,21 @@ class BaseLayerControl {
             // que guarda uma fila POR source. Recriar a source deixa a fila apontando
             // para outro objeto, e a coleção inteira que a remontagem escreve em
             // seguida é um `replaceAll` que DESCARTA o que estava na fila.
+            //
+            // A PROJEÇÃO E O CÉU VÃO DENTRO DO ESTILO (`withSwitchAppearance`), lidos no instante
+            // em que o MapLibre aplica este estilo. Eles eram escritos no mapa DEPOIS do primeiro
+            // `styledata`, que não quer dizer "carregado", e `setProjection` num estilo ainda em
+            // remontagem lança "Style is not done loading." (release 1c3c19c9, na troca de mapa).
             this.map.setStyle(styleUrl, {
                 transformStyle: (previous, next) => {
                     const merged = mergeApplicationStyle(previous, next, this._baseStyleIds);
                     this._baseStyleIds = collectStyleIds(next);
-                    return merged;
+                    // A escolha do ATLAS, com o globo como padrão, nunca a do deploy direto,
+                    // senão trocar de mapa base desfaria a projeção que o projeto pediu.
+                    return withSwitchAppearance(merged, {
+                        globe: currentGlobeProjection(),
+                        terrainActive: Boolean(getControl('TerrainControl')?._wasTerrainActive),
+                    });
                 },
             });
             // MapLibre diffs the incoming style against the current one and,
@@ -415,18 +456,9 @@ class BaseLayerControl {
             // Fica DENTRO do `if`: quando o portão decide "já está no mapa" não houve
             // `setStyle`, logo não houve source nova.
             applyTileLodParams(this.map, config.map2d.sourceTileLodParams);
-
-            // Reapply globe projection after style change (setStyle resets projection)
-            // Skip if terrain is active — globe + terrain is incompatible (MapLibre #4792)
-            const terrainActive = getControl('TerrainControl')?._wasTerrainActive;
-            // A escolha do ATLAS, com o deploy como padrão — nunca o deploy direto, senão trocar
-            // de mapa base desfaria a projeção que o projeto pediu.
-            if (currentGlobeProjection() && !terrainActive) {
-                this.map.setProjection({ type: 'globe' });
-            }
-
-            // Disable sky/fog - setStyle resets it (background is set via CSS)
-            this.map.setSky(undefined);
+            // Nenhum `setProjection` nem `setSky` aqui DEPOIS da espera: os dois foram para dentro
+            // do estilo, no `transformStyle` acima. Escritos neste ponto eles lançavam sobre um
+            // estilo em remontagem, e numa troca dupla rápida aplicariam a projeção da primeira.
         }
         // FORA do `if`, ao contrário de antes, e a razão é o próprio portão acima. Quando ele
         // decide "já está no mapa", o estilo pedido ESTÁ desenhado, então a crença tem de dizer
@@ -502,33 +534,50 @@ class BaseLayerControl {
      * WHICH BASE THIS PAINT DRAWS, in order, and the order is the rule of the product:
      *
      *   1. `options.baseLayer`: someone asked for a base by name (the selector, a briefing slide).
-     *   2. ENTERING a map (`applyPosition`) that has a SAVED VIEW: the saved base, together with
-     *      the saved camera and the saved temporal switch. The three are one thing.
-     *   3. The first paint after a boot or a wipe: the base on the map document, because there is
+     *   2. ENTERING a map (`applyPosition`, or the first paint after a boot or a wipe, which is how
+     *      an atlas opens): the base THIS PERSON REMEMBERS for this map on this computer
+     *      (`store/vista-da-pessoa.js`), when their catalogue still offers it. Skipped in silence
+     *      otherwise: the notice of a base that does not resolve belongs to `switchLayer`, and a
+     *      remembered base that is simply not offered today is not a failure of anything.
+     *   3. ENTERING a map that has a SAVED VIEW: the saved base, together with the saved camera and
+     *      the saved temporal switch. The three are one thing.
+     *   4. The first paint after a boot or a wipe: the base on the map document, because there is
      *      nothing on screen worth keeping yet.
-     *   4. Everything else (entering a map with no saved view, undo/redo, import, search): what
+     *   5. Everything else (entering a map with no saved view, undo/redo, import, search): what
      *      is ON SCREEN stays. The base is view state of the person, like the camera, which also
      *      stays where it is when the map has no saved position.
+     *
+     * `options.restoreSavedView` is the way back to the saved view ("Restaurar posição"): the
+     * remembered view of this person for this map is FORGOTTEN first, so 3 decides, and from then
+     * on the person follows the saved view like anybody who never chose.
      *
      * The fallback for an id the catalog of this person does not offer is DRAW-ONLY. It used to
      * be written back to the map document, and that is how an editor without a grant to a private
      * basemap replaced it for everyone by opening the map
-     * (`tests/integration/mapa-base-e-vista-da-pessoa.repro.test.js`).
+     * (`tests/integration/mapa-base-e-vista-da-pessoa.repro.test.js`). It is not remembered either.
      *
      * @param {boolean} [applyPosition=true] - Entrada num mapa: restaura a VISTA salva dele.
-     * @param {{ sameMap?: boolean, baseLayer?: string }} [options] - `sameMap` quando o mapa do
-     *   atlas NÃO mudou (troca só do mapa base), único caso em que o conteúdo desenhado pode ser
-     *   mantido. Ausente é o padrão certo: os outros chamadores (desfazer/refazer, troca de
-     *   mapa, import, briefing, busca) mudaram o CONTEÚDO, e ali remontar é a obrigação.
-     *   `baseLayer` pede uma base pelo nome, sem gravar nada.
+     * @param {{ sameMap?: boolean, baseLayer?: string, restoreSavedView?: boolean }} [options] -
+     *   `sameMap` quando o mapa do atlas NÃO mudou (troca só do mapa base), único caso em que o
+     *   conteúdo desenhado pode ser mantido. Ausente é o padrão certo: os outros chamadores
+     *   (desfazer/refazer, troca de mapa, import, briefing, busca) mudaram o CONTEÚDO, e ali
+     *   remontar é a obrigação. `baseLayer` pede uma base pelo nome, sem gravar nada.
+     *   `restoreSavedView` é o gesto de voltar à vista salva: esquece a vista lembrada da pessoa.
      */
     async switchMap(applyPosition = true, options = {}) {
         const currentMapName = await getCurrentMapName();
         const hasSavedView = applyPosition && await hasMapSavedPosition(currentMapName);
+        if (options.restoreSavedView && hasSavedView) {
+            forgetRememberedMapView(personViewTarget(currentMapName));
+        }
+        const entering = applyPosition || !this._viewPainted;
+        const remembered = entering ? this._rememberedBaseLayer(currentMapName) : null;
 
         let baseLayer;
         if (options.baseLayer) {
             baseLayer = options.baseLayer;
+        } else if (remembered) {
+            baseLayer = remembered;
         } else if (hasSavedView || !this._viewPainted) {
             baseLayer = await getCurrentBaseLayer();
         } else {
@@ -560,9 +609,11 @@ class BaseLayerControl {
             await this.applyMapSavedPosition(currentMapName);
         }
         // The temporal third of the saved view. Only with a saved view: a map without one keeps
-        // the switch this session pinned for it (`store/temporal.operations.js`).
+        // the switch this session pinned for it (`store/temporal.operations.js`), and the pin
+        // already read what this person remembers. With one, the remembered switch still outranks
+        // the saved one, like the base above.
         if (hasSavedView) {
-            await applySavedMapTemporalView(currentMapName);
+            await applyMapEntryTemporalView(currentMapName);
         }
 
         await setupMapFeatures(this.map, this._analysisLayersManager, this._dataLayersManager, getEventBus(), {

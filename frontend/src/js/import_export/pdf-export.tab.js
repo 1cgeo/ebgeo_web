@@ -8,6 +8,7 @@ import { showError } from '@utils/toast_service.js'
 // `Gdal` inicializado, com o `.wasm` e o `.data` resolvidos pelo proprio Vite.
 import { initGdal } from '@js/vendor/gdal.js'
 import { ensureTurf } from '@utils/turf-loader.js'
+import { carregarSobDemanda } from '@utils/carga-sob-demanda.js'
 import {
     correctZoomInvariantFeatures,
     transferMapImages,
@@ -900,7 +901,7 @@ export default class PDFExportTab {
                 this.updateProgress(5, `Mosaico grande (${total} folhas) — isso pode levar um tempo...`);
             }
 
-            const { exportMosaicPdf } = await import('./pdf-mosaic-export.js');
+            const { exportMosaicPdf } = await carregarSobDemanda(() => import('./pdf-mosaic-export.js'));
 
             // Collect legend stats over the WHOLE mosaic area (usableBounds spans the
             // full mosaic in mosaic mode) so the legend reflects the assembled map.
@@ -945,7 +946,7 @@ export default class PDFExportTab {
         } catch (error) {
             if (!this._exportCancelled) {
                 console.error('Error exporting mosaic PDF:', error);
-                showError('Não foi possível exportar o mosaico: ' + error.message);
+                showError('Não foi possível exportar o mosaico. Tente de novo.');
             }
             this._progress?.remove();
         }
@@ -1187,7 +1188,7 @@ export default class PDFExportTab {
         } catch (error) {
             if (!this._exportCancelled) {
                 console.error('Error exporting PDF:', error);
-                showError('Não foi possível exportar o PDF: ' + error.message);
+                showError('Não foi possível exportar o PDF. Tente de novo.');
             }
             this._progress?.remove();
         } finally {

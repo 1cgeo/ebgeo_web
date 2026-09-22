@@ -261,7 +261,7 @@ export class PendenciasPanel extends ModalBase {
         this._lista.replaceChildren(this._aviso(
             'pendencias__carregando',
             'Lendo as pendências…',
-            'Esta tela ainda não afirma nada sobre o que ficou para trás.'
+            'Verificando o que ficou por enviar neste computador.'
         ));
     }
 

@@ -1,9 +1,9 @@
 // Path: js/street_view_tool/streetview_markers.js
 import * as streetviewApi from './streetview-api.service.js';
 
-import config from '../config.js';
 import { formatarDataCaptura } from '@utils/data-captura.js';
 import { maplibregl } from '@js/map/maplibre.js';
+import { carregarSobDemanda } from '@utils/carga-sob-demanda.js';
 
 // Flag to prevent click propagation to line layer when marker is clicked
 // Shared between streetview markers and 3D viewer markers via window object
@@ -115,11 +115,9 @@ class StreetviewMarkers {
         let features;
 
         try {
-            const { fetchProjects } = streetviewApi;
+            const { fetchProjects, sv360ReadUrl } = streetviewApi;
             const projects = await fetchProjects();
             if (!projects || projects.length === 0) return;
-
-            const serviceUrl = config.streetView360.serviceUrl;
 
             features = projects.map(p => ({
                 type: 'Feature',
@@ -131,8 +129,14 @@ class StreetviewMarkers {
                     markerId: p.id,
                     name: p.name,
                     dataCaptura: p.captureDate || null,
+                    // THE MINIATURE IS SCOPED, as in the catalog card: `/thumbnails/:slug.webp`
+                    // goes through the same access predicate as the rest of the 360 module, and
+                    // the popup draws it as an `<img src>`, which carries no header. Built here by
+                    // hand (`serviceUrl` + path), the miniature of a project LENT by the atlas
+                    // answered 404 and the popup dropped it in silence. `sv360ReadUrl` is the one
+                    // recipe every 360 read goes through.
                     previewThumbnail: p.previewThumbnail
-                        ? `${serviceUrl}${p.previewThumbnail}`
+                        ? sv360ReadUrl(p.previewThumbnail)
                         : null,
                     photoName: p.entryPhotoId
                 }
@@ -489,8 +493,8 @@ class StreetviewMarkers {
      */
     async openStreetView(photoName) {
         this.removePreviewPopup();
-        // Use the new viewer API
-        const { openViewer360WithPhoto } = await import('./street_view_viewer.js');
+        // Use the new viewer API, through the on-demand door (one retry, then "Recarregar").
+        const { openViewer360WithPhoto } = await carregarSobDemanda(() => import('./street_view_viewer.js'));
         await openViewer360WithPhoto(photoName, {
             miniMap: this.streetViewControl?.miniMap,
             controlInstance: this.streetViewControl
@@ -641,22 +645,21 @@ class StreetviewMarkers {
      */
     async _resolveMarkerFromAPI(markerId) {
         try {
-            const { getCachedProjects } = streetviewApi;
+            const { getCachedProjects, sv360ReadUrl } = streetviewApi;
             const projects = getCachedProjects();
             if (!projects) return null;
 
             const project = projects.find(p => p.id === markerId);
             if (!project?.center) return null;
 
-            const serviceUrl = config.streetView360.serviceUrl;
-
             return {
                 coordinates: [project.center.lon, project.center.lat],
                 markerId: project.id,
                 name: project.name,
                 dataCaptura: project.captureDate || null,
+                // Scoped by the same recipe as `loadMarkers` above, and for the same reason.
                 previewThumbnail: project.previewThumbnail
-                    ? `${serviceUrl}${project.previewThumbnail}`
+                    ? sv360ReadUrl(project.previewThumbnail)
                     : null,
                 photoName: project.entryPhotoId
             };

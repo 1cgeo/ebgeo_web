@@ -14,7 +14,7 @@
  * dá (nome de arquivo, decisão do que podar), recebe `agora` e `fs` por injeção, e nunca
  * engole um erro sem falar.
  *
- * AS QUATRO PROPRIEDADES QUE ELE PRECISA TER, e cada uma já é a lápide de um jeito ingênuo:
+ * AS CINCO PROPRIEDADES QUE ELE PRECISA TER, e cada uma já é a lápide de um jeito ingênuo:
  *
  * 1. **Nunca derrubar quem loga.** Um `throw` daqui subiria pelo `logger.info` de dentro de
  *    um handler HTTP e transformaria "não consegui escrever o log" em "a requisição falhou".
@@ -24,7 +24,11 @@
  * 2. **Falar alto ao nascer.** Se o diretório não puder ser criado, isso vai para o stderr
  *    na inicialização, e não vira um silêncio que se confunde com "não houve erro nenhum".
  *    A constituição chama isso de verificador que quebra calado, e o hook de lint desta casa
- *    já pagou por ele.
+ *    já pagou por ele. **Criar não é escrever**, e esta propriedade não bastou: sobre um
+ *    diretório que JÁ existe o `mkdirSync` recursivo devolve sucesso sem perguntar por
+ *    escrita, e em 2026-09-22 um volume de outro dono passou calado por aqui e morreu na
+ *    primeira linha. Quem prova escrita no boot é a sonda (`sonda-de-escrita.js`), que roda
+ *    antes de o servidor escutar; o que sobra aqui é o desligamento em RUNTIME.
  * 3. **Podar só o que é nosso.** A varredura casa `<prefixo>-AAAA-MM-DD.jsonl` e mais nada.
  *    Um `readdir` + `unlink` frouxo num diretório que o operador aponte para o lugar errado
  *    apagaria arquivo alheio, e essa é a classe de erro que não tem desfazer.
@@ -34,6 +38,11 @@
  *    desligamento e as da queda, que são as que explicam um deploy e um incidente. A espera
  *    é LIMITADA: sem teto, disco cheio ou cano entupido viram um processo que nunca termina,
  *    o orquestrador o mata no prazo dele, e aí se perde o log E o desligamento limpo.
+ * 5. **Desligar deixa rastro FORA do arquivo.** O arquivo não tem como registrar que parou de
+ *    ser escrito, e o aviso no stderr não sobrevive a um container recriado. Por isso o
+ *    desligamento fica guardado em `estado()` (que `utils/logger.js` publica nas rotas de
+ *    diagnóstico do processo vivo) e é entregue a `aoDesligar`, que o boot liga a um defeito
+ *    de servidor no banco. As duas pontas nunca lançam para dentro daqui.
  *
  * O DIA É O LOCAL, não UTC, e isso é escolha: quem lê o log procura pelo dia em que o
  * problema aconteceu para ELE. O custo é que a virada de arquivo acompanha o fuso do
@@ -45,6 +54,19 @@ import path from 'node:path';
 
 /** Casa exatamente o que ESTE módulo escreve, e nada mais. */
 const PADRAO_ARQUIVO = /^(.+)-(\d{4}-\d{2}-\d{2})\.jsonl$/;
+
+/**
+ * O termo que ABRE a assinatura do defeito de servidor que um desligamento produz
+ * (`defeitoDoLogDesligado`, em `modules/diag/defeitos-de-servidor.js`), e que o resumo procura
+ * para dizer, no bloco de saúde, que a série pode ter buraco com o processo de pé.
+ *
+ * Símbolo exportado e não string digitada em dois lugares, pelo mesmo motivo de
+ * `MARCADOR_AMOSTRA`: quem escreve e quem procura precisam do mesmo termo, senão renomear um
+ * lado deixa o outro mudo e correto na aparência. Sem acento, porque é termo de busca. Ele mora
+ * aqui porque este módulo é folha (só `node:fs` e `node:path`), então importá-lo não arrasta
+ * `config.js` para dentro de `utils/diag-consulta.js`.
+ */
+export const MARCADOR_LOG_DESLIGADO = 'log em arquivo desligado';
 
 /**
  * Teto da espera de `fechar()`. Curto de propósito: quem chama está saindo, e a alternativa
@@ -129,7 +151,9 @@ export function diaLimiteDaRetencao(hoje, dias) {
  * @param {() => Date} [opts.agora] - relógio injetável (teste)
  * @param {Object} [opts.sistemaDeArquivos] - `fs` injetável (teste)
  * @param {(msg: string) => void} [opts.avisar] - canal do aviso de falha (stderr)
- * @returns {{write: (linha: string) => void, fechar: (opts?: {prazoMs?: number}) => Promise<{desfecho: string}>, diaAtual: () => string|null}}
+ * @param {((estado: Object) => void)|null} [opts.aoDesligar] - chamado UMA vez, com `estado()`,
+ *   quando o destino se desliga; ver a propriedade (5) do cabeçalho
+ * @returns {{write: (linha: string) => void, fechar: (opts?: {prazoMs?: number}) => Promise<{desfecho: string}>, diaAtual: () => string|null, estado: () => Object}}
  */
 export function criarLogDiario({
   diretorio,
@@ -138,18 +162,52 @@ export function criarLogDiario({
   agora = () => new Date(),
   sistemaDeArquivos = fs,
   avisar = (msg) => process.stderr.write(`${msg}\n`),
+  aoDesligar = null,
 } = {}) {
   const fsys = sistemaDeArquivos;
   let fluxo = null;
   let dia = null;
   let desligado = false;
+  /** Por que e quando o destino se desligou; `null` enquanto ele escreve. */
+  let desligamento = null;
 
-  /** Desliga o destino e avisa UMA vez. Ver propriedade (1) do cabeçalho. */
+  /** O estado do destino, para quem precisa dizer em voz alta que ele parou. */
+  function estado() {
+    return {
+      ligado: !desligado,
+      diretorio,
+      desligadoEm: desligamento ? desligamento.em : null,
+      causa: desligamento ? desligamento.causa : null,
+      codigo: desligamento ? desligamento.codigo : null,
+      mensagem: desligamento ? desligamento.mensagem : null,
+    };
+  }
+
+  /** Desliga o destino e avisa UMA vez. Ver propriedades (1) e (5) do cabeçalho. */
   function degradar(causa, err) {
     if (desligado) return;
     desligado = true;
     fluxo = null;
-    avisar(`[log-diario] ${causa}: ${err && err.message ? err.message : err}. O log em arquivo foi DESLIGADO nesta execução.`);
+    // O relógio injetado pode ser justamente o que lançou (ele roda dentro do `write`), e
+    // chamá-lo de novo aqui faria o caminho de degradação lançar, que é o que a propriedade (1)
+    // proíbe. `Date.now()` é o recurso que não depende de ninguém.
+    let em;
+    try { em = agora().getTime(); } catch { em = Date.now(); }
+    desligamento = {
+      em,
+      causa,
+      codigo: err && typeof err.code === 'string' ? err.code : null,
+      mensagem: String(err && err.message ? err.message : err),
+    };
+    avisar(`[log-diario] ${causa}: ${desligamento.mensagem}. O log em arquivo foi DESLIGADO nesta execução.`);
+    if (typeof aoDesligar === 'function') {
+      try {
+        aoDesligar(estado());
+      } catch {
+        // Quem ouve o desligamento é telemetria; uma exceção dela subiria pelo `write` de dentro
+        // de um handler HTTP. O aviso no stderr acima já saiu, e ele é o que sobra.
+      }
+    }
   }
 
   function podar(hoje) {
@@ -248,5 +306,11 @@ export function criarLogDiario({
     diaAtual() {
       return dia;
     },
+    /**
+     * `{ ligado, diretorio, desligadoEm, causa, codigo, mensagem }`. Os quatro últimos são
+     * `null` enquanto o destino escreve; `desligadoEm` é epoch ms, como todo instante do
+     * diagnóstico.
+     */
+    estado,
   };
 }

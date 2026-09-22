@@ -29,7 +29,9 @@ import {
     validateRecoveryReset,
 } from '../../src/js/modals/password-recovery.model.js';
 import { MAX_EMAIL_LENGTH } from '../../src/js/admin/account-model.js';
+import { validateAdminEmail } from '../../src/js/admin/user-email-model.js';
 import { resetPasswordWithTokenSchema } from '../../../backend/src/modules/auth/auth.schemas.js';
+import { createUserAdminSchema } from '../../../backend/src/modules/users/users.schemas.js';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const USERS_SCHEMAS = resolve(RAIZ, 'backend/src/modules/users/users.schemas.js');
@@ -136,5 +138,52 @@ describe('a troca de e-mail espelha changeEmailSchema', () => {
             .find((l) => l.startsWith('currentPassword:'));
         expect(linha).toBeTruthy();
         expect(linha).toContain('.required()');
+    });
+});
+
+describe('o e-mail da criação administrativa espelha createUserAdminSchema', () => {
+    // O CAMPO NASCEU EM 2026-09-22, e o formulário do administrador o confere com a MESMA regra
+    // frouxa de "Minha conta" (`emailAddressProblem`). O espelho que importa é de UMA direção:
+    // o cliente NUNCA pode recusar o que o servidor aceita. A outra direção é deliberadamente
+    // aberta (a regra do cliente é mais frouxa que `Joi.string().email()`, e o 422 cobre o resto).
+    const chaves = createUserAdminSchema.describe().keys;
+    const corpoBase = { username: 'espelho_mail', password: 'Senha-forte-1', nome: 'Espelho' };
+
+    it('o campo existe no servidor, é opcional, e aceita o vazio (piso contra comparação vazia)', () => {
+        expect(chaves.email).toBeTruthy();
+        expect(chaves.email.flags?.presence).not.toBe('required');
+        expect(createUserAdminSchema.validate({ ...corpoBase, email: '' }).error).toBeUndefined();
+        expect(createUserAdminSchema.validate({ ...corpoBase, email: null }).error).toBeUndefined();
+        expect(createUserAdminSchema.validate(corpoBase).error).toBeUndefined();
+    });
+
+    it('o comprimento máximo do endereço é o mesmo dos dois lados', () => {
+        const max = chaves.email.rules.find((rule) => rule.name === 'max')?.args.limit;
+        expect(max).toBeTypeOf('number');
+        expect(MAX_EMAIL_LENGTH).toBe(max);
+    });
+
+    it('todo endereço que o servidor aceita, o cliente também aceita', () => {
+        const aceitos = [
+            'alguem@example.mil',
+            'Nome.Sobrenome@Example.MIL',
+            '  espacos@example.mil  ',
+            'mais+tag@sub.example.com.br',
+            // Longo sem estourar as regras do endereço (a parte local tem teto próprio de 64).
+            `${'x'.repeat(60)}@${'y'.repeat(60)}.example.mil`,
+        ];
+        const noServidor = aceitos.filter(
+            (email) => !createUserAdminSchema.validate({ ...corpoBase, email }).error
+        );
+        // Piso: a lista não pode ter encolhido a nada do lado do servidor, senão o `every`
+        // abaixo seria verdadeiro sobre o vazio.
+        expect(noServidor).toEqual(aceitos);
+        expect(noServidor.every((email) => validateAdminEmail(email).valid)).toBe(true);
+    });
+
+    it('o que passa do teto é recusado dos dois lados', () => {
+        const longo = `${'a'.repeat(MAX_EMAIL_LENGTH)}@example.mil`;
+        expect(createUserAdminSchema.validate({ ...corpoBase, email: longo }).error).toBeTruthy();
+        expect(validateAdminEmail(longo).valid).toBe(false);
     });
 });

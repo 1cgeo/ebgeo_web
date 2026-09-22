@@ -154,8 +154,10 @@ describe('A1 — sem `/api/config`, a página não vira a tela de bloqueio', () 
         const onRetry = vi.fn();
         const node = createServerOutage({ onRetry });
         const texto = allText(node);
-        expect(texto).toMatch(/servidor não respondeu/i);
-        expect(texto).toMatch(/neste navegador/i);
+        expect(texto).toMatch(/Servidor indisponível/);
+        // Diz em voz alta o que caiu (abrir no mapa) e o que continua (a metade local).
+        expect(texto).toMatch(/abrir atlas no mapa/i);
+        expect(texto).toMatch(/deste navegador/i);
         // O convite de sessão (`createServerInvite`) oferece "Entrar", e é exatamente o que aqui
         // não funciona: oferecê-lo seria prometer o que a página não pode cumprir.
         expect(texto).not.toMatch(/\bEntrar\b/);

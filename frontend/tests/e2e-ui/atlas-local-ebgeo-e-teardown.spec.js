@@ -198,7 +198,7 @@ describeOrSkip('atlas local: abrir .ebgeo pela tela', () => {
         // blob corriam contra escritas ainda em voo (flake medido em 2026-08-28, na primeira
         // tentativa, com `briefings: 0`). Esperar pela própria quantia que se vai asserir também
         // não serve: transforma a asserção num timeout mudo quando ela falha.
-        await expect(page.locator('.toast', { hasText: `${esperado.maps} mapas carregados!` }))
+        await expect(page.locator('.toast', { hasText: `${esperado.maps} mapas carregados.` }))
             .toBeVisible({ timeout: 60000 });
 
         // O número de CHAVES é ASSERÇÃO, não espera. São EXATAMENTE `maps` desde 2026-08-28: o
@@ -275,7 +275,7 @@ describeOrSkip('atlas local: abrir .ebgeo pela tela', () => {
         // ESPERA PELO FIM DO IMPORT INTEIRO (o toast é a última linha do fluxo), e não pela
         // própria quantia que se vai asserir: um poll sobre ela vira timeout mudo no dia em que o
         // defeito voltar, em vez de nomear o que divergiu.
-        await expect(page.locator('.toast', { hasText: `${esperado.maps} mapas carregados!` }))
+        await expect(page.locator('.toast', { hasText: `${esperado.maps} mapas carregados.` }))
             .toBeVisible({ timeout: 60000 });
 
         const lido = await page.evaluate(async (nomes) => {

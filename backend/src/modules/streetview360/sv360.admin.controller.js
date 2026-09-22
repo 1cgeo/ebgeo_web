@@ -45,8 +45,8 @@ export const uploadProject = asyncHandler(async (req, res) => {
   const thumbnailPath = files.thumbnail?.[0]?.path;
 
   try {
-    if (!manifestPath) throw new BadRequestError('manifest field is required');
-    if (!tilesDbPath) throw new BadRequestError('tilesDb field is required');
+    if (!manifestPath) throw new BadRequestError('Envie o manifesto (manifest.json).');
+    if (!tilesDbPath) throw new BadRequestError('Envie o banco de tiles.');
 
     // O `orgId` SAI DO ENVELOPE E NÃO ENTRA NA RESPOSTA: o corpo do 201 é contrato
     // congelado do 360 (envelope plano, sem `{data}`), e a OM está aqui só para a

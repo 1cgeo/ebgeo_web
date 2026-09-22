@@ -45,7 +45,7 @@ describe('loginFailureMessage: o que NÃO é sobre a identidade ganha frase loca
     it('O DEFEITO MEDIDO: um 502 não vira "HTTP 502" na tela', () => {
         const msg = loginFailureMessage(apiError(502, 'HTTP 502'));
         expect(msg).not.toMatch(/HTTP|502/);
-        expect(msg).toMatch(/senha não está em questão/i);
+        expect(msg).toMatch(/não é a senha/i);
     });
 
     it('O OUTRO DEFEITO MEDIDO: o erro de rede do navegador não vaza em inglês', () => {
@@ -53,7 +53,7 @@ describe('loginFailureMessage: o que NÃO é sobre a identidade ganha frase loca
         const msg = loginFailureMessage(new TypeError('Failed to fetch'));
         expect(msg).not.toMatch(/Failed to fetch/);
         expect(msg).toMatch(/conexão/i);
-        expect(msg).toMatch(/senha não está em questão/i);
+        expect(msg).toMatch(/não é a senha/i);
     });
 
     it('as variantes do erro de rede entre navegadores também são recusadas', () => {

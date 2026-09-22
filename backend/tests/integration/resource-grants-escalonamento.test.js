@@ -76,13 +76,28 @@ describe('F3 — `view` não escala para `view_share`', () => {
       .get(`/api/v1/resource-access/data_layer/${LAYER}/grants`)
       .set('Authorization', `Bearer ${tokens.com_share}`)
       .expect(200);
+    // DESDE 2026-09-22 A LISTA É A AUTORIA DE QUEM PERGUNTA (decisão do dono, item 19c): quem
+    // tem `view_share` vê o que ELE concedeu (o `view` a alvo1, do caso anterior) e NÃO vê o que
+    // o administrador concedeu sobre o mesmo recurso. O recorte e o positivo andam juntos: sem o
+    // positivo, uma lista vazia passaria no negativo de graça.
     const beneficiarios = res.body.data.map((g) => g.grantee_id);
-    assert.ok(beneficiarios.includes(atores.so_view.id), 'a lista precisa nomear quem tem acesso');
-    assert.ok(beneficiarios.includes(atores.com_share.id));
-    // E carrega o CONCEDENTE, que é o que a UI mostra como "recebido de".
-    const doSoView = res.body.data.find((g) => g.grantee_id === atores.so_view.id);
+    assert.ok(beneficiarios.includes(atores.alvo1.id), 'a lista nomeia a quem ESTE chamador concedeu');
+    assert.ok(!beneficiarios.includes(atores.so_view.id),
+      'o que OUTRA pessoa concedeu sobre o recurso não sai para este chamador');
+    assert.ok(res.body.data.length > 0);
+    assert.ok(res.body.data.every((g) => g.granted_by === atores.com_share.id),
+      'toda linha é de autoria de quem pergunta');
+
+    // E o administrador vê as DELE, com o concedente que a tela usa.
+    const doAdmin = await supertest(app)
+      .get(`/api/v1/resource-access/data_layer/${LAYER}/grants`)
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .expect(200);
+    const doSoView = doAdmin.body.data.find((g) => g.grantee_id === atores.so_view.id);
     assert.equal(doSoView.granted_by, atores.admin.id);
     assert.equal(doSoView.granted_by_username, atores.admin.username);
+    assert.ok(!doAdmin.body.data.some((g) => g.grantee_id === atores.alvo1.id),
+      'a concessão de com_share não aparece para o administrador');
   });
 
   it('quem não tem concessão nenhuma também não concede (nem vê a lista)', async () => {

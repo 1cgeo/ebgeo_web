@@ -247,6 +247,14 @@ describe('GET /diag/resumo, o relatório de uma tela, das duas fontes', () => {
       assert.ok(j.linhas > 0, 'não-vacuidade: alguma linha precisa ter sido lida');
       assert.equal(j.banco, true);
       assert.equal(typeof body.data.gerado_em, 'number');
+      // O estado de quem ESCREVE o log neste processo viaja junto (`estadoDoLogEmArquivo`): sem
+      // ele, uma série vazia com o log desligado por falha seria indistinguível de um processo
+      // fora. Sob a suíte o destino nunca liga, e isso não pode se ler como falha.
+      assert.equal(j.logEmArquivo.ligado, false);
+      assert.notEqual(j.logEmArquivo.motivo, 'falha');
+      // E o bloco de saúde carrega a metade DURÁVEL, a do banco, com a fonte respondendo.
+      assert.equal(body.data.saude.logEmArquivo.disponivel, true);
+      assert.ok(Array.isArray(body.data.saude.logEmArquivo.desligamentos));
     });
 
     it('a premissa conta as linhas da janela ATUAL, e não as do DOBRO que foi lido', async () => {

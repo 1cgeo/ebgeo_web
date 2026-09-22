@@ -23,6 +23,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { seedSharedAtlas, openClient } from './helpers/collab-helpers.js';
+import { seedTileset, seedSv360Photo } from './helpers/catalog-seed.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -43,6 +44,12 @@ async function peerHasSelection(page, surface, featureId, scopeKey) {
 
 describeOrSkip('Feature selection — a peer converges on a remote selection (2D / 3D / 360)', () => {
     test('A selecting on each surface propagates to peer B', async ({ browser }) => {
+        // OS ESCOPOS 3D E 360 SÃO RECURSOS PÚBLICOS DE VERDADE desde 2026-09-22: o servidor resolve o
+        // escopo de uma seleção no catálogo e o recorta por destinatário, e um identificador que não
+        // resolve é privado para todos (backend/src/modules/collab/collab.recorte.js). Com os nomes
+        // inventados de antes, B receberia a seleção vazia e este caso mediria a redação.
+        const tilesetId = await seedTileset(state.dbName, { name: 'Tileset da seleção colaborativa' });
+        const { photoName } = await seedSv360Photo(state.dbName);
         const seed = await seedSharedAtlas(browser, state.baseUrl, { permission: 'write' });
         const A = await openClient(browser, state.baseUrl, seed.atlasId, seed.userA);
         const B = await openClient(browser, state.baseUrl, seed.atlasId, seed.userB);
@@ -63,32 +70,32 @@ describeOrSkip('Feature selection — a peer converges on a remote selection (2D
 
             // ── 3D: a marker click inside the Cesium viewer emits MARKER_3D_CLICKED; the
             // bridge forwards it scoped by tilesetId. B converges on the same tileset scope.
-            await A.evaluate(async () => {
+            await A.evaluate(async (escopo) => {
                 const { getEventBus } = await import('/src/js/store/services.js');
                 const { EventTypes } = await import('/src/js/events/event_types.js');
                 getEventBus().emit(EventTypes.MARKER_3D_CLICKED, {
                     marker: { id: 'sel-3d-1' },
-                    tilesetId: 'tileset-colab',
+                    tilesetId: escopo,
                 });
-            });
+            }, tilesetId);
             await expect
-                .poll(() => peerHasSelection(B, '3d', 'sel-3d-1', 'tileset-colab'), { timeout: 20000 })
+                .poll(() => peerHasSelection(B, '3d', 'sel-3d-1', tilesetId), { timeout: 20000 })
                 .toBe(true);
             // Wrong scope must NOT match (the highlight is panorama/tileset-scoped).
             expect(await peerHasSelection(B, '3d', 'sel-3d-1', 'tileset-OUTRO')).toBe(false);
 
             // ── 360: a POI click emits MARKER_360_CLICKED; the bridge forwards it scoped by
             // photoName.
-            await A.evaluate(async () => {
+            await A.evaluate(async (foto) => {
                 const { getEventBus } = await import('/src/js/store/services.js');
                 const { EventTypes } = await import('/src/js/events/event_types.js');
                 getEventBus().emit(EventTypes.MARKER_360_CLICKED, {
                     marker: { id: 'sel-360-1' },
-                    photoName: 'foto-colab.jpg',
+                    photoName: foto,
                 });
-            });
+            }, photoName);
             await expect
-                .poll(() => peerHasSelection(B, '360', 'sel-360-1', 'foto-colab.jpg'), { timeout: 20000 })
+                .poll(() => peerHasSelection(B, '360', 'sel-360-1', photoName), { timeout: 20000 })
                 .toBe(true);
         } finally {
             await A.context().close();

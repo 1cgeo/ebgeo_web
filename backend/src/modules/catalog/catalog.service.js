@@ -127,7 +127,7 @@ function assertValidStyle(table, config) {
   if (config && config.style !== undefined) {
     const result = validateMapLibreStyle(config.style);
     if (!result.ok) {
-      throw new BadRequestError(`Invalid MapLibre style: ${result.errors.join(' ')}`);
+      throw new BadRequestError(`Estilo MapLibre inválido: ${result.errors.join(' ')}`);
     }
   }
 }

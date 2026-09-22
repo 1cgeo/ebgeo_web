@@ -37,7 +37,7 @@ describe('exitOutcomeNotice: os desfechos que têm frase', () => {
         const r = exitOutcomeNotice(ExitOutcome.GUARDADO, '47');
 
         expect(r).not.toBe(null);
-        expect(r.message).toContain('47 operações');
+        expect(r.message).toContain('47 alterações');
         expect(r.message).toContain('atlas local');
         expect(r.message).toContain('Enviar ao servidor');
         expect(r.tone).toBe('warning');
@@ -50,7 +50,7 @@ describe('exitOutcomeNotice: os desfechos que têm frase', () => {
         const r = exitOutcomeNotice(ExitOutcome.FALHOU, '3');
 
         expect(r.message).toContain('NÃO foi possível guardar');
-        expect(r.message).toContain('3 operações');
+        expect(r.message).toContain('3 alterações');
         expect(r.message).toContain('Entre novamente');
         expect(r.tone).toBe('error');
         // CONTROLE NEGATIVO, e é o que mais importa neste caso: a pessoa não escolheu nada e o
@@ -101,12 +101,12 @@ describe('exitOutcomeNotice: o que NÃO vira frase', () => {
         for (const ruim of [undefined, null, '', '0', '-3', 'abc', 'Infinity', 'NaN', '1,5', {}]) {
             const r = exitOutcomeNotice(ExitOutcome.GUARDADO, ruim);
             expect(r.message, `entrada ${String(ruim)}`).not.toMatch(/\d/);
-            expect(r.message, `entrada ${String(ruim)}`).not.toContain('operaç');
+            expect(r.message, `entrada ${String(ruim)}`).not.toContain('alteraç');
         }
         // CONTROLE NEGATIVO: com um inteiro positivo o número aparece, e aparece nos dois formatos
         // em que a URL o entrega (string) e o guarda o mede (number).
-        expect(exitOutcomeNotice(ExitOutcome.GUARDADO, '1').message).toContain('1 operação');
-        expect(exitOutcomeNotice(ExitOutcome.GUARDADO, 12).message).toContain('12 operações');
+        expect(exitOutcomeNotice(ExitOutcome.GUARDADO, '1').message).toContain('1 alteração');
+        expect(exitOutcomeNotice(ExitOutcome.GUARDADO, 12).message).toContain('12 alterações');
         // E "1,5" acima cai no desconhecido de propósito: `Number('1,5')` é NaN, não 1.
     });
 });

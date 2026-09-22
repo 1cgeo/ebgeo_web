@@ -120,7 +120,7 @@ vi.mock('../../src/js/utilities/index.js', () => ({
 }));
 
 import { showTemporalSettingsModal } from '../../src/js/temporal/temporal-settings.modal.js';
-import { MOTIVO_REAGENDAMENTO } from '../../src/js/temporal/temporal-settings.model.js';
+import { MOTIVO_REAGENDAMENTO, avisoDoReagendamento } from '../../src/js/temporal/temporal-settings.model.js';
 
 const MAPA = 'Principal';
 const D = Date.UTC(2026, 0, 10);
@@ -349,7 +349,16 @@ describe('S2 — o modal não grava mais a origem por conta própria', () => {
         // A gravação da origem era a linha incondicional do defeito.
         expect(setMapTemporalConfig).not.toHaveBeenCalled();
         // Recusado: avisa e mantém a tela aberta, em vez de fechar como se tivesse reagendado.
-        expect(showWarning).toHaveBeenCalledWith(expect.stringContaining('recusada'));
+        // O aviso é o do ramo RECUSADO do modelo, pela frase inteira, e não mais pela palavra
+        // 'recusada', que saiu do texto na reescrita de 2026-09-22. O que a frase tem de dizer
+        // continua cobrado: nada andou, nem as feições nem o Dia D, e por quê.
+        const recusa = avisoDoReagendamento({
+            gravarOrigem: false, motivo: MOTIVO_REAGENDAMENTO.RECUSADO, reagendadas: 0,
+        });
+        expect(recusa.texto).toContain('Nenhuma feição foi reagendada');
+        expect(recusa.texto).toContain('Dia D não mudou');
+        expect(recusa.texto).toMatch(/bloqueado|permissão/);
+        expect(showWarning).toHaveBeenCalledWith(recusa.texto);
         expect(aberto()).toBe(true);
     });
 });

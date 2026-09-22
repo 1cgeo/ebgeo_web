@@ -29,9 +29,16 @@ const GRACA_MS = 3000; // longa de propósito: o caso 'away' precisa da janela a
 // `temporalState` SAIU DESTA LISTA em 2026-09-21, com o quadro de presença que o alimentava
 // (decisão do dono: o instante da linha do tempo de uma pessoa não se propaga). Esta lista é
 // comparada por IGUALDADE ABSOLUTA logo abaixo, então repor a chave no servidor reprova aqui.
+//
+// DUAS CHAVES ENTRARAM em 2026-09-22. `viewer` é o visualizador aberto pelo par (3D, cena
+// caminhável, 360), na projeção que todo membro pode ler (`collab.viewer.js`). `cursorContext`
+// JÁ era publicado desde 2026-09-16 e faltava aqui só porque nascia `undefined` e o JSON o
+// apagava: esta lista passava por nenhum caso mandar cursor, que é exatamente o "contrato que só
+// às vezes traz o campo" que o comentário de `selectionContext` no gateway condena. As duas
+// nascem `null` no socket.
 const CAMPOS = [
-  'clientId', 'cursorPosition', 'id', 'mapId', 'nome', 'nome_guerra', 'posto_graduacao',
-  'selectedFeatures', 'selectionContext', 'status',
+  'clientId', 'cursorContext', 'cursorPosition', 'id', 'mapId', 'nome', 'nome_guerra',
+  'posto_graduacao', 'selectedFeatures', 'selectionContext', 'status', 'viewer',
 ];
 
 describe('shape de usersOnline no frame `connected`', () => {

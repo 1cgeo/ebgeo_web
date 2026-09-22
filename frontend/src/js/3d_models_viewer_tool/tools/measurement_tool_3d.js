@@ -64,7 +64,18 @@ const PREVIEW_THROTTLE_MS = 50; // Update preview max every 50ms
 
 // Persisted measurements
 const measurementEntities = new Map(); // measurementId -> { entities: Cesium.Entity[] }
+// The measurement as the STORE had it when the scene last drew it. It is the baseline the live
+// reconcile compares against (`syncMeasurementsFromStore`), so an event that changed nothing in
+// this tileset rebuilds nothing, and the scene does not blink every time a colleague works.
+const loadedMeasurements = new Map(); // measurementId -> measurement data
+// Bumped by every path that changes the scene from THIS client (finishing a measurement, a panel
+// edit, a deletion, a full render). A reconcile whose store read started before one of them may
+// hand back a list without the measurement the person has just finished, and applying it would
+// remove that measurement and close its panel; the reconcile reads again instead.
+let localSceneEpoch = 0;
 let selectedMeasurementId = null;
+/** Coalescing window for scene repaints driven by measurement ops (mirrors the marker tool). */
+const MEASUREMENT_REFRESH_DEBOUNCE_MS = 80;
 // Unsubscribe callbacks for the module-level event listeners (paired in cleanup),
 // mirroring `marker_tool_3d.js`, the only one of the three sibling tools that already
 // had them. LATENT, not live: today the viewer is built once and `cleanup3DFeatures`
@@ -766,15 +777,23 @@ async function finalizeMeasurement() {
     tempPositions = [];
     atualizarBotaoFinalizar();
 
-    // Create visual entities
-    const entityData = createMeasurementEntities(measurement);
-    if (entityData) {
-        measurementEntities.set(measurement.id, entityData);
-    }
+    // A REFUSED write returns null (role, lock, a map the atlas no longer has) and the store has
+    // already said why. Drawing it would put on screen a measurement that exists nowhere.
+    if (measurement) {
+        localSceneEpoch += 1;
+        loadedMeasurements.set(measurement.id, measurement);
+        // The store's own MEASUREMENTS_3D_CHANGED has already scheduled a reconcile, and Cesium
+        // refuses a second entity under an id it holds: drop whatever is there before drawing.
+        removeMeasurementEntities(measurement.id);
+        const entityData = createMeasurementEntities(measurement);
+        if (entityData) {
+            measurementEntities.set(measurement.id, entityData);
+        }
 
-    // Select the new measurement and emit event
-    selectMeasurement(measurement.id);
-    emitMeasurementClicked(measurement);
+        // Select the new measurement and emit event
+        selectMeasurement(measurement.id);
+        emitMeasurementClicked(measurement);
+    }
 
     // Deactivate the tool
     try {
@@ -960,13 +979,20 @@ export async function renderMeasurementsForTileset(viewer, tilesetId) {
 
     currentViewer = viewer;
     currentTilesetId = tilesetId;
+    localSceneEpoch += 1;
 
     // Clear existing entities
     clearAllMeasurementEntities();
 
     // Load and render
     const measurements = await getMeasurements(tilesetId);
+    // TORN DOWN OR SWITCHED DURING THE READ, the same check the live reconcile makes. The teardown
+    // nulls `currentViewer` and destroys this viewer, whose `canvas` getter then throws; without the
+    // check the handler below would be born on a dead viewer and never be destroyed.
+    if (currentViewer !== viewer || currentTilesetId !== tilesetId || viewer.isDestroyed?.()) return;
+    loadedMeasurements.clear();
     for (const measurement of measurements) {
+        loadedMeasurements.set(measurement.id, measurement);
         const entityData = createMeasurementEntities(measurement);
         if (entityData) {
             measurementEntities.set(measurement.id, entityData);
@@ -1033,6 +1059,8 @@ export async function updateMeasurementProperties(measurementId, updates) {
     const updatedMeasurement = await updateMeasurement(measurementId, updates);
 
     if (updatedMeasurement) {
+        localSceneEpoch += 1;
+        loadedMeasurements.set(measurementId, updatedMeasurement);
         updateMeasurementEntityVisuals(measurementId, updatedMeasurement);
     }
 
@@ -1050,7 +1078,9 @@ export async function deleteMeasurement(measurementId) {
     const result = await removeMeasurement(measurementId);
 
     if (result) {
+        localSceneEpoch += 1;
         removeMeasurementEntities(measurementId);
+        loadedMeasurements.delete(measurementId);
         if (wasSelected) {
             selectedMeasurementId = null;
             // Emit deselected event to close the panel
@@ -1101,6 +1131,8 @@ export function cleanupMeasurementTool() {
     }
     busUnsubscribers.length = 0;
 
+    loadedMeasurements.clear();
+    localSceneEpoch += 1;
     currentViewer = null;
     currentTilesetId = null;
     selectedMeasurementId = null;
@@ -1110,8 +1142,11 @@ export function cleanupMeasurementTool() {
  * Refreshes measurements for the current tileset.
  */
 export async function refreshMeasurementsForCurrentTileset() {
-    if (!currentViewer || !currentTilesetId) return;
+    const viewer = currentViewer;
+    const tilesetId = currentTilesetId;
+    if (!viewer || !tilesetId) return;
 
+    localSceneEpoch += 1;
     clearAllMeasurementEntities();
 
     if (selectedMeasurementId) {
@@ -1119,12 +1154,84 @@ export async function refreshMeasurementsForCurrentTileset() {
         emitMeasurementDeselected();
     }
 
-    const measurements = await getMeasurements(currentTilesetId);
+    const measurements = await getMeasurements(tilesetId);
+    // Same check as `renderMeasurementsForTileset`: a read that outlived its viewer paints nothing.
+    if (currentViewer !== viewer || currentTilesetId !== tilesetId || viewer.isDestroyed?.()) return;
+    loadedMeasurements.clear();
     for (const measurement of measurements) {
+        loadedMeasurements.set(measurement.id, measurement);
         const entityData = createMeasurementEntities(measurement);
         if (entityData) {
             measurementEntities.set(measurement.id, entityData);
         }
+    }
+}
+
+/**
+ * Reconciles the scene against the store WITHOUT disturbing what the local user is doing.
+ *
+ * UNTIL 2026-09-22 NOTHING INSIDE THE 3D VIEWER LISTENED TO `MEASUREMENTS_3D_CHANGED`. A
+ * colleague's distance or area reached this client, was written to the cesium3d side-store by the
+ * remote handler, the event was emitted, and the only thing that repainted the scene from the store
+ * was closing and reopening the viewer: the measurement the peer created did not appear, and the
+ * one the peer deleted stayed on screen. The marker tool had the same defect and lost it on
+ * 2026-09-16 (`syncMarkersFromStore`); this is the same repair for the sibling family.
+ *
+ * WHY IT DOES NOT REUSE `refreshMeasurementsForCurrentTileset`: that one clears the scene and
+ * DESELECTS, which is right on a map switch and would be a regression here, because this runs on
+ * every operation a colleague sends and would close the local user's panel over a measurement on
+ * the other side of the model. It adds what was born, rebuilds what changed, removes what is gone,
+ * and drops the local selection only when the selected measurement itself was deleted.
+ *
+ * It never touches the drawing in progress: those are `tempEntities`, a separate collection. And a
+ * store read that started before a local write landed is discarded (`localSceneEpoch`) instead of
+ * removing the measurement the person has just finished.
+ *
+ * @returns {Promise<void>}
+ */
+export async function syncMeasurementsFromStore() {
+    const viewer = currentViewer;
+    const tilesetId = currentTilesetId;
+    if (!viewer || viewer.isDestroyed?.() || !tilesetId) return;
+
+    let measurements = null;
+    for (let tentativa = 0; tentativa < 3 && measurements === null; tentativa++) {
+        const epoch = localSceneEpoch;
+        const lidas = await getMeasurements(tilesetId);
+        // The viewer may have switched model or been torn down during the read, and painting the
+        // old model's measurements over the new one is worse than painting nothing.
+        if (currentViewer !== viewer || currentTilesetId !== tilesetId || viewer.isDestroyed?.()) return;
+        if (epoch === localSceneEpoch) measurements = lidas;
+    }
+    // A local writer kept moving under three reads in a row: its own MEASUREMENTS_3D_CHANGED is
+    // already on the way and reconciles again, so doing nothing now loses nothing.
+    if (measurements === null) return;
+
+    const vivos = new Set();
+    for (const measurement of measurements) {
+        vivos.add(measurement.id);
+        const anterior = loadedMeasurements.get(measurement.id);
+        loadedMeasurements.set(measurement.id, measurement);
+
+        // Compared by whole content on purpose, like the marker tool: positions, style, label and
+        // result all decide the drawing, and a version stamp some write path forgot to bump would
+        // leave the screen stale in silence.
+        const mudou = !anterior || JSON.stringify(anterior) !== JSON.stringify(measurement);
+        if (mudou || !measurementEntities.has(measurement.id)) {
+            removeMeasurementEntities(measurement.id);
+            const entityData = createMeasurementEntities(measurement);
+            if (entityData) measurementEntities.set(measurement.id, entityData);
+        }
+    }
+
+    for (const id of new Set([...measurementEntities.keys(), ...loadedMeasurements.keys()])) {
+        if (vivos.has(id)) continue;
+        if (selectedMeasurementId === id) {
+            selectedMeasurementId = null;
+            emitMeasurementDeselected();
+        }
+        removeMeasurementEntities(id);
+        loadedMeasurements.delete(id);
     }
 }
 
@@ -1146,7 +1253,32 @@ export function initMeasurementToolListeners() {
         }
     });
 
-    busUnsubscribers.push(offLayers);
+    // THE SET OF MEASUREMENTS CHANGED, and the scene has to show it NOW (see
+    // `syncMeasurementsFromStore` for what went wrong while nobody listened).
+    //
+    // Coalesced for the marker tool's reason: a sync batch or a snapshot emits a burst, and each op
+    // would otherwise cost a full read of the store. The reconciles are CHAINED, never overlapped:
+    // two reads in flight could finish out of order and the older one would remove what the newer
+    // one had just drawn.
+    let refreshTimer = null;
+    let syncChain = Promise.resolve();
+    const offMeasurements = eventBus.on(EventTypes.MEASUREMENTS_3D_CHANGED, () => {
+        if (!currentViewer || !currentTilesetId || refreshTimer !== null) return;
+        refreshTimer = setTimeout(() => {
+            refreshTimer = null;
+            syncChain = syncChain.then(syncMeasurementsFromStore).catch((err) => {
+                console.error('Falha ao repintar as medições 3D:', err);
+            });
+        }, MEASUREMENT_REFRESH_DEBOUNCE_MS);
+    });
+    busUnsubscribers.push(() => {
+        if (refreshTimer !== null) {
+            clearTimeout(refreshTimer);
+            refreshTimer = null;
+        }
+    });
+
+    busUnsubscribers.push(offLayers, offMeasurements);
 }
 
 /**

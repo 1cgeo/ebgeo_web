@@ -344,7 +344,7 @@ describe('a tabela de afordância: o POSTO some, o ESTADO recusa o clique', () =
         });
         const reaplicar = acoes.find((item) => item.acao === PendenciaAcao.REAPLICAR);
         expect(reaplicar.bloqueio).toBe(PendenciaBloqueio.MAPA_TRAVADO);
-        expect(reaplicar.recusa).toMatch(/travado/);
+        expect(reaplicar.recusa).toMatch(/bloqueado/);
     });
 
     it('sem posto para escrever, "reaplicar" NÃO é desenhado', () => {

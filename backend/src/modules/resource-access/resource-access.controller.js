@@ -42,8 +42,15 @@ export const setVisibility = asyncHandler(async (req, res) => {
   res.json({ data });
 });
 
+/**
+ * GET /api/v1/resource-access/:type/:id/grants — as concessões que ESTE chamador fez sobre o
+ * recurso. O sujeito vem do token, como nas duas rotas de inventário por ator: um parâmetro por
+ * onde apontar para outra pessoa devolveria a listagem da árvore inteira pela porta dos fundos.
+ */
 export const listGrants = asyncHandler(async (req, res) => {
-  const data = await svc.listGrantsForResource(req.params.type, req.params.id);
+  const data = await svc.listGrantsForResource(
+    req.params.type, req.params.id, principalUserId(req.user),
+  );
   marcarEscopoJson(req, res);
   res.json({ data });
 });

@@ -530,7 +530,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       this.selectionManager.updateUI();
     } catch (error) {
       console.error("Error creating coordination measure feature:", error);
-      this.showError("Erro ao criar medida de coordenação: " + error.message);
+      this.showError("Não foi possível criar a medida de coordenação. Tente de novo.");
     }
   };
 

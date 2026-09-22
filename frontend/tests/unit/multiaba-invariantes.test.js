@@ -875,7 +875,10 @@ describe('resgate de trabalho não sincronizado no logout involuntário', () => 
 
         expect(toast.showError).not.toHaveBeenCalled();
         expect(toast.showWarning).toHaveBeenCalledTimes(1);
-        expect(toast.showWarning.mock.calls[0][0]).toContain('mantidas neste computador');
+        // O aviso diz as duas coisas que a pessoa precisa: ONDE o trabalho ficou (neste
+        // computador, como atlas local) e O QUE FAZER com ele (entrar e enviar).
+        expect(toast.showWarning.mock.calls[0][0]).toContain('guardadas neste computador como atlas local');
+        expect(toast.showWarning.mock.calls[0][0]).toContain('"Enviar ao servidor"');
         // DEPOIS, e as duas metades na MESMA varredura: o adotado sobrevive...
         //
         // Repare em COMO ele sobrevive, que não é pelo braço `adopted`: o resgate MOVE a

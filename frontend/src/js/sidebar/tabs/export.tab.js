@@ -22,6 +22,7 @@ import { showSuccess, showError } from '@utils/index.js';
 import { EventTypes } from '@events/event_types.js';
 import { isViewer3DOpen } from '@utils/viewer3d-state.js';
 import { isStreetView360Open } from '@utils/streetview360-state.js';
+import { carregarSobDemanda } from '@utils/carga-sob-demanda.js';
 import { SIDEBAR_TABS } from '@sidebar/sidebar.constants.js';
 import { getStateManager } from '@store/services.js';
 
@@ -432,7 +433,7 @@ export class ExportTab {
     async _renderKmzContent() {
         if (this._kmzSection) return;
 
-        const { KmzExportSection } = await import('./kmz-export.section.js');
+        const { KmzExportSection } = await carregarSobDemanda(() => import('./kmz-export.section.js'));
         this._kmzSection = new KmzExportSection({ container: this._kmzContentContainer });
         await this._kmzSection.render();
     }
@@ -558,10 +559,10 @@ export class ExportTab {
     async _ensureGarminExport() {
         if (!this._garminExport) {
             if (!this._map) {
-                showError('Mapa nao disponivel');
+                showError('Mapa não disponível');
                 return null;
             }
-            const { GarminKmzExport } = await import('../../import_export/garmin-kmz-export.js');
+            const { GarminKmzExport } = await carregarSobDemanda(() => import('../../import_export/garmin-kmz-export.js'));
             this._garminExport = new GarminKmzExport(this._map);
         }
         return this._garminExport;
@@ -637,7 +638,7 @@ export class ExportTab {
      */
     async _handleGarminExport() {
         if (!this._garminExport?.hasBbox()) {
-            showError('Selecione uma area no mapa primeiro');
+            showError('Selecione uma área no mapa primeiro');
             return;
         }
         await this._garminExport.exportKmz();
@@ -953,22 +954,22 @@ export class ExportTab {
         try {
             if (this._is3DViewerOpen) {
                 // Use 3D screenshot - dynamically import to avoid circular dependency
-                const { take3DScreenshot } = await import('../../3d_models_viewer_tool/map_3d.js');
+                const { take3DScreenshot } = await carregarSobDemanda(() => import('../../3d_models_viewer_tool/map_3d.js'));
                 const success = await take3DScreenshot();
                 if (success) {
-                    showSuccess('Screenshot 3D capturado com sucesso');
+                    showSuccess('Imagem do 3D salva.');
                 } else {
-                    showError('Erro ao capturar screenshot 3D');
+                    showError('Não foi possível capturar a imagem do 3D. Tente de novo.');
                 }
             } else if (this._is360ViewerOpen) {
                 // Use 360 screenshot - dynamically import to avoid circular dependency
                 // Note: takeScreenshot360 handles its own success/error messages
-                const { takeScreenshot360 } = await import('../../street_view_tool/tools/screenshot_tool_360.js');
+                const { takeScreenshot360 } = await carregarSobDemanda(() => import('../../street_view_tool/tools/screenshot_tool_360.js'));
                 await takeScreenshot360();
             } else {
                 // Use 2D map screenshot
                 if (!this._screenshotControl) {
-                    showError('Serviço de captura não disponível');
+                    showError('A captura de imagem não está disponível. Recarregue a página e tente de novo.');
                     return;
                 }
 
@@ -981,7 +982,7 @@ export class ExportTab {
             }
         } catch (error) {
             console.error('Screenshot error:', error);
-            showError('Erro ao capturar imagem');
+            showError('Não foi possível capturar a imagem. Tente de novo.');
         }
     }
 

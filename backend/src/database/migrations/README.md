@@ -16,6 +16,14 @@ Consolidação autorizada em 12/09/2026, antes da primeira implantação deste b
 | [010_observabilidade.sql](010_observabilidade.sql) | Defeitos, ciclo de vida e evidências individuais limitadas. |
 | [011_uso_e_presenca.sql](011_uso_e_presenca.sql) | Uso agregado, sessões, presença e deduplicação da coleta. |
 
+## Migrações incrementais (depois do congelamento de 2026-09-22)
+
+| Arquivo | Mudança |
+| --- | --- |
+| [012_presenca_aba_e_miniaturas.sql](012_presenca_aba_e_miniaturas.sql) | Coluna `aba_id` na presença (a saída explícita só apaga a linha do mesmo documento) e as três miniaturas semeadas de `.png` para `.webp`. |
+
+**As bases acima CONGELARAM em 2026-09-22, antes da primeira implantação de produção, por decisão do dono.** O stack de teste publicado no servidor aplicou as onze e guarda o trabalho dos testadores, e o migrador recusa arquivo já aplicado com conteúdo alterado: editar uma base passaria a exigir recriar aquele banco. Daqui em diante, toda mudança de schema ou de dado semeado entra por arquivo numerado novo, aditivo e idempotente, e o que a seção seguinte diz sobre bases editáveis deixou de valer.
+
 **A contagem não se escreve em prosa aqui, e a tabela acima é a lista.** Esta seção disse "onze bases" e depois "doze", e as duas envelheceram no arquivo seguinte que nasceu, sem nada ficar vermelho: `frontend/tests/unit/docs-integridade.test.js` valida caminho, link e símbolo, nunca aritmética. Quem precisar do número conta a tabela ou roda `ls`.
 
 Colunas, índices e CHECK nascem completos. Não há cadeia de criação seguida de renomeação, remoção de índice ou substituição de CHECK. O nome inicial de identidade foi alterado deliberadamente para distinguir esta base dos históricos anteriores, inclusive os que tinham aplicado apenas parte da sequência antiga.

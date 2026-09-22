@@ -72,7 +72,7 @@ export const PASSWORD_RULE_TEXT =
 
 /** The refusal for a password that fits the character cap and overflows the byte cap. */
 export const PASSWORD_BYTES_TEXT =
-    `A senha deve ter no máximo ${MAX_PASSWORD_BYTES} bytes em UTF-8; caracteres acentuados ocupam mais de um byte.`;
+    'Senha longa demais. Use uma senha mais curta.';
 
 /**
  * What changing the password costs, said before the button is pressed.
@@ -150,6 +150,55 @@ export const EMAIL_RESEND_FAILED =
 
 /** Said when the server reports no address at all (an account created by an administrator). */
 export const EMAIL_ABSENT_TEXT = 'nenhum e-mail cadastrado';
+
+/**
+ * The warning of the section when the account has NO address yet: the same invitation as
+ * `EMAIL_CHANGE_WARNING`, said about an account that has nothing to keep meanwhile.
+ */
+export const EMAIL_SET_WARNING =
+    'O endereço só passa a valer depois que você abrir o link de confirmação que vamos '
+    + 'enviar para ele. Até lá, nada muda: a conta continua sem e-mail e a sua sessão '
+    + 'segue aberta.';
+
+/**
+ * Said next to the address where the server CANNOT deliver mail, and the e-mail section is
+ * therefore not drawn.
+ *
+ * WITHOUT IT THE ABSENCE WAS MUTE: `PUT /users/me/email` is mounted only under
+ * `canDeliverAccountMail()`, the screen correctly hides the section there, and the person was left
+ * with no way to define an address and no sentence saying who can. The administrator can, through
+ * `updateUserAdminSchema`, which is the path the route's own comment names for that deployment.
+ */
+export const EMAIL_ADMIN_ONLY_NOTE =
+    'Este servidor não envia e-mail, então o endereço da conta é cadastrado ou trocado por um '
+    + 'administrador.';
+
+/**
+ * What the e-mail section calls itself, by the state of the current address.
+ *
+ * TWO WORDINGS AND ONE ROUTE. Defining a first address and replacing one are the same request to
+ * the server (`PUT /users/me/email`, an invitation to the new mailbox either way), but "Trocar o
+ * e-mail" over an account that has none reads as a screen that did not load the address. The
+ * owner asked, on 2026-09-22, that the person be able to DEFINE the address here, and the verb is
+ * what tells them they can.
+ *
+ * @param {'absent'|'unverified'|'verified'} state - As `emailPresentation` returned it.
+ * @returns {{ title: string, fieldLabel: string, warning: string }}
+ */
+export function emailSectionCopy(state) {
+    if (state === 'absent') {
+        return {
+            title: 'Cadastrar um e-mail',
+            fieldLabel: 'E-mail',
+            warning: EMAIL_SET_WARNING,
+        };
+    }
+    return {
+        title: 'Trocar o e-mail',
+        fieldLabel: 'Novo e-mail',
+        warning: EMAIL_CHANGE_WARNING,
+    };
+}
 
 /**
  * The message to show for a failed request: the SERVER's explanation when it sent one, the
@@ -264,8 +313,8 @@ export function validatePasswordForm(form) {
  * How the account's e-mail should be presented, as data rather than as markup.
  *
  * THREE STATES AND NOT TWO, and the third is the one a boolean would hide: an account can carry
- * NO address at all (`POST /api/v1/users`, the administrative path, has no e-mail field), and
- * that is not the same as an unconfirmed one. Reading `email_verified` alone would draw "não
+ * NO address at all (`POST /api/v1/users`, the administrative path, creates one when the body
+ * brings no address), and that is not the same as an unconfirmed one. Reading `email_verified` alone would draw "não
  * confirmado" over an account that has nothing to confirm.
  *
  * @param {{ email?: *, email_verified?: * }} profile - As `GET /users/me` returned it.
@@ -296,12 +345,35 @@ function emailKey(value) {
 }
 
 /**
- * Client-side check of the e-mail-change form, so an obvious refusal never costs a round trip.
+ * What is wrong with a NON-EMPTY, already-trimmed address, or `''` when nothing is.
  *
  * THE SHAPE CHECK IS DELIBERATELY LOOSE (a non-empty local part, an `@`, a dot in the domain).
  * The authority is `Joi.string().email()` on the server and this may not pretend to reproduce it:
  * a stricter client rule would refuse addresses the server accepts, and the person would have no
  * way to tell that the refusal came from their own browser.
+ *
+ * EXPORTED FOR THE SECOND FORM THAT TYPES AN ADDRESS, the administrator's (`admin/user-email-model.js`),
+ * so the two screens of the same product cannot disagree on what an address looks like. Emptiness
+ * is NOT judged here, because the two forms read it oppositely: required in this tab, "no address"
+ * in the administrator's creation.
+ *
+ * @param {string} email - Trimmed, non-empty.
+ * @returns {string} The pt-BR refusal, or `''`.
+ */
+export function emailAddressProblem(email) {
+    if (email.length > MAX_EMAIL_LENGTH) {
+        return `O e-mail pode ter no máximo ${MAX_EMAIL_LENGTH} caracteres.`;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return 'Esse endereço de e-mail não parece válido.';
+    }
+    return '';
+}
+
+/**
+ * Client-side check of the e-mail-change form, so an obvious refusal never costs a round trip.
+ *
+ * The shape rule is `emailAddressProblem`, loose on purpose (see there).
  *
  * The order of the checks is the order the form is filled, so the first complaint is about the
  * first thing that is wrong.
@@ -316,14 +388,9 @@ export function validateEmailChangeForm(form) {
     if (!email) {
         return { valid: false, message: 'Informe o novo endereço de e-mail.' };
     }
-    if (email.length > MAX_EMAIL_LENGTH) {
-        return {
-            valid: false,
-            message: `O e-mail pode ter no máximo ${MAX_EMAIL_LENGTH} caracteres.`,
-        };
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        return { valid: false, message: 'Esse endereço de e-mail não parece válido.' };
+    const problema = emailAddressProblem(email);
+    if (problema) {
+        return { valid: false, message: problema };
     }
     if (emailKey(email) === emailKey(form?.currentEmail)) {
         return { valid: false, message: 'Este já é o e-mail da sua conta.' };

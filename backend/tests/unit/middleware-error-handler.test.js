@@ -48,7 +48,7 @@ describe('errorHandler middleware', () => {
 
     assert.equal(res.statusCode, 404);
     assert.equal(res.body.error.code, 'NOT_FOUND');
-    assert.equal(res.body.error.message, 'Atlas not found');
+    assert.equal(res.body.error.message, 'Atlas não encontrado.');
   });
 
   it('handles UnauthorizedError → 401', () => {

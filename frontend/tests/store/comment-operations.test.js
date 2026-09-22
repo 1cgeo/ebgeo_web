@@ -163,3 +163,41 @@ describe('comment.operations — addReply', () => {
         expect(reply).toBeUndefined();
     });
 });
+
+/**
+ * THE OUTCOME THE COMMENT CARD READS (2026-09-22). The card closes after "Resolver" only when
+ * `resolveComment` returns exactly `true` (`fechaAoResolver`, comment_tool/comment-card.js). If
+ * this function started returning the comment, or nothing, on success, the card would silently
+ * stop closing; if it returned something truthy on a refusal, the card would close over a write
+ * that never happened.
+ */
+describe('comment.operations — resolveComment returns the outcome the card reads', () => {
+    beforeEach(() => {
+        h.comments.value = {};
+        h.authenticated.value = true;
+        h.resetUuid();
+        h.logCommentOperation.mockClear();
+        h.emit.mockClear();
+    });
+
+    it('returns exactly true once the resolution is persisted, and again for a reopen', async () => {
+        const root = await addComment({ lng: 1, lat: 2, text: 'raiz' });
+        expect(await resolveComment(root.id, true)).toBe(true);
+        expect(h.comments.value[root.id].status).toBe('resolved');
+        expect(await resolveComment(root.id, false)).toBe(true);
+        expect(h.comments.value[root.id].status).toBe('open');
+    });
+
+    it('returns false when the guard refuses, and nothing is persisted', async () => {
+        const root = await addComment({ lng: 1, lat: 2, text: 'raiz' });
+        h.authenticated.value = false;
+        h.logCommentOperation.mockClear();
+        expect(await resolveComment(root.id, true)).toBe(false);
+        expect(h.comments.value[root.id].status).toBe('open');
+        expect(h.logCommentOperation).not.toHaveBeenCalled();
+    });
+
+    it('returns undefined for a thread that no longer exists', async () => {
+        expect(await resolveComment('sumiu', true)).toBeUndefined();
+    });
+});

@@ -458,7 +458,7 @@ async function handleDeleteAllFeatures(photoName, displayName, featureCount, has
     const confirmed = await showConfirm(
         `Deletar todas as feições de "${displayName}"?`,
         {
-            message: `${featureCount} feição(ões) serão permanentemente excluídas${orientationText}.\nEsta ação não pode ser desfeita.`,
+            message: `${featureCount === 1 ? '1 feição será excluída' : `${featureCount} feições serão excluídas`}${orientationText}.\nEsta ação não pode ser desfeita.`,
             confirmText: 'Deletar',
             destructive: true
         }
@@ -478,7 +478,7 @@ async function handleDeleteAllFeatures(photoName, displayName, featureCount, has
 
         const totalDeleted = markersRemoved + (orientationCleared ? 1 : 0);
         if (totalDeleted > 0) {
-            showSuccess(`${totalDeleted} feição(ões) deletadas com sucesso!`);
+            showSuccess(totalDeleted === 1 ? '1 feição excluída.' : `${totalDeleted} feições excluídas.`);
         }
     } catch (error) {
         console.error('Error deleting features:', error);

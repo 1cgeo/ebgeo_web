@@ -83,8 +83,8 @@
  *   fixture MINIMA de proposito, para que tudo que aparecer nas secoes medidas tenha vindo do
  *   que ele mesmo semeou.
  * - NADA sobre a pluralizacao da tela alem do que ele espera literalmente: o produto escreve
- *   "1 mapa carregados!" na importacao (plural errado) e "1 mapa exportado!" na exportacao
- *   (singular certo). As duas formas estao asseridas como estao no codigo, nao como deveriam ser.
+ *   "1 mapa carregado." na importacao e "1 mapa exportado." na exportacao. Ate 2026-09-22 a
+ *   primeira era "1 mapa carregados!", com o plural errado, e esta spec a asseria assim.
  */
 
 import { test, expect } from '@playwright/test';
@@ -198,9 +198,8 @@ async function importarPelaTela(page, arquivo) {
     // usuario logado para `atlas.html`.
     await page.waitForURL((url) => !url.pathname.endsWith('atlas.html'), { timeout: 30000 });
     await esperarMapa(page);
-    // Pluralizacao do produto, reproduzida como esta no codigo: com UM mapa ele escreve
-    // "1 mapa carregados!" (`showLoadSuccess`).
-    await expect(page.locator('.toast', { hasText: `${MAPAS} mapa carregados!` }))
+    // Com UM mapa o produto escreve "1 mapa carregado." (`showLoadSuccess`).
+    await expect(page.locator('.toast', { hasText: `${MAPAS} mapa carregado.` }))
         .toBeVisible({ timeout: 60000 });
 }
 
@@ -408,7 +407,7 @@ describeOrSkip('.ebgeo: comentario espacial e imagem anexada atravessam o ciclo'
         // instante em que e chamado, entao guardar a promessa aqui e espera-la depois cobre a
         // janela inteira. A spec irma de round-trip nao sofre disso porque exporta onze mapas, e
         // o toast dela nasce tarde o bastante.
-        const toastDeExportacao = expect(page.locator('.toast', { hasText: `${MAPAS} mapa exportado!` }))
+        const toastDeExportacao = expect(page.locator('.toast', { hasText: `${MAPAS} mapa exportado.` }))
             .toBeVisible({ timeout: 60000 });
         const baixado = page.waitForEvent('download', { timeout: 120000 });
         await confirmarExportacao.click();

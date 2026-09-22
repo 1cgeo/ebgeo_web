@@ -193,8 +193,8 @@ export function resumoDesconhecidoNotice() {
 
 /** @returns {string} */
 export function blocoAusenteNotice() {
-    return 'Este servidor não informou este bloco. É implantação anterior a ele, e não uma leitura '
-        + 'que falhou: nada se afirma aqui.';
+    return 'O servidor não informou este bloco, porque é de uma versão anterior a ele. Não é uma '
+        + 'leitura que falhou.';
 }
 
 /**
@@ -224,7 +224,7 @@ function terminada(texto) {
 export function semFonteNotice(bloco) {
     const motivo = typeof bloco?.motivo === 'string' ? bloco.motivo.trim() : '';
     const base = motivo || 'a fonte deste bloco não respondeu.';
-    return `Sem fonte: ${terminada(base)} Nenhum número é desenhado aqui de propósito.`;
+    return `Sem fonte: ${terminada(base)} Nenhum número é mostrado, para não se ler como zero.`;
 }
 
 /**

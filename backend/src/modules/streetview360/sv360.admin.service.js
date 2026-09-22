@@ -138,7 +138,7 @@ async function resolveUploadOrgId(user, manifest) {
   if (orgSlug) {
     const resolved = await resolveOrgIdBySlug(queryTask, orgSlug);
     if (resolved !== user.producer_org_id) {
-      throw new ForbiddenError('Cannot upload to a different organization');
+      throw new ForbiddenError('Você não pode enviar projeto 360 para outra OM.');
     }
   }
   return user.producer_org_id;
@@ -645,8 +645,8 @@ export async function deleteProject(slug, user, opts = {}, req = null) {
  */
 export async function uploadBundle(user, files = {}) {
   const { manifestPath, tilesDbPath, thumbnailPath } = files;
-  if (!manifestPath) throw new BadRequestError('manifest.json is required');
-  if (!tilesDbPath) throw new BadRequestError('{slug}_tiles.db is required');
+  if (!manifestPath) throw new BadRequestError('Envie o manifesto (manifest.json).');
+  if (!tilesDbPath) throw new BadRequestError('Envie o banco de tiles.');
 
   // Parse + validate the manifest up front (so the org/ownership resolution sees
   // a clean orgSlug and the controller gets a 422 before any heavy work).
@@ -654,7 +654,7 @@ export async function uploadBundle(user, files = {}) {
   try {
     raw = JSON.parse(readFileSync(manifestPath, 'utf8'));
   } catch {
-    throw new BadRequestError('manifest.json is not valid JSON');
+    throw new BadRequestError('O manifesto (manifest.json) não é um JSON válido.');
   }
   const manifest = validateManifest(raw);
 

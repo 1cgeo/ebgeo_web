@@ -18,6 +18,7 @@
 
 import Joi from 'joi';
 import { parseJanela, parseIntervalo } from '../../utils/diag-consulta.js';
+import { LIMITE_PADRAO_DE_ENDERECOS } from '../../utils/diag-enderecos.js';
 import { ORIGENS_DE_ERRO, ORIGENS_DO_CLIENTE } from './origens-de-erro.js';
 import { ESTADOS_DE_DEFEITO, ESTADOS_MANUAIS } from './estados-de-defeito.js';
 // O PADRÃO E O TETO DO `limite` DO RESUMO VÊM DA CONSTANTE, nunca de um literal repetido aqui.
@@ -160,6 +161,23 @@ export const linhasQuerySchema = Joi.object({
   desde: janela('24h'),
   filtro: Joi.string().min(2).max(200).required(),
   limite: Joi.number().integer().min(1).max(2000).default(200),
+});
+
+/**
+ * `GET /diag/enderecos`: os endereços distintos da janela (2026-09-22).
+ *
+ * O PADRÃO É `24h`, O MESMO DO COMANDO, pela razão de `linhasQuerySchema`: as duas portas
+ * respondem à mesma pergunta, e um default diferente faria o mesmo comando devolver janelas
+ * diferentes conforme a porta. O teto é o de `janela()`, sete dias: quem quer os trinta que o
+ * log guarda tem `npm run diag -- enderecos --desde 30d` no servidor.
+ *
+ * O `limite` CONTA ENDEREÇOS, e o teto de 500 é o que uma tabela ainda deixa ler; o padrão de 100
+ * é o mesmo do comando. A contagem de antes do corte (`distintos`) viaja sempre, então o corte é
+ * dito e não escondido.
+ */
+export const enderecosQuerySchema = Joi.object({
+  desde: janela('24h'),
+  limite: Joi.number().integer().min(1).max(500).default(LIMITE_PADRAO_DE_ENDERECOS),
 });
 
 export const errosDeClienteQuerySchema = Joi.object({

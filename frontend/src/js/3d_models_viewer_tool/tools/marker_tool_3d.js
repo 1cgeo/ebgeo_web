@@ -432,9 +432,13 @@ async function createNewMarker(position) {
  * Markers outside the active temporal window are loaded but not rendered.
  */
 async function loadAndRenderMarkers() {
-    if (!currentTilesetId) return;
+    const viewer = currentViewer;
+    const tilesetId = currentTilesetId;
+    if (!tilesetId) return;
 
-    const markers = await getMarkers(currentTilesetId);
+    const markers = await getMarkers(tilesetId);
+    // TORN DOWN OR SWITCHED DURING THE READ: this read is no longer the scene's.
+    if (currentViewer !== viewer || currentTilesetId !== tilesetId || viewer?.isDestroyed?.()) return;
 
     loadedMarkers.clear();
     for (const marker of markers) {
@@ -636,6 +640,10 @@ export async function renderMarkersForTileset(viewer, tilesetId) {
 
     // Load and render (respecting the active temporal window)
     const markers = await getMarkers(tilesetId);
+    // TORN DOWN OR SWITCHED DURING THE READ, the check the measurement and viewshed twins make. The
+    // teardown nulls `currentViewer` and destroys this viewer, whose `canvas` getter then throws;
+    // without the check the handler below would be born on a dead viewer and never be destroyed.
+    if (currentViewer !== viewer || currentTilesetId !== tilesetId || viewer.isDestroyed?.()) return;
     loadedMarkers.clear();
     for (const marker of markers) {
         loadedMarkers.set(marker.id, marker);
@@ -854,9 +862,15 @@ export async function refreshMarkersForCurrentTileset() {
  * @returns {Promise<void>}
  */
 export async function syncMarkersFromStore() {
-    if (!currentViewer || currentViewer.isDestroyed?.() || !currentTilesetId) return;
+    const viewer = currentViewer;
+    const tilesetId = currentTilesetId;
+    if (!viewer || viewer.isDestroyed?.() || !tilesetId) return;
 
-    const markers = await getMarkers(currentTilesetId);
+    const markers = await getMarkers(tilesetId);
+    // The viewer may have switched model or been torn down during the read (the measurement and
+    // viewshed twins make the same check): painting into a new session from an old read, or into a
+    // destroyed viewer, is worse than painting nothing.
+    if (currentViewer !== viewer || currentTilesetId !== tilesetId || viewer.isDestroyed?.()) return;
     const vivos = new Set();
 
     for (const marker of markers) {

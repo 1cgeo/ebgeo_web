@@ -1,5 +1,5 @@
 // Path: src/modules/collab/collab.schemas.js
-// Joi schemas for the EPHEMERAL presence frames (cursor / selection).
+// Joi schemas for the EPHEMERAL presence frames (cursor / selection / viewer).
 //
 // Presence is in-memory awareness: it never reaches the sync/CRDT path or the database.
 // It is NOT free, though — `handleCursor`/`handleSelection` RETAIN the
@@ -133,6 +133,25 @@ export const selectionPresenceSchema = Joi.object({
     .default([]),
   featureMeta: Joi.array().items(featureMetaSchema).max(MAX_SELECTION_FEATURES),
   mapId: presenceText,
+  tilesetId: presenceText,
+  photoName: presenceText,
+});
+
+/**
+ * `viewer_context` frame: WHICH immersive viewer the sender has open, and over WHICH resource (owner,
+ * 2026-09-22). `2d` means no viewer: the person is back on the map.
+ *
+ * ONLY THE IDENTIFIER TRAVELS IN, NEVER A NAME. The label a peer reads is resolved by the server
+ * from the catalog (`collab.viewer.js`), so a sender cannot put words into the roster of everybody
+ * else, and the resource name only reaches a recipient who may see that resource. `tilesetId` is
+ * the catalog id of the 3D model or of the walkable scene (`fp`); `photoName` is the 360 photo key
+ * the viewer already stamps on cursor and selection frames.
+ *
+ * The scalars are truncated like every presence text, because this value is retained on the socket
+ * and re-served to every later join.
+ */
+export const viewerPresenceSchema = Joi.object({
+  surface: Joi.string().valid('2d', '3d', '360', 'fp').required(),
   tilesetId: presenceText,
   photoName: presenceText,
 });

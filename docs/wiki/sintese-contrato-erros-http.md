@@ -32,7 +32,7 @@ O que isso corrige, e é a armadilha que sobrevive na cabeça de quem leu a doc 
 
 ## 404 pode significar "funcionalidade desligada"
 
-Com `ALLOW_SELF_REGISTRATION` desligado (default em produção) a rota `POST /auth/register` **não é registrada** (`backend/src/modules/auth/auth.routes.js`), cai no catch-all de `backend/src/app.js` e retorna 404, não 403, para não confirmar a existência do endpoint. Distinga pela `message`: `Route not found` é rota ausente, `Atlas not found` é recurso ausente.
+Com `ALLOW_SELF_REGISTRATION` desligado (default em produção) a rota `POST /auth/register` **não é registrada** (`backend/src/modules/auth/auth.routes.js`), cai no catch-all de `backend/src/app.js` e retorna 404, não 403, para não confirmar a existência do endpoint. Distinga pela `message`: `Route not found` é rota ausente, "Atlas não encontrado." é recurso ausente (desde 2026-09-22 o `NotFoundError` fala pt-BR para os recursos que as telas mostram; o 360 e a rota ausente seguem em inglês).
 
 **Não sonde o 404 para descobrir se o cadastro está ligado.** O flag já é publicado como `features.self_registration` em `GET /api/config` (`backend/src/modules/config/config.service.js`, no objeto `features` do payload; ancorado por símbolo porque a citação por linha que morava aqui já apontava para o lugar errado), que o boot já busca de qualquer forma. A sonda é pior que redundante: quando a rota está desligada ela nem chega ao limiter (o router não a monta), e quando está ligada ela gasta o balde por ENDEREÇO de `/register`, que é o que de fato limita aquela rota, além do balde por `username` sem username, que é o pior caso da chave composta. Ver [[config-dinamico]].
 

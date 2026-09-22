@@ -22,6 +22,7 @@
 import { apiClient } from '@store/sync/api-client.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
 import { sectionHeader, ICON_CONFIG, failureState } from './admin-dom.js';
+import { serverMessageOr } from '@utils/request-failure.js';
 
 /**
  * Placeholder for the primary-server field: the address the BACKEND ships as the default of
@@ -109,7 +110,7 @@ class ConfigTab {
             loading.replaceChildren(failureState('Falha ao carregar as configurações.', {
                 onRetry: () => { if (this._alive) this._render(); },
             }));
-            showError(error?.message || 'Falha ao carregar as configurações.');
+            showError(serverMessageOr(error, 'Falha ao carregar as configurações.'));
             return;
         }
         if (!this._alive) return;
@@ -124,7 +125,7 @@ class ConfigTab {
         const c = this._container;
         c.replaceChildren();
         c.appendChild(sectionHeader('Sistema', {
-            subtitle: 'Configurações globais — aplicadas no próximo carregamento da página',
+            subtitle: 'Configurações globais, aplicadas no próximo carregamento da página',
         }));
 
         const form = document.createElement('form');
@@ -152,10 +153,9 @@ class ConfigTab {
             eff.app?.urlServidorPrincipal ?? '', { placeholder: URL_PRINCIPAL_EXEMPLO });
         const avisoHint = document.createElement('p');
         avisoHint.className = 'admin-form__hint';
-        avisoHint.textContent = 'Ligado, o aviso abre para TODO usuário a cada carregamento do mapa, '
-            + 'recomendando o servidor principal, e o botão dele leva ao endereço acima (deixado em '
-            + 'branco, a tela abre só com "Continuar neste servidor"). A mudança vale no próximo '
-            + 'carregamento da página, sem reiniciar o servidor.';
+        avisoHint.textContent = 'Ligado, o aviso aparece para todos a cada abertura do mapa e '
+            + 'recomenda o servidor principal; o botão dele leva ao endereço acima (em branco, só '
+            + 'aparece "Continuar neste servidor"). Vale no próximo carregamento da página.';
         form.appendChild(avisoHint);
 
         // A BASE DO LINK PÚBLICO (dono, 2026-09-20). Também é do bloco `app`, e ganha cabeçalho
@@ -168,10 +168,9 @@ class ConfigTab {
             eff.app?.urlBaseLinkPublico ?? '', { placeholder: URL_PRINCIPAL_EXEMPLO });
         const linkHint = document.createElement('p');
         linkHint.className = 'admin-form__hint';
-        linkHint.textContent = 'O link público de um atlas sai como este endereço seguido de '
-            + '?atlasPublico= e do código do atlas. Use o endereço pelo qual quem RECEBE o link '
-            + 'alcança o EBGeo, que pode não ser o deste servidor. A troca vale para os atlas já '
-            + 'publicados: o código não muda, só o endereço mostrado.';
+        linkHint.textContent = 'O link público de um atlas é este endereço seguido do código do '
+            + 'atlas. Use o endereço pelo qual quem recebe o link acessa o EBGeo, que pode ser '
+            + 'diferente do deste servidor. A troca vale também para os atlas já publicados.';
         form.appendChild(linkHint);
 
         heading(form, 'Funcionalidades');
@@ -185,8 +184,8 @@ class ConfigTab {
             'admin-config-feat-signup', !!eff.features?.self_registration);
         const signupHint = document.createElement('p');
         signupHint.className = 'admin-form__hint';
-        signupHint.textContent = 'Desligado, o botão "Criar conta" some e a rota de cadastro recusa (403): '
-            + 'só o administrador cria contas. Aplica no próximo carregamento da página, como o resto desta aba.';
+        signupHint.textContent = 'Desligado, o botão "Criar conta" some e só o administrador cria '
+            + 'contas. Vale no próximo carregamento da página.';
         form.appendChild(signupHint);
 
         heading(form, 'Mapa 2D');
@@ -202,7 +201,11 @@ class ConfigTab {
             + '"Zoom mínimo" e "Zoom máximo" dele na aba Catálogo.';
         form.appendChild(zoomHint);
         const maxPitch = number(form, 'Inclinação máxima', 'admin-config-map2d-maxpitch', eff.map2d?.maxPitch);
-        const globe = check(form, 'Projeção globo', 'admin-config-map2d-globe', !!eff.map2d?.globe_projection);
+        // A PROJEÇÃO NÃO É DAQUI, e a caixa "Projeção globo" SAIU em 2026-09-22 (decisão do
+        // dono). Desde 2026-08-16 quem decide é o ATLAS, na barra "Globo / Plano" das
+        // configurações dele, com globo como padrão; a caixa ficou um mês gravando e servindo uma
+        // chave que o mapa não lia, e desmarcá-la não mudava nada. O servidor recusa a chave e a
+        // poda do documento gravado (`config.admin.schemas.js`, `config.service.js`).
         // O SOMBREAMENTO DO RELEVO é escolha do administrador, e o padrão do servidor é
         // desligado. Sem este campo a única forma de ligá-lo era o editor "Avançado (JSON)",
         // que não confere tipo nenhum e onde um `"sim"` deixava a camada desligada em
@@ -242,9 +245,9 @@ class ConfigTab {
             eff.services?.tileServerUrl ?? '');
         const tileHint = document.createElement('p');
         tileHint.className = 'admin-form__hint';
-        tileHint.textContent = 'Base das fontes de vetor da GRADE UTM (as camadas de articulação de '
-            + 'cartas). O mapa monta cada fonte como "<esta URL>/grid_<sistema>_<escala>". Vazio '
-            + 'desliga a grade (as fontes não resolvem). Não afeta mapas base, dados nem 3D/360.';
+        tileHint.textContent = 'Endereço base das camadas da grade UTM (articulação de cartas). '
+            + 'Cada camada é lida em "<esta URL>/grid_<sistema>_<escala>". Em branco, a grade fica '
+            + 'desligada. Não afeta mapas base, dados nem 3D/360.';
         form.appendChild(tileHint);
 
         const error = document.createElement('div');
@@ -308,7 +311,7 @@ class ConfigTab {
                 // por Joi nenhum) travaria o salvamento de todas as OUTRAS seções desta aba.
                 if (!urlDeServidorValida(urlVal)) {
                     const recusa = 'A URL do servidor principal precisa ser um endereço http:// ou '
-                        + 'https:// completo. O botão do aviso não é desenhado para nenhum outro esquema.';
+                        + 'https:// completo.';
                     error.textContent = recusa;
                     error.hidden = false;
                     showError(recusa);
@@ -322,7 +325,7 @@ class ConfigTab {
             if (linkVal && linkVal !== (eff.app?.urlBaseLinkPublico ?? '')) {
                 if (!urlDeServidorValida(linkVal)) {
                     const recusa = 'O endereço base do link público precisa ser um endereço http:// ou '
-                        + 'https:// completo. Com qualquer outro valor o link sairia sem endereço.';
+                        + 'https:// completo.';
                     error.textContent = recusa;
                     error.hidden = false;
                     showError(recusa);
@@ -344,7 +347,8 @@ class ConfigTab {
             // Sem `minZoom`/`maxZoom`: o servidor os recusa com 422, então mandá-los reprovaria
             // o salvamento INTEIRO da aba, e não só a parte do zoom.
             diffNum(map2dDiff, 'maxPitch', maxPitch, eff.map2d?.maxPitch);
-            diffBool(map2dDiff, 'globe_projection', globe.checked, !!eff.map2d?.globe_projection);
+            // Sem `globe_projection` pela mesma razão: a chave saiu em 2026-09-22 e o servidor a
+            // recusa com 422, então mandá-la reprovaria a aba inteira.
             // ANINHADO, e por isso fora do `diffBool`: o override guarda só `enabled`, e o
             // `deepMerge` do servidor devolve o resto do bloco (nome, camada, tinta) do
             // estático. Mandar o bloco inteiro daqui congelaria a tinta na versão que a tela
@@ -383,7 +387,7 @@ class ConfigTab {
                 // mostrava o que o servidor de fato aceitou.
                 if (this._alive) this._render();
             } catch (err) {
-                error.textContent = err?.message || 'Falha ao salvar as configurações.';
+                error.textContent = serverMessageOr(err, 'Falha ao salvar as configurações.');
                 error.hidden = false;
             } finally {
                 saveBtn.disabled = false;

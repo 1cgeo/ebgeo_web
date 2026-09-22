@@ -45,6 +45,8 @@
  * @module military_tools/military_symbol_tool/milsymbol-loader
  */
 
+import { carregarSobDemanda } from '@utils/carga-sob-demanda.js';
+
 /** Carga em voo (ou ja resolvida). Memoizada para os concorrentes dividirem uma so. */
 let carregando = null;
 
@@ -61,7 +63,8 @@ export function ensureMilsymbol() {
     if (typeof globalThis.ms !== 'undefined') return Promise.resolve(globalThis.ms);
     if (carregando) return carregando;
 
-    carregando = import('@js/vendor/milsymbol.js')
+    // Through the on-demand door: one retry, then the notice with "Recarregar".
+    carregando = carregarSobDemanda(() => import('@js/vendor/milsymbol.js'))
         .then(() => {
             // Ver a decisao 2 do `@fileoverview`: o modulo ter executado nao e, por si so, prova
             // de que o global esta la. Perguntar ao global custa uma leitura e mantem a falha alta.

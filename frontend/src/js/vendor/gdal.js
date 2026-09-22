@@ -71,6 +71,7 @@
 
 import wasmUrl from 'gdal3.js/dist/package/gdal3WebAssembly.wasm?url';
 import dataUrl from 'gdal3.js/dist/package/gdal3WebAssembly.data?url';
+import { carregarSobDemanda } from '@utils/carga-sob-demanda.js';
 
 /** A carga em voo (ou já resolvida). Memoizada para os concorrentes dividirem uma só. */
 let carregando = null;
@@ -87,7 +88,8 @@ let carregando = null;
 export function initGdal() {
     if (carregando) return carregando;
 
-    carregando = import('gdal3.js')
+    // Pela porta de carga sob demanda: ela cobre o CHUNK do wrapper, não o `.wasm` (ver acima).
+    carregando = carregarSobDemanda(() => import('gdal3.js'))
         .then(({ default: initGdalJs }) => initGdalJs({
             paths: { wasm: wasmUrl, data: dataUrl },
             useWorker: false,

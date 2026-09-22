@@ -483,16 +483,16 @@ describe('ValidationResult', () => {
 
     it('getSummary has no leading or trailing comma in any of the three shapes', () => {
         const clean = new ValidationResult();
-        expect(clean.getSummary()).toBe('Briefing valido');
+        expect(clean.getSummary()).toBe('Briefing válido');
 
         const onlyWarnings = new ValidationResult();
         onlyWarnings.addError(err(ErrorSeverity.WARNING));
-        expect(onlyWarnings.getSummary()).toBe('1 aviso(s)');
+        expect(onlyWarnings.getSummary()).toBe('1 aviso');
 
         const both = new ValidationResult();
         both.addError(err(ErrorSeverity.ERROR));
         both.addError(err(ErrorSeverity.WARNING));
-        expect(both.getSummary()).toBe('1 erro(s), 1 aviso(s)');
+        expect(both.getSummary()).toBe('1 erro, 1 aviso');
         expect(both.getSummary().startsWith(',')).toBe(false);
         expect(both.getSummary().endsWith(',')).toBe(false);
     });

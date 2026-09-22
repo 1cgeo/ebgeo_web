@@ -166,7 +166,7 @@ Além da exportação no formato .ebgeo, que permite compartilhar os mapas com o
 
 <video src="./images/Exportar.mp4" controls width="60%"></video>
 
-> A exportação para QAN (Quadro Auxiliar de Navegação) de polígonos está disponível no menu de contexto (clique direito sobre a feição). Veja o Módulo 4. Para linhas e polígonos, o mesmo botão "Exportar QAN" fica na aba Azimutes do painel da feição.
+> A exportação para QAN (Quadro Auxiliar de Navegação) de linhas e polígonos fica no botão "Exportar QAN", na aba Azimutes do painel da feição.
 
 ### Módulo 3: Barra de Busca
 
@@ -386,7 +386,6 @@ Além de "Copiar coordenadas" e "Orientar para o norte", o clique direito oferec
 - Criar grupo, combinar grupos e desagrupar feições.
 - Combinar setas e separar setas.
 - Cortar uma linha em duas: selecione a opção "Cortar Linha" e depois clique sobre a linha no ponto onde deseja cortá-la (Esc cancela). A Linha de Limite tem o mesmo corte, na opção "Cortar Linha de Limite".
-- Exportar para QAN (Quadro Auxiliar de Navegação), para polígonos. Em linhas, o QAN sai pela aba Azimutes do painel da feição.
 - Mover as feições para outra camada ou para outro mapa.
 - Dar zoom para a seleção e duplicar a seleção.
 

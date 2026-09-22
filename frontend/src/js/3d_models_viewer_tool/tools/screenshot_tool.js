@@ -29,7 +29,7 @@ async function takeScreenshot(viewer) {
 
     } catch (error) {
         console.error('Error capturing 3D screenshot:', error);
-        showToast('Erro ao capturar screenshot 3D', 'error');
+        showToast('Não foi possível capturar a imagem do 3D. Tente de novo.', 'error');
         return false;
     }
 }
@@ -343,7 +343,7 @@ async function captureLastResort() {
 
         if (dataURL === 'data:,' || dataURL.length < 100) {
             console.error('Canvas remains empty even after last resort');
-            showToast('Screenshot não pôde ser capturado. Tente aguardar o carregamento completo da cena.', 'error');
+            showToast('Não foi possível capturar a imagem. Espere a cena carregar por inteiro e tente de novo.', 'error');
             return false;
         }
 
