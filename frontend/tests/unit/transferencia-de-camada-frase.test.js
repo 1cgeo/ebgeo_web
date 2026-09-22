@@ -52,22 +52,22 @@ describe('a frase da transferência de camada', () => {
         const aviso = transferOutcomeNotice('Inimigo', 'Mapa B',
             mover({ sourceEmptied: false, sourceLayerRemoved: false, sourceRefusal: 'map_locked' }));
         expect(aviso.kind).toBe('warning');
-        expect(aviso.text).toContain('foi levada para "Mapa B" (3 feições)');
+        expect(aviso.text).toContain('foi copiada para "Mapa B" (3 feições)');
         expect(aviso.text).toContain('não pôde ser esvaziado na hora: ele está bloqueado');
-        // O QUE VEM DEPOIS FOI MEDIDO DUAS VEZES, e a segunda medição desmentiu a primeira, as
-        // duas em 2026-09-21: na primeira a divergência foi reconstruída à mão e a frase mandava
-        // recarregar; na segunda, horas depois, a recusa REAL foi dirigida pela tela, quatro de quatro, e a origem se esvaziou
-        // SOZINHA em até 2 s, porque o recibo do mover traz `previousMapId` e o autor o reaplica
-        // (`browser-collab-transferencia-origem-cheia.spec.js`, o caso do caminho real). Um toast
-        // de dez segundos pedindo recarga sobrevivia ao duplicado que descrevia.
-        expect(aviso.text).toContain('saem do mapa de origem sozinhas assim que o servidor confirmar a mudança');
-        expect(aviso.text).toContain('se ele a recusar, o motivo é avisado na tela');
+        // O QUE VEM DEPOIS FOI MEDIDO TRÊS VEZES EM 2026-09-21, e cada medição desmentiu a anterior
+        // (o cabeçalho de `layer-transfer-phrases.js` conta as três). O que ficou de pé: o duplicado
+        // some sozinho em cerca de um segundo, para LADOS OPOSTOS conforme o servidor aceite ou
+        // recuse, e com a trava REAL de um colega ele RECUSA, porque o gate dele confere também o
+        // mapa de ORIGEM de um mover. A frase diz os dois desfechos e não promete qual.
+        expect(aviso.text).toContain('se ele aceitar a mudança, as feições saem do mapa de origem sozinhas');
+        expect(aviso.text).toContain('se recusar, a cópia em "Mapa B" é desfeita, a camada continua no mapa de origem');
+        expect(aviso.text).toContain('o motivo é avisado na tela');
         expect(aviso.text).not.toContain('Recarregue');
         expect(aviso.text).not.toContain('estado do servidor');
         expect(aviso.text).not.toContain('movida');
-        // O que fica para trás é o REGISTRO da camada, e agora a frase o nomeia com verdade: depois
-        // da convergência ela está vazia (o spec confere o registro no disco da origem).
-        expect(aviso.text).toContain('A camada vazia continua no mapa de origem');
+        expect(aviso.text).not.toContain('levada');
+        // "A camada vazia continua" era falso no desfecho da recusa, que é o da trava real.
+        expect(aviso.text).not.toContain('camada vazia');
     });
 
     it('o motivo do PAPEL tem frase própria, e motivo desconhecido cai na frase genérica', () => {

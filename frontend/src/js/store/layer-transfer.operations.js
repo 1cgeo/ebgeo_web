@@ -28,14 +28,18 @@
  *    announced "layer moved, the EMPTY layer stayed in the source map" over a layer that was
  *    full. It happens when the source emptying is refused mid-gesture (a peer locks the map, or
  *    the role is lowered, between the destination write and the source emptying). THE DUPLICATE
- *    IS SHORT-LIVED, measured on 2026-09-21 through the screen, four runs of four: it lasts until
- *    the server confirms the move (0.5 to 2 s online). The receipt of each moved feature carries
- *    the canonical operation with `previousMapId`, and the author re-applies it through the inbound
- *    path (`resolveLocalEdit`), which removes the feature from its previous map on disk, in the
- *    MapLibre source and in the layer tree. No reload is involved. What stays behind is the layer
- *    RECORD, empty. The server accepts the move even with the SOURCE map locked, because its lock
- *    gate reads only the destination map of the operation, which is an open question of its own
- *    (a locked map can lose features to a move) and is recorded in the decisions journal. A source map
+ *    IS SHORT-LIVED AND RESOLVES IN OPPOSITE DIRECTIONS, measured on 2026-09-21 through the screen,
+ *    and which direction is the server's call. If the server ACCEPTS the move, the receipt of each
+ *    moved feature carries the canonical operation with `previousMapId` and the author re-applies
+ *    it through the inbound path (`resolveLocalEdit`), which empties the source on disk, in the
+ *    MapLibre source and in the layer tree, in 0.5 to 2 s; what stays behind is the layer RECORD,
+ *    empty. If the server REFUSES it, which is what happens under a peer's REAL lock because the
+ *    server's gate checks the SOURCE map of a move too (`pushOperations`, right after
+ *    `prepareFeatureMutation`, `backend/src/modules/sync/sync.service.js`), the whole batch comes
+ *    back refused within a second, the copy in the destination is undone, the layer stays full in
+ *    the source, and the problems stay recorded in the outbound queue. No reload in either. (An
+ *    earlier version of this paragraph said the server accepts a move out of a locked map; that came
+ *    from reading `lockedMapDenialReason` without its call site, and it was false.) A source map
  *    DELETED by a peer mid-gesture is a different outcome (`sourceMissing: true`) and leaves no
  *    duplicate at all: the local document went with the map, and the server's upsert by id
  *    moved (or revived) the rows in the destination, in either arrival order.

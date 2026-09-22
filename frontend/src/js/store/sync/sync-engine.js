@@ -580,8 +580,9 @@ class SyncEngine {
      * operation since the opening, which repaired by accident any local divergence those
      * operations happened to describe (measured on 2026-09-21 with a hand-made one). After the
      * first reload that is no longer true. The real case that accident covered, a layer move whose
-     * source emptying is refused, never needed it: it converges on the push receipt, measured on
-     * 2026-09-21 (`tests/e2e-ui/browser-collab-transferencia-origem-cheia.spec.js`).
+     * source emptying is refused, never needed it: it resolves on the push receipt, one way when the
+     * server accepts the move and the other way when it refuses it, both measured on 2026-09-21
+     * (`tests/e2e-ui/browser-collab-transferencia-origem-cheia.spec.js`).
      *
      * Best-effort: a storage that refuses the write leaves the old cursor, which is the old cost.
      *

@@ -360,11 +360,18 @@ collabTest.describe('Mover camada com a ORIGEM CHEIA: o recarregamento reconcili
     // A RECUSA E' INJETADA NO INSTANTE CERTO, e o instrumento e' o `put` do IndexedDB de proposito:
     // todo documento de mapa passa por ele, qualquer que seja o caminho de codigo (a primeira
     // tentativa interceptou o repositorio e nao viu chamada nenhuma, porque a store usa outra
-    // instancia). Quando o DESTINO grava as feicoes, a trava do mapa de origem entra na memoria,
-    // que e' o que a trava de um colega faz ao chegar no meio do gesto. O servidor aceita o mover
-    // mesmo com a origem travada, porque o gate dele olha so' o mapa de DESTINO da operacao
-    // (`lockedMapDenialReason`, `backend/src/modules/sync/sync.service.js`).
-    collabTest('a recusa REAL no meio do gesto converge sozinha no recibo, sem recarregar', async ({ collab }) => {
+    // instancia). Quando o DESTINO grava as feicoes, a trava do mapa de origem entra na MEMORIA
+    // deste cliente.
+    //
+    // O LIMITE DESTE CASO, e ele custou uma frase errada na tela: aqui a trava existe SO' NO
+    // CLIENTE. O servidor nao esta' travado, e e' por isso que ele ACEITA o mover. Isto mede o
+    // desfecho "o servidor aceitou" (a trava local ja' tinha caido no servidor, ou nunca existiu
+    // la'). A trava REAL de um colega trava o servidor tambem, e ai' ele RECUSA, porque o gate dele
+    // confere o mapa de ORIGEM de um mover (`pushOperations`, logo depois de
+    // `prepareFeatureMutation`, em `backend/src/modules/sync/sync.service.js`): e' o caso seguinte.
+    // A primeira versao deste comentario dizia o contrario, por ter lido `lockedMapDenialReason`
+    // sem ler o sitio que a chama.
+    collabTest('recusa no meio do gesto, servidor ACEITA: a origem se esvazia sozinha no recibo, sem recarregar', async ({ collab }) => {
         collabTest.setTimeout(300000);
         const A = collab.author;
         const mapa1Nome = collab.mapName;
@@ -430,7 +437,7 @@ collabTest.describe('Mover camada com a ORIGEM CHEIA: o recarregamento reconcili
         publicar('REAL: o aviso', await aviso.first().innerText());
         expect(await A.evaluate(() => globalThis.__recusaInjetada), 'PISO: a recusa foi de fato injetada').toBe(true);
         await expect(aviso, 'a frase NAO manda recarregar: nao e preciso').not.toContainText('Recarregue');
-        await expect(aviso).toContainText('saem do mapa de origem sozinhas assim que o servidor confirmar');
+        await expect(aviso).toContainText('se ele aceitar a mudança, as feições saem do mapa de origem sozinhas');
 
         // SEM RECARREGAR: disco, fonte do mapa e arvore, nessa ordem de independencia.
         await expect.poll(async () => (await retrato()).origemNoDisco.length, {
@@ -443,15 +450,114 @@ collabTest.describe('Mover camada com a ORIGEM CHEIA: o recarregamento reconcili
         publicar('REAL: retrato depois da convergencia', fim);
         expect(fim.destinoNoDisco.sort(), 'o destino ficou com as duas').toEqual([...ids].sort());
         expect(fim.fila?.problemas, 'e o servidor nao recusou nada do gesto').toBe(0);
-        expect(await contarNaArvore(A, ids), 'a arvore da origem deixou de desenha-las').toBe(0);
-        // O QUE FICA PARA TRAS, e a frase diz: o REGISTRO da camada, vazio, no mapa de origem.
+        // POR ESPERA DE ESTADO, nunca por leitura imediata: a arvore repinta por evento, depois do
+        // disco, e a leitura unica reprovou 1 vez em 5 rodadas deste caso (2026-09-21).
+        await expect.poll(() => contarNaArvore(A, ids), {
+            timeout: 30000, message: 'a arvore da origem continuou desenhando as feicoes',
+        }).toBe(0);
+        // O QUE FICA PARA TRAS neste desfecho: o REGISTRO da camada, vazio, no mapa de origem.
         const camadasDaOrigem = await A.evaluate(async (m1) => {
             const { getLayersCompat } = await import('/src/js/store/repositories/index.js');
             return ((await getLayersCompat(m1)) ?? []).map((l) => l.id);
         }, mapa1Nome);
-        expect(camadasDaOrigem, 'a camada vazia continua no mapa de origem, como a frase diz').toContain(camadaId);
-        await expect(aviso.first()).toContainText('A camada vazia continua no mapa de origem');
+        expect(camadasDaOrigem, 'o registro da camada, vazio, continua no mapa de origem').toContain(camadaId);
 
+        await A.evaluate(async (nome) => {
+            const { memoryStore } = await import('/src/js/store/memory-store.js');
+            memoryStore.lockedMaps.delete(nome);
+        }, mapa1Nome);
+    });
+
+    collabTest('recusa no meio do gesto, servidor RECUSA (trava REAL): a cópia do destino é desfeita e a camada fica na origem', async ({ collab }) => {
+        collabTest.setTimeout(300000);
+        const A = collab.author;
+        const mapa1Nome = collab.mapName;
+        const mapa1Id = collab.mapId;
+        const ids = [await drawPointUI(A, [-43.21, -22.91]), await drawPointUI(A, [-43.19, -22.89])];
+        expect(ids.every(Boolean), 'os dois pontos nasceram').toBe(true);
+        await applyStoreOp(A, 'addMap', [MAPA_DESTINO]);
+        await expect.poll(() => idDoMapa(A, MAPA_DESTINO), { timeout: 30000 })
+            .toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/i);
+        const mapa2Id = await idDoMapa(A, MAPA_DESTINO);
+        const camada = await applyStoreOp(A, 'createLayer', [NOME_DA_CAMADA]);
+        const camadaId = camada?.id ?? camada;
+        await applyStoreOp(A, 'moveFeaturesToLayer', [ids.map((id) => ({ type: 'point', id })), camadaId]);
+        await expect.poll(async () => (await readFeatures(A, TIPO))
+            .filter((f) => f.props?.layerId === camadaId).length).toBe(2);
+        const retrato = () => retratoDoCliente(A, { mapa1: mapa1Id, mapa2: mapa2Id, ids, fantasma: 'nenhum' });
+        await expect.poll(async () => (await retrato()).fila?.pendentes ?? -1, {
+            timeout: 60000, message: 'a fila nao esvaziou antes do gesto',
+        }).toBe(0);
+
+        // A TRAVA REAL: o servidor fica travado ANTES do gesto, por SQL, que nao faz broadcast, entao
+        // este cliente so' fica sabendo dela no instante injetado abaixo. E' o que acontece quando a
+        // trava de um colega chega no meio do gesto: o servidor ja' a tem quando o lote sobe.
+        await collab.db.raw.none('UPDATE maps SET locked = true WHERE id = $1', [mapa1Id]);
+        await A.evaluate(async (q) => {
+            const { memoryStore } = await import('/src/js/store/memory-store.js');
+            globalThis.__recusaInjetada = false;
+            const putOriginal = IDBObjectStore.prototype.put;
+            IDBObjectStore.prototype.put = function (valor, chave, ...resto) {
+                try {
+                    const tem = (valor?.features?.points || []).some((f) => q.ids.includes(f.properties?.id));
+                    if (!globalThis.__recusaInjetada && tem && chave !== q.m1 && chave !== q.nome1) {
+                        globalThis.__recusaInjetada = true;
+                        memoryStore.lockedMaps.add(q.nome1);
+                    }
+                } catch { /* instrumento */ }
+                return putOriginal.call(this, valor, chave, ...resto);
+            };
+        }, { ids, m1: mapa1Id, nome1: mapa1Nome });
+
+        const naFonteDoMapa = () => A.evaluate((q) => {
+            const map = globalThis.__ebgeoMap;
+            let total = 0;
+            for (const id of Object.keys(map.getStyle().sources)) {
+                const src = map.getSource(id);
+                if (src?.type !== 'geojson') continue;
+                const dados = src._data?.geojson ?? src._data ?? null;
+                const lista = Array.isArray(dados?.features) ? dados.features : [];
+                total += lista.filter((f) => q.includes(f.properties?.id)).length;
+            }
+            return total;
+        }, ids);
+        expect(await naFonteDoMapa(), 'PISO: o instrumento de fonte enxerga as duas antes do gesto').toBe(2);
+
+        // O GESTO, PELA TELA: e' o manipulador da aba que decide o que sai das fontes do mapa.
+        await openLayersTab(A);
+        await A.locator('.layer-container', { hasText: NOME_DA_CAMADA }).first()
+            .locator('.layer-menu-btn').first().click();
+        const menu = A.locator('.layer-context-menu');
+        await expect(menu).toBeVisible({ timeout: 10000 });
+        await menu.locator('.layer-context-menu-item', { hasText: 'Mover para outro mapa' }).click();
+        await A.locator('.layer-transfer-item', { hasText: MAPA_DESTINO }).click();
+        await A.locator('.layer-transfer-modal-btn-confirm').click();
+
+        const aviso = A.locator('.toast', { hasText: 'não pôde ser esvaziado na hora' });
+        await expect(aviso, 'a recusa no meio do gesto foi DITA, como aviso').toBeVisible({ timeout: 30000 });
+        expect(await A.evaluate(() => globalThis.__recusaInjetada), 'PISO: a recusa foi de fato injetada').toBe(true);
+        await expect(aviso).toContainText(`se recusar, a cópia em "${MAPA_DESTINO}" é desfeita, a camada continua no mapa de origem`);
+
+        // O DESFECHO MEDIDO em 2026-09-21: em cerca de um segundo o lote volta RECUSADO, a copia do
+        // destino e' desfeita, e a camada continua INTEIRA na origem. A PROMESSA DA FRASE, item a item.
+        await expect.poll(async () => (await retrato()).destinoNoDisco.length, {
+            timeout: 30000, message: 'a copia no destino nao foi desfeita',
+        }).toBe(0);
+        const fim = await retrato();
+        publicar('TRAVA REAL: retrato depois da recusa', fim);
+        expect(fim.origemNoDisco.sort(), 'a camada continua inteira no mapa de origem').toEqual([...ids].sort());
+        expect(fim.fila?.pendentes, 'nada ficou esperando: o servidor ja respondeu').toBe(0);
+        expect(fim.fila?.problemas, 'e a recusa ficou REGISTRADA na fila, para o painel de pendencias').toBeGreaterThan(0);
+        expect(await naFonteDoMapa(), 'as feicoes continuam desenhadas no mapa de origem').toBe(2);
+        await expect(A.locator('.toast', { hasText: 'O mapa está bloqueado' }),
+            'o motivo do servidor foi avisado na tela, como a frase promete').toBeVisible({ timeout: 15000 });
+        // A VERDADE DE SOLO: o servidor nao moveu nada.
+        const noServidor = await verdadeDoServidor(collab.db, ids);
+        publicar('TRAVA REAL: servidor', noServidor);
+        expect(noServidor.map((l) => l.mapId), 'no servidor as duas continuam no mapa de ORIGEM')
+            .toEqual([mapa1Id, mapa1Id]);
+
+        await collab.db.raw.none('UPDATE maps SET locked = false WHERE id = $1', [mapa1Id]);
         await A.evaluate(async (nome) => {
             const { memoryStore } = await import('/src/js/store/memory-store.js');
             memoryStore.lockedMaps.delete(nome);

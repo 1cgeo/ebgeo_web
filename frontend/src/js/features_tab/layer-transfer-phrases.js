@@ -17,25 +17,29 @@
  *    2026-09-21 the screen announced "layer moved" plus the empty-layer patch, false twice over.
  *
  * The refused case names the STATE, in the house rule for denied affordances, and says what happens
- * next. WHAT HAPPENS NEXT WAS MEASURED TWICE, AND THE SECOND MEASUREMENT OVERRULED THE FIRST.
+ * next. WHAT HAPPENS NEXT WAS MEASURED THREE TIMES ON 2026-09-21, AND EACH MEASUREMENT OVERRULED
+ * THE ONE BEFORE, which is the reason this paragraph is long.
  *
- * Both measurements are from 2026-09-21. In the first the divergence was rebuilt BY HAND, after the receipts of the move had settled, and
- * a reload was seen to reconcile it (the tail of the connect re-applied the move's own creates). The
- * sentence therefore said "Recarregue a página". Hours later the REAL refusal was driven through
- * the screen (the lock arriving between the destination write and the source emptying), four runs
- * out of four: the source empties BY ITSELF, with no reload, in 0.5 to 2 s. In the real path the
- * receipt arrives AFTER the refusal; the receipt of a `feature create` that declares a move carries
- * the server's canonical operation with `previousMapId`, and the author re-applies it through the
- * inbound path (`resolveLocalEdit`, `store/sync/remote-operation-handler.js`), which removes the
- * feature from its PREVIOUS map on disk, in the MapLibre source and in the layer tree. A ten-second
- * toast asking for a reload was outliving the duplicate it described. The hand-made divergence never
- * saw this because its receipts had already been consumed.
+ *  1. The divergence was rebuilt BY HAND, after the receipts of the move had settled, and a reload
+ *     was seen to reconcile it. The sentence said "Recarregue a página". A reconstruction measures
+ *     the state it builds, not the path that leads to it.
+ *  2. The refusal was injected at the right instant (the lock entering the client's memory between
+ *     the destination write and the source emptying) and the gesture driven through the screen:
+ *     the source emptied BY ITSELF in 0.5 to 2 s, because the receipt of a moved feature carries
+ *     the canonical operation with `previousMapId` and `resolveLocalEdit` re-applies it. The
+ *     sentence became "they leave the source on their own", plus "the empty layer stays". But the
+ *     lock lived ONLY IN THE CLIENT: the server was never locked, so it accepted the move.
+ *  3. With the server REALLY locked, which is what a peer's lock is, the server REFUSES the move:
+ *     its gate checks the SOURCE map of a move too (`pushOperations`, right after
+ *     `prepareFeatureMutation`, in `backend/src/modules/sync/sync.service.js`). Measured: within
+ *     one second the whole batch comes back refused, the copy in the DESTINATION is undone, the
+ *     layer stays FULL in the source, the server's reason is shown in a toast and three problems
+ *     stay recorded in the outbound queue. "Levada" and "the empty layer stays" were both false for
+ *     the case the sentence exists for.
  *
- * So the sentence says what the screen will do on its own, and what stays behind: the layer RECORD,
- * empty, in the source map (it is deliberately not deleted while the layer still holds features). If
- * the server REFUSES the move instead, nothing converges and the flush announces the reason in a
- * toast of its own, which is the second half of the sentence.
- * Guard: `tests/e2e-ui/browser-collab-transferencia-origem-cheia.spec.js`, both cases.
+ * So the duplicate is short-lived either way and resolves in OPPOSITE directions, and which one is
+ * the server's call. The sentence says exactly that, and promises nothing about which.
+ * Guard: `tests/e2e-ui/browser-collab-transferencia-origem-cheia.spec.js`, the two real-path cases.
  */
 
 /** `TransferMode.MOVE`, kept as a literal so this module stays import-free. */
@@ -86,10 +90,11 @@ export function transferOutcomeNotice(layerName, targetMapName, result) {
             : REFUSAL_CLAUSES.unknown;
         return {
             kind: 'warning',
-            text: `A camada "${layerName}" foi levada para "${targetMapName}" (${featureCount(count)}), `
-                + `mas o mapa de origem não pôde ser esvaziado na hora: ${clause}. As feições `
-                + 'saem do mapa de origem sozinhas assim que o servidor confirmar a mudança; se ele a '
-                + 'recusar, o motivo é avisado na tela. A camada vazia continua no mapa de origem'
+            text: `A camada "${layerName}" foi copiada para "${targetMapName}" (${featureCount(count)}), `
+                + `mas o mapa de origem não pôde ser esvaziado na hora: ${clause}. Quem decide agora é o `
+                + 'servidor, em instantes: se ele aceitar a mudança, as feições saem do mapa de origem '
+                + `sozinhas; se recusar, a cópia em "${targetMapName}" é desfeita, a camada continua no `
+                + 'mapa de origem e o motivo é avisado na tela'
                 + skippedSentence(r.skippedCount),
         };
     }
