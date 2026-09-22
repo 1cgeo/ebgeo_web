@@ -165,12 +165,13 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   | `test:backend` | nenhuma | `ebgeo_test` (`TEST_DB_NAME` sobrepõe) | SIM, sob c8 |
   | `test:e2e` (contrato, 3ª perna da raiz) | 3911 | `ebgeo_e2e` | não |
   | `test:e2e:ui` e `test:e2e:mega` (Playwright) | 3912 **e 4321** | `ebgeo_ui_e2e` | não |
+  | `test:e2e:tablet` (Playwright, contexto com toque) | as MESMAS 3912 e 4321 | o MESMO | não |
   | os quatro configs de cenário (Playwright) | as MESMAS 3912 e 4321 | o MESMO | não |
 
   **A ÚLTIMA LINHA É QUATRO CONFIGS E NÃO UMA CAMADA NOVA, e é por isso que ela não ganha coluna
   própria.** `playwright.atlas-safety.config.js`, `playwright.migration-data.config.js`,
   `playwright.release-checks.config.js` e `playwright.release-production.config.js` (todos em
-  `frontend/`) fazem spread do `playwright.config.js` base e trocam só `testMatch`, `retries` e
+  `frontend/`) fazem spread do `playwright.config.js` base e trocam só testMatch, `retries` e
   `timeout`, de modo que herdam o `globalSetup`, a porta do backend, a do Vite e o banco: uma
   rodada de cenário colide com uma rodada de `test:e2e:ui` exatamente como duas rodadas de
   `test:e2e:ui` colidem entre si, e as três variáveis de isolamento do parágrafo adiante são as
@@ -246,6 +247,14 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   PARADO antes, porque o Vite segura o binário nativo do rolldown e o `npm ci` aborta no meio com
   `EPERM`, deixando o diretório pior do que estava. Parar o shell do `npm run dev` não basta: a
   árvore de processos sobrevive a ele, e é ela que segura o arquivo.
+
+  **E A CÓPIA MAIS BARATA DE `node_modules` PARA UM WORKTREE, A JUNÇÃO, É SEGURA SÓ ENQUANTO A
+  REMOÇÃO FOR NA ORDEM CERTA.** O parágrafo do worktree de linha de base acima diz isso pelo lado
+  do dano; este diz o procedimento que MEDIU não danificar, em 2026-09-21, sete vezes seguidas
+  com seis agentes em paralelo: `git worktree add --detach <dir> <commit>`, `New-Item -ItemType
+  Junction` para cada `node_modules`, o trabalho, `(Get-Item <junção>).Delete()` para CADA junção,
+  e só então `git worktree remove --force` e `git worktree prune`. Confira a contagem de entradas
+  do `node_modules` real depois. O `dist/` construído num worktree fica lá e é ignorado pelo git.
 
   A consequência que mais surpreende, e que evita coordenação desnecessária: o `npm test` da
   RAIZ e o Playwright **não colidem em nada**, porque a perna de e2e da raiz é outra porta e
@@ -412,15 +421,31 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   uma referência hoje reprodutível em qualquer uma), mas tira o pixel da lista de objeções caso
   alguém precise de hardware por outro motivo.
 
-  **E o comando ignora uma spec em silêncio.** O mesmo config traz uma lista de
-  ignorados que tira `frontend/tests/e2e-ui/browser-collab-mega.spec.js` da rodada
-  normal, salvo quando a própria linha de comando nomeia a mega (é o que
-  `TARGETING_MEGA` decide, lendo os argumentos do processo), e ela tem script
-  próprio, `test:e2e:mega`. A decisão está
-  comentada no config (a mega é peça de demonstração de duas browsers, e cada
-  dimensão dela já está coberta pelas specs `browser-collab-*` focadas), e é
-  legítima; o que não é legítimo é ler "`test:e2e:ui` verde" como "a pasta
-  `tests/e2e-ui/` inteira passou". Não passou: um arquivo dela não rodou.
+  **E O COMANDO IGNORA TRÊS ARQUIVOS, NÃO UM.** O testIgnore do `playwright.config.js` tira
+  da rodada normal o `browser-collab-mega.spec.js` (salvo quando a própria linha de comando o
+  nomeia, que é o que `TARGETING_MEGA` decide) e, desde 2026-09-21, toda `*.tablet.spec.js`, esta
+  segunda exclusão INCONDICIONAL. A diferença é o que cada uma mede: a mega é spec de mesa
+  legítima, só cara, então nomeá-la deve rodá-la; uma spec de tablet só faz sentido num contexto
+  com `hasTouch`, e num projeto de mesa reprova por construção (o primeiro caso de
+  `toque-no-mapa.tablet.spec.js` é um CONTROLE DO INSTRUMENTO que afirma o ponteiro grosso). Foi
+  isso que aconteceu enquanto o testIgnore não as nomeava: `*.tablet.spec.js` casa o
+  `'**/*.spec.js'` do config padrão, a coleta trazia 489 casos em 188 arquivos, nove deles de
+  tablet, e os nove reprovavam todo dia; hoje traz 480 em 186, e a camada de tablet, que tem
+  config próprio desde 2026-09-20 (`playwright.tablet.config.js`) e até então script NENHUM, roda
+  por `npm run test:e2e:tablet`, espelhado na raiz. O que não é legítimo é ler "`test:e2e:ui`
+  verde" como "a pasta `tests/e2e-ui/` inteira passou": três arquivos dela não rodam ali.
+
+  **QUEM TIRA UMA SPEC DA RODADA PADRÃO HERDA O GUARDA DELA.** `_backend-required.spec.js` é o
+  que impede o verde por pulo da camada de navegador, e ele só reprova a rodada em que é
+  COLETADO. As duas de tablet são `state.skip ? test.describe.skip : test.describe` como todas as
+  outras, então sem Postgres elas pulariam e a rodada de tablet fecharia verde tendo dirigido
+  zero. Por isso o testMatch daquele config é um ARRAY que recolhe também o guarda (custo
+  medido: zero, ele não faz E/S nem usa `page`). E um config derivado que faça spread do base
+  herda o testIgnore do pai, e testIgnore vence testMatch: o de tablet passaria a ignorar as
+  próprias specs (medido: `0 tests in 0 files`) se não sobrescrevesse a chave. Os quatro configs
+  de cenário continuam SEM o guarda, e `tests/unit/guarda-de-e2e-nao-pula.test.js` não alcança
+  essa classe: ele afirma que os dois arquivos de guarda existem e não se gateiam, e nunca
+  pergunta se algum config os COLETA.
 
   **E UM CASO SÓ MEDE COM O ASSET APONTADO POR AMBIENTE.**
   `frontend/tests/e2e-ui/vazamento-viewers.spec.js` §30.2 abre e fecha o visualizador 3D

@@ -3516,12 +3516,22 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
   reaplicar a cauda desde a abertura consertava por acidente qualquer divergência local que ela
   descrevesse, e depois do primeiro recarregamento isso deixa de valer. **O ganho de rede não foi
   medido** em sessão longa real; ficou preso o mecanismo.
-- **Aberto, achado pela leitura do gate:** o servidor aceita o mover de uma feição para FORA de um
-  mapa travado, porque `lockedMapDenialReason` (`backend/src/modules/sync/sync.service.js`) lê só o
-  mapa de DESTINO da operação e nunca o `sourceMapId`. É por isso que o mover recusado no cliente
-  converge em vez de voltar, e é também uma fresta da trava: um mapa travado perde feições para um
-  mover. Fechar isso faria o lote inteiro do gesto ser recusado pelo servidor, e o destino local
-  ficaria com feições que só existem naquele disco, então pede desenho próprio.
+- **Um "achado" desta entrada era FALSO, e ficou no ar por algumas horas.** Ela dizia que o
+  servidor aceita o mover de uma feição para FORA de um mapa travado, por `lockedMapDenialReason`
+  ler só o mapa de destino. A função lê mesmo só `op.mapId`; o SÍTIO que a chama confere a origem
+  dez linhas abaixo, com o mapa anterior da linha (`pushOperations`, em
+  `backend/src/modules/sync/sync.service.js`), e o caso já estava preso em
+  `backend/tests/integration/sync-feature-conflicts.test.js` ("a move from a locked source"). Quem
+  acusou foi um teste de caracterização escrito para prender o achado, que voltou vermelho.
+- **E a segunda medição do passo 1 media o caso errado.** A trava injetada existia só na memória do
+  cliente; o servidor, destravado, aceitou o mover, e foi isso que "convergiu sozinho". Com o
+  servidor travado DE VERDADE, que é o que a trava de um colega é, o lote inteiro volta RECUSADO em
+  cerca de um segundo, a cópia no destino é desfeita, a camada continua cheia na origem, o motivo
+  do servidor aparece num toast e os problemas ficam na fila. "Foi levada" e "a camada vazia
+  continua" eram falsos justamente no caso para o qual a frase existe. O duplicado some sozinho nos
+  DOIS desfechos, para lados opostos, e a frase passou a dizer os dois sem prometer qual. O spec
+  ganhou o caso da trava real, e o caso da trava local perdeu a leitura imediata da árvore, que
+  reprovou 1 vez em 5.
 - **Guardas:** `backend/tests/integration/atomic-atlas-import.test.js`,
   `frontend/tests/unit/atlas-sobe-com-figura-orfa.test.js`,
   `frontend/tests/unit/enviar-blob-com-id-novo.test.js`,
@@ -3529,3 +3539,83 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
   `frontend/tests/unit/transferencia-de-camada-frase.test.js`,
   `frontend/tests/e2e-ui/browser-collab-transferencia-origem-cheia.spec.js` e
   `frontend/tests/integration/abertura-remota-aplica-dois-retratos.repro.test.js`.
+
+### 2026-09-21: o lote F, seis agentes em paralelo sobre as reprovações da suíte de tela, e três delas eram do teste
+
+Contexto: a rodada completa do Playwright fechou com 17 reprovações e 471 aprovados. Nenhuma era
+instável, e cada uma foi atribuída antes de ser tocada.
+
+- **A camada de tablet era recolhida pelo config errado (9 das 17).** `playwright.tablet.config.js`
+  nasceu em 2026-09-20 com `testMatch: '**/*.tablet.spec.js'`, e esse sufixo TAMBÉM casa o
+  `'**/*.spec.js'` do config padrão, que as rodava em Chrome de mesa, onde reprovam por construção.
+  Nomear uma spec por sufixo não a separa de nada: quem cria um config derivado tem de excluir as
+  specs dele do config pai no MESMO commit. Hoje o padrão exclui `*.tablet.spec.js`
+  incondicionalmente, a camada tem `npm run test:e2e:tablet` (não tinha script nenhum, então
+  ninguém a rodava), e o config dela recolhe também `_backend-required.spec.js`, porque uma spec
+  tirada da rodada padrão sai de baixo do guarda que acusa verde por pulo. Os quatro configs de
+  cenário continuam sem esse guarda, declarado e não fechado.
+- **O painel de pendências deixou de abrir sem rede, e a regressão era minha (1 de 17).** O
+  bisect apontou `c07d6dff`, o commit da manhã que parou de sincronizar a contagem de cores. O
+  pré-carregamento do painel tinha UM gatilho, o tom da luz saindo de "tudo enviado", e na
+  abertura de um atlas de servidor quem tirava a luz desse estado era, por acidente, a operação de
+  contagem de cores. O cabeçalho do spec descrevia o acidente como desenho. Hoje o gatilho é
+  DETERMINÍSTICO: sessão viva, atlas de servidor e conexão ONLINE (`_precarregarPorConexao`,
+  `frontend/src/js/account/sync-status.control.js`), com o gatilho por tom como segunda via. O
+  preço declarado: todo atlas de servidor baixa os 76 kB de fonte do painel na abertura, fora do
+  boot anônimo, que é o medido pelo teto. Armadilha de instrumento medida no caminho: contar carga
+  de módulo por `performance.getEntriesByType('resource')` dá zero para qualquer coisa tardia numa
+  página que serve mais de 600 módulos, porque o buffer para em 250 entradas em silêncio.
+- **O import aditivo reprovava por um campo que o produto não lê (1 de 17).** O caso lia `map.name`
+  do documento cru no disco, e o mapa em branco semeado no boot nunca teve `name`, `id` nem `sync`:
+  é gravado como conteúdo, e os sete leitores de nome do produto resolvem pela CHAVE quando ela não
+  é um identificador, regra de 2026-09-07 adotada depois de uma perda medida. O caso passava
+  porque entrar num mapa persistia o mapa base de recuo por `saveMap`, que carimba o nome; quando o
+  mapa base virou vista da pessoa (`543c9e37`, 2026-09-20, decisão correta), o efeito colateral
+  sumiu. Decisão: o nome de um mapa de atlas local vem da chave, e o spec passou a ler pelo leitor
+  do produto. Guarda: `frontend/tests/integration/mapa-semeado-sem-nome.repro.test.js`. Forma
+  latente declarada e não medida: `_isMapNameUsedByOther` é o único leitor sem recuo para a chave.
+- **O spec de migração media a regra que a decisão do dia revogou (1 de 17).** O caso "main
+  reaberta depois da atualização" exigia a tela de recuperação para uma gravação tardia trivial,
+  que pela regra nova entra sozinha; sondado no navegador, o registro entra, o destino é o mesmo e
+  o produto diz "1 registros" no console. O caso foi reescrito para a regra nova e ganhou um irmão
+  que monta um conflito de verdade (`same_unit`, com a versão nova escrevendo por `setMapNotes` num
+  mapa que o boot NÃO abre, porque abrir grava a contagem de cores sozinho e deixaria a causa
+  ambígua) e exige a tela e o botão de recuperar em outro atlas. As outras três causas de conflito
+  continuam com cobertura só de integração.
+- **Os três diálogos do menu da conta saem do boot do mapa.** `account.control.js` é um `IControl`
+  que `map_sig.js` instancia, então login, "novo atlas" e compartilhar viajavam no payload ansioso
+  e só existem depois de um clique com servidor. Passaram a ser buscados no clique por um lançador
+  único (`frontend/src/js/modals/account-modals-launcher.js`), no modelo do cadastro de 2026-09-20.
+  Medido com build fresco dos dois lados: o mapa foi de 78 arquivos e 4 286 417 bytes para 77 e
+  4 218 590, 66 kB a menos (17 kB em gzip); o critério de manter era 30 kB. `atlas.html` continua
+  importando login e novo atlas de forma estática, de propósito. O preço é o do cadastro: três
+  pontos novos de falha de carga, cada um dizendo a falha e mandando recarregar, nunca "tente de
+  novo", porque `import()` que falha fica envenenado.
+- **Dois tetos de peso construído estavam vermelhos com build fresco, e a suíte passava verde.**
+  `admin.html` em 803 kB contra 790 e `calibracao.html` em 1987 contra 1980. A suíte da raiz passou
+  o dia inteiro porque o `dist/` era de 2026-09-20: dist velho dá verde velho. Atribuído com build
+  fresco em três commits e o grafo de imports dos dois entries: 758 e 1955 kB em 2026-09-13, 784 e
+  1977 na manhã de hoje, 803 e 1987 à tarde; o crescimento do dia são os três commits de migração
+  tardia (`late-legacy-plan.js` novo e `legacy-transition.js` maior, que entram pelo portão das
+  quatro páginas) mais o seletor pesquisável novo do admin. Tetos recentrados em 830 e 2020, com a
+  atribuição escrita ao lado.
+- **O ganho de rede do cursor durável foi medido** (200 operações: 117 579 bytes no primeiro
+  recarregamento, 66 no segundo; detalhe na wiki do namespace), e ganhou spec que afirma a rede.
+- **O spec de primeira pessoa não é instável pela carga da cena, e a causa da falha "contêiner
+  escondido" é o cache do `/api/config`.** Em 16 execuções isoladas as 44 esperas pelo contêiner
+  foram satisfeitas com pior caso de 3,3 s, sem queda de renderizador, e a falha não reapareceu;
+  ela só reaparece na rodada COMPLETA (1 em cada uma das duas do dia), e o trace dela trazia
+  "scene not found: museu-1cgeo". O tileset é semeado por SQL, o harness liga o memo do
+  `/api/config` de propósito (com invalidação só na escrita pela API e TTL de recuo de 30 s), e a
+  página abria com o catálogo que o spec ANTERIOR aquecera, sem a cena; o visualizador registra o
+  erro, esconde o contêiner e retorna sem lançar. Reproduzido de forma determinística com um spec
+  vizinho aquecendo o cache logo antes: reprova sem o conserto, passa com ele. O conserto é
+  `esperarCatalogoServido`, no helper de semeadura, que espera o catálogo SERVIDO refletir a linha
+  antes de qualquer página abrir; os outros cinco specs que semeiam catálogo por SQL ficam com a
+  mesma fresta e não foram tocados. O que reprova de outra causa, 3 em 16, é o comentário
+  espacial não chegar ao Postgres em 10 s, e isso não foi investigado. Achado de produto no caminho: um Worker que não carrega deixa
+  `parseSplatData` do motor pendurado para sempre, sem rejeitar e sem limite de tempo (439 ms com
+  o worker alcançável, mais de 280 s sem uma linha de erro sem ele). O gatilho foi ambiental (o
+  `node_modules` por junção dos worktrees de agente faz o `new URL` do pré-bundle do Vite sair da
+  raiz do servidor), e é por isso que esse spec só mede o produto na árvore principal.
+
