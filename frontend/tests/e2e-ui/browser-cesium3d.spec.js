@@ -81,7 +81,8 @@ describeOrSkip('Cesium-3D transport (real Chromium + real backend)', () => {
     }) => {
         await page.goto('/');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_create');
-        const tilesetId = await seedTileset(state.dbName);
+        // `esperarCatalogo: false` (2026-09-22): este spec usa o id só como referência de op, e o gate é SQL do servidor; o cliente nunca resolve o tileset pelo `/api/config`. Medido: a espera custaria o resto do TTL (~28 s) por semeadura, por uma fresta que aqui não existe.
+        const tilesetId = await seedTileset(state.dbName, { esperarCatalogo: false });
 
         const result = await page.evaluate(
             async ({ atlasId: aid, mapId: mid, tilesetId }) => {
@@ -183,7 +184,7 @@ describeOrSkip('Cesium-3D transport (real Chromium + real backend)', () => {
     test('update merges into the entity JSONB; delete soft-removes it from the snapshot', async ({ page }) => {
         await page.goto('/');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_mutate');
-        const tilesetId = await seedTileset(state.dbName);
+        const tilesetId = await seedTileset(state.dbName, { esperarCatalogo: false });
 
         const result = await page.evaluate(
             async ({ atlasId: aid, mapId: mid, tilesetId }) => {
@@ -247,7 +248,7 @@ describeOrSkip('Cesium-3D transport (real Chromium + real backend)', () => {
     test('LWW by arrival: create then update on the SAME id keeps ONE entry with the last payload', async ({ page }) => {
         await page.goto('/');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_lww');
-        const tilesetId = await seedTileset(state.dbName);
+        const tilesetId = await seedTileset(state.dbName, { esperarCatalogo: false });
 
         const result = await page.evaluate(
             async ({ atlasId: aid, mapId: mid, tilesetId }) => {
@@ -285,7 +286,7 @@ describeOrSkip('Cesium-3D transport (real Chromium + real backend)', () => {
     test('idempotency: a REPEATED create for a live id is a no-op (the FIRST payload survives)', async ({ page }) => {
         await page.goto('/');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_idem');
-        const tilesetId = await seedTileset(state.dbName);
+        const tilesetId = await seedTileset(state.dbName, { esperarCatalogo: false });
 
         const result = await page.evaluate(
             async ({ atlasId: aid, mapId: mid, tilesetId }) => {

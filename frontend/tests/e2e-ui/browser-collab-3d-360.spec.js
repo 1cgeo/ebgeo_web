@@ -52,7 +52,8 @@ describeOrSkip('3D / 360 collaboration — a peer converges on remote entities',
         try {
             // O tileset tem de EXISTIR: a borda de escrita do sync recusa uma op que
             // referencia recurso invisível, e linha ausente conta como invisível.
-            const tilesetId = await seedTileset(state.dbName);
+            // `esperarCatalogo: false` (2026-09-22): este spec usa o id só como referência de op, e o gate é SQL do servidor; o cliente nunca resolve o tileset pelo `/api/config`. Medido: a espera custaria o resto do TTL (~28 s) por semeadura, por uma fresta que aqui não existe.
+            const tilesetId = await seedTileset(state.dbName, { esperarCatalogo: false });
             const markerId = await A.evaluate(async (tid) => {
                 const c3d = await import('/src/js/store/cesium3d.operations.js');
                 const m = await c3d.addMarker(tid, {

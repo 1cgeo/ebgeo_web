@@ -36,8 +36,29 @@
  * instância que o chamou, então criar uma conta no meio da rodada matava esta conexão e a chamada
  * seguinte voltava "Connection pool of the database object has been destroyed". Os dois pontos de
  * fechamento agora usam `conn.$pool.end()`, mas a regra fica: uma conexão só, e a de `db.js`.
+ *
+ * ESCREVER POR SQL DEIXA O CATÁLOGO SERVIDO PARA TRÁS, e desde 2026-09-22 a espera que fecha essa
+ * fresta mora AQUI DENTRO, não no chamador. O harness liga o memo do `/api/config`
+ * (`CONFIG_CACHE_FORCE=1` em `frontend/tests/e2e-ui/backend.js`), cuja invalidação é a escrita
+ * PELA API e mais nada; um INSERT por SQL não a dispara, então a página seguinte abre com o
+ * catálogo que a spec anterior aqueceu. Enquanto a espera era um passo do chamador
+ * (`esperarCatalogoServido`, ainda exportada), ela protegia UMA spec e deixava a fresta aberta
+ * para toda semeadura futura, que é o modo de falha que esta pasta já pagou uma vez.
+ *
+ * DOIS DOS QUATRO SEMEADORES NÃO ESPERAM, e é medição, não esquecimento: só `tilesets` e
+ * `basemaps` estão no payload do `/api/config` (conferido no payload servido em 2026-09-22:
+ * as chaves são `tilesets`, lista, e `basemaps`, OBJETO chaveado por id). `sv360.projects` e
+ * `a3d.models` não aparecem ali sob forma nenhuma, e o que cada um deles tem de memo está
+ * escrito no JSDoc do seu semeador.
+ *
+ * O QUE A ESPERA CUSTA, MEDIDO: com o memo recém-aquecido ela paga o RESTO DO TTL, 25744 ms numa
+ * medição de 2026-09-22; com o memo vencido, 111 ms (uma ida e volta). O SQL em si custa de 1 a
+ * 58 ms. Ou seja, o preço não é "uma ida ao `/api/config`", é o tempo que falta para o memo
+ * vencer, e por isso a espera ANUNCIA no stdout quando de fato esperou: 25 s invisíveis viram
+ * "a suíte está lenta", 25 s nomeados viram uma decisão.
  */
 
+import { readState } from '../state.js';
 import { createDb } from './db.js';
 // O id fixo da OM semeada mora em `accounts.js` porque é lá que ele decide alguma coisa (o
 // escopo de produção). Uma segunda cópia do literal aqui seria a que envelheceria sozinha.
@@ -61,12 +82,20 @@ function conectar(dbName) {
  * `public`, semear o mesmo id duas vezes com intenções diferentes devolvia em silêncio o
  * recurso da primeira chamada.
  *
+ * ELE SÓ VOLTA QUANDO O CATÁLOGO SERVIDO CONCORDA com a linha escrita (ver `conferirServido`):
+ * presente se a linha é pública, AUSENTE se é privada. Quem for escrever MAIS SQL nesta linha
+ * antes de abrir qualquer página (um `UPDATE tilesets SET config`, por exemplo) passa
+ * `esperarCatalogo: false` e chama `esperarCatalogoServido` uma vez, ao fim: caso contrário a
+ * espera daqui rebobina o TTL do memo e a do chamador paga o tempo inteiro de novo.
+ *
  * @param {string} dbName - `readState().dbName`.
- * @param {{id?: string, name?: string, accessLevel?: 'public'|'private', ownerOrgId?: string}} [opts]
+ * @param {{id?: string, name?: string, accessLevel?: 'public'|'private', ownerOrgId?: string,
+ *   esperarCatalogo?: boolean}} [opts]
  * @returns {Promise<string>} O id do tileset.
  */
 export async function seedTileset(dbName, {
     id, name = 'Tileset de teste', accessLevel = 'public', ownerOrgId = null,
+    esperarCatalogo = true,
 } = {}) {
     const tilesetId = id ?? `tileset-e2e-${Math.random().toString(36).slice(2, 10)}`;
     await conectar(dbName).none(
@@ -77,6 +106,7 @@ export async function seedTileset(dbName, {
                 owner_org_id = EXCLUDED.owner_org_id`,
         [tilesetId, name, accessLevel, ownerOrgId],
     );
+    if (esperarCatalogo) await conferirServido('tilesets', tilesetId, accessLevel);
     return tilesetId;
 }
 
@@ -97,6 +127,17 @@ export async function seedTileset(dbName, {
  *
  * O ARQUIVO PRECISA EXISTIR em `backend/data/models3d/<dbFilename>`: o padrão é o
  * `serra_dourada.3dtiles` do repositório, que é o único modelo real versionado aqui.
+ *
+ * ELE NÃO ESPERA PELO `/api/config`, e não é omissão: `a3d.models` não entra naquele payload
+ * sob forma nenhuma (conferido no payload servido em 2026-09-22). O memo que ESTA linha deixa
+ * para trás é outro, `backend/src/modules/models3d/models3d.index.js`, o índice de qual
+ * arquivo serve qual modelo, com TTL de 60 s e invalidação pendurada no MESMO
+ * `invalidateAppConfigCache()`, que a escrita por SQL também não dispara. A fresta é a mesma
+ * em forma, e a porta por onde ela se mediria é `GET /api/v1/assets3d/m/<id>/tileset.json`
+ * respondendo 404; ela fica ABERTA aqui de propósito, porque a espera exigiria o arquivo
+ * `.3dtiles` em disco e `backend/data/models3d/` é ignorado pelo git, de modo que a espera
+ * falharia em todo worktree limpo, que é exatamente onde o único chamador já se PULA
+ * (`vazamento-viewers.spec.js` §30.2).
  *
  * @param {string} dbName - `readState().dbName`.
  * @param {{modelId: string, dbFilename?: string, buildToken?: string}} opts
@@ -124,6 +165,14 @@ export async function seedModelo3d(dbName, {
  * treze specs que chamam este semeador nem olha o projeto: eles querem um id de recurso que o
  * servidor enxergue. Quem precisa da foto de entrada é o botão "Calibrar" da linha do catálogo,
  * que muda de URL conforme ela exista, e esse spec pede os DOIS lados.
+ *
+ * ELE NÃO ESPERA PELO `/api/config`, e a razão é que não há o que esperar: aquele payload NÃO
+ * carrega lista de projeto nem de foto 360 (conferido no payload servido em 2026-09-22: a
+ * chave `streetView360` traz só `serviceUrl`, `miniMapBasemap` e os dois pares de source). O
+ * 360 chega ao cliente por DUAS portas que o memo do config não toca: o MVT
+ * (`{serviceUrl}/tiles/{z}/{x}/{y}.pbf`, consultado por requisição) e
+ * `GET /resource-access/visible`, que não é memoizado. Pôr uma espera aqui seria esperar por
+ * uma linha que nunca vai aparecer, ou seja, 45 s e uma exceção.
  *
  * @param {string} dbName - `readState().dbName`.
  * @param {{photoName?: string, slug?: string, entryPhotoId?: boolean}} [opts]
@@ -166,13 +215,19 @@ export async function seedSv360Photo(dbName, { photoName, slug, entryPhotoId = f
  * depende de rede nenhuma, então a camada desenha num runner sem acesso externo, e a cor no
  * pixel é prova de que foi o estilo PUBLICADO que chegou ao MapLibre.
  *
+ * ELA ESPERA PELO CATÁLOGO SERVIDO como `seedTileset`, e com a mesma regra dos dois sentidos
+ * (`conferirServido`). Repare que o padrão daqui é `private`, então a espera normal desta
+ * função é a de AUSÊNCIA, que se satisfaz na primeira ida e volta: o preço cheio só aparece
+ * quando alguém pede `accessLevel: 'public'`.
+ *
  * @param {string} dbName - `readState().dbName`.
  * @param {{id?: string, name?: string, accessLevel?: 'public'|'private', ownerOrgId?: string,
- *   color?: string}} [opts]
+ *   color?: string, esperarCatalogo?: boolean}} [opts]
  * @returns {Promise<string>} O id da camada base.
  */
 export async function seedBasemap(dbName, {
     id, name = 'Camada base de teste', accessLevel = 'private', ownerOrgId = null, color = '#c2185b',
+    esperarCatalogo = true,
 } = {}) {
     const basemapId = id ?? `bm-e2e-${Math.random().toString(36).slice(2, 10)}`;
     const config = {
@@ -192,8 +247,82 @@ export async function seedBasemap(dbName, {
                 access_level = EXCLUDED.access_level, owner_org_id = EXCLUDED.owner_org_id`,
         [basemapId, name, JSON.stringify(config), accessLevel, ownerOrgId],
     );
+    if (esperarCatalogo) await conferirServido('basemaps', basemapId, accessLevel);
     return basemapId;
 }
+
+/**
+ * As DUAS coleções de catálogo que `GET /api/config` serve, cada uma com a SUA FORMA, e a
+ * diferença é a armadilha desta função: `tilesets` é LISTA de itens com `id`, `basemaps` é
+ * OBJETO chaveado por id cujo valor NÃO carrega o próprio id. Um `Array.isArray` seguido de
+ * `.find` resolve a primeira e devolve `undefined` na segunda, em silêncio, para sempre.
+ *
+ * A normalização põe o `id` DEPOIS do espalhamento, de propósito: a chave do objeto é a
+ * verdade, e um valor que trouxesse um `id` próprio (nenhum traz hoje) não pode vencê-la.
+ *
+ * @param {Array|Object|undefined} valor - A coleção crua do payload.
+ * @returns {Array<Object>} Os itens, sempre com `id`.
+ */
+function itensDaColecao(valor) {
+    if (Array.isArray(valor)) return valor.filter((item) => item && typeof item === 'object');
+    if (valor && typeof valor === 'object') {
+        return Object.entries(valor).map(([id, v]) => (
+            v && typeof v === 'object' ? { ...v, id } : { id, valor: v }
+        ));
+    }
+    return [];
+}
+
+/**
+ * O catálogo SERVIDO agora, normalizado. Uma ida e volta.
+ * @param {string} baseUrl
+ * @param {'tilesets'|'basemaps'} colecao
+ * @returns {Promise<Array<Object>>}
+ */
+async function lerColecaoServida(baseUrl, colecao) {
+    const resposta = await fetch(`${baseUrl}/api/config`, { cache: 'no-store' });
+    const corpo = await resposta.json();
+    return itensDaColecao((corpo?.data ?? corpo)?.[colecao]);
+}
+
+/**
+ * A conferência que todo semeador de linha de catálogo faz antes de devolver.
+ *
+ * O SENTIDO DA ESPERA VEM DO `accessLevel`, e não de um segundo argumento, porque o payload
+ * anônimo do `/api/config` NÃO EXPÕE `access_level`: ele é montado por `listCatalog(tabela)`
+ * sem `visibleTo`, cujo `WHERE` é `active = true AND access_level = 'public'`. Ou seja,
+ * PRESENÇA no payload servido é exatamente "pública e ativa", que é um predicado mais forte
+ * que "o id está lá" e o único disponível. Daí a regra dos dois sentidos: linha pública espera
+ * APARECER, linha privada espera SUMIR, e o segundo caso é o que pega a re-semeadura que
+ * troca `accessLevel` de `public` para `private` sobre o MESMO id, que sem ele deixaria o memo
+ * servindo a versão velha, pública, pelo resto do TTL.
+ *
+ * O LIMITE DA METADE DE AUSÊNCIA, escrito porque ele não se lê no código: "ausente" não prova
+ * que o memo está fresco, só que ele não contradiz a linha. Um memo aquecido ANTES de a linha
+ * existir também responde ausente, e a espera volta na hora. Isso basta aqui porque nada no
+ * payload anônimo deveria mencionar uma linha privada, mas quem precisar de memo FRESCO para
+ * uma linha privada não tem essa prova por este caminho.
+ *
+ * DEGRADA SEM ESPERAR quando não há rodada com estado (`state.json` ausente, ou `skip`): o
+ * módulo é importável fora do harness, e travar 45 s ali seria trocar uma fresta por um
+ * enforcamento.
+ *
+ * @param {'tilesets'|'basemaps'} colecao
+ * @param {string} id
+ * @param {'public'|'private'} accessLevel
+ * @returns {Promise<void>}
+ */
+async function conferirServido(colecao, id, accessLevel) {
+    const { skip, baseUrl } = readState();
+    if (skip || !baseUrl) return;
+    await esperarCatalogoServido(baseUrl, colecao, (item) => item?.id === id, {
+        ausente: accessLevel !== 'public',
+        rotulo: `${colecao}/${id} (${accessLevel})`,
+    });
+}
+
+/** Acima disto a espera de fato esperou, e o stdout precisa dizer por quanto. */
+const LIMIAR_DE_ANUNCIO_MS = 1500;
 
 /**
  * Espera o catálogo SERVIDO por `GET /api/config` refletir uma linha semeada por SQL.
@@ -210,26 +339,39 @@ export async function seedBasemap(dbName, {
  * `[first-person] scene not found: museu-1cgeo`. É a classe "o instrumento mede outra cópia do
  * sujeito": a leitura que vale é a do catálogo servido, não a da linha no Postgres.
  *
- * Chame DEPOIS da última escrita SQL no item (o `UPDATE tilesets SET config` do spec inclusive),
- * e antes de abrir a página que vai consumi-lo.
+ * OS SEMEADORES DESTE ARQUIVO JÁ A CHAMAM desde 2026-09-22, então o chamador comum não precisa
+ * dela. Ela continua exportada para o caso que o semeador não alcança: mais SQL na MESMA linha
+ * depois da semeadura (o `UPDATE tilesets SET config` de `first-person-collaboration.spec.js`).
+ * Aí o padrão é `esperarCatalogo: false` no semeador e UMA chamada daqui ao fim; deixar as duas
+ * esperas de pé faz a primeira rebobinar o TTL e a segunda pagá-lo inteiro.
  *
  * @param {string} baseUrl - A origem do backend (`readState().baseUrl`).
- * @param {'tilesets'|'basemaps'} colecao - A coleção do payload.
+ * @param {'tilesets'|'basemaps'} colecao - A coleção do payload (lista ou objeto por id; ver
+ *   `itensDaColecao`).
  * @param {(item: Object) => boolean} predicado - O que a linha servida precisa satisfazer.
- * @param {{timeoutMs?: number}} [opts] - Padrão de 45 s: um TTL inteiro mais folga.
- * @returns {Promise<Object>} O item servido.
+ * @param {{timeoutMs?: number, ausente?: boolean, rotulo?: string}} [opts] - `timeoutMs` padrão
+ *   de 45 s (um TTL inteiro mais folga); `ausente` inverte o alvo (espera o item SUMIR do
+ *   payload); `rotulo` é o que o anúncio de espera longa imprime.
+ * @returns {Promise<Object|null>} O item servido, ou `null` no modo `ausente`.
  */
-export async function esperarCatalogoServido(baseUrl, colecao, predicado, { timeoutMs = 45000 } = {}) {
+export async function esperarCatalogoServido(baseUrl, colecao, predicado, {
+    timeoutMs = 45000, ausente = false, rotulo = colecao,
+} = {}) {
     const inicio = Date.now();
     let ultimo = null;
     while (Date.now() - inicio < timeoutMs) {
-        const resposta = await fetch(`${baseUrl}/api/config`, { cache: 'no-store' });
-        const corpo = await resposta.json();
-        const lista = (corpo?.data ?? corpo)?.[colecao];
-        ultimo = Array.isArray(lista) ? lista.map((item) => item?.id) : lista;
-        const achado = Array.isArray(lista) ? lista.find(predicado) : null;
-        if (achado) return achado;
+        const itens = await lerColecaoServida(baseUrl, colecao);
+        ultimo = itens.map((item) => item?.id);
+        const achado = itens.find(predicado) ?? null;
+        if (ausente ? achado === null : achado !== null) {
+            const gasto = Date.now() - inicio;
+            if (gasto >= LIMIAR_DE_ANUNCIO_MS) {
+                console.log(`[catalog-seed] o memo do /api/config segurou ${rotulo} por ${gasto} ms`);
+            }
+            return achado;
+        }
         await new Promise((resolve) => setTimeout(resolve, 1000));
     }
-    throw new Error(`o catálogo servido não refletiu a linha semeada em ${colecao} em ${timeoutMs} ms; ids servidos: ${JSON.stringify(ultimo)}`);
+    const alvo = ausente ? 'sumisse do' : 'refletisse a linha semeada em';
+    throw new Error(`o catálogo servido não ${alvo} ${colecao} em ${timeoutMs} ms (${rotulo}); ids servidos: ${JSON.stringify(ultimo)}`);
 }

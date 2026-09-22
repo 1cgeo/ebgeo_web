@@ -94,7 +94,8 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
 
         // O tileset tem de EXISTIR no catálogo: a borda de escrita do sync recusa uma op que
         // referencia recurso invisível, e linha ausente conta como invisível.
-        const tilesetId = await seedTileset(state.dbName);
+        // `esperarCatalogo: false` (2026-09-22): este spec usa o id só como referência de op, e o gate é SQL do servidor; o cliente nunca resolve o tileset pelo `/api/config`. Medido: a espera custaria o resto do TTL (~28 s) por semeadura, por uma fresta que aqui não existe.
+        const tilesetId = await seedTileset(state.dbName, { esperarCatalogo: false });
         const result = await page.evaluate(
             async ({ atlasId: aid, mapId: mid, tilesetId }) => {
                 const { api, createOperation } = window.__c3dCrud;
@@ -183,7 +184,7 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
 
         // O tileset tem de EXISTIR no catálogo: a borda de escrita do sync recusa uma op que
         // referencia recurso invisível, e linha ausente conta como invisível.
-        const tilesetId = await seedTileset(state.dbName);
+        const tilesetId = await seedTileset(state.dbName, { esperarCatalogo: false });
         const result = await page.evaluate(
             async ({ atlasId: aid, mapId: mid, tilesetId }) => {
                 const { api, createOperation } = window.__c3dCrud;
@@ -233,7 +234,7 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
 
         // O tileset tem de EXISTIR no catálogo: a borda de escrita do sync recusa uma op que
         // referencia recurso invisível, e linha ausente conta como invisível.
-        const tilesetId = await seedTileset(state.dbName);
+        const tilesetId = await seedTileset(state.dbName, { esperarCatalogo: false });
         const result = await page.evaluate(
             async ({ atlasId: aid, mapId: mid, tilesetId }) => {
                 const { api, createOperation } = window.__c3dCrud;
@@ -310,7 +311,7 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
 
         // O tileset tem de EXISTIR no catálogo: a borda de escrita do sync recusa uma op que
         // referencia recurso invisível, e linha ausente conta como invisível.
-        const tilesetId = await seedTileset(state.dbName);
+        const tilesetId = await seedTileset(state.dbName, { esperarCatalogo: false });
         const result = await page.evaluate(
             async ({ atlasId: aid, mapId: mid, tilesetId }) => {
                 const { api, createOperation } = window.__c3dCrud;
@@ -371,7 +372,7 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
         const victim = await seed(page, state.baseUrl, 'c3d_idor_victim');
         const attacker = await createVerifiedUser({ prefix: 'c3d_idor_attacker', nome: 'Attacker' });
 
-        const victimTileset = await seedTileset(state.dbName);
+        const victimTileset = await seedTileset(state.dbName, { esperarCatalogo: false });
         const result = await page.evaluate(
             async ({ victimAtlasId, victimMapId, baseUrl: url, u, victimTileset }) => {
                 const { ApiClient } = await import('/src/js/store/sync/api-client.js');
