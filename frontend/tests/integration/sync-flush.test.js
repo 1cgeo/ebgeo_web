@@ -315,6 +315,45 @@ describe('change-event triggering', () => {
         const events = mockBus.on.mock.calls.map(c => c[0]);
         expect(events).toContain(EventTypes.REMOTE_OPERATION_APPLIED);
     });
+
+    /**
+     * O COMENTÁRIO ESPACIAL TEM PRODUTOR LOCAL, e até 2026-09-22 não estava nesta lista: ele só
+     * saía no tique de 1,5 s. Os três eventos são emitidos pelo `tx.deferSync` de
+     * `store/comment.operations.js`, DEPOIS da marca de materialização, então a op já está
+     * enviável quando o evento chega ao flush.
+     *
+     * A ASSERÇÃO ESTRUTURAL SOZINHA NÃO BASTARIA: uma lista que contém a constante prova a
+     * inscrição, não o disparo. Por isso o caso seguinte mede o flush de cada um dos três.
+     */
+    it('subscribes to the three COMMENT_* events', () => {
+        startAutoFlush(engine, { intervalMs: 99999 });
+        const events = mockBus.on.mock.calls.map(c => c[0]);
+        expect(events).toContain(EventTypes.COMMENT_CREATED);
+        expect(events).toContain(EventTypes.COMMENT_UPDATED);
+        expect(events).toContain(EventTypes.COMMENT_DELETED);
+    });
+
+    it.each([
+        ['COMMENT_CREATED', EventTypes.COMMENT_CREATED],
+        ['COMMENT_UPDATED', EventTypes.COMMENT_UPDATED],
+        ['COMMENT_DELETED', EventTypes.COMMENT_DELETED],
+    ])('flushes immediately on %s instead of waiting the 1.5 s tick', async (_nome, tipo) => {
+        goOnline();
+        queueState.pending = 1;
+        startAutoFlush(engine, { intervalMs: 99999 });
+
+        // Drain the immediate start flush and let its in-flight lock release.
+        await vi.advanceTimersByTimeAsync(0);
+        engine.settle();
+        await vi.advanceTimersByTimeAsync(0);
+        const baseline = engine.flush.mock.calls.length;
+
+        mockBus.emit(tipo, {});
+        await vi.advanceTimersByTimeAsync(0);
+        engine.settle();
+
+        expect(engine.flush.mock.calls.length).toBe(baseline + 1);
+    });
 });
 
 describe('idempotency + stop', () => {

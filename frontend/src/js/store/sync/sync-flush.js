@@ -44,11 +44,12 @@ export { pauseAutoFlush } from './auto-flush-pause.js';
  * Events that trigger an opportunistic flush, on top of the 1.5 s interval.
  *
  * THEY ARE NOT "LOCAL CHANGE EVENTS", which is what this comment used to say. Checked against
- * every emitter in `src/`, the only entries with a LOCAL producer are MAP_CREATED (`addMap`),
- * MAP_MODIFIED (`map-lock.controller.js`) and the three BRIEFING_* (the briefings tab and the
- * briefing editor). The whole FEATURE_*, LAYER_* and GROUP_* families, and MAP_DELETED, are
- * emitted by `remote-operation-handler.js` and by nothing else: they announce a PEER's
- * operation being applied here. The local edit path never emits them. It writes the store and
+ * every emitter in `src/`, the entries with a LOCAL producer are MAP_CREATED (`addMap`),
+ * MAP_MODIFIED (`map-lock.controller.js`), the three BRIEFING_* (the briefings tab and the
+ * briefing editor) and, since 2026-09-22, the three COMMENT_* (see below). The whole FEATURE_*,
+ * LAYER_* and GROUP_* families, and MAP_DELETED, are emitted by `remote-operation-handler.js`
+ * and by nothing else: they announce a PEER's operation being applied here. For those families
+ * the local edit path never emits them. It writes the store and
  * calls its `logXxxOperation` directly (`operation-dispatcher.js`), so the op is already in the
  * queue before any of these events could fire. Reading FEATURE_MODIFIED here as "the user moved
  * a geometry" is the exact misreading this note exists to stop.
@@ -77,6 +78,17 @@ const FLUSH_TRIGGER_EVENTS = [
     EventTypes.BRIEFING_CREATED,
     EventTypes.BRIEFING_UPDATED,
     EventTypes.BRIEFING_DELETED,
+    // OS TRÊS COMMENT_* ENTRARAM EM 2026-09-22, e eles têm produtor LOCAL, ao contrário da maioria
+    // desta lista: `addComment`, `addReply`, `updateComment` e `removeComment` os emitem do
+    // `tx.deferSync` da própria transação (`store/comment.operations.js`), e o `deferSync` roda
+    // DEPOIS da marca de materialização, de modo que a op já está enviável quando o evento chega
+    // aqui. Sem eles o comentário só saía no tique de 1,5 s, e comentar é o gesto em que a pessoa
+    // mais espera o colega reagir: ela escreve e fica olhando a tela do outro. O produtor REMOTO
+    // (`remote-operation-handler.js`) também os emite, e aí eles são redundantes como as demais
+    // entradas remotas desta lista, pelo mesmo preço nulo.
+    EventTypes.COMMENT_CREATED,
+    EventTypes.COMMENT_UPDATED,
+    EventTypes.COMMENT_DELETED,
     EventTypes.REMOTE_OPERATION_APPLIED,
 ];
 

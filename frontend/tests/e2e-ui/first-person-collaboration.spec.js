@@ -15,9 +15,39 @@
  * sem lancar. Fechado por `esperarCatalogoServido` (helper de semeadura), que espera o catalogo
  * SERVIDO refletir a linha antes de qualquer pagina abrir.
  *
- * O que reprova de verdade, 3 vezes em 16 (uma em cada seis, nas duas arvores), e' outro passo:
- * o comentario espacial nao chega ao Postgres em 10 s (`expect.poll` sobre `comments`). Nao foi
- * investigado; a marca fica aqui para que a proxima leitura nao volte a acusar o motor.
+ * O que reprovava de verdade, 3 vezes em 16 (uma em cada seis, nas duas arvores), era outro passo:
+ * o comentario espacial nao chegava ao Postgres em 10 s (`expect.poll` sobre `comments`). MEDIDO
+ * em 2026-09-22, na arvore principal, com uma sonda passiva dentro da pagina e 10 execucoes em
+ * serie. O gesto NUNCA e' recusado e a op NUNCA se perde: nas 10, o contexto do clique era
+ * identico ao da abertura da cena (mesmo mapa corrente, mesmo usuario, atlas remoto, permissao
+ * concedida), com ZERO `STORE_OPERATION_BLOCKED`, zero toast e `problemas: 0` no censo da fila; o
+ * cartao de compose sempre fechou, isto e', o `aoEnviar` sempre devolveu verdadeiro.
+ *
+ * O TEMPO SE PARTE EM DOIS, E SO' O SEGUNDO VARIA. A escrita local (clique ate `COMMENT_CREATED`)
+ * custou de 2,73 a 3,26 s em 17 das 18 execucoes das duas baterias. O que oscila e' a op JA'
+ * ENVIAVEL esperando o flush, com o intervalo do auto-flush em 1,5 s: de 0,24 a 11,3 s na
+ * primeira bateria (10 execucoes, 5 passariam nos 10 s) e de 7,3 a 10,5 s na SEGUNDA (8
+ * execucoes com a sonda reduzida ao minimo, nenhuma passaria). A segunda bateria e' o controle
+ * do instrumento, e ela saiu PIOR, o que descarta a sonda como causa.
+ *
+ * A causa e' a thread principal. O motor de primeira pessoa a mantem ocupada: um temporizador de
+ * 250 ms dentro da pagina foi entregue a cada 0,50 a 0,58 s na mediana, com pior caso de 0,87 s,
+ * ou seja a pagina roda a cerca de 2 quadros por segundo. Cada salto de IndexedDB espera um
+ * desses quadros, e o ciclo de flush faz muitos: ele comeca por uma caminhada inteira da fila
+ * (`operationQueue.countByState()`, medida em ~4 s com uma op) e, so' entao, `engine.flush()`
+ * caminha de novo para montar o lote. Um ciclo que comece antes de a op existir gasta a primeira
+ * caminhada para responder zero, e o proximo gasta outra para enfim ver a op. Nada disso e'
+ * defeito de produto (num navegador com GPU o quadro custa ~16 ms), mas os 10 s de `expect.poll`
+ * sobre o Postgres eram um orcamento apertado demais para uma pagina nessa condicao.
+ *
+ * POR ISSO A ESPERA E' POR ESTADO, e por REDE e nao por leitura da fila: medido, a fila deste
+ * cliente so' zera de 5,9 a 8,9 s DEPOIS de a linha existir no Postgres (o recibo tambem paga
+ * saltos de IndexedDB), de modo que esperar pelo censo custaria mais que o proprio veredito, e
+ * cada leitura dele dentro da pagina disputa com o flush. Na mesma data os tres `COMMENT_*`
+ * entraram em `FLUSH_TRIGGER_EVENTS` (`store/sync/sync-flush.js`): e' o gatilho certo, porque o
+ * comentario tem produtor local, mas ele economiza no maximo um tique de 1,5 s e AQUI nem isso,
+ * porque com ciclos de ~4 s o laco esta sempre em voo e `flushOnce` volta na hora. Quem tira a
+ * corrida e' a espera por estado.
  *
  * E UM ACHADO DE PRODUTO que a medicao deixou: um Worker que nao carrega deixa `parseSplatData` do
  * motor pendurado para sempre, sem rejeitar e sem limite de tempo, com a tela em "19,1 MB de
@@ -51,7 +81,9 @@ async function openMuseum(page, pose) {
 
 test('museum: walker presence, sidebar comment, peer persistence and reopening', async ({ browser }, info) => {
     const db = createDb(state.dbName);
-    await seedTileset(state.dbName, { id: 'museu-1cgeo', name: 'Sala Histórica General Malan' });
+    // `esperarCatalogo: false`: o UPDATE do config vem depois, e a espera única é a de baixo,
+    // senão a do semeador rebobina o TTL do memo e a segunda paga o tempo inteiro de novo.
+    await seedTileset(state.dbName, { id: 'museu-1cgeo', name: 'Sala Histórica General Malan', esperarCatalogo: false });
     await db.raw.none('UPDATE tilesets SET config = $1 WHERE id = $2', [{
         viewer: 'firstPerson', forma3d: 'indoor', basePath: '/3d/primeira-pessoa/museu-1cgeo', fov: 60,
         locate: { lon: -51.2, lat: -30.03 }, poseInicial: { x: 3.82, y: 0.55, z: 1.42, yaw: 0, pitch: 0 },
@@ -95,7 +127,25 @@ test('museum: walker presence, sidebar comment, peer persistence and reopening',
         await canvas.click({ position: { x: box.width / 2, y: box.height / 2 } });
         await expect(A.locator('.comment-card--compose textarea')).toBeVisible();
         await A.locator('.comment-card--compose textarea').fill('Revisar vitrine do museu');
+        // A ESPERA E' POR ESTADO, EM DOIS DEGRAUS ANTES DO VEREDITO, e a razao esta no cabecalho.
+        // O envio e' armado ANTES do clique, senao a resposta pode chegar antes da espera. Nenhum
+        // dos dois degraus roda codigo DENTRO da pagina, de proposito: ler a fila por
+        // `page.evaluate` custa a mesma caminhada de IndexedDB que o proprio flush faz, e com a
+        // thread principal a ~2 quadros por segundo o instrumento disputa com o que esta medindo.
+        const envioDoComentario = A.waitForResponse(
+            (r) => r.url().endsWith('/sync') && r.request().method() === 'POST' && r.status() === 200,
+            { timeout: 60000 });
         await A.locator('.comment-card--compose .comment-composer__btn--primary').click();
+        // Primeiro degrau, e ele separa RECUSA de LENTIDAO: o `aoEnviar` de `collaboration-fp.js`
+        // devolve `false` em silencio quando o mapa corrente ou a sessao mudaram, e nesse caso o
+        // cartao NAO fecha e nenhuma linha vai existir nunca. Esperar pelo Postgres primeiro gasta
+        // o orcamento inteiro para depois dizer "esperava 1, recebeu 0".
+        await expect(A.locator('.comment-card--compose')).toHaveCount(0, { timeout: 60000 });
+        // Segundo degrau: a op saiu deste cliente e o servidor aceitou o lote. Medido em
+        // 2026-09-22, este e' o UNICO POST de sync que A faz ate aqui (10 execucoes em serie, zero
+        // requisicoes antes do clique), entao a primeira resposta que casa e' a do comentario.
+        // Depois dela a linha ja esta commitada e a assercao abaixo e' veredito, nao corrida.
+        await envioDoComentario;
         await expect.poll(async () => (await db.raw.any('SELECT data FROM comments WHERE map_id = $1', [seed.mapId])).length).toBe(1);
         const [saved] = await db.raw.any('SELECT id, data FROM comments WHERE map_id = $1', [seed.mapId]);
         expect(saved.data).toMatchObject({ surface: 'fp', tilesetId: 'museu-1cgeo', text: 'Revisar vitrine do museu' });
@@ -107,7 +157,13 @@ test('museum: walker presence, sidebar comment, peer persistence and reopening',
         await B.evaluate(async (id) => (await import('/src/js/first_person_3d_tool/first_person_viewer.js')).focusFirstPersonComment(id), saved.id);
         await expect(B.locator('.comment-card')).toContainText('Revisar vitrine');
         await B.locator('.comment-card textarea').fill('Conferido');
+        // A resposta corre a MESMA corrida do comentario raiz, e no cliente B, que tambem tem a
+        // cena de primeira pessoa aberta. Mesmo degrau, mesma razao.
+        const envioDaResposta = B.waitForResponse(
+            (r) => r.url().endsWith('/sync') && r.request().method() === 'POST' && r.status() === 200,
+            { timeout: 60000 });
         await B.locator('.comment-card .comment-composer__btn--primary').click();
+        await envioDaResposta;
         await expect.poll(async () => (await db.raw.any('SELECT id FROM comments WHERE map_id = $1', [seed.mapId])).length).toBe(2);
         await B.screenshot({ path: info.outputPath('museum-comments-presence.png') });
         await B.locator('#close-first-person-button').click();
