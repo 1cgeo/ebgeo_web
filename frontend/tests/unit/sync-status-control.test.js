@@ -486,19 +486,60 @@ async function montado() {
  * A CARGA É CONTADA PELA FÁBRICA DO DUPLO, e cada caso reinicia o registro de módulos: sem isso o
  * módulo carregado por um caso ficaria em cache e o caso seguinte mediria uma carga que não houve.
  *
+ * SÃO DUAS VIAS DE PRÉ-CARREGAMENTO DESDE 2026-09-21, e a primeira é a que faltava: a conexão de
+ * um atlas de SERVIDOR chegando a ONLINE, sem consultar a fila. O gatilho por TOM, que era o único,
+ * cobria a abertura de um atlas de servidor por ACIDENTE (a análise inicial de cores enfileirava
+ * uma operação, a luz saía do verde e era ali que a carga acontecia); ele parou de cobrir quando a
+ * contagem de cores deixou de sincronizar, em `c07d6dff`, e o painel passou a não estar carregado
+ * quando a rede caía. Ele FICA como segunda via, porque CONECTANDO e RECONECTANDO acontecem com a
+ * rede de pé e nunca passam por ONLINE.
+ *
  * CONTROLE NEGATIVO, conferido em 2026-09-13 removendo a chamada a `_precarregarPainel` de
  * `_render` e devolvendo o `catch` mudo a `_abrirPendencias`: reprovam os três casos que afirmam
- * carga e aviso (o de vácuo, que exige ZERO carga no verde, continua verde, que é o papel dele).
+ * carga e aviso. CONTROLE NEGATIVO da via nova, conferido em 2026-09-21 removendo a chamada a
+ * `_precarregarPorConexao` de `_render`: reprova o caso do atlas de servidor conectado, e só ele
+ * (os dois de vácuo continuam verdes, que é o papel deles).
  */
 describe('o painel é buscado antes do clique, e a falha do clique fala', () => {
-    it('CONTROLE DE VÁCUO: com tudo enviado o módulo NÃO é baixado', async () => {
-        // Sem este caso, um pré-carregamento incondicional passaria em todos os outros e o peso do
-        // boot cresceria para quem nunca vai abrir o painel.
+    it('atlas de servidor CONECTADO baixa o módulo, mesmo com tudo enviado', async () => {
+        // O GATILHO DETERMINÍSTICO (2026-09-21). Até aqui o único gatilho era o TOM, e ele
+        // funcionava por ACIDENTE na abertura de um atlas de servidor: a análise inicial de cores
+        // enfileirava uma operação de `setting`, a luz saía do verde por alguns segundos e era
+        // nessa janela que o painel era baixado. A contagem de cores deixou de sincronizar
+        // (`c07d6dff`), a abertura passou a nascer com a fila vazia, e o pré-carregamento
+        // simplesmente parou de acontecer. Este caso é a substituição do acidente por desenho.
+        const control = await montado();
+        await cargasChegamA(1, 'a conexão de um atlas de servidor pré-carrega o painel');
+
+        // E o clique não baixa de novo: a promessa é o cache.
+        await control._abrirPendencias();
+        expect(cenario.cargasDoPainel).toBe(1);
+        await esperarAberturas(1);
+    });
+
+    it('CONTROLE DE VÁCUO: atlas LOCAL conectado NÃO baixa o módulo', async () => {
+        // Sem este caso, um pré-carregamento incondicional passaria em todos os outros e os 76 kB
+        // de fonte de `account/pendencias/` entrariam no boot de quem não tem fila de envio
+        // nenhuma. O teto de peso do boot vive em
+        // `tests/e2e-ui/desempenho-do-boot-do-mapa.spec.js`, que esta camada não roda.
+        cenario.remoto = false;
         await montado();
         expect(cenario.cargasDoPainel).toBe(0);
     });
 
-    it('assim que a luz sai do verde, o módulo é baixado sem clique nenhum', async () => {
+    it('CONTROLE DE VÁCUO: visitante anônimo NÃO baixa o módulo', async () => {
+        // O crachá inteiro fica escondido para quem não entrou, então o download nunca teria
+        // leitor. É o mesmo boot que o teto de peso mede.
+        cenario.autenticado = false;
+        await montado();
+        expect(cenario.cargasDoPainel).toBe(0);
+    });
+
+    it('A SEGUNDA VIA: sem chegar a ONLINE, é o tom que baixa o módulo', async () => {
+        // O gatilho por conexão não alcança RECONECTANDO, e trabalho aparece ali: o socket sendo
+        // refeito acontece com a rede de pé. Com a conexão fora de ONLINE, quem dispara só pode
+        // ser o tom, e é isso que este caso isola.
+        cenario.conexao = 'reconnecting';
         cenario.censo = { pendentes: 0, preparadas: 0, problemas: 1 };
         const control = await montado();
         await cargasChegamA(1);

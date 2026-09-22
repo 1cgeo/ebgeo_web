@@ -234,8 +234,9 @@ export class SyncStatusControl {
         this._painelModulo = null;
         /**
          * Whether the last automatic preload failed. It stops the 3 s heartbeat from retrying a
-         * download that cannot succeed (the light is amber BECAUSE the network is gone), and it is
-         * cleared when the connection comes back, which is the only news that changes the answer.
+         * download that cannot succeed (both preload triggers are read at paint time, and the
+         * paint repeats), and it is cleared when the connection comes back, which is the only news
+         * that changes the answer.
          * @type {boolean}
          */
         this._painelIndisponivel = false;
@@ -418,21 +419,20 @@ export class SyncStatusControl {
     }
 
     /**
-     * Fetches the panel module BEFORE the click, as soon as the light stops saying "all sent".
+     * Fetches the panel module BEFORE the click, once and for the whole life of the control.
      *
      * THE CLICK IS TOO LATE, and that is the whole finding: the module travels over the network,
      * and the moment the person wants the panel is exactly the moment the network is likeliest to
-     * be gone. So the light itself is the trigger: work waiting or trouble recorded means there is
-     * now something to show, and at that point the connection is usually still up.
+     * be gone.
      *
-     * IT IS NOT DONE AT BOOT, and the reason is measured: the five files of `account/pendencias/`
-     * are 76 kB of source, and the map page is the one whose weight is under active reduction. The
-     * all-clear light is the state in which that download would never be read.
-     * @param {string} tone - The tone `describeSyncWork` just produced.
+     * A FAILED FETCH IS NOT RETRIED HERE, and `_painelIndisponivel` is what stops it: the light
+     * repaints on every 3 s heartbeat, so retrying from the paint would be one download every
+     * three seconds for as long as the cause lasts, and the cause is usually the network being
+     * gone. Only {@link _onSignal} clears the flag, on the one piece of news that changes the
+     * answer.
      * @private
      */
-    _precarregarPainel(tone) {
-        if (tone !== SYNC_TONE.WARN && tone !== SYNC_TONE.BUSY) return;
+    _buscarPainel() {
         if (this._painelModulo || this._painelIndisponivel) return;
         this._carregarPainel().catch((error) => {
             // Not a failure of anything the person asked for: the click still tries again, and
@@ -440,6 +440,50 @@ export class SyncStatusControl {
             this._painelIndisponivel = true;
             console.warn('Sync status: the pendency panel could not be preloaded yet:', error);
         });
+    }
+
+    /**
+     * THE DETERMINISTIC TRIGGER: a server atlas that reached ONLINE, whatever the queue says.
+     *
+     * UNTIL 2026-09-21 THE ONLY TRIGGER WAS THE TONE, AND IT WORKED BY ACCIDENT. Opening a server
+     * atlas left the light amber for a few seconds because `performInitialColorAnalysis` enqueued
+     * a `setting` operation of its own, so there was always "work waiting" to preload against. The
+     * colour count stopped being synced (`c07d6dff`), nothing was pending at opening any more, and
+     * the preload simply never ran: the first piece of work born ALREADY OFFLINE then found the
+     * module still on the server, which is the one case this whole preload exists for. Guard:
+     * `tests/e2e-ui/painel-de-pendencias-volta-com-a-rede.spec.js`.
+     *
+     * THE TONE TRIGGER STAYS as the second way in, and it is not redundant: CONNECTING and
+     * RECONNECTING happen with the network up (see {@link semConexaoParaCarregar}), and work that
+     * appears while the socket is being remade never reaches ONLINE to trip this one.
+     *
+     * THE THREE GUARDS ARE THE PAYLOAD BUDGET, not caution: the five files of
+     * `account/pendencias/` are 76 kB of source, and `tests/e2e-ui/desempenho-do-boot-do-mapa.spec.js`
+     * holds an anonymous local boot to 150 kB of script after boot. An anonymous visitor has no
+     * badge at all and a local atlas has no outbound queue, so in both the download would never be
+     * read; neither ever reaches ONLINE on this machine either, and the guards say so out loud
+     * rather than relying on that.
+     * @private
+     */
+    _precarregarPorConexao() {
+        if (!sessionContext.isAuthenticated()) return;
+        if (!isRemoteStoreSync()) return;
+        if (connectionState.getState() !== ConnectionStates.ONLINE) return;
+        this._buscarPainel();
+    }
+
+    /**
+     * The second way in: the light stopped saying "all sent" while the connection is not ONLINE.
+     *
+     * Work waiting or trouble recorded means there is now something to show, and the queue can
+     * fill up during CONNECTING or RECONNECTING, which {@link _precarregarPorConexao} does not
+     * cover on purpose.
+     * @param {string} tone - The tone `describeSyncWork` just produced.
+     * @private
+     */
+    _precarregarPainel(tone) {
+        if (tone !== SYNC_TONE.WARN && tone !== SYNC_TONE.BUSY) return;
+        this._buscarPainel();
     }
 
     /**
@@ -600,6 +644,12 @@ export class SyncStatusControl {
         });
         this._command.setAttribute('data-work', work.state);
         this._command.setAttribute('data-tone', work.tone);
+        // AS DUAS VIAS DE PRÉ-CARREGAMENTO SAEM DAQUI, e é a pintura que as dispara porque ela é o
+        // único ponto por onde passam todas as notícias que mudam a resposta: a virada de conexão,
+        // a troca de sessão, cada leitura da fila e a batida de 3 s. Ligá-las ao ouvinte de conexão
+        // deixaria de fora o controle montado DEPOIS de a conexão já estar de pé, que é justamente
+        // o caso em que não vem mais evento nenhum.
+        this._precarregarPorConexao();
         this._precarregarPainel(work.tone);
         // O MOUSEOVER É CURTO (2026-09-17, a pedido do dono): o `title` carregava a frase inteira,
         // de três linhas, e ninguém lê um parágrafo pairando o ponteiro. A frase longa continua

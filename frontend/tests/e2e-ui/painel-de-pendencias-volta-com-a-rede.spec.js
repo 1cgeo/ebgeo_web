@@ -15,10 +15,20 @@
  *    SE ESTE BLOCO FICAR VERMELHO, a notícia é boa: o navegador passou a permitir a nova tentativa
  *    (a especificação do HTML discute isso), e as frases de "atualize a página" podem afrouxar.
  *
- * 2. O CAMINHO POSITIVO. O painel é pré-carregado durante a abertura de um atlas de servidor
- *    (medido: o pedido sai cerca de dois segundos ANTES de a luz chegar a "online"), justamente para
- *    abrir SEM rede, que é quando a pessoa mais precisa dele. O dublê de `import()` do unitário não
- *    prova isso; aqui a rede é desligada de verdade e o clique tem de abrir o painel.
+ * 2. O CAMINHO POSITIVO. O painel é pré-carregado durante a abertura de um atlas de servidor,
+ *    justamente para abrir SEM rede, que é quando a pessoa mais precisa dele. O dublê de `import()`
+ *    do unitário não prova isso; aqui a rede é desligada de verdade e o clique tem de abrir o
+ *    painel.
+ *
+ *    O QUE DISPARA A CARGA MUDOU EM 2026-09-21, e esta linha descrevia como desenho o que era
+ *    ACIDENTE. O único gatilho era o TOM da luz (trabalho esperando ou problema registrado), e a
+ *    abertura de um atlas de servidor o satisfazia porque a análise inicial de cores enfileirava
+ *    uma operação de `setting`: a luz saía do verde por alguns segundos e era ali que o módulo
+ *    vinha, cerca de dois segundos ANTES de a luz chegar a "online". A contagem de cores deixou de
+ *    sincronizar (`c07d6dff`), a abertura passou a nascer com a fila vazia, o pré-carregamento
+ *    parou de acontecer e este caso ficou vermelho. O gatilho é hoje a CONEXÃO de um atlas de
+ *    servidor chegando a ONLINE, sem consultar a fila, e é por isso que a asserção de que o pedido
+ *    saiu vem logo depois da luz acender, e não antes.
  *
  * O QUE ESTE ARQUIVO NÃO ENCENA, e por quê: "a rede cai ANTES de o painel estar carregado". Só
  * acontece se a própria abertura do atlas ocorrer com rede ruim, e a única forma de forçá-lo num
@@ -84,6 +94,16 @@ describeOrSkip('o caminho positivo: o painel pré-carregado abre com a rede fora
         await expect(page.locator('[data-testid="sync-status-badge"]'))
             .toHaveAttribute('data-state', 'online', { timeout: 30000 });
 
+        // NADA DO PAINEL PODE VIAJAR DAQUI PARA A FRENTE, e o contador é o que diz isso em voz
+        // alta: o que abre com a rede fora é só o que já foi baixado antes. Ele é ligado DEPOIS de
+        // `openClient` de propósito, porque a pré-carga acontece lá dentro (medido em 2026-09-21:
+        // neste ponto um `import()` do mesmo módulo resolve gerando ZERO pedidos, ou seja, ele já
+        // está no mapa de módulos da página). Uma sonda por `performance.getEntriesByType` no
+        // lugar deste contador MENTE: o boot do mapa serve mais de 600 módulos e o buffer de
+        // resource timing para em 250 entradas, medido total 250 e zero do painel em 3 de 3.
+        let pedidosDoPainel = 0;
+        page.on('request', (r) => { if (r.url().includes('pendencias-panel.js')) pedidosDoPainel += 1; });
+
         await page.context().setOffline(true);
         // O sinal é `navigator.onLine`, e não o crachá: `setOffline` do Playwright corta pedido novo
         // e deixa de pé o WebSocket já aberto, então a luz de conexão continua "online".
@@ -97,6 +117,7 @@ describeOrSkip('o caminho positivo: o painel pré-carregado abre com a rede fora
 
         await expect(page.locator('[data-testid="pendencias-painel"]')).toBeVisible({ timeout: 15000 });
         await expect(page.locator('.toast', { hasText: 'painel de pendências' })).toHaveCount(0);
+        expect(pedidosDoPainel, 'o painel abriu do que já estava carregado, sem tocar a rede').toBe(0);
         await page.context().close();
     });
 });
