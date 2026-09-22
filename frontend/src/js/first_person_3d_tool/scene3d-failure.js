@@ -84,3 +84,32 @@ export const scene3dFailures = createLoaderFailureSurface({
 export function scene3dLoadFailureMessage(name) {
     return layerLoadFailureNotice([name], SURFACE_NOUN.CENA_3D);
 }
+
+/**
+ * The sentence a toast says about a scene the ENGINE never answered about.
+ *
+ * IT EXTENDS THE OTHER ONE, it does not replace it, and that is what keeps the promise this file
+ * makes above: the toast still says everything the panel says, word for word, and then adds the one
+ * thing the panel cannot (the panel is a durable "did not load" per scene, and it prints only a
+ * MEASURED HTTP status, of which this failure has none, since no response is involved).
+ *
+ * WHY IT SAYS RELOAD AND NOT "tente de novo". The engine's parse worker is a blob module that
+ * imports a fixed address, and that blob URL is memoized for the life of the page, so a worker that
+ * did not load will not load on the next click either. Same rule, same reason, as the failed
+ * `import()` in `account/sync-status.control.js`. Reloading does not PROMISE success, and the
+ * sentence does not claim it will: it names the only action that gets a fresh attempt at all.
+ *
+ * THE NUMBER IS PRINTED because it is the difference between "está demorando" and "desistimos": a
+ * person who does not know a ceiling exists reads a bare failure, after thirty seconds of a full
+ * progress bar, as the scene being broken rather than as the wait having ended.
+ * @param {*} name - Scene name from the catalog, if known.
+ * @param {number} tempoLimiteMs - The ceiling that fired, in milliseconds.
+ * @returns {string}
+ */
+export function scene3dEngineTimeoutMessage(name, tempoLimiteMs) {
+    const ms = Number(tempoLimiteMs);
+    const segundos = Number.isFinite(ms) && ms > 0 ? Math.round(ms / 1000) : null;
+    const espera = segundos === null ? 'no tempo limite' : `em ${segundos} segundos`;
+    return `${scene3dLoadFailureMessage(name)} O motor de cenas 3D não respondeu ${espera}. `
+        + 'Recarregue a página para tentar de novo.';
+}

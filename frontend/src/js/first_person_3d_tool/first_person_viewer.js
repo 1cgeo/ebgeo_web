@@ -51,7 +51,12 @@ import { cabecalhosDeAsset } from '@store/sync/assets3d-request.js';
 // unit selector — see showMeasurementResults().
 import { createDistanceResultsPanel } from '@js/measurement_tool/measurement-results-panel.js';
 
-import { scene3dFailures, scene3dLoadFailureMessage } from './scene3d-failure.js';
+import {
+    scene3dFailures, scene3dLoadFailureMessage, scene3dEngineTimeoutMessage
+} from './scene3d-failure.js';
+import {
+    comTetoDeAnalise, isSplatParseTimeout, TEMPO_LIMITE_DE_ANALISE_MS
+} from './splat-parse-timeout.js';
 import { FP_DEFAULTS } from './walk/constants.js';
 import { WalkMode } from './walk/walk-mode.js';
 import { PointerLock } from './walk/pointer-lock.js';
@@ -516,14 +521,19 @@ async function loadSplat(viewer, splatUrl) {
         throw erro;
     }
 
-    const data = await SplatLoader.parseSplatData(
+    // THE CEILING IS OURS BECAUSE THE ENGINE HAS NONE. `parseSplatData` settles on a worker
+    // MESSAGE or never: a worker whose script does not load sends none, and nothing in that
+    // engine listens for the error event. Measured on 2026-09-22: 439 ms with the worker
+    // reachable, past 280 s with it refused, with no error line anywhere and the loading screen
+    // frozen at 100%. See the header of `splat-parse-timeout.js` for the mechanism and the number.
+    const data = await comTetoDeAnalise(SplatLoader.parseSplatData(
         SplatLoader.SplatFileType.SOG,
         await lerComProgresso(response),
         // `Compressed` is this engine's fidelity ceiling. `Raw`, which would
         // keep floats, fails at load: "RawSplatData is not supported create
         // splat". Do not try again.
         SplatLoader.SplatPackType.Compressed
-    );
+    ));
 
     const splat = await SplatUtils.createSplat(data);
     splatLayer.add(splat);
@@ -1508,7 +1518,19 @@ async function doOpenFirstPersonViewer(sceneId, options) {
         scene3dFailures.report(sceneId, { name: scene.name, status: requestStatus(error) });
         // The toast covers the seconds before the map comes back, and it is built from the panel's
         // own builder so the two cannot say different things about one event.
-        showError(scene3dLoadFailureMessage(scene.name));
+        //
+        // THE CEILING GETS THE LONGER SENTENCE, and it is the panel's sentence PLUS one clause, not
+        // a second sentence competing with it: the person waited half a minute at a full progress
+        // bar, and "não pôde ser carregada" alone reads as a broken scene rather than as a wait
+        // that ended. The extra clause is also the only actionable half, because the engine's parse
+        // worker is poisoned for the life of the page (see `splat-parse-timeout.js`).
+        if (isSplatParseTimeout(error)) {
+            showError(scene3dEngineTimeoutMessage(
+                scene.name, error.timeoutMs ?? TEMPO_LIMITE_DE_ANALISE_MS
+            ));
+        } else {
+            showError(scene3dLoadFailureMessage(scene.name));
+        }
         // A half-built scene is worse than none: the next attempt would take
         // the "resume" branch and find an engine with no splat and no walker,
         // which is a black screen with no error to show for it.

@@ -752,7 +752,15 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // `modals/link-publico-phrases.js`, `modals/password-recovery.model.js`,
         // `presence/sharing-presence.source.js`, `ui/password-visibility.js` e
         // `utilities/request-failure.js`.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(749);
+        //
+        // 2026-09-22, décimo sétimo lote: 750, com `first_person_3d_tool/splat-parse-timeout.js`, o
+        // teto de tempo sobre `SplatLoader.parseSplatData` (o motor de splatting só decide a
+        // promessa dele por MENSAGEM de worker, então um worker que não carrega pendura a cena para
+        // sempre, calado). Medido pela reprovação deste próprio caso (750 contra 749 com um arquivo
+        // novo). Ele NÃO mexe no grafo ANSIOSO, e isso foi conferido pelo verde do caso irmão na
+        // mesma rodada: quem o importa é `first_person_viewer.js`, que só é alcançado por
+        // `import()`, então a folha cai no grupo lazy `first-person-3d` junto com ele.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(750);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);
