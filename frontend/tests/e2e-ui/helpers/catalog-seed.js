@@ -194,3 +194,42 @@ export async function seedBasemap(dbName, {
     );
     return basemapId;
 }
+
+/**
+ * Espera o catálogo SERVIDO por `GET /api/config` refletir uma linha semeada por SQL.
+ *
+ * O CACHE DO CONFIG É INVALIDADO NA ESCRITA PELA API, E SÓ NELA. O harness liga o memo do
+ * `/api/config` de propósito (`CONFIG_CACHE_FORCE=1`, com TTL de 30 s de recuo), porque os specs
+ * do painel de administração editam o catálogo pela tela real e esperam ver a mudança, que é a
+ * invalidação de ponta a ponta. Os semeadores deste arquivo escrevem por SQL, que nenhuma
+ * invalidação vê. Sozinho, um spec não sente isso: o cache está frio. Na rodada COMPLETA, o spec
+ * anterior aqueceu o cache há menos de 30 s, a página abre com o catálogo memoizado SEM a linha
+ * recém-semeada, e o produto responde "Cena 3D não encontrada" e sai sem lançar. Medido em
+ * 2026-09-21 em `first-person-collaboration.spec.js`: 1 reprovação em cada rodada completa
+ * (17/482 e 1/483), zero em 16 execuções isoladas, e o trace da reprovação trazia
+ * `[first-person] scene not found: museu-1cgeo`. É a classe "o instrumento mede outra cópia do
+ * sujeito": a leitura que vale é a do catálogo servido, não a da linha no Postgres.
+ *
+ * Chame DEPOIS da última escrita SQL no item (o `UPDATE tilesets SET config` do spec inclusive),
+ * e antes de abrir a página que vai consumi-lo.
+ *
+ * @param {string} baseUrl - A origem do backend (`readState().baseUrl`).
+ * @param {'tilesets'|'basemaps'} colecao - A coleção do payload.
+ * @param {(item: Object) => boolean} predicado - O que a linha servida precisa satisfazer.
+ * @param {{timeoutMs?: number}} [opts] - Padrão de 45 s: um TTL inteiro mais folga.
+ * @returns {Promise<Object>} O item servido.
+ */
+export async function esperarCatalogoServido(baseUrl, colecao, predicado, { timeoutMs = 45000 } = {}) {
+    const inicio = Date.now();
+    let ultimo = null;
+    while (Date.now() - inicio < timeoutMs) {
+        const resposta = await fetch(`${baseUrl}/api/config`, { cache: 'no-store' });
+        const corpo = await resposta.json();
+        const lista = (corpo?.data ?? corpo)?.[colecao];
+        ultimo = Array.isArray(lista) ? lista.map((item) => item?.id) : lista;
+        const achado = Array.isArray(lista) ? lista.find(predicado) : null;
+        if (achado) return achado;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    throw new Error(`o catálogo servido não refletiu a linha semeada em ${colecao} em ${timeoutMs} ms; ids servidos: ${JSON.stringify(ultimo)}`);
+}

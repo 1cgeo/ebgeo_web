@@ -1,9 +1,36 @@
 // Path: e2e-ui/first-person-collaboration.spec.js
+/**
+ * O QUE ESTE SPEC TEM DE INSTAVEL, MEDIDO EM 2026-09-21, e nao e' a carga da cena.
+ *
+ * A rodada completa daquele dia o reprovou uma vez em `toBeVisible` de `#first-person-container`
+ * ("Received: hidden"), e a leitura natural era o motor de primeira pessoa (chunk grande com WASM
+ * mais uma cena de 20 MB) estourando os 10 s. Medido em serie, 16 execucoes (10 num worktree com o
+ * motor sem pre-bundle, 6 na arvore principal com o harness padrao): as 44 esperas pelo container
+ * foram satisfeitas, pior caso 3318 ms, tres vezes dentro do orcamento; zero queda de
+ * renderizador, zero erro de pagina. A falha "hidden" so' reaparece na RODADA COMPLETA (1 em
+ * cada uma das duas do dia), e o trace dela disse a causa: `[first-person] scene not found:
+ * museu-1cgeo`. O tileset e' semeado por SQL, o `/api/config` e' memoizado pelo harness com
+ * invalidacao so' na escrita pela API, e a pagina abria com o catalogo que o spec ANTERIOR
+ * aquecera, sem a cena; `doOpenFirstPersonViewer` registra o erro, esconde o container e retorna
+ * sem lancar. Fechado por `esperarCatalogoServido` (helper de semeadura), que espera o catalogo
+ * SERVIDO refletir a linha antes de qualquer pagina abrir.
+ *
+ * O que reprova de verdade, 3 vezes em 16 (uma em cada seis, nas duas arvores), e' outro passo:
+ * o comentario espacial nao chega ao Postgres em 10 s (`expect.poll` sobre `comments`). Nao foi
+ * investigado; a marca fica aqui para que a proxima leitura nao volte a acusar o motor.
+ *
+ * E UM ACHADO DE PRODUTO que a medicao deixou: um Worker que nao carrega deixa `parseSplatData` do
+ * motor pendurado para sempre, sem rejeitar e sem limite de tempo, com a tela em "19,1 MB de
+ * 19,1 MB" (worker alcancavel: 439 ms; worker recusado: mais de 280 s sem uma linha de erro). O
+ * gatilho medido foi ambiental (num worktree cujo `node_modules` e' juncao, o `new URL` do
+ * pre-bundle do Vite sai da raiz do servidor e o worker responde 404), mas o silencio e' do motor.
+ * Por isso este spec NAO roda num worktree de agente: so' a arvore principal mede o produto.
+ */
 import { test, expect } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { readState } from './state.js';
 import { seedSharedAtlas, openClient } from './helpers/collab-helpers.js';
-import { seedTileset } from './helpers/catalog-seed.js';
+import { seedTileset, esperarCatalogoServido } from './helpers/catalog-seed.js';
 import { createDb, closeDb } from './helpers/db.js';
 
 const state = readState();
@@ -29,6 +56,9 @@ test('museum: walker presence, sidebar comment, peer persistence and reopening',
         viewer: 'firstPerson', forma3d: 'indoor', basePath: '/3d/primeira-pessoa/museu-1cgeo', fov: 60,
         locate: { lon: -51.2, lat: -30.03 }, poseInicial: { x: 3.82, y: 0.55, z: 1.42, yaw: 0, pitch: 0 },
     }, 'museu-1cgeo']);
+    // O catálogo SERVIDO precisa ter a cena antes de qualquer página abrir: ver o helper.
+    await esperarCatalogoServido(state.baseUrl, 'tilesets',
+        (item) => item?.id === 'museu-1cgeo' && item?.viewer === 'firstPerson');
     const seed = await seedSharedAtlas(browser, state.baseUrl, { permission: 'comment' });
     await db.raw.none("UPDATE users SET nome = 'Felipe de Carvalho Diniz', nome_guerra = 'Diniz', rank_id = (SELECT id FROM ranks WHERE nome_abrev = 'Maj' LIMIT 1) WHERE id = $1", [seed.userA.id]);
     const A = await openClient(browser, state.baseUrl, seed.atlasId, seed.userA);
