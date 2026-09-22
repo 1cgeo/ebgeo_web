@@ -135,13 +135,21 @@ test('additive image-write failure preserves the old atlas; retry and reload pre
     });
     await expect(page.getByText('1 mapa adicionados!', { exact: true })).toBeVisible();
     await boot(page);
+    // THE NAME OF A MAP COMES FROM THE PRODUCT'S READERS, NEVER FROM THE DOCUMENT'S `name` FIELD.
+    // The blank map seeded at boot (`seedBlankDefaultMap`, store/repository.js) is written as the
+    // empty CONTENT: no `id`, no `name`, no `sync`. In a name-keyed record the KEY is the name, and
+    // that is how every reader resolves it (`getAllMapNamesStore`, `nomeDoMapa` of the send-to-server
+    // path, the scan in `import_export/prepare-additive-scope.js`). Reading `map.name` off the raw
+    // document only ever worked because switching the base layer persisted the map document; when
+    // that became view state of the person (2026-09-20, 543c9e37) the incidental write went away and
+    // this case failed for a day with no product defect behind it. Root cause and reader census:
+    // tests/integration/mapa-semeado-sem-nome.repro.test.js.
     const result = await page.evaluate(async () => {
         const ns = await import('/src/js/store/atlas-namespace.js');
-        const maps = [];
-        await ns.getStore(ns.StoreName.MAPS).iterate(map => { maps.push(map); });
-        const photoId = maps.find(map => map.name === 'Principal_1').features.images[0].properties.id;
+        const { getAllMapNamesStore, getCurrentMapFeatures } = await import('/src/js/store/index.js');
+        const photoId = (await getCurrentMapFeatures('Principal_1')).images[0].properties.id;
         const image = await createImageBitmap(await ns.getStore(ns.StoreName.IMAGES).getItem(photoId));
-        return { names: maps.map(map => map.name).sort(), photoId, decoded: [image.width, image.height],
+        return { names: (await getAllMapNamesStore()).sort(), photoId, decoded: [image.width, image.height],
             original: await (await ns.getStore(ns.StoreName.IMAGES).getItem('photo')).text() };
     });
     expect(result.names).toEqual(['Principal', 'Principal_1']);

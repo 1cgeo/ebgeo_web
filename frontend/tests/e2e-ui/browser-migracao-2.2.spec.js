@@ -38,6 +38,49 @@ async function transitionDisk(page) {
 }
 
 /**
+ * O acervo da versão ANTIGA, pelo endereço sem sufixo, lido de qualquer página da origem.
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<Array>} Inventário `[store, key, hash]`.
+ */
+function legacyInventory(page) {
+    return page.evaluate(async () => {
+        const ns = await import('/src/js/store/atlas-namespace.js');
+        const { inventoryScope } = await import('/src/js/store/migration/legacy-transition.js');
+        return inventoryScope(ns.localScope('legacy', ''));
+    });
+}
+
+/**
+ * Um ajuste do atlas ATUALIZADO, pelo endereço dos bancos do destino da transição.
+ * @param {import('@playwright/test').Page} page
+ * @param {Object} transition - Diário da transição, de `transitionDisk`.
+ * @param {string} key - Chave em `StoreName.SETTINGS`.
+ * @returns {Promise<*>}
+ */
+function destinationSetting(page, transition, key) {
+    return page.evaluate(async ({ id, suffix, chave }) => {
+        const ns = await import('/src/js/store/atlas-namespace.js');
+        return ns.getStoreFor(ns.StoreName.SETTINGS, ns.localScope(id, suffix)).getItem(chave);
+    }, { id: transition.entry.id, suffix: transition.destination, chave: key });
+}
+
+/**
+ * Quantas feições de um tipo um mapa tem, num escopo endereçado por id e sufixo.
+ * @param {import('@playwright/test').Page} page
+ * @param {{id: string, suffix: string}} scope - Endereço dos bancos.
+ * @param {string} mapKey - Chave do mapa.
+ * @param {string} bucket - Balde de feições (`points`, `lines`...).
+ * @returns {Promise<number|null>} `null` quando o mapa não existe naquele escopo.
+ */
+function featureCount(page, scope, mapKey, bucket) {
+    return page.evaluate(async ({ id, suffix, chave, balde }) => {
+        const ns = await import('/src/js/store/atlas-namespace.js');
+        const doc = await ns.getStoreFor(ns.StoreName.MAPS, ns.localScope(id, suffix)).getItem(chave);
+        return doc ? (doc.features?.[balde] ?? []).length : null;
+    }, { id: scope.id, suffix: scope.suffix, chave: mapKey, balde: bucket });
+}
+
+/**
  * Números que o README da fixture declara. Escritos por extenso, não derivados: uma fixture que
  * mude em silêncio precisa ficar VERMELHA aqui, e não redefinir o que "sobreviveu" significa.
  */
@@ -45,6 +88,12 @@ const DECLARADO = Object.freeze({
     maps: 11, features: 262, layers: 17, groups: 2,
     briefings: 2, customIcons: 2, images: 5,
 });
+
+/**
+ * O mapa em que as duas versões do produto se encontram no caso de conflito. NÃO é o `Principal`:
+ * ver o cabeçalho daquele caso.
+ */
+const MAPA_EM_DISPUTA = '07 Camadas';
 
 /**
  * Ids das feições de declinação magnética do arquivo.
@@ -316,8 +365,23 @@ describeOrSkip('Migração 2.2 para 2.3 em Chromium, com a fixture de produção
         } finally { await ctx.close(); }
     });
 
-    test('main reaberta depois da atualização não alcança o destino; alterações tardias são recuperáveis', async ({ browser }) => {
-        const { ctx, page } = await prepareLegacyInstall(browser, '01-completo.ebgeo');
+    /**
+     * A REGRA MUDOU EM 2026-09-21, E ESTE CASO MEDIA A ANTIGA. Até aquela data toda gravação da
+     * versão anterior feita DEPOIS da transição parava o boot na tela de recuperação, e era isso
+     * que este caso exigia. Por decisão do dono (registrada em `docs/decisions/decisions-2026.md`,
+     * "o que a versão anterior grava depois da transição entra sozinho"), a gravação tardia que
+     * não conflita é incorporada pelo próprio portão, sem tela: o atlas atualizado não tinha nada
+     * a perder, e a tela pedia uma decisão que não existia.
+     *
+     * A METADE QUE NÃO MUDOU continua sendo o sujeito, e é a primeira coisa afirmada aqui: a
+     * versão antiga escreve nos bancos SEM sufixo e não alcança o destino da atualização. Sem
+     * isso, "entrou sozinha" seria satisfeito por uma escrita que tivesse caído direto no atlas
+     * novo, que é o contrário do isolamento.
+     */
+    test('main reaberta depois da atualização não alcança o destino; a gravação tardia trivial entra sozinha', async ({ browser }) => {
+        const { ctx, page, declarado } = await prepareLegacyInstall(browser, '01-completo.ebgeo');
+        const avisos = [];
+        page.on('console', m => avisos.push(m.text()));
         try {
             await page.goto('/');
             await waitForMap(page);
@@ -333,19 +397,148 @@ describeOrSkip('Migração 2.2 para 2.3 em Chromium, com a fixture de produção
                 const ns = await import('/src/js/store/atlas-namespace.js');
                 await ns.getStoreFor(ns.StoreName.SETTINGS, ns.localScope('legacy', '')).setItem('late_note', 'Trabalho tardio');
             });
+
+            // CONTROLE POSITIVO, antes do ato: a escrita existe do lado ANTIGO e não existe do
+            // lado novo. Sem os dois, o "entrou" de baixo não distingue incorporação de escrita
+            // que nunca precisou viajar.
+            expect(await old.evaluate(async () => {
+                const ns = await import('/src/js/store/atlas-namespace.js');
+                return ns.getStoreFor(ns.StoreName.SETTINGS, ns.localScope('legacy', '')).getItem('late_note');
+            }), 'a versão antiga gravou no acervo antigo').toBe('Trabalho tardio');
+            expect(await destinationSetting(old, before.transition, 'late_note'),
+                'a versão antiga NÃO alcança os bancos do destino').toBeNull();
+            const origemDepoisDaEscrita = await legacyInventory(old);
+
             await old.close();
             await page.reload();
+
+            // 1. A TELA NÃO APARECE. A espera é pelo PRIMEIRO dos dois desfechos, e não pelo
+            //    mapa: esperar só o mapa transforma a regressão (a tela de volta) num estouro de
+            //    tempo de 60 s que não nomeia nada, e foi assim que o controle negativo desta
+            //    mudança reprovou da primeira vez.
+            await page.waitForFunction(
+                () => Boolean(document.querySelector('[data-testid="migration-recovery"]'))
+                    || Boolean(globalThis.__ebgeoMap?.loaded?.()),
+                { timeout: 60000 });
+            await expect(page.getByTestId('migration-recovery'),
+                'a gravação tardia trivial não pode parar o boot na tela de recuperação').toHaveCount(0);
+            await waitForMap(page);
+
+            // 2. A ALTERAÇÃO TARDIA ENTROU, no disco do atlas ATUALIZADO, e o atlas continua o
+            //    mesmo: a incorporação é escrita no lugar, nunca uma cópia nova.
+            expect(await destinationSetting(page, before.transition, 'late_note'),
+                'a gravação tardia foi incorporada ao atlas atualizado').toBe('Trabalho tardio');
+            const after = await transitionDisk(page);
+            expect(after.transition.destination).toBe(before.transition.destination);
+            expect(after.entries, 'nenhum atlas de recuperação foi criado').toHaveLength(1);
+
+            // 3. O DIÁRIO FECHOU A INCORPORAÇÃO: nada em voo, nenhuma recusa lembrada, e as duas
+            //    bases avançaram, que é o que impede a próxima junção de ler a edição da versão
+            //    nova como mudança da antiga.
+            expect(after.transition.late, 'nenhuma incorporação ficou em voo').toBeUndefined();
+            expect(after.transition.lateConflict, 'nenhuma recusa foi lembrada').toBeUndefined();
+            expect(after.transition.lateBase, 'as duas bases avançaram').toBeTruthy();
+
+            // 4. UM registro, e não o acervo inteiro reescrito por cima. O número vem da fala do
+            //    produto, que é um caminho independente do disco lido acima.
+            await expect.poll(() => avisos.filter(t => /incorporadas: 1 registro/.test(t)).length,
+                { timeout: 15000 }).toBe(1);
+
+            // 5. A ORIGEM NÃO É TOCADA pela incorporação, e o atlas atualizado não perdeu nada.
+            expect(await legacyInventory(page), 'a incorporação não escreve no acervo antigo')
+                .toEqual(origemDepoisDaEscrita);
+            const depois = await readAfterBoot(page);
+            expect(depois.mapNames, 'a incorporação não perdeu mapa').toEqual(declarado.mapNames.slice().sort());
+            expect(depois.features, 'a incorporação não perdeu feição').toBe(DECLARADO.features);
+        } finally { await ctx.close(); }
+    });
+
+    /**
+     * O OUTRO RAMO DA MESMA REGRA, e o único que ainda desenha a tela: as duas versões mexeram no
+     * MESMO mapa. Sem este caso o ramo da tela ficaria sem cobertura de navegador, porque o caso
+     * acima deixou de alcançá-lo.
+     *
+     * O MAPA EM DISPUTA NÃO É O `Principal`, de propósito: `Principal` é o mapa que o boot abre,
+     * e abrir um mapa grava sozinho a contagem de cores dele. Escolher um mapa que o boot NÃO
+     * abre é o que deixa a causa da recusa sem ambiguidade: ela vem da nota escrita pela versão
+     * nova, e não do próprio ato de abrir o atlas, que a regra trata como não-edição.
+     *
+     * A EDIÇÃO DA VERSÃO NOVA É UMA ESCRITA DE PRODUTO (`setMapNotes`, com o retorno booleano
+     * conferido), e não um registro montado à mão: é o que prova que a recusa cobre trabalho de
+     * gente. A da versão antiga é escrita direto no acervo sem sufixo, como no caso acima, porque
+     * a versão antiga não roda aqui.
+     */
+    test('main reaberta que grava no MESMO mapa que a versão nova para na tela, e o que ela gravou vai para outro atlas', async ({ browser }) => {
+        const { ctx, page, declarado } = await prepareLegacyInstall(browser, '01-completo.ebgeo');
+        try {
+            expect(declarado.mapNames, 'a fixture tem o mapa em disputa').toContain(MAPA_EM_DISPUTA);
+            await page.goto('/');
+            await waitForMap(page);
+            const before = await transitionDisk(page);
+            const destino = { id: before.transition.entry.id, suffix: before.transition.destination };
+            const pontosAntes = await featureCount(page, destino, MAPA_EM_DISPUTA, 'points');
+            expect(pontosAntes, 'o mapa em disputa chegou ao destino com feições').toBeGreaterThan(0);
+
+            // A VERSÃO NOVA FAZ TRABALHO NAQUELE MAPA, pela operação de store de verdade.
+            expect(await page.evaluate(async mapa => {
+                const store = await import('/src/js/store/index.js');
+                return store.setMapNotes(mapa, { title: 'Nota da versão nova', description: 'Escrita depois da atualização' });
+            }, MAPA_EM_DISPUTA), 'a versão nova gravou as notas do mapa em disputa').toBe(true);
+
+            const old = await ctx.newPage();
+            await goToBlankSameOrigin(old);
+            await startMainLock(old);
+            await expect(old.locator('.tab-lock-overlay--visible')).toBeVisible();
+            await old.getByRole('button', { name: 'Usar aqui' }).click();
+            await expect(page.locator('.tab-lock-overlay--visible')).toContainText('versão antiga');
+
+            // E A VERSÃO ANTIGA DESENHA NO MESMO MAPA.
+            expect(await old.evaluate(async mapa => {
+                const ns = await import('/src/js/store/atlas-namespace.js');
+                const loja = ns.getStoreFor(ns.StoreName.MAPS, ns.localScope('legacy', ''));
+                const doc = await loja.getItem(mapa);
+                const id = '00000000-0000-4000-8000-0000000009a4';
+                doc.features.points = [...(doc.features.points ?? []), {
+                    type: 'Feature', id,
+                    geometry: { type: 'Point', coordinates: [-47.9, -15.8] },
+                    properties: { id, nome: 'Ponto tardio', color: '#ff0000', source: 'point', layerId: 'default' },
+                }];
+                await loja.setItem(mapa, doc);
+                return (await loja.getItem(mapa)).features.points.length;
+            }, MAPA_EM_DISPUTA), 'a versão antiga desenhou no acervo antigo').toBe(pontosAntes + 1);
+            expect(await featureCount(old, destino, MAPA_EM_DISPUTA, 'points'),
+                'a versão antiga NÃO alcança os bancos do destino').toBe(pontosAntes);
+
+            await old.close();
+            await page.reload();
+
+            // 1. A TELA FICA, e diz o que aconteceu sem nomear uma causa só.
             await expect(page.getByTestId('migration-recovery')).toContainText('gravou alterações');
+            const parado = await transitionDisk(page);
+            expect(parado.transition.lateConflict, 'a recusa foi lembrada, pela causa certa')
+                .toMatchObject({ reason: 'same_unit' });
+
+            // 2. NADA FOI ESCRITO no atlas atualizado: nem o ponto da versão antiga entrou, nem
+            //    a nota da versão nova foi substituída.
+            expect(await featureCount(page, destino, MAPA_EM_DISPUTA, 'points')).toBe(pontosAntes);
+            expect(await destinationSetting(page, before.transition, `map_notes_${MAPA_EM_DISPUTA}`))
+                .toMatchObject({ title: 'Nota da versão nova' });
+
+            // 3. A SAÍDA QUE A TELA OFERECE FUNCIONA: o que a versão antiga gravou vai para OUTRO
+            //    atlas, sem substituir o atualizado.
             await page.getByRole('button', { name: 'Recuperar alterações em outro atlas' }).click();
             await expect(page.getByTestId('migration-recovery')).toContainText('foi recuperado');
             const after = await transitionDisk(page);
             expect(after.entries).toHaveLength(2);
             expect(after.transition.destination).toBe(before.transition.destination);
-            expect(await page.evaluate(async destination => {
-                const ns = await import('/src/js/store/atlas-namespace.js');
-                const store = ns.getStoreFor(ns.StoreName.SETTINGS, ns.localScope('old-target', destination));
-                return store.getItem('late_note');
-            }, before.transition.destination)).toBeNull();
+            const recuperado = after.entries.find(entry => entry.dbSuffix !== before.transition.destination);
+            expect(recuperado.name).toContain('Recuperado');
+            expect(await featureCount(page, { id: recuperado.id, suffix: recuperado.dbSuffix }, MAPA_EM_DISPUTA, 'points'),
+                'o atlas recuperado tem o que a versão antiga desenhou').toBe(pontosAntes + 1);
+            expect(await featureCount(page, destino, MAPA_EM_DISPUTA, 'points'),
+                'o atlas atualizado continua sem o desenho da versão antiga').toBe(pontosAntes);
+
+            // 4. E O BOOT VOLTA A PASSAR, porque a decisão já foi tomada.
             await page.getByRole('button', { name: 'Tentar novamente', exact: true }).click();
             await waitForMap(page);
         } finally { await ctx.close(); }
