@@ -43,7 +43,22 @@ import base from './playwright.config.js';
 
 export default defineConfig({
     ...base,
-    testMatch: '**/*.tablet.spec.js',
+    // O SEGUNDO PADRÃO É O GUARDA DO "VERDE POR SKIP", e ele entrou em 2026-09-21 junto com a
+    // exclusão do lado de lá. As duas `*.tablet.spec.js` são `state.skip ? test.describe.skip :
+    // test.describe`, como todo spec desta pasta: sem Postgres o backend não sobe, as nove
+    // pulam e a rodada fecha VERDE tendo dirigido zero. Enquanto o config padrão as recolhia,
+    // quem reprovava nessa condição era o `_backend-required.spec.js` daquela rodada; tirando-as
+    // de lá, esta rodada passou a ser a ÚNICA que as exercita, e ela herdaria o falso verde. O
+    // guarda não se gateia, não faz E/S e não usa `page`, então custa zero e roda em qualquer
+    // projeto. Ver `tests/unit/guarda-de-e2e-nao-pula.test.js`.
+    testMatch: ['**/*.tablet.spec.js', '**/_backend-required.spec.js'],
+    // O SPREAD ACIMA TRAZ O `testIgnore` DO BASE, E DESDE 2026-09-21 ELE IGNORA
+    // `**/*.tablet.spec.js` — ou seja, herdá-lo aqui faria esta rodada ignorar as próprias
+    // specs, porque `testIgnore` vence `testMatch`. Sobrescrever é obrigatório, e a lista vai
+    // VAZIA em vez de repetir a entrada da mega: `browser-collab-mega.spec.js` não é uma
+    // `*.tablet.spec.js`, então o `testMatch` desta linha já o deixa de fora, e repetir a
+    // exclusão criaria uma segunda cópia de uma regra que ninguém lembraria de manter.
+    testIgnore: [],
     outputDir: './test-results/tablet',
     retries: 0,
     timeout: 90000,

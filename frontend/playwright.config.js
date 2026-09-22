@@ -8,6 +8,8 @@
  * Run: `npm run test:e2e:ui` (after `npm install` + `npx playwright install chromium`).
  * Segundo navegador: `npm run test:e2e:firefox` (após `npx playwright install firefox`),
  * que é a matriz mínima de homologação e NÃO entra na rodada normal. Ver `TARGETING_FIREFOX`.
+ * Camada de toque: `npm run test:e2e:tablet`, que é outro CONFIG (`playwright.tablet.config.js`)
+ * e não outro projeto daqui; as specs dela são ignoradas nesta coleta. Ver `TABLET_ONLY`.
  */
 
 import { defineConfig, devices } from '@playwright/test';
@@ -20,6 +22,23 @@ import { APP_ORIGIN, APP_PORT, BACKEND_PORT } from './tests/e2e-ui/constants.js'
 // (or `npm run test:e2e:mega`). This config runs in the main CLI process, so process.argv
 // carries the file filter — when the user names the mega, we don't ignore it.
 const TARGETING_MEGA = process.argv.some((arg) => arg.includes('browser-collab-mega'));
+
+// A CAMADA DE TABLET FICA FORA DESTA RODADA, E A EXCLUSÃO É INCONDICIONAL, ao contrário da
+// mega acima. A diferença não é de gosto, é de o que a spec mede: `*.tablet.spec.js` só faz
+// sentido num contexto com `hasTouch`, servido pelo projeto `tablet-chromium` de
+// `playwright.tablet.config.js`; o primeiro caso de `toque-no-mapa.tablet.spec.js` é
+// literalmente um CONTROLE DO INSTRUMENTO que reprova quando o ponteiro não é grosso. Num
+// projeto de mesa os nove casos reprovam por construção, então não existe linha de comando sob
+// este config em que rodá-los seja certo, e a condicional da mega (que só desliga o ignore
+// quando alguém NOMEIA a spec) aqui só serviria para transformar um engano de invocação em nove
+// vermelhos falsos. Medido em 2026-09-21: com `testMatch: '**/*.spec.js'` sozinho, a coleta
+// padrão trazia 489 casos em 188 arquivos, nove deles de tablet, e os nove reprovavam.
+//
+// A PONTA OUTRA DESTA REGRA MORA NO CONFIG DE TABLET: ele faz spread deste objeto, então
+// herdaria este `testIgnore` e passaria a ignorar as PRÓPRIAS specs (testIgnore vence
+// testMatch). Ele sobrescreve a chave, e o comentário de lá diz por quê. Os quatro configs de
+// cenário também fazem spread e não se importam: o `testMatch` deles é `*.scenario.js`.
+const TABLET_ONLY = '**/*.tablet.spec.js';
 
 // SEGUNDO NAVEGADOR (B11), e ele fica FORA da rodada normal: o projeto `firefox` só existe no
 // array quando a linha de comando o nomeia. Assim `npm run test:e2e:ui` continua sendo Chromium e
@@ -45,7 +64,7 @@ if (TARGETING_FIREFOX) process.env.EBGEO_PLAYWRIGHT_FIREFOX = '1';
 export default defineConfig({
     testDir: './tests/e2e-ui',
     testMatch: '**/*.spec.js',
-    testIgnore: TARGETING_MEGA ? [] : ['**/browser-collab-mega.spec.js'],
+    testIgnore: TARGETING_MEGA ? [TABLET_ONLY] : ['**/browser-collab-mega.spec.js', TABLET_ONLY],
     globalSetup: './tests/e2e-ui/global-setup.js',
     globalTeardown: './tests/e2e-ui/global-teardown.js',
     fullyParallel: false,

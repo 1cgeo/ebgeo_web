@@ -134,8 +134,11 @@ collabTest.describe('Map lock — management toggle, read-only on BOTH sides, co
     // afirmacao "o Editor continua editando" para DEPOIS do destravamento, que e' onde ela passou
     // a ser verdadeira, em vez de apaga-la.
     //
-    // NAO EXECUTADO por quem o reescreveu (o Playwright esta' fora do laco dele, porta 3912 em uso
-    // por outro agente): fica para o coordenador rodar.
+    // EXECUTADO EM 2026-09-21, e ate' aquela data este comentario dizia "NAO EXECUTADO ... fica
+    // para o coordenador rodar" (o Playwright estava fora do laco de quem o reescreveu, porta 3912
+    // em uso por outro agente). Medido em serie com `--repeat-each=3 --retries=0`, em portas
+    // isoladas: 3 de 3 verdes, sem um `flaky`. Anote a data e a contagem ao re-executar; um "fica
+    // para rodar" sem prazo de validade e' o que manteve esta linha viva por oito dias.
     collabTest('an editor cannot lock; the owner can; the lock blocks the owner AND reaches the editor', async ({ collab }) => {
         collabTest.setTimeout(120000);
         const A = collab.author; // owner
@@ -245,9 +248,11 @@ collabTest.describe('Map lock — management toggle, read-only on BOTH sides, co
 
     // O CASO QUE FALTAVA, e o que ele mede nao e' medido por nenhum outro: a trava pelo CAMINHO DA
     // INTERFACE chegando ao PAR. Escrito em 2026-09-13 junto com as duas correcoes que o tornam
-    // possivel (a op nascendo na store, e a mescla parcial na aplicacao remota). NAO EXECUTADO
-    // pelo agente que o escreveu (o Playwright esta' fora do laco dele): fica para o coordenador
-    // rodar, e se ele falhar, o que ele acusa e' uma das duas metades, nao o desenho do caso.
+    // possivel (a op nascendo na store, e a mescla parcial na aplicacao remota). Nasceu NAO
+    // EXECUTADO, porque o Playwright estava fora do laco de quem o escreveu, e foi EXECUTADO em
+    // 2026-09-21: 3 de 3 verdes em serie (`--repeat-each=3 --retries=0`), sem um `flaky`. As duas
+    // metades que ele cobra (a trava do controlador chegando ao par, e as feicoes do par
+    // sobrevivendo ao payload parcial) estao, portanto, MEDIDAS e nao apenas afirmadas.
     collabTest('travar PELO CONTROLADOR chega ao Editor, e nao apaga as feicoes dele', async ({ collab }) => {
         const A = collab.author; // owner
         const B = collab.peers[0]; // editor

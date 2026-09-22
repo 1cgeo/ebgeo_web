@@ -53,6 +53,13 @@ const SO_UM_PACOTE_DE_PROPOSITO = new Map([
     // array quando a linha de comando o nomeia, então "test:e2e:ui verde" NUNCA significa que o
     // Firefox passou, e um comando com nome próprio é o que torna essa assimetria legível.
     ['test:e2e:firefox', 'Playwright no segundo navegador (--project=firefox), fora da rodada normal'],
+    // A CAMADA DE TOQUE (2026-09-21). Config PRÓPRIA (`playwright.tablet.config.js`), não um
+    // projeto do config normal, porque o contexto precisa de `hasTouch`. Até esta data ela não
+    // tinha script nenhum, e o efeito era duplo: ninguém a rodava, e o config padrão RECOLHIA
+    // as `*.tablet.spec.js` num projeto de mesa, onde os nove casos reprovam por construção.
+    // O `testIgnore` do base agora as deixa de fora, então "test:e2e:ui verde" não as cobre e
+    // este comando é o único que as roda.
+    ['test:e2e:tablet', 'Playwright com config própria (playwright.tablet.config.js), contexto com toque'],
     // Os dois cenários de config DEDICADA (B11, 2026-09-13): só rodam por estes scripts,
     // porque o `playwright.config.js` normal não os casa. "test:e2e:ui verde" não os cobre.
     ['test:e2e:atlas', 'Playwright com config própria (playwright.atlas-safety.config.js)'],
