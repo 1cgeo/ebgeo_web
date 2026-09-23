@@ -168,16 +168,15 @@ async function recolorViaPanelUI(page, hex) {
         el.value = value;
         el.dispatchEvent(new Event('change', { bubbles: true }));
     }, hex);
-    await page.waitForFunction(
-        async (h) => {
+    await expect.poll(
+        () => page.evaluate(async (h) => {
             const src = globalThis.__ebgeoMap?.getSource('lines');
             if (!src || typeof src.getData !== 'function') return false;
             const data = await src.getData();
             return ((data && data.features) || []).some((f) => String(f.properties?.lineColor).toLowerCase() === h.toLowerCase());
-        },
-        hex,
-        { timeout: 5000 },
-    );
+        }, hex),
+        { message: 'a cor escolhida no painel nao chegou a fonte de linhas', timeout: 5000 },
+    ).toBe(true);
     const saveBtn = panel.locator('.attr-modern-btn-save');
     await expect(saveBtn).toBeVisible({ timeout: 5000 });
     await saveBtn.click();

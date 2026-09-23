@@ -64,11 +64,11 @@ async function desenharDivisa(page, coords) {
     await esperarFerramentaPronta(page, 'boundary');
     for (let i = 0; i < coords.length - 1; i++) {
         await clicarNoMapaUI(page, coords[i]);
-        await page.waitForFunction(async ({ n }) => {
+        await expect.poll(() => page.evaluate(async ({ n }) => {
             const s = await import('/src/js/store/index.js');
             const c = s.getControl?.('AddBoundaryControl');
             return Array.isArray(c?.drawPoints) && c.drawPoints.length >= n;
-        }, { n: i + 1 }, { timeout: 10000 });
+        }, { n: i + 1 }), { message: `o vertice ${i + 1} nao entrou na divisa`, timeout: 10000 }).toBe(true);
     }
     await clicarNoMapaUI(page, coords[coords.length - 1], { button: 'right' });
     let divisa = null;

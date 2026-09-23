@@ -117,14 +117,16 @@ describeOrSkip('exportar le o repositorio, e nao a memoria do mapa corrente', ()
         // exportar antes disso leria os bancos errados, e o vermelho falaria de outra coisa. O
         // numero de MAPAS nao e nenhuma das quantias asseridas abaixo (camadas e grupos), entao
         // esperar por ele nao esconde o defeito que este caso mede.
-        await page.waitForFunction(
-            async (mapasEsperados) => {
+        // `expect.poll` e nao `waitForFunction`: com predicado `async` o segundo NAO espera (a
+        // promessa e verdadeira na primeira sondagem), e sob carga a leitura caia no escopo-ponte
+        // do boot e acusava "0 mapas". Ver `espera-do-playwright-nao-aguarda-promessa.test.js`.
+        await expect.poll(
+            () => page.evaluate(async () => {
                 const store = await import('/src/js/store/index.js');
-                return (await store.getAllMapNamesStore()).length === mapasEsperados;
-            },
-            esperado.maps,
-            { timeout: 60000 },
-        );
+                return (await store.getAllMapNamesStore()).length;
+            }),
+            { message: 'o boot nao montou o slot com os mapas do arquivo', timeout: 60000 },
+        ).toBe(esperado.maps);
 
         const medido = await page.evaluate(async () => {
             const store = await import('/src/js/store/index.js');

@@ -48,15 +48,13 @@ const RAIZ_PACOTE = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
  * espera fantasma, deixados de fora do conserto porque pertencem a outros recortes de trabalho e
  * mudá-los muda o tempo de dezenas de specs. Consertou um? Tire-o daqui no mesmo commit.
  */
-const DIVIDA = new Map([
-    ['tests/e2e-ui/browser-collab-three-client-flow.spec.js', 1],
-    ['tests/e2e-ui/corte-da-divisa-pelo-menu.spec.js', 1],
-    ['tests/e2e-ui/exportar-le-todo-mapa.spec.js', 1],
-    // Saíram em 2026-09-23 os quatro sítios dos helpers (as duas esperas de ferramenta ativa e a
-    // de vértice de `drawViaToolUI`, em `helpers/collab-helpers.js`, e `esperarFerramentaPronta`,
-    // em `helpers/ferramenta-pronta.js`): hoje sondam por `expect.poll(() => page.evaluate(...))`.
-    ['tests/e2e-ui/imagem-reencodada-gif-bmp.spec.js', 1],
-]);
+// ZERADA em 2026-09-23, no mesmo dia em que nasceu. Saíram primeiro os quatro sítios dos helpers
+// (as duas esperas de ferramenta ativa e a de vértice de `drawViaToolUI`, em
+// `helpers/collab-helpers.js`, e `esperarFerramentaPronta`, em `helpers/ferramenta-pronta.js`), e
+// depois os quatro specs, quando a matriz completa do Firefox reprovou um deles
+// (`exportar-le-todo-mapa.spec.js`, "11 mapas esperados, 0 lidos" depois do F5, a mesma assinatura
+// do P4a). Todos sondam hoje por `expect.poll(() => page.evaluate(...))`.
+const DIVIDA = new Map();
 
 /** Bloco primeiro, linha depois; preserva `://` dentro de string, como os outros guardas da casa. */
 const semComentarios = (fonte) => fonte

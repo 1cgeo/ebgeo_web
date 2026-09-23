@@ -256,10 +256,10 @@ async function esperarMapa(page) {
  * solta, então a presença da última entrada dele é o sinal que cobre o instante certo.
  */
 async function esperarSoltaArmada(page) {
-    await page.waitForFunction(async () => {
+    await expect.poll(() => page.evaluate(async () => {
         const store = await import('/src/js/store/index.js');
         return !!store.getControl('commentOverlay');
-    }, null, { timeout: 20000 });
+    }), { message: 'a camada que arma a solta de arquivo nao montou', timeout: 20000 }).toBe(true);
 }
 
 /** Fecha o painel de atributos que a criação de uma feição abre, para o gesto seguinte. */
