@@ -128,6 +128,7 @@ import { fileURLToPath } from 'node:url';
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -204,10 +205,7 @@ async function registrarTileset(page) {
     await page.goto('/');
     const creds = await createVerifiedUser({ prefix: 'vspixel', nome: 'Viewshed Pixel', role: 'admin' });
 
-    const criado = await page.evaluate(async ({ url, creds: c, id, obs }) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-        const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-        await api.login(c.username, c.password);
+    const criado = await page.evaluate(async ({ api, url, id, obs }) => {
         const res = await fetch(`${url}/api/v1/tilesets`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${api.getAccessToken()}` },
@@ -227,7 +225,7 @@ async function registrarTileset(page) {
             }),
         });
         return { status: res.status, body: await res.text() };
-    }, { url: state.baseUrl, creds, id: TILESET_ID, obs: OBSERVADOR });
+    }, { api: await clienteNaPagina(page, creds), url: state.baseUrl, id: TILESET_ID, obs: OBSERVADOR });
 
     // 409 E SUCESSO AQUI. O catalogo e GLOBAL e a rodada e UMA: o segundo caso deste arquivo
     // registra o mesmo id que o primeiro ja registrou, e a rota responde CONFLICT. O que
@@ -239,8 +237,9 @@ async function registrarTileset(page) {
         `o tileset nao esta no catalogo: ${criado.status} ${criado.body}`,
     ).toBe(true);
 
-    // Sessão viva numa URL nua é roteada para `atlas.html`, que não tem mapa nenhum.
-    await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });
+    // Nenhuma sessão fica gravada: o cliente acima guarda o token só em memória
+    // (`clienteNaPagina`), e sessão viva numa URL nua seria roteada para `atlas.html`, que não tem
+    // mapa nenhum.
 }
 
 /**

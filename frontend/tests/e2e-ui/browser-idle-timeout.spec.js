@@ -10,6 +10,7 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { loginUI, openAtlasUI } from './helpers/collab-helpers.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -20,20 +21,17 @@ const IDLE_MINUTES = 0.17; // ≈ 10.2s total
 const WARN_SECONDS = 4;
 
 /** Seeds a user + an atlas with one named map. */
-async function seedUserAtlas(page, baseUrl) {
+async function seedUserAtlas(page) {
     // A conta nasce no NODE (`helpers/accounts.js`): confirmar o e-mail exige ler
     // `email_verification_tokens` no Postgres, fora do alcance do browser. Aqui isso é
     // pré-requisito e não detalhe — o teste loga pela UI, e conta pendente é login recusado.
     const u = await createVerifiedUser({ prefix: 'idle', nome: 'Idle Tester' });
-    const seed = await page.evaluate(async ({ base, user }) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+    const seed = await page.evaluate(async ({ api }) => {
         const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-        const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-        await api.login(user.username, user.password);
         const atlas = await api.createAtlas({ name: 'Idle Atlas' });
         await api.pushOperations(atlas.id, [createOperation('map', 'create', crypto.randomUUID(), null, { name: 'Mapa' })]);
         return { atlasId: atlas.id };
-    }, { base: baseUrl, user: u });
+    }, { api: await clienteNaPagina(page, u) });
     return { username: u.username, password: u.password, atlasId: seed.atlasId };
 }
 
@@ -89,7 +87,6 @@ async function shrinkIdleWindows(page, idleMinutes, warnSeconds) {
 
 async function loginAndOpen(page, seed) {
     await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${state.baseUrl}/api/v1`);
-    await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });
     await page.goto('/');
     // Positive control on the instrument itself: without it, a patch that silently stopped
     // applying would come back as "the idle warning is broken" all over again.
@@ -127,7 +124,7 @@ describeOrSkip('Idle session timeout', () => {
 
     test('warns then expires → session ends and login re-opens', async ({ page }) => {
         await page.goto('/');
-        const seed = await seedUserAtlas(page, state.baseUrl);
+        const seed = await seedUserAtlas(page);
         await loginAndOpen(page, seed);
 
         // No interaction → the inactivity warning appears…
@@ -139,7 +136,7 @@ describeOrSkip('Idle session timeout', () => {
 
     test('"Continuar conectado" dismisses the warning and keeps the session', async ({ page }) => {
         await page.goto('/');
-        const seed = await seedUserAtlas(page, state.baseUrl);
+        const seed = await seedUserAtlas(page);
         await loginAndOpen(page, seed);
 
         await expect(page.locator('[data-testid="idle-warning"]')).toBeVisible({ timeout: 16000 });

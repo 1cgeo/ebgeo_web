@@ -45,6 +45,7 @@ import { setSharePermission } from './helpers/collab-helpers.js';
 import { esperarCargaDeFerramenta } from './helpers/ferramenta-pronta.js';
 import { expectNotSynced } from './helpers/full-chain.js';
 import { readIdbEntity } from './helpers/idb.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const hasLine = async (page, id) => (await readFeatures(page, 'lines')).some((x) => x.id === id);
 
@@ -255,13 +256,10 @@ collabTest.describe('Permissions — revogação de compartilhamento', () => {
 
         // No sync assertion here by design: the claim is an HTTP-layer denial (defense in depth,
         // independent of the live WS), so it is read straight from the atlas route.
-        const getAtlasStatus = () => B.evaluate(async ({ base, c, id }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-            const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-            await api.login(c.username, c.password);
+        const getAtlasStatus = async () => B.evaluate(async ({ api, base, id }) => {
             const res = await fetch(`${base}/api/v1/atlas/${id}`, { headers: { Authorization: `Bearer ${api.getAccessToken()}` } });
             return res.status;
-        }, { base: collab.baseUrl, c: collab.userB, id: collab.atlasId });
+        }, { api: await clienteNaPagina(B, collab.userB), base: collab.baseUrl, id: collab.atlasId });
 
         // Sanity: while shared, B can read the atlas over HTTP.
         expect(await getAtlasStatus(), 'shared peer can GET the atlas').toBeLessThan(300);

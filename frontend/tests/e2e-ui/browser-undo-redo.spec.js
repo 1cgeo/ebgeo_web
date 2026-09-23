@@ -10,6 +10,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -39,12 +40,8 @@ describeOrSkip('Undo/redo create<->delete round-trip (real Chromium + real backe
         //    helpers can reuse the authenticated session across page.evaluate calls.
         const user = await createVerifiedUser({ prefix: 'undo', nome: 'Undo Redo' });
         await page.goto('/');
-        const seed = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const seed = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Undo Atlas' });
             const mapId = crypto.randomUUID();
@@ -52,7 +49,7 @@ describeOrSkip('Undo/redo create<->delete round-trip (real Chromium + real backe
 
             window.__undo = { api };
             return { atlasId: atlas.id, mapId, hasToken: Boolean(api.getAccessToken()) };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         expect(seed.hasToken).toBe(true);
 
@@ -156,12 +153,8 @@ describeOrSkip('Undo/redo create<->delete round-trip (real Chromium + real backe
     test('an inverse delete is idempotent by op id: replaying it keeps the feature absent', async ({ page }) => {
         const user = await createVerifiedUser({ prefix: 'undoidem', nome: 'Undo Idem' });
         await page.goto('/');
-        const seed = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const seed = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Undo Idem Atlas' });
             const mapId = crypto.randomUUID();
@@ -181,7 +174,7 @@ describeOrSkip('Undo/redo create<->delete round-trip (real Chromium + real backe
             const previous = snapshot.snapshot.maps.find(m => m.id === mapId).features.points.find(f => f.properties.id === featureId);
             const deleteOp = createOperation('feature', 'delete', featureId, mapId, null, previous);
             return { atlasId: atlas.id, mapId, featureId, deleteOp };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         // Present after create.
         expect(await featurePresent(page, seed)).toBe(true);

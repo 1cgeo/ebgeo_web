@@ -36,6 +36,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -45,18 +46,15 @@ describeOrSkip('Map duplicate + merge structural routes (real Chromium + real ba
         page,
     }) => {
         // A conta nasce no NODE (o token de confirmação só existe como linha no Postgres, fora do
-        // alcance do `page.evaluate`); o browser recebe credenciais prontas e só faz o login.
+        // alcance do `page.evaluate`); o browser recebe um cliente pronto (`clienteNaPagina`), com o token só em memória.
         const user = await createVerifiedUser({ prefix: 'dup', nome: 'Duplicate Owner' });
         await page.goto('/');
 
         const result = await page.evaluate(
-            async ({ baseUrl, u }) => {
-                const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+            async ({ api, baseUrl }) => {
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
                 const apiBase = `${baseUrl}/api/v1`;
-                const api = new ApiClient({ baseUrl: apiBase });
-                await api.login(u.username, u.password);
 
                 // --- Seed atlas + one map carrying one point feature. ---
                 const atlas = await api.createAtlas({ name: 'Duplicate Atlas' });
@@ -137,7 +135,7 @@ describeOrSkip('Map duplicate + merge structural routes (real Chromium + real ba
                     missingStatus: missing.status,
                 };
             },
-            { baseUrl: state.baseUrl, u: user },
+            { api: await clienteNaPagina(page, user), baseUrl: state.baseUrl },
         );
 
         // Duplicate succeeded with a 201 and a fresh, suffixed map.
@@ -167,13 +165,10 @@ describeOrSkip('Map duplicate + merge structural routes (real Chromium + real ba
         await page.goto('/');
 
         const result = await page.evaluate(
-            async ({ baseUrl, u }) => {
-                const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+            async ({ api, baseUrl }) => {
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
                 const apiBase = `${baseUrl}/api/v1`;
-                const api = new ApiClient({ baseUrl: apiBase });
-                await api.login(u.username, u.password);
 
                 /** Creates a map under `atlasId` carrying one named point feature. */
                 const seedMapWithPoint = async (atlasId, mapName, nome, coords) => {
@@ -274,7 +269,7 @@ describeOrSkip('Map duplicate + merge structural routes (real Chromium + real ba
                     foreignIntact,
                 };
             },
-            { baseUrl: state.baseUrl, u: user },
+            { api: await clienteNaPagina(page, user), baseUrl: state.baseUrl },
         );
 
         // Merge succeeded (200) and reported one feature moved into the dest map.

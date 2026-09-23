@@ -37,6 +37,7 @@ import { readState } from './state.js';
 import { seedSharedAtlas, openClient, drawLineUI } from './helpers/collab-helpers.js';
 import { createVerifiedUser } from './helpers/accounts.js';
 import { instalarBaseConfirmada } from './helpers/base-confirmada.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -120,17 +121,13 @@ describeOrSkip('Selection context actions: duplicate / combine / split / cut (re
         // MultiLineString) and split is an interactive selection flow, so the precise
         // backend op-shape contract is exercised as a transport probe via page.evaluate.
         // A conta nasce no NODE (o token de confirmação só existe como linha no Postgres, fora do
-        // alcance do `page.evaluate`); o browser recebe credenciais prontas e só faz o login.
+        // alcance do `page.evaluate`); o browser recebe um cliente pronto (`clienteNaPagina`), com o token só em memória.
         const user = await createVerifiedUser({ prefix: 'cmb', nome: 'Combine User' });
         await page.goto('/');
         await instalarBaseConfirmada(page);
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Combine Atlas' });
             const mapId = crypto.randomUUID();
@@ -236,7 +233,7 @@ describeOrSkip('Selection context actions: duplicate / combine / split / cut (re
             };
 
             return { seededCount: seeded.size, combined, split };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         // seed sanity
         expect(result.seededCount).toBe(3);
@@ -280,12 +277,8 @@ describeOrSkip('Selection context actions: duplicate / combine / split / cut (re
         await page.goto('/');
         await instalarBaseConfirmada(page);
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Cut Atlas' });
             const mapId = crypto.randomUUID();
@@ -362,7 +355,7 @@ describeOrSkip('Selection context actions: duplicate / combine / split / cut (re
                 .some((f) => f.properties?.id === badId);
 
             return { cut, edge: { badOutcome, badLanded } };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         // §14.12 cut assertions
         expect(result.cut.acks.length).toBe(3);

@@ -30,6 +30,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -41,12 +42,8 @@ describeOrSkip('Batch import / points-by-coordinates (real Chromium + real backe
         const user = await createVerifiedUser({ prefix: 'imp', nome: 'Import User' });
         await page.goto('/');
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Import Atlas' });
             const mapId = crypto.randomUUID();
@@ -103,7 +100,7 @@ describeOrSkip('Batch import / points-by-coordinates (real Chromium + real backe
                 // cross-bucket isolation: the line must NOT leak into points.
                 lineNotInPoints: !bucketIds('points').includes(lineId),
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         // The single push acked all four ops.
         expect(result.ackCount).toBe(4);
@@ -128,12 +125,8 @@ describeOrSkip('Batch import / points-by-coordinates (real Chromium + real backe
         const user = await createVerifiedUser({ prefix: 'coord', nome: 'Coord User' });
         await page.goto('/');
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Coord Atlas' });
             const mapId = crypto.randomUUID();
@@ -181,7 +174,7 @@ describeOrSkip('Batch import / points-by-coordinates (real Chromium + real backe
                 pointBucketCount: points.length,
                 persisted,
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         expect(result.ackCount).toBe(result.expected);
         expect(result.pointBucketCount).toBe(result.expected);
@@ -217,12 +210,8 @@ describeOrSkip('Batch import / points-by-coordinates (real Chromium + real backe
         const user = await createVerifiedUser({ prefix: 'atom', nome: 'Atomic User' });
         await page.goto('/');
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Atomic Atlas' });
             const mapId = crypto.randomUUID();
@@ -294,7 +283,7 @@ describeOrSkip('Batch import / points-by-coordinates (real Chromium + real backe
                 featureCountAfterFailedBatch: allFeatureIds.length,
                 recoverPersisted: pointIds2.includes(recoverId),
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         // The push answers PER OPERATION: two accepted, the middle one refused.
         expect(result.outcomes).toHaveLength(3);

@@ -27,6 +27,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -62,10 +63,7 @@ async function registerTileset(page) {
     await page.goto('/');
     const creds = await createVerifiedUser({ prefix: 't3dadmin', nome: 'Tileset Admin', role: 'admin' });
 
-    const created = await page.evaluate(async ({ url, creds: c, id }) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-        const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-        await api.login(c.username, c.password);
+    const created = await page.evaluate(async ({ api, url, id }) => {
         const res = await fetch(`${url}/api/v1/tilesets`, {
             method: 'POST',
             headers: {
@@ -85,18 +83,17 @@ async function registerTileset(page) {
             }),
         });
         return { status: res.status, body: await res.text() };
-    }, { url: state.baseUrl, creds, id: TILESET_ID });
+    }, { api: await clienteNaPagina(page, creds), url: state.baseUrl, id: TILESET_ID });
 
     expect(
         created.status,
         `o tileset nao foi registrado no catalogo: ${created.status} ${created.body}`,
     ).toBeLessThan(300);
 
-    // Drop the admin session before the app boots. This spec is about LOCAL controls with no
-    // login, and a live session on a bare URL is routed to `atlas.html` by design
-    // (`shouldRouteToProjects`, `index.js`) — the page that follows has no map at all, so
-    // `bootApp` would wait for a zoom button that page never renders.
-    await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });
+    // No admin session is left behind: the client above keeps its token in memory only
+    // (`clienteNaPagina`). A live session on a bare URL would be routed to `atlas.html` by design
+    // (`shouldRouteToProjects`, `index.js`), and `bootApp` would wait for a zoom button that page
+    // never renders.
 }
 
 /**
@@ -118,10 +115,7 @@ async function clearTilesets(page) {
     await page.goto('/');
     const creds = await createVerifiedUser({ prefix: 't3dclean', nome: 'Tileset Cleaner', role: 'admin' });
 
-    const out = await page.evaluate(async ({ url, creds: c }) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-        const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-        await api.login(c.username, c.password);
+    const out = await page.evaluate(async ({ api, url }) => {
         const cabecalho = { Authorization: `Bearer ${api.getAccessToken()}` };
 
         const lista = await (await fetch(`${url}/api/v1/tilesets`, { headers: cabecalho })).json();
@@ -134,14 +128,12 @@ async function clearTilesets(page) {
             status.push(res.status);
         }
         return { ids, status };
-    }, { url: state.baseUrl, creds });
+    }, { api: await clienteNaPagina(page, creds), url: state.baseUrl });
 
     for (const s of out.status) {
         expect(s, `o DELETE de tileset devolveu ${s}`).toBeLessThan(300);
     }
-    // A sessão de administrador sai antes do boot, pela mesma razão escrita em
-    // `registerTileset`: sessão viva numa URL nua leva a `atlas.html`, que não tem mapa.
-    await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });
+    // Nenhuma sessão de administrador fica gravada, pela mesma razão escrita em `registerTileset`.
     return out.ids.length;
 }
 

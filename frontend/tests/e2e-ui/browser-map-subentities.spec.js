@@ -21,6 +21,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -36,12 +37,8 @@ describeOrSkip('Map sub-entity updates (real Chromium + real backend)', () => {
         // to dedicated DB columns) and the raw-snapshot assertions (`api.pullSync`) ARE the
         // contract under test — there is no single in-app UI gesture that emits these exact
         // envelopes, so the transport is driven directly through the real api-client.
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             // Seed atlas + map (initial position so a later mapPosition op is a real change).
             const atlas = await api.createAtlas({ name: 'Map Sub Atlas' });
@@ -110,7 +107,7 @@ describeOrSkip('Map sub-entity updates (real Chromium + real backend)', () => {
                     gridVisible: gridStyle.visible,
                 },
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         expect(result.isSnapshot).toBe(true);
         expect(result.found).toBe(true);
@@ -144,12 +141,8 @@ describeOrSkip('Map sub-entity updates (real Chromium + real backend)', () => {
         // no UI gesture can produce — the app's base-layer switch only ever sends the
         // base_layer field. The transport is driven directly so the backend's per-sub-type
         // whitelist (the thing under test) can be probed.
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Whitelist Atlas' });
             const mapId = crypto.randomUUID();
@@ -183,7 +176,7 @@ describeOrSkip('Map sub-entity updates (real Chromium + real backend)', () => {
                 smuggledName,
                 newBaseLayer,
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         expect(result.found).toBe(true);
         // The intended column DID change.

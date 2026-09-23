@@ -27,6 +27,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -37,15 +38,12 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
  * @param {import('@playwright/test').Page} page
  * @param {Object} cfg
  */
-function conectar(page, cfg) {
-    return page.evaluate(async ({ baseUrl, username, password, atlasId, clientId, observar }) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+async function conectar(page, cfg) {
+    return page.evaluate(async ({ api, atlasId, clientId, observar }) => {
         const { WsClient } = await import('/src/js/store/sync/ws-client.js');
         const { ConnectionState } = await import('/src/js/store/sync/connection-state.js');
         const { PresenceStore } = await import('/src/js/presence/presence-store.js');
 
-        const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-        await api.login(username, password);
         const store = new PresenceStore();
         const presenca = [];
         const ws = new WsClient({
@@ -70,7 +68,7 @@ function conectar(page, cfg) {
         await ws.connect(atlasId);
         window.__presenca = { api, ws, store, presenca };
         return true;
-    }, cfg);
+    }, { ...cfg, api: await clienteNaPagina(page, cfg) });
 }
 
 describeOrSkip('presença: quem fecha a aba não volta à lista (duas browsers, backend real)', () => {
@@ -78,15 +76,12 @@ describeOrSkip('presença: quem fecha a aba não volta à lista (duas browsers, 
         const dono = await createVerifiedUser({ prefix: 'fantasma', nome: 'Fantasma Dono' });
         const seedPage = await browser.newPage();
         await seedPage.goto('/');
-        const seed = await seedPage.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const seed = await seedPage.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
             const atlas = await api.createAtlas({ name: 'Atlas do fantasma' });
             await api.pushOperations(atlas.id, [createOperation('map', 'create', crypto.randomUUID(), null, { name: 'M1' })]);
             return { atlasId: atlas.id };
-        }, { baseUrl: state.baseUrl, u: dono });
+        }, { api: await clienteNaPagina(seedPage, dono) });
         await seedPage.close();
 
         const ctxA = await browser.newContext();

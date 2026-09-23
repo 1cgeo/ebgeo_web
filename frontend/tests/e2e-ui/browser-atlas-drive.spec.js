@@ -9,6 +9,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -20,15 +21,11 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 async function openDrive(page, atlasNames) {
     await page.goto('/');
     const creds = await createVerifiedUser({ prefix: 'drv', nome: 'Drive Tester' });
-    await page.evaluate(async ({ url, names, u }) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-        const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-        await api.login(u.username, u.password);
+    await page.evaluate(async ({ api, names }) => {
         for (const n of names) await api.createAtlas({ name: n });
-    }, { url: state.baseUrl, names: atlasNames, u: creds });
+    }, { api: await clienteNaPagina(page, creds), names: atlasNames });
 
     await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${state.baseUrl}/api/v1`);
-    await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });
     await page.goto('/');
     await page.locator('[data-testid="account-login-btn"]').click();
     await page.locator('[data-testid="login-username"]').fill(creds.username);

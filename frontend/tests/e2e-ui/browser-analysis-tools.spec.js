@@ -39,6 +39,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -52,12 +53,8 @@ describeOrSkip('Analysis tools transport (real Chromium + real backend, §9.1-2)
         // `email_verification_tokens` no Postgres, que o contexto do browser não alcança.
         const user = await createVerifiedUser({ prefix: 'analysis', nome: 'Analysis Tools User' });
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Analysis Atlas' });
             const mapId = crypto.randomUUID();
@@ -170,7 +167,7 @@ describeOrSkip('Analysis tools transport (real Chromium + real backend, §9.1-2)
                 isolation,
                 edge: { bogusOutcome, bogusLanded },
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         // ---- HAPPY PATH (§9.1 LoS + §9.2 Viewshed) ----
         expect(result.hasToken).toBe(true);

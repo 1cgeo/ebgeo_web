@@ -35,6 +35,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -67,12 +68,8 @@ describeOrSkip('Map lock authorization (two real browser clients + real backend)
         await pageA.goto('/');
 
         const owner = await pageA.evaluate(
-            async ({ baseUrl, u, user2Id }) => {
-                const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+            async ({ api, baseUrl, user2Id }) => {
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-                const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-                await api.login(u.username, u.password);
 
                 const atlas = await api.createAtlas({ name: 'Lock Authz Atlas' });
                 const mapId = crypto.randomUUID();
@@ -95,18 +92,15 @@ describeOrSkip('Map lock authorization (two real browser clients + real backend)
                 window.__owner = { api, atlasId: atlas.id, mapId };
                 return { atlasId: atlas.id, mapId, shareStatus: shareRes.status };
             },
-            { baseUrl: state.baseUrl, u: ownerUser, user2Id: user2.id },
+            { api: await clienteNaPagina(pageA, ownerUser), baseUrl: state.baseUrl, user2Id: user2.id },
         );
         // Sharing a user returns 201 Created.
         expect(owner.shareStatus).toBe(201);
 
-        // ---- user2 logs in and confirms WRITE works BEFORE the lock (edge baseline). ----
+        // ---- user2, with its own client, confirms WRITE works BEFORE the lock (edge baseline). ----
         const preLock = await pageB.evaluate(
-            async ({ baseUrl, username, password, atlasId, mapId }) => {
-                const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+            async ({ api, atlasId, mapId }) => {
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-                const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-                await api.login(username, password);
                 window.__user2 = { api, atlasId, mapId };
 
                 const fid = crypto.randomUUID();
@@ -122,13 +116,7 @@ describeOrSkip('Map lock authorization (two real browser clients + real backend)
                     return { ok: false, status: err.status, code: err.code };
                 }
             },
-            {
-                baseUrl: state.baseUrl,
-                username: user2.username,
-                password: user2.password,
-                atlasId: owner.atlasId,
-                mapId: owner.mapId,
-            },
+            { api: await clienteNaPagina(pageB, user2), atlasId: owner.atlasId, mapId: owner.mapId },
         );
         // Baseline: WRITE share is genuinely effective before the map is locked.
         expect(preLock.ok).toBe(true);

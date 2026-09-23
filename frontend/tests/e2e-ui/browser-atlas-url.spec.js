@@ -12,6 +12,7 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { loginUI, goToLocalMapUI, drawPointUI, readFeatures } from './helpers/collab-helpers.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -36,11 +37,8 @@ const currentMapName = (page) =>
  */
 async function seedUserAtlas(page, baseUrl, maps) {
     const user = await createVerifiedUser({ prefix: 'url', nome: 'URL Tester' });
-    return page.evaluate(async ({ base, mapNames, u }) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+    return page.evaluate(async ({ api, mapNames, u }) => {
         const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-        const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-        await api.login(u.username, u.password);
         const atlas = await api.createAtlas({ name: 'URL Atlas' });
         // O mapa que o servidor semeou, pelo `map_order` que ele devolve na criação.
         const [defaultMapId] = Array.isArray(atlas?.map_order) ? atlas.map_order : [];
@@ -54,7 +52,7 @@ async function seedUserAtlas(page, baseUrl, maps) {
         });
         await api.pushOperations(atlas.id, ops);
         return { username: u.username, password: u.password, atlasId: atlas.id, mapIds };
-    }, { base: baseUrl, mapNames: maps, u: user });
+    }, { api: await clienteNaPagina(page, user), mapNames: maps, u: user });
 }
 
 describeOrSkip('Atlas deep link (?atlas=&map=)', () => {
@@ -63,7 +61,6 @@ describeOrSkip('Atlas deep link (?atlas=&map=)', () => {
         const seed = await seedUserAtlas(page, state.baseUrl, ['Mapa Um', 'Mapa Dois']);
 
         await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${state.baseUrl}/api/v1`);
-        await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });
         await page.goto('/');
         await loginUI(page, seed.username, seed.password); // token persisted; picker visible
 
@@ -84,7 +81,6 @@ describeOrSkip('Atlas deep link (?atlas=&map=)', () => {
         const seed = await seedUserAtlas(page, state.baseUrl, ['Servidor']);
 
         await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${state.baseUrl}/api/v1`);
-        await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });
         await page.goto('/');
         await loginUI(page, seed.username, seed.password);
         await goToLocalMapUI(page); // logged in, local store
@@ -132,7 +128,6 @@ describeOrSkip('Atlas deep link (?atlas=&map=)', () => {
         const seed = await seedUserAtlas(page, state.baseUrl, ['Mapa Único']);
 
         await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${state.baseUrl}/api/v1`);
-        await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });
 
         // Anonymous boot WITH the deep link → the boot remembers it and opens the login modal.
         await page.goto(`/?atlas=${seed.atlasId}`);

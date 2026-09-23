@@ -4,6 +4,7 @@ import { test, expect } from '@playwright/test';
 import { Buffer } from 'node:buffer';
 import { readState } from './state.js';
 import { seedSharedAtlas, loginUI, openAtlasUI, drawPointUI } from './helpers/collab-helpers.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 test.beforeAll(() => expect(readState().skip, 'backend de teste obrigatório').toBe(false));
 
@@ -142,12 +143,8 @@ test('local A e B sobrevivem à entrada remota e logout; servidor preserva ponto
         expect((await stored(page, scopeB)).images['same-key-isolation-proof'].bytes).toEqual([...Buffer.from('LOCAL B')]);
         expect(featureIds(await stored(page, remote))).toEqual([]);
         // Independent authenticated client: logging out the UI cannot delete server entities.
-        const afterServer = await page.evaluate(async ({ seed, base }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-            const client = new ApiClient({ baseUrl: base + '/api/v1' });
-            await client.login(seed.userA.username, seed.userA.password);
-            return client.pullSync(seed.atlasId, 0);
-        }, { seed, base: readState().baseUrl });
+        const afterServer = await page.evaluate(async ({ client, atlasId }) => client.pullSync(atlasId, 0),
+            { client: await clienteNaPagina(page, seed.userA), atlasId: seed.atlasId });
         expect(JSON.stringify(afterServer)).toContain(remotePoint);
         await testInfo.attach('isolamento.json', { body: JSON.stringify({ local, scopeB, remote, localPoint: c.localPoint, pointB, remotePoint, serverPreserved: true }), contentType: 'application/json' });
     } finally { await c.context.close(); }

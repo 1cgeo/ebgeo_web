@@ -34,6 +34,7 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
 import { instalarBaseConfirmada } from './helpers/base-confirmada.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -43,12 +44,8 @@ describeOrSkip('Idempotency + base observada (real Chromium + real backend)', ()
         const user = await createVerifiedUser({ prefix: 'idem', nome: 'Idempotency User' });
         await page.goto('/');
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Idempotency Atlas' });
             const mapId = crypto.randomUUID();
@@ -78,7 +75,7 @@ describeOrSkip('Idempotency + base observada (real Chromium + real backend)', ()
                 version1: res1.serverVersion,
                 version2: res2.serverVersion,
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         // The duplicate push must NOT create a second feature row.
         expect(result.isSnapshot).toBe(true);
@@ -93,12 +90,8 @@ describeOrSkip('Idempotency + base observada (real Chromium + real backend)', ()
         await page.goto('/');
         await instalarBaseConfirmada(page);
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'LWW Atlas' });
             const mapId = crypto.randomUUID();
@@ -161,7 +154,7 @@ describeOrSkip('Idempotency + base observada (real Chromium + real backend)', ()
                 firstTimestamp: opFirst.timestamp,
                 secondTimestamp: opReaplicada.timestamp,
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         // A primeira edição, contra a base que observou, é aceita.
         expect(result.firstOk).toBe(true);

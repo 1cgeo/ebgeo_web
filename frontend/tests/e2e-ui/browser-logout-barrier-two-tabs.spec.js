@@ -80,6 +80,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 import { loginUI, drawPointUI, currentMapName } from './helpers/collab-helpers.js';
 import {
     createTabContext,
@@ -219,12 +220,9 @@ async function semearUsuarioComAtlas(browser, baseUrl, nomes) {
     const user = await createVerifiedUser({ prefix: 'barreira', nome: 'Barreira de Saída' });
     const page = await browser.newPage();
     await page.goto('/');
-    const seed = await page.evaluate(async ({ base, names, u }) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+    const seed = await page.evaluate(async ({ api, names, u }) => {
         const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-        const api = new ApiClient({ baseUrl: `${base}/api/v1` });
         const { username, password } = u;
-        await api.login(username, password);
         const atlases = [];
         for (const name of names) {
             const atlas = await api.createAtlas({ name });
@@ -235,7 +233,7 @@ async function semearUsuarioComAtlas(browser, baseUrl, nomes) {
             atlases.push({ id: atlas.id, name, mapId, mapName });
         }
         return { username, password, atlases };
-    }, { base: baseUrl, names: nomes, u: user });
+    }, { api: await clienteNaPagina(page, user), names: nomes, u: user });
     await page.close();
     return seed;
 }

@@ -5,6 +5,7 @@ import { Buffer } from 'node:buffer';
 import JSZip from 'jszip';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { sessaoDoApp } from './helpers/cliente-de-teste.js';
 
 test.describe.configure({ retries: 0 });
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==', 'base64');
@@ -33,13 +34,18 @@ async function setup(page) {
     expect(state.skip, 'This audit requires the real disposable backend').toBeFalsy();
     const user = await createVerifiedUser({ prefix: 'migration', nome: 'Migration Audit' });
     await page.route('**/__migration_audit', route => route.fulfill({ contentType: 'text/html', body: '<title>Migration audit</title>' }));
-    await page.goto('/__migration_audit');
-    await page.evaluate(async ({ username, password }) => {
+    // THE SESSION IS PERSISTED ON PURPOSE, and it is the one deliberate write (`sessaoDoApp`): two
+    // cases read it back after a navigation (the retry reloads and calls `loadStoredTokens`, and the
+    // chooser case needs the signed-in `atlas.html`). The real `login()` happens on a page that
+    // boots nothing, and only then this blank audit page opens; the client below takes the pair
+    // from disk, which is what the retry case does too.
+    await sessaoDoApp(page, user, '/__migration_audit');
+    await page.evaluate(async () => {
         const { ApiClient } = await import('/src/js/store/sync/api-client.js');
         window.auditApi = new ApiClient({ baseUrl: '/api/v1' });
-        await window.auditApi.login(username, password);
+        window.auditApi.loadStoredTokens();
         window.auditImport = (await import('/src/js/projects/import-ebgeo.service.js')).importEbgeoAsAtlas;
-    }, { baseUrl: state.baseUrl, username: user.username, password: user.password });
+    });
 }
 
 test('masked v1 import twice preserves images, legacy fields and references on the real server', async ({ page }) => {

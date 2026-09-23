@@ -19,6 +19,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -32,14 +33,10 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
  * @param {{ baseUrl: string, username: string, password: string, atlasId: string, clientId: string }} cfg
  * @returns {Promise<{ sessionUserId: string, usersOnline: Array<Object> }>}
  */
-function connectClient(page, cfg) {
-    return page.evaluate(async ({ baseUrl, username, password, atlasId, clientId }) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+async function connectClient(page, cfg) {
+    return page.evaluate(async ({ api, atlasId, clientId }) => {
         const { WsClient } = await import('/src/js/store/sync/ws-client.js');
         const { ConnectionState } = await import('/src/js/store/sync/connection-state.js');
-
-        const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-        await api.login(username, password);
 
         const cursors = [];
         const presence = [];
@@ -67,7 +64,7 @@ function connectClient(page, cfg) {
             sessionUserId: connected.userId,
             usersOnline: Array.isArray(connected.usersOnline) ? connected.usersOnline : [],
         };
-    }, cfg);
+    }, { ...cfg, api: await clienteNaPagina(page, cfg) });
 }
 
 /**
@@ -125,19 +122,15 @@ describeOrSkip('Presence/awareness (two real browser clients + real backend)', (
         const owner = await createVerifiedUser({ prefix: 'presence', nome: 'Presence User' });
         const seedPage = await browser.newPage();
         await seedPage.goto('/atlas.html');
-        const seed = await seedPage.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const seed = await seedPage.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Presence Atlas' });
             const mapId = crypto.randomUUID();
             await api.pushOperations(atlas.id, [createOperation('map', 'create', mapId, null, { name: 'M1' })]);
 
             return { atlasId: atlas.id, mapId };
-        }, { baseUrl: state.baseUrl, u: owner });
+        }, { api: await clienteNaPagina(seedPage, owner) });
         await seedPage.close();
 
         // 2. Two independent browser contexts → two pages, each pointed at the backend.
@@ -231,18 +224,14 @@ describeOrSkip('Presence/awareness (two real browser clients + real backend)', (
         const owner = await createVerifiedUser({ prefix: 'presence', nome: 'Presence User' });
         const seedPage = await browser.newPage();
         await seedPage.goto('/atlas.html');
-        const seed = await seedPage.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const seed = await seedPage.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Presence Atlas 2' });
             const mapId = crypto.randomUUID();
             await api.pushOperations(atlas.id, [createOperation('map', 'create', mapId, null, { name: 'Mapa Tático' })]);
             return { atlasId: atlas.id, mapId, mapName: 'Mapa Tático' };
-        }, { baseUrl: state.baseUrl, u: owner });
+        }, { api: await clienteNaPagina(seedPage, owner) });
         await seedPage.close();
 
         const ctxA = await browser.newContext();

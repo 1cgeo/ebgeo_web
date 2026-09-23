@@ -25,6 +25,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -43,12 +44,8 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 async function seedAtlasAndMap(page, baseUrl, tag) {
     const user = await createVerifiedUser({ prefix: tag, nome: 'Catalog E2E' });
     return page.evaluate(
-        async ({ baseUrl, tag, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        async ({ api, tag }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: `${tag} Atlas` });
             const mapId = crypto.randomUUID();
@@ -57,7 +54,7 @@ async function seedAtlasAndMap(page, baseUrl, tag) {
             window.__cat = { api };
             return { atlasId: atlas.id, mapId };
         },
-        { baseUrl, tag, u: user },
+        { api: await clienteNaPagina(page, user), tag },
     );
 }
 
@@ -261,16 +258,13 @@ describeOrSkip('Browser catalogLayer (per-layer) sync (real Chromium + real back
         const victim = await seedAtlasAndMap(page, state.baseUrl, 'catidor_v');
 
         const attacker = await createVerifiedUser({ prefix: 'catidor_a', nome: 'Other' });
-        const foreignMapId = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const foreignMapId = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
             const atlas = await api.createAtlas({ name: 'Other Atlas' });
             const mapId = crypto.randomUUID();
             await api.pushOperations(atlas.id, [createOperation('map', 'create', mapId, null, { name: 'Foreign' })]);
             return mapId;
-        }, { baseUrl: state.baseUrl, u: attacker });
+        }, { api: await clienteNaPagina(page, attacker) });
 
         // no-UI: a cross-atlas IDOR security test. Pushing a `catalogLayer` create whose
         // mapId belongs to ANOTHER atlas (on the victim's own atlas route) is a hand-crafted

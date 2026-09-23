@@ -25,6 +25,7 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
 import { FEATURE_TYPE_MAPPINGS } from '../../src/js/store/store.constants.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -55,12 +56,8 @@ describeOrSkip('Feature types (every one, real Chromium + real backend)', () => 
         const user = await createVerifiedUser({ prefix: 'ftypes', nome: 'Feature Types' });
 
         const result = await page.evaluate(
-            async ({ baseUrl, typeToBucket, u }) => {
-                const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+            async ({ api, typeToBucket }) => {
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-                const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-                await api.login(u.username, u.password);
 
                 const atlas = await api.createAtlas({ name: 'Feature Types Atlas' });
                 const mapId = crypto.randomUUID();
@@ -150,7 +147,7 @@ describeOrSkip('Feature types (every one, real Chromium + real backend)', () => 
                     unknownOutcome,
                 };
             },
-            { baseUrl: state.baseUrl, typeToBucket: TYPE_TO_BUCKET, u: user },
+            { api: await clienteNaPagina(page, user), typeToBucket: TYPE_TO_BUCKET },
         );
 
         // Sanity: we got a snapshot and the map we created.

@@ -101,6 +101,7 @@ import {
     expectDeterministico,
     expectTempoPelaMediana,
 } from './helpers/peso-de-boot.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -311,22 +312,15 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
         await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${state.baseUrl}/api/v1`);
 
         // Dois atlas de servidor, semeados pelo transporte real dentro da pagina (o mesmo caminho
-        // de `aparencia-atravessa-trocas-de-atlas.spec.js`). `clearTokens` no fim porque a
-        // primeira metade do caso e anonima: com sessao viva, a URL nua manda para o seletor.
-        //
-        // A SEMEADURA RODA NO SELETOR, e nao em `/`, pela mesma razao: o login abaixo grava o token
-        // que o boot desta pagina le, e o boot do mapa que chega a Fase -1 depois dele navega para
-        // o seletor no meio da semeadura, matando o pedido em voo (`TypeError: Failed to fetch`;
-        // corrida medida em `helpers/collab-helpers.js`, `seedSharedAtlas`, em 2026-09-23).
+        // de `aparencia-atravessa-trocas-de-atlas.spec.js`), por um cliente que NAO grava sessao
+        // (`clienteNaPagina`): a primeira metade do caso e anonima, e com sessao viva a URL nua
+        // mandaria para o seletor. A semeadura roda no seletor por historia; com o cliente de
+        // memoria, qualquer pagina do app serve.
         await page.goto(PROJETOS);
-        await page.evaluate(async ({ base, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-            const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-            await api.login(u.username, u.password);
+        await page.evaluate(async ({ api }) => {
             await api.createAtlas({ name: 'AAA Servidor um' });
             await api.createAtlas({ name: 'ZZZ Servidor dois' });
-            api.clearTokens();
-        }, { base: state.baseUrl, u: creds });
+        }, { api: await clienteNaPagina(page, creds) });
 
         /** Entra pela UI e para no seletor de projetos, com os cartoes ja desenhados. */
         const entrar = async () => {

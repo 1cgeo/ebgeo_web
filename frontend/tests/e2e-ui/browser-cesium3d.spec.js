@@ -39,6 +39,7 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
 import { seedTileset } from './helpers/catalog-seed.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -47,7 +48,8 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
  * Seeds a fresh atlas + map for a VERIFIED user and returns a handle stashed on
  * `window.__c3d` (so later `page.evaluate` calls can reuse the same ApiClient), plus
  * the ids the Node side needs. The ACCOUNT is created on the Node side by
- * `createVerifiedUser` (confirming the e-mail needs Postgres); the page only logs in.
+ * `createVerifiedUser` (confirming the e-mail needs Postgres); the page gets a ready client
+ * (`clienteNaPagina`, token in memory only).
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} baseUrl - backend origin (without the `/api/v1` suffix)
@@ -57,12 +59,8 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 async function seed(page, baseUrl, prefix) {
     const user = await createVerifiedUser({ prefix, nome: 'Cesium3D E2E' });
     return page.evaluate(
-        async ({ baseUrl: url, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Cesium3D Atlas' });
             const mapId = crypto.randomUUID();
@@ -71,7 +69,7 @@ async function seed(page, baseUrl, prefix) {
             window.__c3d = { api, createOperation };
             return { atlasId: atlas.id, mapId };
         },
-        { baseUrl, u: user },
+        { api: await clienteNaPagina(page, user) },
     );
 }
 

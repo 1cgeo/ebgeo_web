@@ -22,12 +22,14 @@
  *
  * As contas, porém, nascem no NODE (`helpers/accounts.js`): o cadastro exige e-mail e o
  * token que o confirma só existe como linha no Postgres, que o contexto do browser não
- * alcança. Aqui dentro sobra o `login()`, que é o que estes specs exercitam.
+ * alcança. Aqui dentro cada conta chega com o seu cliente (`clienteNaPagina`, token só em
+ * memória), e o visitante do link público usa o token efêmero, como o produto.
  */
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -43,21 +45,18 @@ describeOrSkip('Sharing + public link access control (real Chromium + real backe
         await page.goto('/');
 
         const result = await page.evaluate(
-            async ({ baseUrl, creds }) => {
-                const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+            async ({ baseUrl, creds, clientes }) => {
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
                 const apiBase = `${baseUrl}/api/v1`;
 
-                /** Logs in an already-verified user, returning a ready ApiClient and the user record. */
-                const newClient = async (c) => {
-                    const api = new ApiClient({ baseUrl: apiBase });
-                    // login() is where the user record comes from: register() returns no account
-                    // data on purpose (anti-enumeration: same answer whether it created the
-                    // account or found one).
-                    const user = await api.login(c.username, c.password);
-                    return { api, user };
-                };
+                /**
+                 * The ready ApiClient of an already-verified user (`clienteNaPagina`, token in
+                 * memory only) + the user record. The id comes from `createVerifiedUser`, which
+                 * reads it from ITS login: register() returns no account data on purpose
+                 * (anti-enumeration: same answer whether it created the account or found one).
+                 */
+                const newClient = async (c) => ({ api: clientes[c.username], user: { id: c.id } });
 
                 /** Pushes one feature op and returns { status, ok } (status 0 on success). */
                 const tryPushFeature = async (api, atlasId, mapId) => {
@@ -132,6 +131,11 @@ describeOrSkip('Sharing + public link access control (real Chromium + real backe
             {
                 baseUrl: state.baseUrl,
                 creds: { owner: ownerCreds, user2: user2Creds, stranger: strangerCreds },
+                clientes: {
+                    [ownerCreds.username]: await clienteNaPagina(page, ownerCreds),
+                    [user2Creds.username]: await clienteNaPagina(page, user2Creds),
+                    [strangerCreds.username]: await clienteNaPagina(page, strangerCreds),
+                },
             },
         );
 
@@ -161,16 +165,13 @@ describeOrSkip('Sharing + public link access control (real Chromium + real backe
         await page.goto('/');
 
         const result = await page.evaluate(
-            async ({ baseUrl, u }) => {
+            async ({ owner, baseUrl }) => {
                 const { ApiClient } = await import('/src/js/store/sync/api-client.js');
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
                 const apiBase = `${baseUrl}/api/v1`;
 
                 // --- Seed owner + atlas + map + one feature (so the public pull has content). ---
-                const owner = new ApiClient({ baseUrl: apiBase });
-                await owner.login(u.username, u.password);
-
                 const atlas = await owner.createAtlas({ name: 'Public Atlas' });
                 const mapId = crypto.randomUUID();
                 await owner.pushOperations(atlas.id, [
@@ -204,8 +205,10 @@ describeOrSkip('Sharing + public link access control (real Chromium + real backe
                 const resolvedAtlasId = lookupBody?.data?.id;
 
                 // Visitor uses a SEPARATE client carrying ONLY the read-only public token.
+                // EPHEMERAL, exactly as the product holds a public-link token (`setEphemeralToken`):
+                // `setTokens` would persist it as the page's session.
                 const visitor = new ApiClient({ baseUrl: apiBase });
-                visitor.setTokens({ accessToken: publicToken });
+                visitor.setEphemeralToken(publicToken);
 
                 // PULL with the public token must succeed and expose the seeded feature.
                 let pullOk = false;
@@ -261,7 +264,7 @@ describeOrSkip('Sharing + public link access control (real Chromium + real backe
                     intruderAbsent,
                 };
             },
-            { baseUrl: state.baseUrl, u: ownerCreds },
+            { owner: await clienteNaPagina(page, ownerCreds), baseUrl: state.baseUrl },
         );
 
         // (negative edge) unknown public link → 404.

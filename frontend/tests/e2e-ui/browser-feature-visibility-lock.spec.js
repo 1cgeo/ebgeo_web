@@ -49,6 +49,7 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
 import { instalarBaseConfirmada } from './helpers/base-confirmada.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -57,18 +58,14 @@ describeOrSkip('Feature visibility/lock (real Chromium + real backend, transport
     test('toggle visivel/bloqueado on a feature → flags persist in pullSync snapshot', async ({
         page,
     }) => {
-        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        // Transport-only: a página não precisa do mapa (o cliente do teste não grava sessão).
         await page.goto('/atlas.html');
         await instalarBaseConfirmada(page);
 
         const user = await createVerifiedUser({ prefix: 'vislock', nome: 'VisLock User' });
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'VisLock Atlas' });
             const mapId = crypto.randomUUID();
@@ -140,7 +137,7 @@ describeOrSkip('Feature visibility/lock (real Chromium + real backend, transport
                     bloqueado: afterLock?.properties.bloqueado,
                 },
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         expect(result.hasToken).toBe(true);
         // As duas edições foram aceitas: uma recusa por base deixaria as flags antigas na
@@ -166,18 +163,14 @@ describeOrSkip('Feature visibility/lock (real Chromium + real backend, transport
     test('§2.13 batch visibility: one push hides three features; update em id inexistente é recusado nomeando o motivo', async ({
         page,
     }) => {
-        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        // Transport-only: a página não precisa do mapa (o cliente do teste não grava sessão).
         await page.goto('/atlas.html');
         await instalarBaseConfirmada(page);
 
         const user = await createVerifiedUser({ prefix: 'visbatch', nome: 'VisBatch User' });
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'VisBatch Atlas' });
             const mapId = crypto.randomUUID();
@@ -251,7 +244,7 @@ describeOrSkip('Feature visibility/lock (real Chromium + real backend, transport
                 },
                 ghostConjured,
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         // ---- batch precondition: all three created and visible ----
         expect(result.createdCount).toBe(3);

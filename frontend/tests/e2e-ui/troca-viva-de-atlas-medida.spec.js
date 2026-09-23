@@ -72,6 +72,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina, sessaoDoApp } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -138,11 +139,8 @@ describeOrSkip('a troca de atlas ao vivo contra a troca por recarga', () => {
 
         const creds = await createVerifiedUser({ prefix: 'medida', nome: 'Medida' });
         await page.goto('/');
-        const semente = await page.evaluate(async ({ base, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const semente = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-            const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-            await api.login(u.username, u.password);
             const feito = {};
             for (const [rotulo, nomeAtlas, nomeMapa] of [
                 ['a', 'Atlas A da medida', 'MAPA-A'],
@@ -161,11 +159,13 @@ describeOrSkip('a troca de atlas ao vivo contra a troca por recarga', () => {
                 feito[rotulo] = { atlasId: atlas.id, mapId, mapa: nomeMapa };
             }
             return feito;
-        }, { base: state.baseUrl, u: creds });
+        }, { api: await clienteNaPagina(page, creds) });
 
         // A CARGA INICIAL NAO ENTRA NA CONTA. Ela paga o cache frio do Vite (cada modulo servido
-        // uma vez), que nao e nem a recarga nem a troca ao vivo.
-        await page.goto(`/?atlas=${semente.a.atlasId}`);
+        // uma vez), que nao e nem a recarga nem a troca ao vivo. E ela e a que entra LOGADA: a
+        // semeadura acima nao grava sessao (`clienteNaPagina`), e `sessaoDoApp` faz o login real
+        // numa pagina que nao boota antes de abrir o atlas. As recargas seguintes herdam a sessao.
+        await sessaoDoApp(page, creds, `/?atlas=${semente.a.atlasId}`);
         await esperarAtlasPronto(page, semente.a.atlasId, semente.a.mapId);
         // E o gancho de medicao existe: sem ele, a metade "ao vivo" nao teria como ser exercitada.
         expect(await page.evaluate(() => typeof globalThis.__ebgeoSwitchAtlas)).toBe('function');

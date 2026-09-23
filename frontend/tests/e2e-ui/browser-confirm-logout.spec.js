@@ -3,6 +3,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { seedSharedAtlas, loginUI, openAtlasUI, drawPointUI } from './helpers/collab-helpers.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 test.beforeAll(() => expect(state.skip, 'backend de teste obrigatório').toBe(false));
@@ -109,7 +110,7 @@ for (const fromLocal of [false, true]) {
     test(`cancelar e confirmar descarte, atlas ${fromLocal ? 'local' : 'remoto'} montado`, async ({ browser }, testInfo) => {
         const c = await prepare(browser);
         try {
-            const { page, remote, local, before, seed, state } = c;
+            const { page, remote, local, before, seed } = c;
             const point = await pendingPoint(page);
             const pending = await stored(page, remote);
             if (fromLocal) await switchLocal(page, local.atlasId);
@@ -142,12 +143,9 @@ for (const fromLocal of [false, true]) {
             const localAfter = await stored(page, local);
             expect(featureIds(localAfter)).toEqual(featureIds(before));
             expect(localAfter.images).toEqual(before.images);
-            const server = await page.evaluate(async ({ base, user, atlasId }) => {
-                const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-                const client = new ApiClient({ baseUrl: base + '/api/v1' });
-                await client.login(user.username, user.password);
+            const server = await page.evaluate(async ({ client, atlasId }) => {
                 return client.pullSync(atlasId, 0);
-            }, { base: state.baseUrl, user: seed.userA, atlasId: seed.atlasId });
+            }, { client: await clienteNaPagina(page, seed.userA), atlasId: seed.atlasId });
             expect(JSON.stringify(server)).not.toContain(point);
             await page.unroute('**/api/v1/atlas/*/sync');
             await loginUI(page, seed.userA.username, seed.userA.password);

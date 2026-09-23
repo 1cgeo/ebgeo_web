@@ -18,6 +18,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -27,12 +28,8 @@ describeOrSkip('Browser ↔ backend integration (real Chromium + real backend)',
         const user = await createVerifiedUser({ prefix: 'ui', nome: 'UI E2E' });
         await page.goto('/');
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'UI Atlas' });
             const mapId = crypto.randomUUID();
@@ -54,7 +51,7 @@ describeOrSkip('Browser ↔ backend integration (real Chromium + real backend)',
                 isSnapshot: pulled.isSnapshot,
                 found: points.some((p) => p.properties.id === featureId),
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         expect(result.hasToken).toBe(true);
         expect(result.isSnapshot).toBe(true);
@@ -65,14 +62,10 @@ describeOrSkip('Browser ↔ backend integration (real Chromium + real backend)',
         const user = await createVerifiedUser({ prefix: 'uiws', nome: 'UI WS' });
         await page.goto('/');
 
-        const received = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const received = await page.evaluate(async ({ api }) => {
             const { WsClient } = await import('/src/js/store/sync/ws-client.js');
             const { ConnectionState } = await import('/src/js/store/sync/connection-state.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'UI WS Atlas' });
             const mapId = crypto.randomUUID();
@@ -103,7 +96,7 @@ describeOrSkip('Browser ↔ backend integration (real Chromium + real backend)',
             }
             ws.disconnect();
             return { sawFeature: gotOps.some((o) => o.entityId === featureId), total: gotOps.length };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         expect(received.sawFeature).toBe(true);
     });

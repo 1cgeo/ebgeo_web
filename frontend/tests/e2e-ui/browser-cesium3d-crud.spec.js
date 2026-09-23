@@ -51,6 +51,7 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
 import { seedTileset } from './helpers/catalog-seed.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -59,7 +60,7 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
  * Seeds a fresh atlas + map for a VERIFIED user and stashes the live ApiClient +
  * factory on `window.__c3dCrud` so later `page.evaluate` calls reuse them. The ACCOUNT
  * is created on the Node side by `createVerifiedUser` (confirming the e-mail needs
- * Postgres); the page only logs in.
+ * Postgres); the page gets a ready client (`clienteNaPagina`, token in memory only).
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} baseUrl - backend origin (without the `/api/v1` suffix)
@@ -69,12 +70,8 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 async function seed(page, baseUrl, prefix) {
     const user = await createVerifiedUser({ prefix, nome: 'Cesium3D CRUD E2E' });
     return page.evaluate(
-        async ({ baseUrl: url, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Cesium3D CRUD Atlas' });
             const mapId = crypto.randomUUID();
@@ -83,13 +80,13 @@ async function seed(page, baseUrl, prefix) {
             window.__c3dCrud = { api, createOperation };
             return { atlasId: atlas.id, mapId };
         },
-        { baseUrl, u: user },
+        { api: await clienteNaPagina(page, user) },
     );
 }
 
 describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', () => {
     test('marker3d update (name/desc/style) + temporal validity, then delete', async ({ page }) => {
-        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        // Transport-only: a página não precisa do mapa (o cliente do teste não grava sessão).
         await page.goto('/atlas.html');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_marker_crud');
 
@@ -180,7 +177,7 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
     });
 
     test('measurement3d create then delete vanishes from measurements bucket', async ({ page }) => {
-        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        // Transport-only: a página não precisa do mapa (o cliente do teste não grava sessão).
         await page.goto('/atlas.html');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_measure_crud');
 
@@ -231,7 +228,7 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
     });
 
     test('viewshed3d create + config update (height/radius/angles) + delete', async ({ page }) => {
-        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        // Transport-only: a página não precisa do mapa (o cliente do teste não grava sessão).
         await page.goto('/atlas.html');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_viewshed_crud');
 
@@ -309,7 +306,7 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
     });
 
     test('cameraPosition3d save (keyed by tilesetId) then clear removes the key', async ({ page }) => {
-        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        // Transport-only: a página não precisa do mapa (o cliente do teste não grava sessão).
         await page.goto('/atlas.html');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_camera_crud');
 
@@ -371,7 +368,7 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
     });
 
     test('IDOR: marker3d update with a FOREIGN atlas mapId does not mutate the foreign entity', async ({ page }) => {
-        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        // Transport-only: a página não precisa do mapa (o cliente do teste não grava sessão).
         await page.goto('/atlas.html');
         // Two independent owners, each with their own atlas + map.
         const victim = await seed(page, state.baseUrl, 'c3d_idor_victim');
@@ -379,8 +376,7 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
 
         const victimTileset = await seedTileset(state.dbName, { esperarCatalogo: false });
         const result = await page.evaluate(
-            async ({ victimAtlasId, victimMapId, baseUrl: url, u, victimTileset }) => {
-                const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+            async ({ attackerApi, victimAtlasId, victimMapId, victimTileset }) => {
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
                 // no-UI: this is a cross-atlas IDOR probe — both the victim's viewer-only
@@ -397,9 +393,7 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
                     }),
                 ]);
 
-                // A separate attacker logs in and creates their OWN atlas.
-                const attackerApi = new ApiClient({ baseUrl: `${url}/api/v1` });
-                await attackerApi.login(u.username, u.password);
+                // A separate attacker, with its own client, creates their OWN atlas.
                 const attackerAtlas = await attackerApi.createAtlas({ name: 'Attacker Atlas' });
 
                 // The attacker pushes (to THEIR atlas) an update for the SAME markerId but
@@ -419,7 +413,7 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
                 const marker = (map?.cesium3d?.markers || []).find((m) => m.id === markerId) || null;
                 return { name: marker?.properties?.name, present: Boolean(marker) };
             },
-            { victimAtlasId: victim.atlasId, victimMapId: victim.mapId, baseUrl: state.baseUrl, u: attacker, victimTileset },
+            { attackerApi: await clienteNaPagina(page, attacker), victimAtlasId: victim.atlasId, victimMapId: victim.mapId, victimTileset },
         );
 
         // The victim's marker is untouched: still present, name NOT overwritten.

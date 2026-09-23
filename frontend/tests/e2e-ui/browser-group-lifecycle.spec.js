@@ -28,6 +28,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { seedSharedAtlas, openClient, drawPointUI, drawLineUI } from './helpers/collab-helpers.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -124,11 +125,8 @@ describeOrSkip('Group lifecycle (real Chromium + real backend, UI-first gestures
             // server contract, so this self-seeds its OWN group + real member + a real link
             // via the API, then probes the ghost link — all observed through pullSync. (It is
             // self-contained on purpose, so it never races the UI group's async membership sync.)
-            const edgeGhost = await page.evaluate(async ({ base, c, atlasId, mapName }) => {
-                const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+            const edgeGhost = await page.evaluate(async ({ api, atlasId, mapName }) => {
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-                const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-                await api.login(c.username, c.password);
                 const snap = await api.pullSync(atlasId, 0);
                 const mapId = (snap.snapshot?.maps || []).find((m) => m.name === mapName)?.id;
 
@@ -177,7 +175,7 @@ describeOrSkip('Group lifecycle (real Chromium + real backend, UI-first gestures
                     ghostPresent: (group?.features || []).some((f) => f.id === ghostId),
                     realPresent: (group?.features || []).some((f) => f.id === realFeatureId),
                 };
-            }, { base: state.baseUrl, c: seed.userA, atlasId: seed.atlasId, mapName: seed.mapName });
+            }, { api: await clienteNaPagina(page, seed.userA), atlasId: seed.atlasId, mapName: seed.mapName });
 
             // ---- §2.26 visibility + §2.27 lock + §14.4 combine style (group update) ----
             // Through the app's real group-property store op (the toggles + combine menu).

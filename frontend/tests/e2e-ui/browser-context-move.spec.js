@@ -25,6 +25,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { seedSharedAtlas, openClient, drawPointUI, currentMapName } from './helpers/collab-helpers.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -171,11 +172,8 @@ describeOrSkip('Feature context move (real Chromium + real backend, UI-first ges
             // pure server contract, observed via a raw pushOperations + pullSync round-trip.
             // The probe self-seeds its own server-side feature + atlases so it does not
             // depend on the local-map relocation above having reached the server.
-            const edge = await page.evaluate(async ({ base, c, atlasId, mapName }) => {
-                const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+            const edge = await page.evaluate(async ({ api, atlasId, mapName }) => {
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-                const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-                await api.login(c.username, c.password);
 
                 // The home map (the shared atlas map) + a fresh server-side victim feature.
                 const homeSnap = await api.pullSync(atlasId, 0);
@@ -215,7 +213,7 @@ describeOrSkip('Feature context move (real Chromium + real backend, UI-first ges
                 const stillHome = (afterSnap.snapshot?.maps || []).some((m) =>
                     (m.features?.points || []).some((f) => f.properties.id === victimId));
                 return { crossThrew, crossStatus, leakedToOther, stillHome };
-            }, { base: state.baseUrl, c: seed.userA, atlasId: seed.atlasId, mapName: seed.mapName });
+            }, { api: await clienteNaPagina(page, seed.userA), atlasId: seed.atlasId, mapName: seed.mapName });
 
             // ---- preconditions: seed landed as expected ----
             expect(initial.featureOnSource).toBe(true);

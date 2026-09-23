@@ -39,6 +39,7 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
 import { instalarBaseConfirmada } from './helpers/base-confirmada.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -52,12 +53,8 @@ describeOrSkip('Feature style-panel edits (real Chromium + real backend, transpo
 
         const user = await createVerifiedUser({ prefix: 'fpe_pt', nome: 'Feature Panel Owner' });
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Feature Panel Atlas' });
             const mapId = crypto.randomUUID();
@@ -163,7 +160,7 @@ describeOrSkip('Feature style-panel edits (real Chromium + real backend, transpo
                 restyledTotal: afterRestyle.total,
                 restyledWithId: afterRestyle.withId,
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         expect(result.hasToken).toBe(true);
         // As duas edições foram ACEITAS. Uma recusa por base deixaria o estilo antigo na
@@ -225,12 +222,8 @@ describeOrSkip('Feature style-panel edits (real Chromium + real backend, transpo
 
         const user = await createVerifiedUser({ prefix: 'fpe_pg', nome: 'Feature Panel Polygon' });
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Feature Panel Polygon Atlas' });
             const mapId = crypto.randomUUID();
@@ -311,7 +304,7 @@ describeOrSkip('Feature style-panel edits (real Chromium + real backend, transpo
                 rehatchedTotal: rehatched.total,
                 rehatchedWithId: rehatched.withId,
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         expect(result.acks.map((a) => a.success), JSON.stringify(result.acks)).toEqual([true, true]);
         expect(result.inPolygons).toBe(true);

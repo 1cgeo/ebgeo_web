@@ -23,12 +23,15 @@
  * porém, não nasce dentro do browser: ela vem pronta de `helpers/accounts.js`, no lado Node,
  * porque confirmar o e-mail exige ler `email_verification_tokens` no Postgres, que o contexto
  * do browser não alcança. O `page.evaluate` faz só o `login()` — que é justamente o elo que
- * este spec mede, junto do `refresh()`.
+ * este spec mede, junto do `refresh()`, e por isso numa página que já bootou e não navega por
+ * sessão (`atlas.html`). O caso de config usa o cliente autenticado de
+ * `helpers/cliente-de-teste.js`, que não grava sessão.
  */
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -38,7 +41,16 @@ describeOrSkip('Auth + config contracts (real Chromium + real backend, transport
         page,
     }) => {
         const account = await createVerifiedUser({ prefix: 'auth', nome: 'Auth E2E' });
-        await page.goto('/');
+        // `atlas.html` JÁ BOOTADA, e não `/`: aqui o `login()` e o `refresh()` REAIS são o sujeito, e
+        // os dois gravam a sessão (`ebgeo_auth`). Numa página do mapa ainda bootando, a Fase -1
+        // leria essa chave e navegaria para `atlas.html` no meio do caso; `atlas.html` não navega por
+        // sessão, e a espera abaixo garante que a restauração dela já rodou antes da primeira escrita.
+        // Não é a página de protocolo de `helpers/cliente-de-teste.js` porque o caso mede o pedido
+        // CRUZADO, direto à porta do backend, e um documento sintético não sai como loopback no
+        // Chromium (medido em 2026-09-23: o caso reprovou em 0,7 s lá). É a exceção declarada em
+        // `tests/unit/login-programatico-so-pelo-helper.test.js`.
+        await page.goto('/atlas.html');
+        await expect(page.locator('[data-testid="local-atlas-section"]')).toBeVisible({ timeout: 30000 });
 
         const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient, ApiError } = await import('/src/js/store/sync/api-client.js');
@@ -102,7 +114,7 @@ describeOrSkip('Auth + config contracts (real Chromium + real backend, transport
         const account = await createVerifiedUser({ prefix: 'cfg', nome: 'Config E2E' });
         await page.goto('/');
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
+        const result = await page.evaluate(async ({ authed, baseUrl }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
 
             // 1. ANONYMOUS client: no token at all.
@@ -116,8 +128,6 @@ describeOrSkip('Auth + config contracts (real Chromium + real backend, transport
 
             // 2. AUTHED client: register + login, then fetch the same config. The
             //    public config shape must be identical regardless of auth.
-            const authed = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await authed.login(u.username, u.password);
             const cfgAuthed = await authed.getConfig();
 
             return {
@@ -137,7 +147,7 @@ describeOrSkip('Auth + config contracts (real Chromium + real backend, transport
                     JSON.stringify(Object.keys(cfgAuthed || {}).sort()),
                 appTitleMatches: Boolean(cfg && cfgAuthed && cfg.app.title === cfgAuthed.app.title),
             };
-        }, { baseUrl: state.baseUrl, u: account });
+        }, { authed: await clienteNaPagina(page, account), baseUrl: state.baseUrl });
 
         expect(result.isBareObject).toBe(true);
         expect(result.wasAnonymous).toBe(true);

@@ -17,6 +17,7 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { loginUI, goToLocalMapUI, openClient, drawPointUI, drawPolygonUI } from './helpers/collab-helpers.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 /**
  * Enables the per-map temporal config through the REAL Maps-tab clock toggle
@@ -135,17 +136,14 @@ describeOrSkip('P11 round-trip fidelity (.ebgeo -> server -> .ebgeo, two users)'
         expect(atlasId).toBeTruthy();
 
         // A shares the atlas WRITE with B (owner-only route, via A's session).
-        const shareStatus = await pageA.evaluate(async ({ base, c, id, uid }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-            const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-            await api.login(c.username, c.password);
+        const shareStatus = await pageA.evaluate(async ({ api, base, id, uid }) => {
             const res = await fetch(`${base}/api/v1/atlas/${id}/sharing/users`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${api.getAccessToken()}` },
                 body: JSON.stringify({ userId: uid, permission: 'write' }),
             });
             return res.status;
-        }, { base: state.baseUrl, c: users.a, id: atlasId, uid: users.b.id });
+        }, { api: await clienteNaPagina(pageA, users.a), base: state.baseUrl, id: atlasId, uid: users.b.id });
         // Sharing a user returns 201 Created. Asserting it HERE is what turns an authz/validation
         // failure into a one-line diagnosis instead of a UI timeout inside openClient below.
         expect(shareStatus, 'A shared the atlas WRITE with B').toBe(201);

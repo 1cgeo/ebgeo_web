@@ -16,6 +16,7 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { loginUI } from './helpers/collab-helpers.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -28,14 +29,11 @@ describeOrSkip('F5 on a connected atlas keeps the map active BY NAME (not a UUID
         const MAP_NAME = 'Mapa Tático';
 
         // A conta nasce no NODE (o token de confirmação só existe como linha no Postgres, fora do
-        // alcance do `page.evaluate`); o browser recebe credenciais prontas e só faz o login.
+        // alcance do `page.evaluate`); o browser recebe um cliente pronto (`clienteNaPagina`), com o token só em memória.
         const user = await createVerifiedUser({ prefix: 'f5', nome: 'F5 Tester' });
         await page.goto('/');
-        const seed = await page.evaluate(async ({ baseUrl, mapName, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const seed = await page.evaluate(async ({ api, mapName, u }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
             const atlas = await api.createAtlas({ name: 'F5 Atlas' });
             // ADOTA o mapa que o servidor semeia ao criar o atlas, como `seedSharedAtlas` já faz,
             // em vez de criar um SEGUNDO ao lado dele. `POST /atlas` deixou de devolver atlas
@@ -45,10 +43,9 @@ describeOrSkip('F5 on a connected atlas keeps the map active BY NAME (not a UUID
             if (!mapId) throw new Error('O servidor não criou o mapa inicial do atlas.');
             await api.pushOperations(atlas.id, [createOperation('map', 'update', mapId, null, { name: mapName })]);
             return { username: u.username, password: u.password, atlasId: atlas.id };
-        }, { baseUrl: state.baseUrl, mapName: MAP_NAME, u: user });
+        }, { api: await clienteNaPagina(page, user), mapName: MAP_NAME, u: user });
 
         await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${state.baseUrl}/api/v1`);
-        await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });
         await page.goto('/');
 
         // UI login → pick the seeded atlas → land on the named synced map.

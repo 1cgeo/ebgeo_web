@@ -109,6 +109,7 @@ import {
     hmrEventsOf,
     BLOCK_OVERLAY_SELECTOR,
 } from './helpers/two-tabs.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -156,12 +157,9 @@ async function seedUserWithAtlases(browser, baseUrl, atlasNames) {
     const user = await createVerifiedUser({ prefix: 'tabs', nome: 'Duas Abas' });
     const page = await browser.newPage();
     await page.goto('/');
-    const seed = await page.evaluate(async ({ base, names, u }) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+    const seed = await page.evaluate(async ({ api, names, u }) => {
         const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-        const api = new ApiClient({ baseUrl: `${base}/api/v1` });
         const { username, password } = u;
-        await api.login(username, password);
         const atlases = [];
         for (const name of names) {
             const atlas = await api.createAtlas({ name });
@@ -176,7 +174,7 @@ async function seedUserWithAtlases(browser, baseUrl, atlasNames) {
             atlases.push({ id: atlas.id, name, mapId, mapName });
         }
         return { username, password, atlases };
-    }, { base: baseUrl, names: atlasNames, u: user });
+    }, { api: await clienteNaPagina(page, user), names: atlasNames, u: user });
     await page.close();
     return seed;
 }
@@ -186,12 +184,9 @@ async function seedPublicAtlas(browser, baseUrl) {
     const user = await createVerifiedUser({ prefix: 'pubtab', nome: 'Public Owner' });
     const page = await browser.newPage();
     await page.goto('/');
-    const seed = await page.evaluate(async ({ base, u }) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+    const seed = await page.evaluate(async ({ api, base }) => {
         const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
         const apiBase = `${base}/api/v1`;
-        const api = new ApiClient({ baseUrl: apiBase });
-        await api.login(u.username, u.password);
         const atlas = await api.createAtlas({ name: 'Atlas Público' });
         // Mesma adoção do mapa semeado pelo servidor que `seedUserWithAtlases` acima faz.
         const mapId = atlas.map_order?.[0];
@@ -211,7 +206,7 @@ async function seedPublicAtlas(browser, baseUrl) {
         });
         const body = await res.json();
         return { atlasId: atlas.id, mapId, featureId, publicLink: body?.data?.publicLink };
-    }, { base: baseUrl, u: user });
+    }, { api: await clienteNaPagina(page, user), base: baseUrl });
     await page.close();
     return seed;
 }
@@ -263,17 +258,14 @@ async function expectFeatureInDb(page, dbName, featureId, message) {
 }
 
 /** Every point feature id the SERVER holds for one atlas, over HTTP. */
-function serverPointIds(page, baseUrl, creds, atlasId) {
-    return page.evaluate(async ({ base, c, aid }) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-        const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-        await api.login(c.username, c.password);
+async function serverPointIds(page, baseUrl, creds, atlasId) {
+    return page.evaluate(async ({ api, aid }) => {
         const pulled = await api.pullSync(aid, 0);
         return (pulled.snapshot?.maps || [])
             .flatMap((m) => m.features?.points || [])
             .map((p) => p.properties?.id)
             .filter(Boolean);
-    }, { base: baseUrl, c: creds, aid: atlasId });
+    }, { api: await clienteNaPagina(page, creds), aid: atlasId });
 }
 
 describeOrSkip('Duas abas, um usuário: namespace por atlas (E0)', () => {

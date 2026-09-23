@@ -12,6 +12,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { seedSharedAtlas, openClient } from './helpers/collab-helpers.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -38,13 +39,10 @@ describeOrSkip('Delete server atlas (owner) → all clients redirected', () => {
             await expect(A.locator('[data-testid="project-picker-modal"]')).toBeVisible({ timeout: 20000 });
 
             // And the atlas no longer exists on the server.
-            const gone = await B.evaluate(async ({ base, c, atlasId }) => {
-                const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-                const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-                await api.login(c.username, c.password);
+            const gone = await B.evaluate(async ({ api, atlasId }) => {
                 const list = await api.listAtlas();
                 return !list.some((p) => p.id === atlasId);
-            }, { base: state.baseUrl, c: seed.userB, atlasId: seed.atlasId });
+            }, { api: await clienteNaPagina(B, seed.userB), atlasId: seed.atlasId });
             expect(gone).toBe(true);
         } finally {
             await A.context().close();

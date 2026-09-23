@@ -29,6 +29,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -47,12 +48,8 @@ describeOrSkip('Temporal dimension (real Chromium + real backend)', () => {
         const temporal = { ativo: true, unidade: 'SEMANA', inicio: Date.UTC(2026, 5, 20, 8), fim: Date.UTC(2026, 5, 20, 20) };
 
         const result = await page.evaluate(
-            async ({ baseUrl, temporal: t, u }) => {
-                const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+            async ({ api, temporal: t }) => {
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-                const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-                await api.login(u.username, u.password);
 
                 const atlas = await api.createAtlas({ name: 'Temporal Atlas' });
                 const mapId = crypto.randomUUID();
@@ -74,7 +71,7 @@ describeOrSkip('Temporal dimension (real Chromium + real backend)', () => {
                     temporalConfig: map ? (map.temporal_config ?? map.temporalConfig) : undefined,
                 };
             },
-            { baseUrl: state.baseUrl, temporal, u: user },
+            { api: await clienteNaPagina(page, user), temporal },
         );
 
         expect(result.isSnapshot).toBe(true);
@@ -103,12 +100,8 @@ describeOrSkip('Temporal dimension (real Chromium + real backend)', () => {
         const temporalFim = '2026-06-20T16:00:00Z';
 
         const result = await page.evaluate(
-            async ({ baseUrl, trajetoria: traj, temporalInicio: ti, temporalFim: tf, u }) => {
-                const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+            async ({ api, trajetoria: traj, temporalInicio: ti, temporalFim: tf }) => {
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-                const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-                await api.login(u.username, u.password);
 
                 const atlas = await api.createAtlas({ name: 'Temporal Feature Atlas' });
                 const mapId = crypto.randomUUID();
@@ -145,7 +138,7 @@ describeOrSkip('Temporal dimension (real Chromium + real backend)', () => {
                     geometry: stored ? stored.geometry : null,
                 };
             },
-            { baseUrl: state.baseUrl, trajetoria, temporalInicio, temporalFim, u: user },
+            { api: await clienteNaPagina(page, user), trajetoria, temporalInicio, temporalFim },
         );
 
         expect(result.isSnapshot).toBe(true);
@@ -165,12 +158,8 @@ describeOrSkip('Temporal dimension (real Chromium + real backend)', () => {
         await page.goto('/');
 
         const result = await page.evaluate(
-            async ({ baseUrl, u }) => {
-                const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+            async ({ api }) => {
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-                const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-                await api.login(u.username, u.password);
 
                 const atlas = await api.createAtlas({ name: 'Temporal Edge Atlas' });
                 const mapId = crypto.randomUUID();
@@ -199,7 +188,7 @@ describeOrSkip('Temporal dimension (real Chromium + real backend)', () => {
                     temporalConfig: map ? (map.temporal_config ?? map.temporalConfig) : undefined,
                 };
             },
-            { baseUrl: state.baseUrl, u: user },
+            { api: await clienteNaPagina(page, user) },
         );
 
         // The temporal payload landed...

@@ -35,6 +35,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -54,12 +55,8 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 async function seed(page, baseUrl, prefix, mapNames) {
     const user = await createVerifiedUser({ prefix, nome: 'Map Lifecycle E2E' });
     return page.evaluate(
-        async ({ baseUrl: url, u, mapNames: names }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        async ({ api, baseUrl: url, mapNames: names }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Map Lifecycle Atlas' });
             const mapIds = names.map(() => crypto.randomUUID());
@@ -71,7 +68,7 @@ async function seed(page, baseUrl, prefix, mapNames) {
             window.__mlc = { api, createOperation, baseUrl: url };
             return { atlasId: atlas.id, mapIds };
         },
-        { baseUrl, u: user, mapNames },
+        { api: await clienteNaPagina(page, user), baseUrl, mapNames },
     );
 }
 

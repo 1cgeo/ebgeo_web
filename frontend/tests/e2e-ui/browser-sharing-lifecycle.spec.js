@@ -27,6 +27,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -37,7 +38,7 @@ describeOrSkip('User-share lifecycle: read → upgrade → revoke (real Chromium
     }) => {
         // As duas contas nascem no NODE (`helpers/accounts.js`): o e-mail é obrigatório no
         // cadastro e o token que o confirma só existe como linha no Postgres, que o contexto
-        // do browser não alcança. Aqui dentro sobra o login, que é o que o spec exercita.
+        // do browser não alcança. Aqui dentro cada conta chega com o seu cliente (`clienteNaPagina`).
         const ownerCreds = await createVerifiedUser({ prefix: 'shl_owner', nome: 'Lifecycle Owner' });
         const user2Creds = await createVerifiedUser({ prefix: 'shl_user2', nome: 'Lifecycle Target' });
 
@@ -48,18 +49,16 @@ describeOrSkip('User-share lifecycle: read → upgrade → revoke (real Chromium
         await page.goto('/atlas.html');
 
         const result = await page.evaluate(
-            async ({ baseUrl, creds }) => {
-                const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+            async ({ baseUrl, creds, clientes }) => {
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
                 const apiBase = `${baseUrl}/api/v1`;
 
-                /** Logs in an already-verified user, returning a ready ApiClient + user record. */
-                const newClient = async (c) => {
-                    const api = new ApiClient({ baseUrl: apiBase });
-                    const user = await api.login(c.username, c.password);
-                    return { api, user };
-                };
+                /**
+                 * The ready ApiClient of an already-verified user (`clienteNaPagina`, token in
+                 * memory only) + the user record, whose id `createVerifiedUser` already returns.
+                 */
+                const newClient = async (c) => ({ api: clientes[c.username], user: { id: c.id } });
 
                 /** Pushes one point-feature op; returns { ok, status, featureId } (status 0 on success). */
                 const tryPushFeature = async (api, atlasId, mapId, label) => {
@@ -172,7 +171,14 @@ describeOrSkip('User-share lifecycle: read → upgrade → revoke (real Chromium
                     reRevokeStatus: reRevokeRes.status,
                 };
             },
-            { baseUrl: state.baseUrl, creds: { owner: ownerCreds, user2: user2Creds } },
+            {
+                baseUrl: state.baseUrl,
+                creds: { owner: ownerCreds, user2: user2Creds },
+                clientes: {
+                    [ownerCreds.username]: await clienteNaPagina(page, ownerCreds),
+                    [user2Creds.username]: await clienteNaPagina(page, user2Creds),
+                },
+            },
         );
 
         // 1. Read grant created (201) at permission 'read'.

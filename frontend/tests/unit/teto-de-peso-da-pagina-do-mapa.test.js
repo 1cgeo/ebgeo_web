@@ -53,6 +53,7 @@
 
 import { describe, it, expect, afterAll } from 'vitest';
 import { readFileSync, writeFileSync, existsSync, statSync, mkdtempSync, rmSync } from 'node:fs';
+import { Buffer } from 'node:buffer';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -190,10 +191,20 @@ function caminhoAte(alvo, pai) {
 const abs = (rel) => NORM(resolve(FRONT, rel));
 const rel = (p) => p.replace(`${NORM(FRONT)}/`, '');
 
-/** Soma o tamanho da FONTE dos módulos do grafo, em kB. Fonte, não bundle: ver a metade (b). */
+/**
+ * Soma o tamanho da FONTE dos módulos do grafo, em kB. Fonte, não bundle: ver a metade (b).
+ *
+ * CONTA O CONTEÚDO COM O FIM DE LINHA NORMALIZADO PARA LF, e não o tamanho do arquivo em disco,
+ * desde 2026-09-23. Com `core.autocrlf=true` o mesmo commit dá bytes diferentes conforme cada
+ * arquivo foi gravado: medido naquela data, a árvore de trabalho tinha 771 arquivos de `src/js` em
+ * CRLF, 63 em LF e 77 mistos, e um checkout LIMPO do HEAD dava 11799 kB contra o teto de 11790,
+ * enquanto a árvore principal do mesmo commit passava. O guarda media o checkout, não o código.
+ */
 function kbDe(arquivos) {
     let bytes = 0;
-    for (const f of arquivos) bytes += statSync(f).size;
+    for (const f of arquivos) {
+        bytes += Buffer.byteLength(readFileSync(f, 'utf8').replace(/\r\n/g, '\n'), 'utf8');
+    }
     return Math.round(bytes / 1024);
 }
 
@@ -805,9 +816,17 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
+        // O TETO DESCEU DE 11790 PARA 11560 EM 2026-09-23, e a descida é do INSTRUMENTO, não do
+        // código: `kbDe` passou a contar o conteúdo com fim de linha normalizado (ver o JSDoc dele).
+        // Medido na árvore daquele dia: 11798 kB pela régua velha e 11534 pela nova, 264 kB de
+        // quebras de linha. Os lotes do dia (a abertura que falha não apaga a fila, a marca de
+        // descarte que sobrevivia à saída e o lote de uso de outra conta) somam no máximo 16,6 kB
+        // normalizados em 16 arquivos, então o HEAD anterior media cerca de 11518. Deixar o teto em
+        // 11790 daria 256 kB de folga, e um teto frouxo não guarda nada; 11560 deixa 26 kB, pouco de
+        // propósito, como as subidas anteriores.
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
-        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);
+        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11560);
     });
 
     it('seguir `import()` de fato acrescenta grafo, e é isso que prova a regex dinâmica', () => {

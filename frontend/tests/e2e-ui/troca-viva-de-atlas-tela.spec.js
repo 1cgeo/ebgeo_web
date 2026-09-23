@@ -32,6 +32,7 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
 import { addSharedUser, openClient } from './helpers/collab-helpers.js';
+import { clienteNaPagina, sessaoDoApp } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -93,11 +94,8 @@ describeOrSkip('o que fica velho na tela depois da troca ao vivo', () => {
 
         const dono = await createVerifiedUser({ prefix: 'tela', nome: 'Dono da tela' });
         await page.goto('/');
-        const semente = await page.evaluate(async ({ base, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const semente = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-            const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-            await api.login(u.username, u.password);
             const atlas = await api.createAtlas({ name: 'Atlas A da tela' });
             // ADOTA O MAPA QUE O SERVIDOR SEMEIA. `createAtlas` cria um "Mapa 1" dentro do proprio
             // POST desde `e70ccf3c`, e desde `e8496110` a abertura sem `&map=` aterrissa no
@@ -116,7 +114,7 @@ describeOrSkip('o que fica velho na tela depois da troca ao vivo', () => {
                 }),
             ]);
             return { atlasId: atlas.id, mapId, mapa: 'MAPA-A' };
-        }, { base: state.baseUrl, u: dono });
+        }, { api: await clienteNaPagina(page, dono) });
 
         // UM PAR DE VERDADE PARA A PRESENCA. O roster so tem alguem quando alguem esta la, e duas
         // abas do MESMO perfil no mesmo atlas sao justamente o que o tab-lock impede — entao o
@@ -124,7 +122,10 @@ describeOrSkip('o que fica velho na tela depois da troca ao vivo', () => {
         const convidado = await addSharedUser(page, state.baseUrl, dono, semente.atlasId,
             { permission: 'write', label: 'convidada' });
 
-        await page.goto(`/?atlas=${semente.atlasId}`);
+        // O DONO ENTRA LOGADO: a semeadura acima nao grava sessao (`clienteNaPagina`), e
+        // `sessaoDoApp` faz o login real numa pagina que nao boota antes de abrir o atlas. As
+        // recargas de cada passagem herdam a sessao.
+        await sessaoDoApp(page, dono, `/?atlas=${semente.atlasId}`);
         await esperarAtlasPronto(page, semente.atlasId, semente.mapId);
 
         // O BRIEFING NASCE PELA API DA PROPRIA STORE, com o atlas ja aberto: `createBriefing`

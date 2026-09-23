@@ -28,7 +28,8 @@
  *
  * Each test seeds its OWN user + atlas + map for isolation. A conta, porém, nasce no NODE
  * (`helpers/accounts.js`): o cadastro exige e-mail e o token que o confirma só existe como
- * linha no Postgres, fora do alcance do `page.evaluate`. Aqui dentro sobra o `login()`.
+ * linha no Postgres, fora do alcance do `page.evaluate`. Aqui dentro o cliente chega pronto
+ * (`clienteNaPagina`).
  *
  * UI-first note: orientation360 / marker360 are VIEWER-ONLY entities — they are placed
  * INSIDE the Three.js 360 panorama viewer (anchored to a loaded equirectangular photo),
@@ -45,6 +46,7 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
 import { seedSv360Photo } from './helpers/catalog-seed.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -57,12 +59,8 @@ describeOrSkip('Streetview360 FLAT sync (real Chromium + real backend)', () => {
 
         await page.goto('/');
 
-        const result = await page.evaluate(async ({ baseUrl, u, photoName }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api, photoName }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'SV360 Atlas' });
             const mapId = crypto.randomUUID();
@@ -134,7 +132,7 @@ describeOrSkip('Streetview360 FLAT sync (real Chromium + real backend)', () => {
                 markerClearedFromMarkers: !(svAfter.markers || []).some((m) => m.id === markerId),
                 orientationSurvivesClear: Boolean(svAfter.orientations && svAfter.orientations[photoName]),
             };
-        }, { baseUrl: state.baseUrl, u: user, photoName });
+        }, { api: await clienteNaPagina(page, user), photoName });
 
         // Orientation landed, keyed by photoName, with id + FLAT payload round-tripped.
         expect(result.orientationKeyed).toBe(true);

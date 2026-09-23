@@ -14,6 +14,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -61,16 +62,13 @@ describeOrSkip('aparência atravessa as trocas de atlas', () => {
         // `email_verification_tokens` no Postgres, fora do alcance do contexto do browser.
         const creds = await createVerifiedUser({ prefix: 'trocas', nome: 'Trocas' });
         await page.goto('/');
-        await page.evaluate(async ({ base, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-            const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-            await api.login(u.username, u.password);
+        // O cliente do teste não grava sessão (`clienteNaPagina`): a primeira metade continua
+        // anônima, e um visitante COM sessão numa URL nua seria mandado para a tela de projetos
+        // antes de o mapa existir.
+        await page.evaluate(async ({ api }) => {
             await api.createAtlas({ name: 'AAA Servidor um' });
             await api.createAtlas({ name: 'ZZZ Servidor dois' });
-            // Sem tokens: a primeira metade é anônima, e um visitante COM sessão numa URL nua é
-            // mandado para a tela de projetos antes de o mapa existir.
-            api.clearTokens();
-        }, { base: state.baseUrl, u: creds });
+        }, { api: await clienteNaPagina(page, creds) });
 
         // ---------- LOCAL #1: escolhe plano ----------
         await esperarMapa(page);

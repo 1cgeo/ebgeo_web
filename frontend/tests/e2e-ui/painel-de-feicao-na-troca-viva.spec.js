@@ -84,6 +84,7 @@ import { createVerifiedUser } from './helpers/accounts.js';
 import {
     drawPointUI, selectFeatureUI, renameViaPanelUI, openLayersTab,
 } from './helpers/collab-helpers.js';
+import { clienteNaPagina, sessaoDoApp } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -192,11 +193,8 @@ describeOrSkip('o painel de feicao aberto numa troca viva de atlas', () => {
         // DOIS ATLAS DE SERVIDOR, com mapas de nomes DIFERENTES. O nome distinto e o que faz o
         // criterio de chegada parar no atlas certo: com o mesmo nome nos dois, `esperarAtlasPronto`
         // aprovaria a partida como se fosse o destino.
-        const s = await page.evaluate(async ({ base, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const s = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-            const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-            await api.login(u.username, u.password);
             const a = await api.createAtlas({ name: 'Atlas A da gaveta' });
             const b = await api.createAtlas({ name: 'Atlas B da gaveta' });
             // ADOTA O MAPA QUE O SERVIDOR SEMEIA em cada atlas. `createAtlas` cria um "Mapa 1"
@@ -209,7 +207,12 @@ describeOrSkip('o painel de feicao aberto numa troca viva de atlas', () => {
             await api.pushOperations(a.id, [createOperation('map', 'update', mapA, null, { name: 'MAPA-A' })]);
             await api.pushOperations(b.id, [createOperation('map', 'update', mapB, null, { name: 'MAPA-B' })]);
             return { atlasA: a.id, mapA, atlasB: b.id, mapB };
-        }, { base: state.baseUrl, u: dono });
+        }, { api: await clienteNaPagina(page, dono) });
+
+        // A SESSAO DO DONO, gravada AGORA e numa pagina que nao boota: a semeadura acima nao grava
+        // nenhuma (`clienteNaPagina`), e cada passagem abaixo abre o atlas por `?atlas=`, que
+        // precisa do app logado. A pagina fica no seletor ate a primeira passagem.
+        await sessaoDoApp(page, dono, '/atlas.html');
 
         /**
          * Uma passagem: volta ao atlas A, deixa a gaveta e a tabela com a feicao na tela, troca

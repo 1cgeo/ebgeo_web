@@ -40,6 +40,7 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { seedSharedAtlas, openClient, currentMapName } from './helpers/collab-helpers.js';
 import { expectAppBooted } from './helpers/boot-probe.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 
@@ -143,11 +144,8 @@ test('o segundo recarregamento pede a cauda desde o cursor novo, e ela vem vazia
         // segundo navegador desenhando N pontos so' acrescentaria tempo e corrida.
         const seedPage = await browser.newPage();
         await seedPage.goto('/');
-        const produzidas = await seedPage.evaluate(async ({ base, par, atlasId, mapId, n }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const produzidas = await seedPage.evaluate(async ({ api, atlasId, mapId, n }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-            const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-            await api.login(par.username, par.password);
             const ops = [];
             for (let i = 0; i < n; i += 1) {
                 const id = crypto.randomUUID();
@@ -159,7 +157,7 @@ test('o segundo recarregamento pede a cauda desde o cursor novo, e ela vem vazia
             }
             await api.pushOperations(atlasId, ops);
             return ops.length;
-        }, { base: state.baseUrl, par: seed.userB, atlasId: seed.atlasId, mapId: seed.mapId, n: N });
+        }, { api: await clienteNaPagina(seedPage, seed.userB), atlasId: seed.atlasId, mapId: seed.mapId, n: N });
         await seedPage.close();
         expect(produzidas, 'o par produziu as feicoes').toBe(N);
 

@@ -4294,3 +4294,13 @@ instável, e cada uma foi atribuída antes de ser tocada.
   volta em `index.js`, e reprova o desfecho nulo durante o pedido). Detalhe em
   [sessão, boot e ciclo de vida](../wiki/sessao-boot-e-ciclo-de-vida.md).
 - **Status:** aceita.
+
+### 2026-09-23: sessão num spec de navegador só por duas portas
+
+- **Contexto:** `login()` dentro de `page.evaluate` numa `/` ainda bootando grava `ebgeo_auth` no meio do boot, e a fase -1 e a restauração da sessão (fase 2.5) levam a página para `atlas.html`. Medido: 10 de 10 no Firefox, 1 de 10 no Chromium, 3 de 3 com a trava do portão segurada; dois specs já tinham caído na auditoria de lançamento. O conserto por sítio (semear em `atlas.html`) deixava 73 sítios em 49 arquivos na forma que sequestra.
+- **Decisão (do dono, Q3):** nenhum código de produto muda. Os testes de navegador ganham `clienteNaPagina` (credencial só em memória, por `setEphemeralToken`) e `sessaoDoApp` (a única escrita deliberada: `login()` em `atlas.html` e depois o destino), em `frontend/tests/e2e-ui/helpers/cliente-de-teste.js`. Todos os sítios migraram; três exceções ficam declaradas com motivo no censo.
+- **Motivo:** esperar não conserta, porque a janela vai do início do documento até a fase 2.5; tirar a sessão do disco deixa o boot sem o que ler. O redirecionamento em si é o comportamento certo para uma pessoa real, que só grava sessão fora dessa janela.
+- **Alternativas rejeitadas:** mudar o roteamento do produto; semear sempre em `atlas.html`, conserto por sítio que recorreu; esperar a fase 2.5 antes de cada login, que depende de cada autor lembrar.
+- **Limites:** `clienteNaPagina` vale os 15 minutos do token de acesso, sem renovação; uma página servida por `route.fulfill` não fala com a porta do backend no Chromium.
+- **Guardas:** `frontend/tests/unit/login-programatico-so-pelo-helper.test.js` e `frontend/tests/e2e-ui/login-programatico-no-boot.spec.js`.
+- **Status:** aceita.

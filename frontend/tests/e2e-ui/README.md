@@ -42,7 +42,9 @@ never through a programmatic shortcut. Concretely:
 Programmatic `page.evaluate` calls are allowed **only** for things with **no UI**:
 
 1. **Setup**: registering users, seeding an atlas/map, sharing/permission routes (all
-   backend-only), enabling the tracer, forcing reconnect/offline, controlling the clock.
+   backend-only), enabling the tracer, forcing reconnect/offline, controlling the clock. The
+   authenticated client for that setup comes from `helpers/cliente-de-teste.js`
+   (`clienteNaPagina`), never from a `login()` inside `page.evaluate`: see "Sessão num spec" below.
 2. **Assertion reads**: reading the store / live MapLibre source to *verify* an outcome
    (`readFeatures`, `getCurrentMapFeatures`, `getSource(...).getData()`) — there is no UI
    for "asserting".
@@ -81,6 +83,67 @@ Três coisas que não se adivinham:
 
 `helpers/catalog-seed.js` continua escrevendo recurso por SQL, e o `fileoverview` de lá diz qual
 metade da justificativa caiu com isto e qual continua de pé.
+
+## Sessão num spec: só pelas duas portas de `helpers/cliente-de-teste.js` (2026-09-23)
+
+**Nenhum spec faz `login()` dentro de `page.evaluate`.** `ApiClient.login()` grava a sessão
+(`ebgeo_auth`) pelo único escritor dela, `_persistTokens`, e o boot do mapa lê essa chave na Fase -1
+(uma URL nua com sessão vai para `atlas.html`) e na Fase 2.5 (restauração, e no fim da cadeia o
+seletor, que também navega). O login feito numa página `/` ainda bootando grava a chave NO MEIO do
+boot, e a página é levada para `atlas.html` com os pedidos em voo mortos e os globais do teste
+apagados. Medido em 2026-09-23: no Firefox a Fase -1 roda de 714 a 942 ms depois do `goto` e o token
+chega em 175 a 255 ms, e o sequestro foi de **10 em 10**; no Chromium, 1 em 10. Esperar não conserta,
+porque a janela vai do início do documento até a Fase 2.5 e o teste não sabe em que ponto dela está.
+
+As duas portas:
+
+- **`clienteNaPagina(page, conta)`** devolve um `JSHandle` de um `ApiClient` do próprio app, criado
+  na página, com o ouvinte de outras abas desligado (`dispose`) e o token SÓ em memória
+  (`setEphemeralToken`). Passa-se a `page.evaluate` como argumento, inclusive dentro de objeto:
+  `page.evaluate(async ({ api, id }) => api.pullSync(id, 0), { api: await clienteNaPagina(page, conta), id })`.
+  Vale em qualquer página do app e em qualquer instante do boot. O login é feito do lado Node, com
+  usuário e senha (conta o prazo a partir de agora e traz o papel ATUAL da conta), ou usa o
+  `accessToken` que `createVerifiedUser` já devolve. **Limite declarado:** sem refresh token, o
+  cliente vale os 15 minutos do token de acesso; caso mais longo pede um cliente novo.
+- **`sessaoDoApp(page, conta, destino)`** é a única escrita deliberada de sessão, para o spec que
+  quer o APP logado (a store, o seletor, a abertura por `?atlas=`). O `login()` real acontece em
+  `atlas.html`, que não boota o mapa e não decide rota pela sessão (ela desenha logado ou deslogado
+  e fica), e só depois a página vai ao `destino`, que boota já com a sessão no disco. Uma URL nua
+  com sessão continua indo para `atlas.html`: quem quer o mapa logado pede um `?atlas=` ou passa
+  por `atlas.html` e escolhe "Mapa local".
+- **`abrirPaginaDeProtocolo(page)`** é a página vazia, servida por rota, em que nada boota, e ela
+  **não fala com o backend cruzado**: um documento servido por `route.fulfill` não sai como
+  loopback no Chromium, e o pedido direto à porta do backend é recusado pela classificação de
+  espaço de endereço (medido em 2026-09-23: `TypeError: Failed to fetch` em 0,7 s no Chromium, verde
+  no Firefox; e "Permission was denied ... `loopback` address space" numa versão anterior de
+  `sessaoDoApp` que logava nela). Rede numa página sintética vai pela mesma origem (`'/api/v1'`, pelo
+  proxy do Vite); `sessaoDoApp` e o spec que mede o pedido CRUZADO (`browser-auth-config`) usam uma
+  página real do app. Hoje ela serve à página irmã que segura uma trava, sem rede nenhuma.
+- **Quem quer a sessão gravada DEPOIS de uma navegação também é `sessaoDoApp`**, mesmo numa página
+  que não boota o mapa: `browser-import-ebgeo-versions` recarrega e lê o par do disco
+  (`loadStoredTokens`), e abre o seletor logado. Migrado para o cliente de memória, ele reprovou dois
+  casos no Chromium, que é como a dependência apareceu.
+- **O login dentro do `evaluate` às vezes era uma ESPERA implícita**, e quem o tira perde a espera.
+  `browser-map-dup-snapshot.repro.spec.js` criava um mapa, logava e só então puxava o retrato: a
+  ida e volta do login dava tempo ao envio da operação. Com o cliente pronto, o retrato passou a
+  sair antes do recibo, e o app o recusa ("O retrato recebido é anterior a uma alteração já
+  confirmada"): 5 de 6 no Firefox, contra 6 de 6 da versão com login. O conserto escreve a condição
+  que faltava (a fila vazia antes do retrato, e o retrato contendo o mapa), e não um atraso.
+
+Quem cobra: `frontend/tests/unit/login-programatico-so-pelo-helper.test.js`, censo por AST sobre todo
+`.js` de `frontend/tests/` (versionado ou não) que acusa `.login(`, `.setTokens(` e escrita de
+`ebgeo_auth` dentro de função passada a `evaluate`, `evaluateHandle`, `addInitScript` ou
+`waitForFunction`. As exceções são declaradas lá com motivo e contadas em igualdade exata (o sujeito
+é o próprio login, ou é o login do app numa página que já passou do boot). E a interleaving perdedora
+é DETERMINÍSTICA em `login-programatico-no-boot.spec.js`: uma página irmã segura a trava do portão de
+migração, o boot para antes da Fase -1, e os três casos medem a forma crua (controle do instrumento,
+que TEM de ir para `atlas.html`), `clienteNaPagina` (fica em `/`, zero escrita da chave, testemunhada
+no `Storage.prototype.setItem`) e `sessaoDoApp` (chega logado ao destino).
+
+Até esta data a lição morava em prosa em três lugares, e cada um consertou o seu sítio mudando a
+página da semeadura para `atlas.html`. O inventário do dia contou 112 sítios em funções de página
+(109 `.login(` e 3 `.setTokens(`) em 72 arquivos, 73 deles em 49 arquivos na forma que sequestra
+(página `/` ainda bootando); os seguros migraram junto, e sobraram só as exceções declaradas.
 
 ## SyncLedger trace helpers
 
@@ -560,9 +623,12 @@ flakeou 3, e a maior parte era do INSTRUMENTO. Cinco formas, cada uma com o mode
 - **Login por API numa página que está bootando o MAPA corre contra o próprio boot, nos dois
   navegadores.** O `login` grava os tokens, o boot enxerga sessão numa URL nua e navega para
   `atlas.html` (a regra de `shouldRouteToProjects`), abortando os pedidos em voo e apagando os
-  globais do teste. O rastro mostrou `auth/login` 200 seguido da navegação do documento. O Firefox,
-  que boota mais devagar, só alargou a janela. Spec de PROTOCOLO começa em `/atlas.html` (modelo:
-  `browser-cesium3d-crud.spec.js`); spec de AUTORIA continua no mapa e loga pela interface.
+  globais do teste. O rastro mostrou `auth/login` 200 seguido da navegação do documento. **O Firefox
+  não "só alarga a janela", como esta linha dizia: ele é sequestrado quase sempre** (10 de 10 medidos
+  em 2026-09-23, contra 1 de 10 no Chromium), porque a Fase -1 dele roda de 714 a 942 ms depois do
+  `goto` e o token chega em 175 a 255 ms. Mudar a página para `/atlas.html`, que era o conselho daqui,
+  consertava um sítio por vez; a regra agora é a da seção "Sessão num spec", acima: transporte por
+  `clienteNaPagina`, app logado por `sessaoDoApp`, e um censo que reprova a forma crua.
 - **Depois de um F5, "o carregador sumiu" não é "o app está pronto".** Ler a store logo que
   `#initial-loader` some pode encontrar o gerenciador de camadas ainda não inicializado; espere
   antes um controle do mapa visível (`#nav-btn-zoom-in`), como `presence.spec.js` faz.

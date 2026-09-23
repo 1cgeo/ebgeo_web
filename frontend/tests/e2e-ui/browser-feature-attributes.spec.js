@@ -41,6 +41,7 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
 import { instalarBaseConfirmada } from './helpers/base-confirmada.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -50,17 +51,13 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
         page,
     }) => {
         // A conta nasce no NODE (o token de confirmação só existe como linha no Postgres, fora do
-        // alcance do `page.evaluate`); o browser recebe credenciais prontas e só faz o login.
+        // alcance do `page.evaluate`); o browser recebe um cliente pronto (`clienteNaPagina`), com o token só em memória.
         const user = await createVerifiedUser({ prefix: 'attr', nome: 'Attr User' });
         await page.goto('/atlas.html');
         await instalarBaseConfirmada(page);
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Attr Atlas' });
             const mapId = crypto.randomUUID();
@@ -119,7 +116,7 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
                 deleteHadKey: afterDelete ? Object.prototype.hasOwnProperty.call(afterDelete, 'unidade') : null,
                 deleteKept: afterDelete?.nome ?? null,
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         expect(result.hasToken).toBe(true);
         // As TRÊS edições foram aceitas. Sem esta linha, uma recusa por base apareceria como
@@ -143,12 +140,8 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
         await page.goto('/atlas.html');
         await instalarBaseConfirmada(page);
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Column Atlas' });
             const mapId = crypto.randomUUID();
@@ -214,7 +207,7 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
                 survivors: ids.every((id) => propsOf(afterDeleteColumn, id) != null),
                 deleteCount: afterDeleteColumn.length,
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         // Os DOIS lotes inteiros foram aceitos, op por op: oito acks, nenhum recusado. A
         // contagem exata é o que separa "o lote passou" de "passou a maior parte dele".
@@ -244,12 +237,8 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
         const ctxA = await browser.newContext();
         const pageA = await ctxA.newPage();
         await pageA.goto('/atlas.html');
-        const owner = await pageA.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const owner = await pageA.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Owner Attr Atlas' });
             const mapId = crypto.randomUUID();
@@ -266,19 +255,15 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
             // (same window) can pull the snapshot with the owner token still in hand.
             window.__attrOwnerApi = api;
             return { atlasId: atlas.id, mapId, featureId };
-        }, { baseUrl: state.baseUrl, u: ownerUser });
+        }, { api: await clienteNaPagina(pageA, ownerUser) });
 
         // ---- Attacker (user B) tries to edit A's feature attribute ----------
         const ctxB = await browser.newContext();
         const pageB = await ctxB.newPage();
         await pageB.goto('/atlas.html');
         const attack = await pageB.evaluate(
-            async ({ baseUrl, atlasId, mapId, featureId, u }) => {
-                const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+            async ({ api, atlasId, mapId, featureId }) => {
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-                const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-                await api.login(u.username, u.password);
 
                 let threw = false;
                 let status = null;
@@ -296,13 +281,7 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
                 }
                 return { threw, status };
             },
-            {
-                baseUrl: state.baseUrl,
-                atlasId: owner.atlasId,
-                mapId: owner.mapId,
-                featureId: owner.featureId,
-                u: intruderUser,
-            },
+            { api: await clienteNaPagina(pageB, intruderUser), atlasId: owner.atlasId, mapId: owner.mapId, featureId: owner.featureId },
         );
 
         // The cross-atlas write must be rejected (gated, not silently accepted).

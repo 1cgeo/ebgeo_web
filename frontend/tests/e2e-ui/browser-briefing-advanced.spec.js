@@ -58,6 +58,7 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { seedSv360Photo } from './helpers/catalog-seed.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -69,12 +70,8 @@ describeOrSkip('Briefing editor advanced §22.8-10 (real Chromium + real backend
         const user = await createVerifiedUser({ prefix: 'brfadv8', nome: 'Briefing Notes' });
         await page.goto('/');
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Notes Atlas' });
 
@@ -168,7 +165,7 @@ describeOrSkip('Briefing editor advanced §22.8-10 (real Chromium + real backend
                 expectedFirst: richNotes,
                 expectedSecond: editedNotes,
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         expect(result.isSnapshot).toBe(true);
         // The source map's rich notes round-tripped through the snapshot.
@@ -191,12 +188,8 @@ describeOrSkip('Briefing editor advanced §22.8-10 (real Chromium + real backend
         // A foto tem de EXISTIR num projeto 360 visível: o slide REFERENCIA o projeto por ela,
         // e a borda de escrita do sync recusa a op cuja referência não resolve.
         const { photoName } = await seedSv360Photo(state.dbName);
-        const result = await page.evaluate(async ({ baseUrl, u, photoName }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api, photoName }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Orient Atlas' });
             const mapId = crypto.randomUUID();
@@ -284,7 +277,7 @@ describeOrSkip('Briefing editor advanced §22.8-10 (real Chromium + real backend
                 expectedPhoto: photoName,
                 ghostPresent,
             };
-        }, { baseUrl: state.baseUrl, u: user, photoName });
+        }, { api: await clienteNaPagina(page, user), photoName });
 
         expect(result.isSnapshot).toBe(true);
         // The saved orientation round-tripped (dropdown source).
@@ -303,12 +296,8 @@ describeOrSkip('Briefing editor advanced §22.8-10 (real Chromium + real backend
         const user = await createVerifiedUser({ prefix: 'brfadv10', nome: 'Briefing Import' });
         await page.goto('/');
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Import Atlas' });
             const mapId = crypto.randomUUID();
@@ -423,7 +412,7 @@ describeOrSkip('Briefing editor advanced §22.8-10 (real Chromium + real backend
                 dstExisting,
                 orphanPresent,
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         expect(result.isSnapshot).toBe(true);
 

@@ -21,6 +21,7 @@ import { collectLedger, reduceLedger, renderReport } from './ledger.js';
 import { ApiClient } from '../../../src/js/store/sync/api-client.js';
 import { createVerifiedUser } from './accounts.js';
 import { installBootProbe, expectAppBooted } from './boot-probe.js';
+import { clienteNaPagina } from './cliente-de-teste.js';
 
 /**
  * Seeds two users + an atlas with one map "Mapa Tático", shared WRITE with user B.
@@ -31,27 +32,20 @@ import { installBootProbe, expectAppBooted } from './boot-probe.js';
 export async function seedSharedAtlas(browser, baseUrl, { mapName = 'Mapa Tático', permission = 'write' } = {}) {
     // As DUAS contas nascem no NODE (`helpers/accounts.js`): confirmar e-mail exige ler
     // `email_verification_tokens` no Postgres, fora do alcance do contexto do browser.
-    // O `page.evaluate` abaixo só faz login com credenciais já usáveis.
+    // O `page.evaluate` abaixo recebe o cliente do dono pronto (`clienteNaPagina`).
     const [userA, userB] = await Promise.all([
         createVerifiedUser({ prefix: 'alfa', nome: 'Alfa' }),
         createVerifiedUser({ prefix: 'bravo', nome: 'Bravo' }),
     ]);
     const seedPage = await browser.newPage();
-    // A PÁGINA DA SEMEADURA É `atlas.html`, NUNCA `/`. O login abaixo grava o token no
-    // `localStorage` que o boot DESTA MESMA página lê, e o boot do mapa tem uma Fase -1
-    // (`shouldRouteToProjects`, em `src/js/index.js`) que manda para `atlas.html` quem chega à URL
-    // nua com token guardado. Quando o boot chega nela depois do login, a página navega no meio da
-    // semeadura e o pedido em voo morre com `TypeError: Failed to fetch` (medido em 2026-09-23:
-    // 1 vez na matriz de 2026-09-22 em `browser-confirm-logout`, e 3 de 3 com o boot segurado até
-    // o token existir). `atlas.html` só navega por gesto ou por sessão encerrada, então o token que
-    // aparece durante o boot dela não move a página.
+    // O CLIENTE DA SEMEADURA NÃO GRAVA SESSÃO (`clienteNaPagina`, `helpers/cliente-de-teste.js`).
+    // Até 2026-09-23 era `new ApiClient()` + `login()` aqui dentro, e o login gravava o token no
+    // `localStorage` que o boot do mapa lê na Fase -1: numa página `/` ainda bootando, ela navegava
+    // para `atlas.html` no meio da semeadura. A página ficou `atlas.html` por história; com o
+    // cliente de memória, qualquer página do app serve.
     await seedPage.goto('/atlas.html');
-    const seed = await seedPage.evaluate(async ({ base, mn, perm, a, b }) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+    const seed = await seedPage.evaluate(async ({ apiA, base, mn, perm, b }) => {
         const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-        const apiA = new ApiClient({ baseUrl: `${base}/api/v1` });
-        await apiA.login(a.username, a.password);
 
         const atlas = await apiA.createAtlas({ name: 'Atlas Colaborativo' });
         const mapId = atlas.map_order[0];
@@ -63,7 +57,7 @@ export async function seedSharedAtlas(browser, baseUrl, { mapName = 'Mapa Tátic
             body: JSON.stringify({ userId: b.id, permission: perm }),
         });
         return { atlasId: atlas.id, mapId, mapName: mn };
-    }, { base: baseUrl, mn: mapName, perm: permission, a: userA, b: userB });
+    }, { apiA: await clienteNaPagina(seedPage, userA), base: baseUrl, mn: mapName, perm: permission, b: userB });
     await seedPage.close();
     return { ...seed, userA, userB };
 }
@@ -73,10 +67,7 @@ export async function seedSharedAtlas(browser, baseUrl, { mapName = 'Mapa Tátic
  * owner's own authenticated session via a fresh ApiClient. `permission` of null revokes.
  */
 export async function setSharePermission(page, baseUrl, ownerCreds, atlasId, userId, permission) {
-    return page.evaluate(async ({ base, c, id, uid, perm }) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-        const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-        await api.login(c.username, c.password);
+    return page.evaluate(async ({ api, base, id, uid, perm }) => {
         const url = `${base}/api/v1/atlas/${id}/sharing/users/${uid}`;
         const res = perm === null
             ? await fetch(url, { method: 'DELETE', headers: { Authorization: `Bearer ${api.getAccessToken()}` } })
@@ -86,7 +77,7 @@ export async function setSharePermission(page, baseUrl, ownerCreds, atlasId, use
                 body: JSON.stringify({ permission: perm }),
             });
         return res.status;
-    }, { base: baseUrl, c: ownerCreds, id: atlasId, uid: userId, perm: permission });
+    }, { api: await clienteNaPagina(page, ownerCreds), base: baseUrl, id: atlasId, uid: userId, perm: permission });
 }
 
 /**
@@ -96,16 +87,13 @@ export async function setSharePermission(page, baseUrl, ownerCreds, atlasId, use
 export async function addSharedUser(page, baseUrl, ownerCreds, atlasId, { permission = 'write', label = 'charlie' } = {}) {
     // A conta nasce no Node (e-mail confirmado); só o compartilhamento roda no browser.
     const u = await createVerifiedUser({ prefix: label, nome: label });
-    await page.evaluate(async ({ base, c, id, perm, uid }) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-        const owner = new ApiClient({ baseUrl: `${base}/api/v1` });
-        await owner.login(c.username, c.password);
+    await page.evaluate(async ({ owner, base, id, perm, uid }) => {
         await fetch(`${base}/api/v1/atlas/${id}/sharing/users`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${owner.getAccessToken()}` },
             body: JSON.stringify({ userId: uid, permission: perm }),
         });
-    }, { base: baseUrl, c: ownerCreds, id: atlasId, perm: permission, uid: u.id });
+    }, { owner: await clienteNaPagina(page, ownerCreds), base: baseUrl, id: atlasId, perm: permission, uid: u.id });
     return u;
 }
 

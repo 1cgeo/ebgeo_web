@@ -18,6 +18,7 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { loginUI } from './helpers/collab-helpers.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -53,17 +54,13 @@ describeOrSkip('aparência do atlas', () => {
         // `email_verification_tokens` no Postgres, fora do alcance do contexto do browser.
         const creds = await createVerifiedUser({ prefix: 'aparencia', nome: 'Aparencia' });
         await page.goto('/');
-        await page.evaluate(async ({ base, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-            const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-            await api.login(u.username, u.password);
+        // SEM SESSÃO GRAVADA: o cliente do teste guarda o token só em memória (`clienteNaPagina`).
+        // Um `login()` o persistiria, e o boot do mapa manda um visitante COM sessão numa URL nua
+        // para `atlas.html`: o reload da metade LOCAL deste caso nunca chegaria ao mapa. A conta
+        // continua existindo no servidor, que é tudo o que a segunda metade precisa.
+        await page.evaluate(async ({ api }) => {
             await api.createAtlas({ name: 'Projeto com aparência' });
-            // OS TOKENS SAEM DAQUI. `login()` os persiste no localStorage, e o boot do mapa manda
-            // um visitante COM sessão numa URL nua para `atlas.html` — o reload da metade LOCAL
-            // deste caso nunca chegaria ao mapa. A conta continua existindo no servidor, que é
-            // tudo o que a segunda metade precisa.
-            api.clearTokens();
-        }, { base: state.baseUrl, u: creds });
+        }, { api: await clienteNaPagina(page, creds) });
 
         // ---------- ATLAS LOCAL ----------
         await page.waitForFunction(() => globalThis.__ebgeoMap?.loaded?.(), null, { timeout: 30000 });

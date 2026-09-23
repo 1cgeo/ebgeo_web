@@ -487,6 +487,17 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   nem da máquina: ele é de QUAL checkout roda o Playwright, e a variável é o conserto de quem
   roda de um que não tem o arquivo. Antes de contar aquela célula como aprovada, confira que o
   caso RODOU em vez de ter pulado.
+- **Sessão num spec de navegador entra por DUAS portas, e nunca por `login()` dentro de
+  `page.evaluate`** (2026-09-23). O login grava a sessão, e o boot do mapa que ainda não passou da
+  Fase 2.5 a lê e leva a página para `atlas.html` no meio do caso: medido, 10 de 10 no Firefox e 1
+  de 10 no Chromium, e esperar não conserta, porque a janela vai do início do documento até a Fase
+  2.5. Para falar com o servidor, `clienteNaPagina` (token só em memória, vale em qualquer
+  página e instante, 15 minutos sem renovação); para o app logado, `sessaoDoApp`, que faz o login
+  real numa página que não boota e só então navega ao destino. Os dois moram em
+  `frontend/tests/e2e-ui/helpers/cliente-de-teste.js`, o censo
+  `frontend/tests/unit/login-programatico-so-pelo-helper.test.js` reprova a forma crua (exceções
+  declaradas com motivo), e a interleaving perdedora é determinística em
+  `frontend/tests/e2e-ui/login-programatico-no-boot.spec.js`. Detalhe no README daquela pasta.
 - **O Playwright lê `aria-disabled` como desabilitado, e isso colide de frente com a regra "o
   ESTADO recusa o clique"** (medido em 2026-09-02, três rodadas perdidas num spec do menu de camada).
   O comando bloqueado por estado é desenhado com `aria-disabled` e NUNCA com a propriedade

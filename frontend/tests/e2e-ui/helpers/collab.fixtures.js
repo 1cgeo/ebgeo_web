@@ -74,9 +74,9 @@ export const collabTest = base.extend({
         const extraCreds = [];
         if (peerCount > 1) {
             const tmp = await browser.newPage();
-            // `atlas.html`, e não `/`: `addSharedUser` faz login nesta página, e o boot do mapa
-            // que ainda não passou da Fase -1 navega para o seletor ao ver o token, matando o pedido
-            // em voo. A corrida está medida em `seedSharedAtlas` (`collab-helpers.js`).
+            // `addSharedUser` fala com o servidor por `clienteNaPagina`, que não grava sessão, então
+            // a página pode ser qualquer uma do app; ficou `atlas.html` por história (ver
+            // `seedSharedAtlas`, `collab-helpers.js`).
             await tmp.goto('/atlas.html');
             for (let i = 1; i < peerCount; i++) {
                 extraCreds.push(await addSharedUser(tmp, baseUrl, seed.userA, seed.atlasId, { permission, label: `peer${i}` }));

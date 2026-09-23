@@ -28,6 +28,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -322,11 +323,8 @@ async function prepararAcervo(browser, prefixo) {
 }
 
 /** O que o SERVIDOR tem, por HTTP e não pela tela. */
-function lerServidor(page, creds, atlasId) {
-    return page.evaluate(async ({ baseUrl, c, aid }) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-        const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-        await api.login(c.username, c.password);
+async function lerServidor(page, creds, atlasId) {
+    return page.evaluate(async ({ api, aid }) => {
         const pulled = await api.pullSync(aid, 0);
         const maps = pulled.snapshot?.maps || [];
         let features = 0;
@@ -336,7 +334,7 @@ function lerServidor(page, creds, atlasId) {
             }
         }
         return { maps: maps.length, nomes: maps.map((m) => m.name).sort(), features };
-    }, { baseUrl: state.baseUrl, c: creds, aid: atlasId });
+    }, { api: await clienteNaPagina(page, creds), aid: atlasId });
 }
 
 describeOrSkip('enviar ao servidor o acervo herdado', () => {

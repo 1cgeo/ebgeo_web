@@ -18,6 +18,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -27,29 +28,23 @@ describeOrSkip('Login → open project flow (real browser + real backend)', () =
         // 1. Seed a VERIFIED user (Node side) + an atlas via the transport inside the page.
         const user = await createVerifiedUser({ prefix: 'uilogin', nome: 'UI Login' });
         await page.goto('/');
-        const seed = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const seed = await page.evaluate(async ({ api, u }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'UI Login Atlas' });
             const mapId = crypto.randomUUID();
             await api.pushOperations(atlas.id, [createOperation('map', 'create', mapId, null, { name: 'M1' })]);
 
             return { username: u.username, password: u.password, atlasId: atlas.id };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user), u: user });
 
         // 2. Point the app's syncEngine at the spawned backend BEFORE the app loads.
         await page.addInitScript((url) => {
             window.__EBGEO_BACKEND_URL__ = url;
         }, `${state.baseUrl}/api/v1`);
 
-        // The setup api.login() above PERSISTS a JWT to localStorage (session persistence / P7), so a
-        // plain reload would boot ALREADY authenticated and hide the login button. Clear it so the
-        // reload boots ANONYMOUS — this test exercises the UI login from scratch.
-        await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });
+        // The setup client above keeps its token IN MEMORY only (`clienteNaPagina`), so the reload
+        // boots ANONYMOUS: this test exercises the UI login from scratch.
 
         // 3. Reload so the init script + fresh app boot pick up the override.
         await page.goto('/');

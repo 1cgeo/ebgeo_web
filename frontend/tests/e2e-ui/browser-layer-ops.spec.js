@@ -21,6 +21,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -41,12 +42,8 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 async function seedSession(page, baseUrl, tag) {
     const user = await createVerifiedUser({ prefix: tag, nome: 'Layer Ops' });
     return page.evaluate(
-        async ({ baseUrl: url, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Layer Atlas' });
             const mapId = crypto.randomUUID();
@@ -56,7 +53,7 @@ async function seedSession(page, baseUrl, tag) {
             window.__layer = { api, createOperation, atlasId: atlas.id, mapId };
             return { atlasId: atlas.id, mapId };
         },
-        { baseUrl, u: user },
+        { api: await clienteNaPagina(page, user) },
     );
 }
 

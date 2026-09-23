@@ -55,6 +55,7 @@ import {
     readFeatures,
     selectFeatureUI,
 } from './helpers/collab-helpers.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -98,7 +99,8 @@ const T_FIM = Date.UTC(2024, 0, 1, 13, 30, 0);
  *
  * A CONTA nasce no NODE (`helpers/accounts.js`), porque o cadastro exige e-mail e o token
  * que o confirma só existe como linha no Postgres, fora do alcance do `page.evaluate`.
- * Dentro do browser sobra o `login()`, e o atlas + mapa contra o backend real.
+ * Dentro do browser sobram o atlas e o mapa contra o backend real, por um cliente que não
+ * grava sessão (`clienteNaPagina`).
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} baseUrl - backend origin (without the `/api/v1` suffix)
@@ -111,12 +113,8 @@ async function seed(page, baseUrl, prefix) {
     // snapshot dentro da própria página (ver o cabeçalho).
     await instalarBaseConfirmada(page);
     return page.evaluate(
-        async ({ baseUrl: url, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Temporal Advanced Atlas' });
             const mapId = crypto.randomUUID();
@@ -125,7 +123,7 @@ async function seed(page, baseUrl, prefix) {
             window.__tmp = { api, createOperation };
             return { atlasId: atlas.id, mapId };
         },
-        { baseUrl, u: user },
+        { api: await clienteNaPagina(page, user) },
     );
 }
 
@@ -276,7 +274,7 @@ describeOrSkip('Temporal: transporte das chaves (Chromium real + backend real)',
     test('§29.13 edit temporal validity: set → shift → blank-clears; sibling stays untouched', async ({
         page,
     }) => {
-        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        // Transport-only: a página não precisa do mapa (o cliente do teste não grava sessão).
         await page.goto('/atlas.html');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'tmp_validity');
 
@@ -407,7 +405,7 @@ describeOrSkip('Temporal: transporte das chaves (Chromium real + backend real)',
     test('§29.15/17 o array de trajetória VIAJA como uma unidade só, e a omissão o derruba', async ({
         page,
     }) => {
-        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        // Transport-only: a página não precisa do mapa (o cliente do teste não grava sessão).
         await page.goto('/atlas.html');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'tmp_traj');
 
@@ -511,7 +509,7 @@ describeOrSkip('Temporal: transporte das chaves (Chromium real + backend real)',
     test('§29.18/19/20 as bandeiras automáticas persistem, e o GDH derivado viaja verbatim', async ({
         page,
     }) => {
-        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        // Transport-only: a página não precisa do mapa (o cliente do teste não grava sessão).
         await page.goto('/atlas.html');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'tmp_auto');
 

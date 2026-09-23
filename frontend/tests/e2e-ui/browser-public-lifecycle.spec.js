@@ -27,6 +27,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -41,7 +42,7 @@ describeOrSkip('Public-link lifecycle: enable → disable revokes the link (real
         await page.goto('/');
 
         const result = await page.evaluate(
-            async ({ baseUrl, u }) => {
+            async ({ owner, baseUrl }) => {
                 const { ApiClient } = await import('/src/js/store/sync/api-client.js');
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
@@ -55,9 +56,6 @@ describeOrSkip('Public-link lifecycle: enable → disable revokes the link (real
                     });
 
                 // --- Seed owner + atlas + map + one feature (so the public pull has content). ---
-                const owner = new ApiClient({ baseUrl: apiBase });
-                await owner.login(u.username, u.password);
-
                 const atlas = await owner.createAtlas({ name: 'Public Lifecycle Atlas' });
                 const mapId = crypto.randomUUID();
                 await owner.pushOperations(atlas.id, [
@@ -84,8 +82,10 @@ describeOrSkip('Public-link lifecycle: enable → disable revokes the link (real
                 const resolvedAtlasId = lookupBody?.data?.id;
 
                 // The minted public token can PULL while sharing is live.
+                // EPHEMERAL, exactly as the product holds a public-link token (`setEphemeralToken`):
+                // `setTokens` would persist it as the page's session.
                 const visitor = new ApiClient({ baseUrl: apiBase });
-                visitor.setTokens({ accessToken: publicToken });
+                visitor.setEphemeralToken(publicToken);
                 let prePullOk = false;
                 let prePullSeesFeature = false;
                 try {
@@ -135,7 +135,7 @@ describeOrSkip('Public-link lifecycle: enable → disable revokes the link (real
                     postPullStatus,
                 };
             },
-            { baseUrl: state.baseUrl, u: ownerUser },
+            { owner: await clienteNaPagina(page, ownerUser), baseUrl: state.baseUrl },
         );
 
         // 1. Enable + anonymous lookup succeed; the minted token reads the seeded feature.

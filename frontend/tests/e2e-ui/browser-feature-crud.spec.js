@@ -36,6 +36,7 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
 import { instalarBaseConfirmada } from './helpers/base-confirmada.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -49,12 +50,8 @@ describeOrSkip('Feature CRUD (real Chromium + real backend, transport via page.e
 
         const user = await createVerifiedUser({ prefix: 'crud', nome: 'CRUD User' });
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'CRUD Atlas' });
             const mapId = crypto.randomUUID();
@@ -206,7 +203,7 @@ describeOrSkip('Feature CRUD (real Chromium + real backend, transport via page.e
                 deleted,
                 edge: { orphanLandedSomewhere },
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         // ---- CREATE assertions: each geometry in its own bucket, isolated ----
         expect(result.hasToken).toBe(true);

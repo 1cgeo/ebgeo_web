@@ -27,6 +27,7 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { seedSharedAtlas, openClient, drawPointUI, drawLineUI } from './helpers/collab-helpers.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -127,12 +128,8 @@ describeOrSkip('Group ops + group_feature membership (real Chromium + real backe
         const user = await createVerifiedUser({ prefix: 'gf', nome: 'GroupFeature User' });
         await page.goto('/');
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'GroupFeature Atlas' });
             const mapId = crypto.randomUUID();
@@ -229,7 +226,7 @@ describeOrSkip('Group ops + group_feature membership (real Chromium + real backe
                 featureSurvived: afterUnlink.featureAlive,
                 featureId,
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         // OS TRÊS ENVELOPES MONTADOS À MÃO FORAM ACEITOS PELO PROTOCOLO, e o desfecho POR OPERAÇÃO
         // é [aplicada, RECUSADA, aplicada]. Esta linha separa três coisas que o vermelho anterior

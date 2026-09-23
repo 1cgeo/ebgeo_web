@@ -43,6 +43,7 @@ import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { seedSv360Photo } from './helpers/catalog-seed.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -53,7 +54,8 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
  *
  * A CONTA nasce no NODE (`helpers/accounts.js`), porque o cadastro exige e-mail e o token
  * que o confirma só existe como linha no Postgres, fora do alcance do `page.evaluate`.
- * Dentro do browser sobra o `login()`, e o atlas + mapa contra o backend real.
+ * Dentro do browser sobram o atlas e o mapa contra o backend real, por um cliente que não
+ * grava sessão (`clienteNaPagina`).
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} baseUrl - backend origin (without the `/api/v1` suffix)
@@ -63,12 +65,8 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 async function seed(page, baseUrl, prefix) {
     const user = await createVerifiedUser({ prefix, nome: 'SV360 E2E' });
     return page.evaluate(
-        async ({ baseUrl: url, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'SV360 Atlas' });
             const mapId = crypto.randomUUID();
@@ -77,7 +75,7 @@ async function seed(page, baseUrl, prefix) {
             window.__sv360 = { api, createOperation };
             return { atlasId: atlas.id, mapId };
         },
-        { baseUrl, u: user },
+        { api: await clienteNaPagina(page, user) },
     );
 }
 
@@ -85,7 +83,7 @@ describeOrSkip('Street View 360 annotation transport (real Chromium + real backe
     test('§21.3-5 marker360 create → update (LWW) → delete reflected in map.streetview360.markers', async ({
         page,
     }) => {
-        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        // Transport-only: a página não precisa do mapa (o cliente do teste não grava sessão).
         await page.goto('/atlas.html');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'sv360_marker');
 
@@ -196,7 +194,7 @@ describeOrSkip('Street View 360 annotation transport (real Chromium + real backe
     });
 
     test('§21.6-7 orientation360 save (keyed by photoName) then clear removes the key', async ({ page }) => {
-        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        // Transport-only: a página não precisa do mapa (o cliente do teste não grava sessão).
         await page.goto('/atlas.html');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'sv360_orient');
 
@@ -278,7 +276,7 @@ describeOrSkip('Street View 360 annotation transport (real Chromium + real backe
     test('§21.15 marker360 temporal validity window round-trips; empty fields = permanent marker', async ({
         page,
     }) => {
-        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        // Transport-only: a página não precisa do mapa (o cliente do teste não grava sessão).
         await page.goto('/atlas.html');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'sv360_temporal');
 

@@ -22,6 +22,7 @@ import { readState } from './state.js';
 import { esperarCargaDeFerramenta } from './helpers/ferramenta-pronta.js';
 import { seedSharedAtlas, openClient, readFeatures, attemptStoreWriteBlocked } from './helpers/collab-helpers.js';
 import { createDb, closeDb } from './helpers/db.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -82,13 +83,10 @@ async function attemptDrawLineBlocked(page, coords) {
 async function enablePublicLink(browser, baseUrl, ownerCreds, atlasId) {
     const p = await browser.newPage();
     await p.goto('/');
-    const link = await p.evaluate(async ({ base, c, id }) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-        const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-        await api.login(c.username, c.password);
+    const link = await p.evaluate(async ({ api, id }) => {
         const res = await api.enablePublicSharing(id);
         return res.publicLink || res.public_link;
-    }, { base: baseUrl, c: ownerCreds, id: atlasId });
+    }, { api: await clienteNaPagina(p, ownerCreds), id: atlasId });
     await p.close();
     return link;
 }

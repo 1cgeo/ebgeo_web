@@ -38,6 +38,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -49,12 +50,8 @@ describeOrSkip('gridStyle map sub-type transport (real Chromium + real backend)'
         const user = await createVerifiedUser({ prefix: 'grid', nome: 'Grid Style E2E' });
         await page.goto('/');
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const result = await page.evaluate(async ({ api }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Grid Style Atlas' });
             const mapId = crypto.randomUUID();
@@ -120,7 +117,7 @@ describeOrSkip('gridStyle map sub-type transport (real Chromium + real backend)'
                 smuggleGrid: afterSmuggle.map?.grid_style,
                 smuggleName: afterSmuggle.map?.name,
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { api: await clienteNaPagina(page, user) });
 
         expect(result.isSnapshot).toBe(true);
 

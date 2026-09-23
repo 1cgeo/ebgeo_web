@@ -56,6 +56,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { clienteNaPagina } from './helpers/cliente-de-teste.js';
 import { seedModelo3d } from './helpers/catalog-seed.js';
 import { SONDA_VAZAMENTO, contarRecursos, diferencaPorTipo } from './helpers/sonda-vazamento.js';
 
@@ -135,11 +136,8 @@ async function registrarTileset(page) {
     const creds = await createVerifiedUser({ prefix: 'vaz3dadm', nome: 'Vazamento Admin', role: 'admin' });
 
     /** Uma escrita de catálogo pela rota, autenticada. Devolve status e corpo. */
-    const escreverNoCatalogo = (metodo, caminho, corpo) => page.evaluate(
-        async ({ url, creds: c, metodo: m, caminho: p, corpo: b }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-            const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-            await api.login(c.username, c.password);
+    const escreverNoCatalogo = async (metodo, caminho, corpo) => page.evaluate(
+        async ({ api, url, metodo: m, caminho: p, corpo: b }) => {
             const res = await fetch(`${url}/api/v1${p}`, {
                 method: m,
                 headers: {
@@ -150,7 +148,7 @@ async function registrarTileset(page) {
             });
             return { status: res.status, body: await res.text() };
         },
-        { url: state.baseUrl, creds, metodo, caminho, corpo },
+        { api: await clienteNaPagina(page, creds), url: state.baseUrl, metodo, caminho, corpo },
     );
 
     const corpoDoTileset = {
@@ -187,9 +185,9 @@ async function registrarTileset(page) {
         `nao foi possivel invalidar o indice de modelos: ${atualizado.status} ${atualizado.body}`,
     ).toBe(true);
 
-    // Derruba a sessão antes do boot: sessão viva numa URL nua é roteada para `atlas.html`,
-    // que não tem mapa nenhum, e o `bootar` esperaria para sempre por um botão que não existe.
-    await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });
+    // Nenhuma sessão fica gravada: o cliente acima guarda o token só em memória
+    // (`clienteNaPagina`). Sessão viva numa URL nua seria roteada para `atlas.html`, que não tem
+    // mapa nenhum, e o `bootar` esperaria para sempre por um botão que não existe.
 }
 
 /** Sobe o app e espera o mapa 2D. */
