@@ -4196,3 +4196,12 @@ instável, e cada uma foi atribuída antes de ser tocada.
   `backend/tests/integration/diag-rotas-de-log-espelham-o-cli.test.js`. Detalhe em
   [deploy do backend](../wiki/deploy-backend.md) e [observabilidade](../wiki/observabilidade.md).
 - **Status:** aceita; os testes foram escritos e não rodados nesta sessão.
+
+
+## 2026-09-22: símbolos de engenharia como tipo próprio de ponto
+
+- **Contexto:** pedido do usuário para implementar a tabela 6-4 do C 5-36 com o fluxo e os controles de Medidas de Coordenação, preservando os campos e desenhos revisados.
+- **Decisão:** tipo `engineering_symbol`, coleção `engineering_symbols` e atributos de desenho em `engineering`. Compartilha o ciclo do controle de coordenação; gera a imagem a partir dos atributos em cada cliente. A migração incremental 013 amplia o CHECK de tipos, sem alterar feições existentes.
+- **Motivo:** manter a identificação de Engenharia na seleção, lista e sincronização, sem misturar seu catálogo com os códigos das medidas de coordenação. Estradas de referência ficam fora da geometria; todos os itens aprovados são pontos.
+- **Compatibilidade:** coleção ausente em mapas antigos recebe lista vazia na leitura. O fundo branco opcional dos cinco desenhos fechados começa desativado quando o atributo não existe.
+- **Referência:** [escopo e implementação](../wiki/simbolos-engenharia.md).

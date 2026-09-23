@@ -27,6 +27,7 @@ export const FEATURE_TYPE_ICONS_14 = Object.freeze({
     coordination_line: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 8h4"/><path d="M5 8l3-3 3 3-3 3z"/><path d="M11 8h4"/></svg>',
     military_symbol: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="10" height="8"/><line x1="8" y1="4" x2="8" y2="2"/></svg>',
     coordination_measure: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg>',
+    engineering_symbol: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="14" cy="10" r="8"/><path d="M6 10h16M8 16l-6 6m0-4v4h4"/><g fill="currentColor" stroke="none" font-size="6" text-anchor="middle"><text x="14" y="8">80</text><text x="14" y="16">40</text></g></svg>',
 });
 
 /** Default icon for unknown feature types (14x14) */

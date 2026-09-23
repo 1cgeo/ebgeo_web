@@ -93,25 +93,27 @@ describe('IMAGE_RESOURCE_STORAGE_TYPES', () => {
 // ============================================================================
 
 describe('collectImageResourceFeatures', () => {
-    it('os quatro buckets devolvem os quatro ids, pareados com a feição', () => {
+    it('os cinco buckets devolvem os cinco ids, pareados com a feição', () => {
         const colecao = {
             images: [feicao('img-1', 'image')],
             military_symbols: [feicao('sm-1', 'military_symbol')],
             coordination_measures: [feicao('mc-1', 'coordination_measure')],
+            engineering_symbols: [feicao('eng-1', 'engineering_symbol')],
             magnetic_declinations: [feicao('dm-1', 'magnetic_declination')],
         };
 
         const pares = collectImageResourceFeatures(colecao);
 
-        expect(pares.map(p => p.imageId).sort()).toEqual(['dm-1', 'img-1', 'mc-1', 'sm-1']);
+        expect(pares.map(p => p.imageId).sort()).toEqual(['dm-1', 'eng-1', 'img-1', 'mc-1', 'sm-1']);
         // O PAR é o que o caminho do F5 precisa: o regenerador reconstrói pelas propriedades.
         expect(pares.map(p => p.feature.properties.source).sort())
-            .toEqual(['coordination_measure', 'image', 'magnetic_declination', 'military_symbol']);
+            .toEqual(['coordination_measure', 'engineering_symbol', 'image', 'magnetic_declination', 'military_symbol']);
     });
 
     it('a ordem é a do registro, não a das chaves do objeto', () => {
         // Ordem de inserção invertida de propósito: a varredura itera a constante derivada.
         const pares = collectImageResourceFeatures({
+            engineering_symbols: [feicao('eng-1', 'engineering_symbol')],
             magnetic_declinations: [feicao('dm-1', 'magnetic_declination')],
             coordination_measures: [feicao('mc-1', 'coordination_measure')],
             military_symbols: [feicao('sm-1', 'military_symbol')],
@@ -119,7 +121,7 @@ describe('collectImageResourceFeatures', () => {
         });
 
         const ordemDoRegistro = IMAGE_RESOURCE_STORAGE_TYPES.map(
-            b => ({ images: 'img-1', military_symbols: 'sm-1', coordination_measures: 'mc-1', magnetic_declinations: 'dm-1' })[b]
+            b => ({ images: 'img-1', military_symbols: 'sm-1', coordination_measures: 'mc-1', engineering_symbols: 'eng-1', magnetic_declinations: 'dm-1' })[b]
         );
         expect(pares.map(p => p.imageId)).toEqual(ordemDoRegistro);
     });

@@ -1494,6 +1494,7 @@ function _getTypeDisplayName(type) {
         coordination_line: 'Linhas de Coordenação',
         military_symbol: 'Símbolos Militares',
         coordination_measure: 'Medidas de Coordenação',
+        engineering_symbol: 'Símbolos de Engenharia',
         los: 'Linhas de Visada',
         visibility: 'Visibilidade',
         sector: 'Setores',

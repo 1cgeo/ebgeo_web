@@ -27,12 +27,6 @@ import { readGeoJSONSourceData } from '@utils/geojson-source.js';
 import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
 
 /**
- * Layer onHoverMove needs: the single layer drawn from the 'coordination_measures' source, in
- * layers/styles/symbol.layers.js. This tool has no edit handles.
- */
-const HOVER_LAYER_IDS = ['coordination-measures-layer'];
-
-/**
  * The dispatcher that owns the `coordination_measures` source.
  *
  * EVERY write to `coordination_measures` made in this file goes through it. The reason is not
@@ -57,6 +51,8 @@ function coordinationMeasuresSource(map) {
 
 class AddCoordinationMeasureControl extends BaseControl {
   featureType = 'coordination_measure';
+  storageType = 'coordination_measures';
+  symbolLayerId = 'coordination-measures-layer';
 
   constructor(toolManager) {
     super(toolManager);
@@ -116,6 +112,8 @@ class AddCoordinationMeasureControl extends BaseControl {
     altitude: null
   };
 
+  getSourceDispatcher() { return coordinationMeasuresSource(this.map); }
+
   // ===== MAPBOX CONTROL INTERFACE =====
 
   onAdd = (map) => {
@@ -123,7 +121,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     this.setupZoomListener();
     // The measure PNG is local-only — never uploaded — so a peer renders an error icon.
     // Regenerate it from the synced props on every remote coordination-measure op (deterministic).
-    this._subscribeRemoteImageRegen("coordination_measure", (f) => this._regenerateRemote(f));
+    this._subscribeRemoteImageRegen(this.featureType, (f) => this._regenerateRemote(f));
   };
 
   onRemove = () => {
@@ -133,7 +131,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     // dispatch. Dropping a batch here cannot lose a measure: the store write always precedes the
     // source write, so the redraw that follows a style switch repopulates
     // `coordination_measures` from persistence.
-    destroyGeoJsonDispatcher(this.map, "coordination_measures");
+    destroyGeoJsonDispatcher(this.map, this.storageType);
     this._unsubscribeRemoteImageRegen();
     if (this.zoomRafId) {
       cancelAnimationFrame(this.zoomRafId);
@@ -177,7 +175,7 @@ class AddCoordinationMeasureControl extends BaseControl {
   }
 
   getDragSources() {
-    return ["coordination_measures"];
+    return [this.storageType];
   }
 
   getEditHandleSources() {
@@ -187,7 +185,7 @@ class AddCoordinationMeasureControl extends BaseControl {
   createSelectionBox(feature) {
     // The box is the measure as drawn, plus the frame padding, rotation and
     // icon-anchor included, at the feature's live coordinates.
-    const drawn = createRenderedIconSelectionBox(this.map, feature, "coordination-measures-layer");
+    const drawn = createRenderedIconSelectionBox(this.map, feature, this.symbolLayerId);
     if (drawn) return { geometry: drawn };
 
     // The measure image is not in the style yet: fall back to the stored box.
@@ -223,11 +221,11 @@ class AddCoordinationMeasureControl extends BaseControl {
   }
 
   getLayerIds() {
-    return ["coordination-measures-layer"];
+    return [this.symbolLayerId];
   }
 
   getSourceNames() {
-    return ["coordination_measures"];
+    return [this.storageType];
   }
 
   getEditHandleSource() {
@@ -368,7 +366,7 @@ class AddCoordinationMeasureControl extends BaseControl {
   updateSelectionBoxesForFeatures = async (features) => {
     if (!features || features.length === 0) return;
 
-    const dispatcher = coordinationMeasuresSource(this.map);
+    const dispatcher = this.getSourceDispatcher();
     let hasChanges = false;
 
     // The moved feature already carries the post-drag state: `updateFeatureForMove` built it and
@@ -377,7 +375,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     // one-property patch, instead of reading the whole collection back only to find the copy of
     // what the caller already handed us.
     for (const inputFeature of features) {
-      if (inputFeature.properties.source !== "coordination_measure") continue;
+      if (inputFeature.properties.source !== this.featureType) continue;
 
       const effectiveZoom = inputFeature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
       const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
@@ -442,21 +440,21 @@ class AddCoordinationMeasureControl extends BaseControl {
   createCoordinationMeasureFeature = async (lngLat) => {
     const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
     const featureName = await IDUtils.generateFeatureName(
-      "coordination_measure",
+      this.featureType,
       this.map
     );
 
     const currentZoom = this.map.getZoom();
     const coordinates = [lngLat.lng, lngLat.lat];
 
-    const pointCode = AddCoordinationMeasureControl.DEFAULT_PROPERTIES.pointCode;
+    const pointCode = this.constructor.DEFAULT_PROPERTIES.pointCode;
 
     const selectionBox = this.geometry.calculateSelectionBoxGeometry(
       coordinates,
-      AddCoordinationMeasureControl.DEFAULT_PROPERTIES.width,
-      AddCoordinationMeasureControl.DEFAULT_PROPERTIES.height,
-      AddCoordinationMeasureControl.DEFAULT_PROPERTIES.size,
-      AddCoordinationMeasureControl.DEFAULT_PROPERTIES.rotation,
+      this.constructor.DEFAULT_PROPERTIES.width,
+      this.constructor.DEFAULT_PROPERTIES.height,
+      this.constructor.DEFAULT_PROPERTIES.size,
+      this.constructor.DEFAULT_PROPERTIES.rotation,
       currentZoom,
       this.selectionManager.uiManager,
       'center'
@@ -466,13 +464,13 @@ class AddCoordinationMeasureControl extends BaseControl {
       type: "Feature",
       id: geoJsonId,
       properties: {
-        ...AddCoordinationMeasureControl.DEFAULT_PROPERTIES,
+        ...this.constructor.DEFAULT_PROPERTIES,
         layerId: getActiveLayerIdSync(),
         id: featureId,
         nome: featureName,
         pointCode: pointCode,
         createdAtZoom: currentZoom,
-        calculatedSize: AddCoordinationMeasureControl.DEFAULT_PROPERTIES.size,
+        calculatedSize: this.constructor.DEFAULT_PROPERTIES.size,
         selectionBox: selectionBox,
         tipo: null,
         identificacao: null,
@@ -516,14 +514,14 @@ class AddCoordinationMeasureControl extends BaseControl {
       await storeImage(featureId, result.blob);
       await this.loadSymbolToMap(featureId, result.blob, result.pixelRatio);
 
-      await addFeature("coordination_measures", feature);
+      await addFeature(this.storageType, feature);
 
-      const dispatcher = coordinationMeasuresSource(this.map);
+      const dispatcher = this.getSourceDispatcher();
       dispatcher.add(feature);
       await dispatcher.flush();
 
       await this.selectionManager.toggleFeatureSelection(
-        "coordination_measure",
+        this.featureType,
         featureId,
         feature
       );
@@ -591,7 +589,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       task.assertCurrent();
       await loadImageToMap(this.map, feature.properties.id, result.blob, { replaceExisting: true, pixelRatio: result.pixelRatio, isCurrent: task.isCurrent });
       task.assertCurrent();
-      await stampRegeneratedBitmap(coordinationMeasuresSource(this.map), feature, result, task.isCurrent);
+      await stampRegeneratedBitmap(this.getSourceDispatcher(), feature, result, task.isCurrent);
       return result;
     }
     return null;
@@ -619,6 +617,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       const task = beginImageTask(this.map, symbolId);
 
       const properties = {
+        ...feature.properties,
         tipo: feature.properties.tipo,
         identificacao: feature.properties.identificacao,
         gdhIni: feature.properties.gdhIni,
@@ -649,9 +648,9 @@ class AddCoordinationMeasureControl extends BaseControl {
 
       // The read stays: the box is measured from the SOURCE geometry, which is the authority on
       // where the measure currently sits, and no diff hands that back. Only the write is a diff.
-      const dispatcher = coordinationMeasuresSource(this.map);
+      const dispatcher = this.getSourceDispatcher();
       await dispatcher.flush();
-      const data = await this.map.getSource("coordination_measures").getData();
+      const data = await this.map.getSource(this.storageType).getData();
       task.assertCurrent();
       const sourceFeature = data.features.find(
         f => f.properties.id === feature.properties.id
@@ -719,6 +718,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       const task = beginImageTask(this.map, symbolId);
 
       const properties = {
+        ...feature.properties,
         tipo: feature.properties.tipo,
         identificacao: feature.properties.identificacao,
         gdhIni: feature.properties.gdhIni,
@@ -749,9 +749,9 @@ class AddCoordinationMeasureControl extends BaseControl {
 
       // The read stays: the box is measured from the SOURCE geometry, which is the authority on
       // where the measure currently sits, and no diff hands that back. Only the write is a diff.
-      const dispatcher = coordinationMeasuresSource(this.map);
+      const dispatcher = this.getSourceDispatcher();
       await dispatcher.flush();
-      const data = await this.map.getSource("coordination_measures").getData();
+      const data = await this.map.getSource(this.storageType).getData();
       task.assertCurrent();
       const sourceFeature = data.features.find(
         f => f.properties.id === feature.properties.id
@@ -890,7 +890,7 @@ class AddCoordinationMeasureControl extends BaseControl {
    */
   updateFixedSelectionBoxes = async () => {
     try {
-      const source = this.map?.getSource("coordination_measures");
+      const source = this.map?.getSource(this.storageType);
       if (!source) return;
 
       const data = readGeoJSONSourceData(source);
@@ -900,7 +900,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       if (!fixed.length) return;
 
       const currentZoom = this.map.getZoom();
-      const dispatcher = coordinationMeasuresSource(this.map);
+      const dispatcher = this.getSourceDispatcher();
       const boxes = new Map();
       for (const feature of fixed) {
         const selectionBox = this._fixedSelectionBox(feature, currentZoom);
@@ -926,7 +926,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       const box = boxes.get(feature.properties.id);
       if (!box) continue;
       feature.properties.selectionBox = box;
-      this.selectionManager.updateSelectedFeature?.('coordinationMeasure', feature.properties.id, feature);
+      this.selectionManager.updateSelectedFeature?.(this.featureType, feature.properties.id, feature);
       this.selectionManager.uiManager?.invalidateCache?.(feature.properties.id);
       touched = true;
     }
@@ -942,7 +942,7 @@ class AddCoordinationMeasureControl extends BaseControl {
   };
 
   updateAllSymbolSizes = async () => {
-    if (!this.map.getSource("coordination_measures")) {
+    if (!this.map.getSource(this.storageType)) {
       this.pendingZoomUpdate = false;
       return;
     }
@@ -952,7 +952,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     // same O(N) cost. The read-modify-write still has to start from a drained queue, or the copy
     // read back would be missing whatever is queued and the whole-collection write would then
     // erase it.
-    const dispatcher = coordinationMeasuresSource(this.map);
+    const dispatcher = this.getSourceDispatcher();
     await dispatcher.flush();
     if (!this.map) {
       this.pendingZoomUpdate = false;
@@ -960,7 +960,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     }
 
     const currentZoom = this.map.getZoom();
-    const data = await this.map.getSource("coordination_measures").getData();
+    const data = await this.map.getSource(this.storageType).getData();
     let hasChanges = false;
 
     data.features.forEach((feature) => {
@@ -988,7 +988,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     });
 
     if (hasChanges) {
-      dispatcher.setData(data);
+      dispatcher.add(data.features);
       await dispatcher.flush();
 
       // Update SelectionManager with fresh features that have updated selectionBox
@@ -1000,7 +1000,7 @@ class AddCoordinationMeasureControl extends BaseControl {
         featuresWithDisabledZoomCorrection.forEach(selectedFeature => {
           const freshFeature = data.features.find(f => f.properties.id === selectedFeature.properties.id);
           if (freshFeature) {
-            this.selectionManager.updateSelectedFeature('coordination_measure', freshFeature.properties.id, freshFeature);
+            this.selectionManager.updateSelectedFeature(this.featureType, freshFeature.properties.id, freshFeature);
             // Invalidate cache for this feature
             if (this.selectionManager.uiManager.invalidateCache) {
               this.selectionManager.uiManager.invalidateCache(freshFeature.properties.id);
@@ -1031,7 +1031,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     const selectedFeature = this.getSelectedFeature();
     if (!selectedFeature) return;
 
-    const features = queryFeaturesAtPoint(this.map, e.point, { layers: HOVER_LAYER_IDS });
+    const features = queryFeaturesAtPoint(this.map, e.point, { layers: this.getLayerIds() });
     const hasFeature = this.hasSelectedFeatureAtPoint(features);
 
     this.map.getCanvas().style.cursor = hasFeature ? "move" : "";
@@ -1042,7 +1042,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     if (!selectedFeature) return false;
     return features.some(
       (f) =>
-        f.source === "coordination_measures" &&
+        f.source === this.storageType &&
         f.properties.id === selectedFeature.properties.id
     );
   };
@@ -1054,9 +1054,9 @@ class AddCoordinationMeasureControl extends BaseControl {
     // feature and no diff hands them back: whether the feature exists at all (an unknown id must
     // be skipped, not created) and the raster size/anchor the selection box is measured from.
     // Draining first keeps that read from being stale.
-    const dispatcher = coordinationMeasuresSource(this.map);
+    const dispatcher = this.getSourceDispatcher();
     await dispatcher.flush();
-    const data = await this.map.getSource("coordination_measures").getData();
+    const data = await this.map.getSource(this.storageType).getData();
     const patches = [];
 
     for (const feature of features) {
@@ -1203,8 +1203,8 @@ class AddCoordinationMeasureControl extends BaseControl {
   saveFeatures = async (features, initialPropertiesMap) => {
     // Reads only, and it persists the SOURCE's version of each feature rather than the selected
     // one, so the queue has to be drained before the collection comes back.
-    await coordinationMeasuresSource(this.map).flush();
-    const currentData = await this.map.getSource("coordination_measures").getData();
+    await this.getSourceDispatcher().flush();
+    const currentData = await this.map.getSource(this.storageType).getData();
 
     for (const selectedFeature of features) {
       if (
@@ -1218,7 +1218,7 @@ class AddCoordinationMeasureControl extends BaseControl {
         );
 
         if (currentFeature) {
-          await updateFeature("coordination_measures", mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
+          await updateFeature(this.storageType, mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
         }
       }
     }
@@ -1255,7 +1255,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       try {
         // The rasterized blob is released later, on undo-history eviction, so an
         // Undo can still restore the measure image.
-        await removeFeature("coordination_measures", feature.properties.id);
+        await removeFeature(this.storageType, feature.properties.id);
       } catch (error) {
         console.error(
           `Error removing coordination measure ${feature.properties.id}:`,
@@ -1268,7 +1268,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     // once per feature. The keys go in raw, never coerced: MapLibre keyed the feature by the very
     // value that sits in `properties.id`, so a `String()` around it would miss a numeric key
     // instead of protecting anything.
-    const dispatcher = coordinationMeasuresSource(this.map);
+    const dispatcher = this.getSourceDispatcher();
     dispatcher.remove(features.map((f) => f.properties.id));
     await dispatcher.flush();
   };
@@ -1284,10 +1284,10 @@ class AddCoordinationMeasureControl extends BaseControl {
       delete safeProperties[key];
     });
 
-    Object.assign(AddCoordinationMeasureControl.DEFAULT_PROPERTIES, safeProperties);
+    Object.assign(this.constructor.DEFAULT_PROPERTIES, safeProperties);
 
     TEXT_MODIFIERS.forEach(key => {
-      AddCoordinationMeasureControl.DEFAULT_PROPERTIES[key] = null;
+      this.constructor.DEFAULT_PROPERTIES[key] = null;
     });
   };
 
@@ -1327,9 +1327,9 @@ class AddCoordinationMeasureControl extends BaseControl {
       // The collection read survives here too: an unknown id must be skipped rather than created,
       // and the merge branch (`onlyUpdateProperties`) needs the previous source properties to
       // merge ONTO. Draining first keeps that read from being stale.
-      const dispatcher = coordinationMeasuresSource(this.map);
+      const dispatcher = this.getSourceDispatcher();
       await dispatcher.flush();
-      const data = await this.map.getSource("coordination_measures").getData();
+      const data = await this.map.getSource(this.storageType).getData();
       const currentZoom = this.map.getZoom();
       const upserts = [];
 
@@ -1362,7 +1362,7 @@ class AddCoordinationMeasureControl extends BaseControl {
             const featureToUpdate = onlyUpdateProperties
               ? data.features[featureIndex]
               : feature;
-            await updateFeature("coordination_measures", featureToUpdate);
+            await updateFeature(this.storageType, featureToUpdate);
           }
         }
       }
@@ -1383,7 +1383,7 @@ class AddCoordinationMeasureControl extends BaseControl {
    * @param {Object} feature - Feature to update
    */
   updateSelectionManagerFeature(feature) {
-    this.selectionManager.updateSelectedFeature('coordination_measure', feature.properties.id, feature);
+    this.selectionManager.updateSelectedFeature(this.featureType, feature.properties.id, feature);
   }
 
   /**
@@ -1392,7 +1392,7 @@ class AddCoordinationMeasureControl extends BaseControl {
    */
   updateSelectionManagerFeatures(features) {
     features.forEach((feature) => {
-      if (feature.properties.source === "coordination_measure") {
+      if (feature.properties.source === this.featureType) {
         this.updateSelectionManagerFeature(feature);
       }
     });

@@ -48,7 +48,7 @@ export function addCoordinationMeasureAttributesToPanel(
         const pointButton = document.createElement('button');
         pointButton.className = 'attr-modern-btn attr-modern-btn-primary coord-point-btn';
         pointButton.textContent = 'Configurar Símbolo';
-        pointButton.onclick = () => openPointModal({
+        pointButton.onclick = () => (options.configureSymbol || openPointModal)({
             feature,
             selectedFeatures,
             coordinationMeasureControl,
@@ -105,7 +105,7 @@ export function addCoordinationMeasureAttributesToPanel(
         min: 0,
         max: 100,
         step: 1,
-        value: Math.round((feature.properties.opacity || 1.0) * 100),
+        value: Math.round((feature.properties.opacity ?? 1.0) * 100),
         unit: '%',
         onChange: (value) => {
             coordinationMeasureControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);

@@ -139,6 +139,7 @@ describe('constants', () => {
             'image-layer',
             'military-symbols-layer',
             'coordination-measures-layer',
+            'engineering-symbols-layer',
             'magnetic-declinations-layer',
             'point-marker-layer',
         ]);
@@ -206,14 +207,13 @@ describe('constants', () => {
         expect(ICON_SIZE_RULES[layerId].anchored).toBe(anchored);
     });
 
-    // Only `coordination-measures-layer` declares an `icon-offset`
-    // (`layers/styles/icon-offset.expression.js`), so an `iconOffset` sitting on
-    // a feature of any OTHER layer is dead data and must not move its rectangle.
+    // Only layers that declare icon-offset may shift their clickable rectangle.
     it.each([
         ['image-layer', false],
         ['military-symbols-layer', false],
         ['coordination-measures-layer', true],
-        ['magnetic-declinations-layer', false],
+        ['engineering-symbols-layer', true],
+        ['magnetic-declinations-layer', true],
         ['point-marker-layer', false],
     ])('%s: offset=%s', (layerId, offset) => {
         expect(ICON_SIZE_RULES[layerId].offset).toBe(offset);

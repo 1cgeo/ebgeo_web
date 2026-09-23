@@ -26,6 +26,7 @@ const FEATURE_TYPE_LABELS = {
     coordination_line: 'Linhas de Coordenação',
     military_symbol: 'Símbolos Militares',
     coordination_measure: 'Medidas de Coordenação',
+    engineering_symbol: 'Símbolos de Engenharia',
     los: 'Linhas de Visada',
     visibility: 'Visibilidade'
 };

@@ -12,10 +12,10 @@ import { showCoordinateEditModal } from '@modals/coordinate-edit.modal.js';
 import { ensureTurf } from '@utils/turf-loader.js';
 
 // Feature types that should show coordinates
-const TYPES_WITH_COORDINATES = ['point', 'text', 'coordination_measure', 'image', 'military_symbol', 'circle'];
+const TYPES_WITH_COORDINATES = ['point', 'text', 'engineering_symbol', 'coordination_measure', 'image', 'military_symbol', 'circle'];
 
 // Feature types that allow coordinate editing (point-based features and circle center)
-const EDITABLE_COORDINATE_TYPES = ['point', 'coordination_measure', 'military_symbol', 'circle', 'text', 'image'];
+const EDITABLE_COORDINATE_TYPES = ['point', 'engineering_symbol', 'coordination_measure', 'military_symbol', 'circle', 'text', 'image'];
 
 /**
  * Creates the location section for the feature panel.

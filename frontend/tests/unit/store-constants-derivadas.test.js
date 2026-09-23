@@ -58,6 +58,7 @@ const ICONES_ESPERADOS = {
     coordination_line: './images/icon_coordination_line_black.svg',
     military_symbol: './images/icon_military_black.svg',
     coordination_measure: './images/icon_coordination_black.svg',
+    engineering_symbol: './images/icon_engineering_black.svg',
     los: './images/icon_los_black.svg',
     visibility: './images/icon_visibility_black.svg',
     magnetic_declination: './images/icon_declination_black.svg',
@@ -80,6 +81,7 @@ const MAPEAMENTO_ESPERADO = {
     coordination_line: 'coordination_lines',
     military_symbol: 'military_symbols',
     coordination_measure: 'coordination_measures',
+    engineering_symbol: 'engineering_symbols',
     los: 'los',
     visibility: 'visibility',
     processed_los: 'processed_los',
@@ -104,6 +106,7 @@ const NOMES_ESPERADOS = {
     coordination_line: 'Linha de Coordenação',
     military_symbol: 'Símbolo Militar',
     coordination_measure: 'Medida de Coordenação',
+    engineering_symbol: 'Símbolo de Engenharia',
     los: 'Linha de Visada',
     visibility: 'Visibilidade',
     magnetic_declination: 'Declinação Magnética',
@@ -111,14 +114,14 @@ const NOMES_ESPERADOS = {
 
 const NAO_COPIAVEIS_ESPERADOS = ['los', 'visibility'];
 
-const COM_IMAGEM_ESPERADOS = ['image', 'military_symbol', 'coordination_measure', 'magnetic_declination'];
+const COM_IMAGEM_ESPERADOS = ['image', 'military_symbol', 'coordination_measure', 'engineering_symbol', 'magnetic_declination'];
 
 // The 19 selectable types, in canonical order. This is `SOURCE_TYPES`, which is module-private
 // and only observable through `getSelectionControlConfig`.
 const SELECIONAVEIS_ESPERADOS = [
     'point', 'line', 'polygon', 'circle', 'ellipse', 'rectangle', 'sector',
     'text', 'image', 'brush',
-    'arrow', 'boundary', 'occupied_front', 'coordination_line', 'military_symbol', 'coordination_measure',
+    'arrow', 'boundary', 'occupied_front', 'coordination_line', 'military_symbol', 'coordination_measure', 'engineering_symbol',
     'los', 'visibility',
     'magnetic_declination',
 ];
@@ -187,7 +190,7 @@ describe('constantes derivadas: a regressao que a derivacao poderia ter causado'
         // result into 'processed_loss' on the receiving peer.
         expect(getAllStorageTypes()).toContain('processed_los');
         expect(getAllStorageTypes()).toContain('processed_visibility');
-        expect(getAllStorageTypes()).toHaveLength(21);
+        expect(getAllStorageTypes()).toHaveLength(22);
     });
 });
 

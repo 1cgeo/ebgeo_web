@@ -101,7 +101,7 @@ export const SUPPORTED_GEOMETRY_TYPES = Object.freeze([
     // Derived shapes (stored as Polygon)
     'circle', 'rectangle', 'ellipse',
     // Point types (treated as Point by turf)
-    'text', 'image', 'military_symbol', 'coordination_measure',
+    'text', 'image', 'military_symbol', 'engineering_symbol', 'coordination_measure',
     // Line types (treated as LineString by turf)
     'brush', 'arrow', 'boundary', 'occupied_front', 'coordination_line',
 ]);

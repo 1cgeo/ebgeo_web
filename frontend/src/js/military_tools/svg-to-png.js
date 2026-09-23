@@ -140,3 +140,39 @@ export async function convertSvgToPngBlob(svgString, targetWidth, targetHeight =
         URL.revokeObjectURL(url);
     }
 }
+
+/** Crop transparent margins, retaining the old image centre as the map anchor. */
+export async function cropPngToDrawing(blob, pixelRatio = 1) {
+    const bitmap = await createImageBitmap(blob);
+    const originalWidth = bitmap.width, originalHeight = bitmap.height;
+    const canvas = document.createElement('canvas');
+    canvas.width = originalWidth; canvas.height = originalHeight;
+    const context = canvas.getContext('2d');
+    try { context.drawImage(bitmap, 0, 0); } finally { bitmap.close(); }
+    const pixels = context.getImageData(0, 0, originalWidth, originalHeight).data;
+    let left = originalWidth, top = originalHeight, right = -1, bottom = -1;
+    for (let y = 0; y < originalHeight; y++) {
+        for (let x = 0; x < originalWidth; x++) {
+            if (pixels[(y * originalWidth + x) * 4 + 3] === 0) continue;
+            left = Math.min(left, x); right = Math.max(right, x);
+            top = Math.min(top, y); bottom = Math.max(bottom, y);
+        }
+    }
+    if (right < left) throw new Error('Cannot crop an empty diagram');
+    const padding = Math.ceil(2 * pixelRatio);
+    left = Math.max(0, left - padding); top = Math.max(0, top - padding);
+    right = Math.min(originalWidth - 1, right + padding);
+    bottom = Math.min(originalHeight - 1, bottom + padding);
+    const width = right - left + 1, height = bottom - top + 1;
+    const cropped = document.createElement('canvas');
+    cropped.width = width; cropped.height = height;
+    cropped.getContext('2d').drawImage(canvas, left, top, width, height, 0, 0, width, height);
+    const croppedBlob = await new Promise((resolve, reject) => cropped.toBlob(
+        value => value ? resolve(value) : reject(new Error('Canvas toBlob returned null')), 'image/png'
+    ));
+    return {
+        blob: croppedBlob, width: width / pixelRatio, height: height / pixelRatio, pixelRatio,
+        anchor: 'center',
+        iconOffset: [(left + width / 2 - originalWidth / 2) / pixelRatio, (top + height / 2 - originalHeight / 2) / pixelRatio],
+    };
+}

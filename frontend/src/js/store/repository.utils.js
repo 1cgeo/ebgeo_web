@@ -131,6 +131,7 @@ export function getEmptyMapData() {
             setores: [],
             coordenadas: [],
             coordination_measures: [],
+            engineering_symbols: [],
             magnetic_declinations: []
         },
         zoom: null,
@@ -296,6 +297,9 @@ export function ensureMapDataShape(mapData) {
     if (!mapData || typeof mapData !== 'object') return null;
 
     let features = ensureCoordinationLines(mapData.features) || mapData.features;
+    if (features && !Array.isArray(features.engineering_symbols)) {
+        features = { ...features, engineering_symbols: [] };
+    }
     const declinations = features?.magnetic_declinations;
     if (Array.isArray(declinations)) {
         let changed = false;

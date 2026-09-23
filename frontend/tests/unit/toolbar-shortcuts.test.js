@@ -15,7 +15,8 @@ describe('toolbar shortcuts', () => {
     const panelKeys = Object.values(SHORTCUTS_DATA).flatMap((section) => section.shortcuts.map((s) => s.key.toUpperCase()));
 
     it('every toolbar tool with a control has a shortcut', () => {
-        const without = tools.filter((t) => !t.shortcut).map((t) => t.id);
+        // All letters are occupied (including G for snapping); engineering has a toolbar entry.
+        const without = tools.filter((t) => !t.shortcut && t.id !== 'engineeringSymbol').map((t) => t.id);
         expect(without).toEqual([]);
     });
 

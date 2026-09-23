@@ -32,11 +32,29 @@
  */
 
 /**
- * `icon-offset` expression: the feature's `iconOffset`, or no offset at all.
+ * Tile queries evaluate layout before GeoJSONFeature decodes the JSON-prefixed
+ * properties. Accept that representation as well as the worker's numeric pair;
+ * otherwise querying a correctly drawn icon warns and reports a zero offset.
+ * `semiliteral` builds a numeric pair without changing persisted properties.
  * @constant {Array}
  */
 export const ICON_OFFSET_EXPRESSION = [
-    'coalesce',
-    ['get', 'iconOffset'],
-    ['literal', [0, 0]],
+    'let', 'offset', ['get', 'iconOffset'],
+    ['case', ['==', ['typeof', ['var', 'offset']], 'string'],
+        ['let', 'text', ['string', ['var', 'offset']],
+            ['let', 'start', ['+', ['index-of', '[', ['var', 'text']], 1],
+            'comma', ['index-of', ',', ['var', 'text']],
+            'end', ['index-of', ']', ['var', 'text']],
+            ['case', ['all',
+                ['>', ['var', 'start'], 0],
+                ['>', ['var', 'comma'], ['var', 'start']],
+                ['>', ['var', 'end'], ['var', 'comma']],
+            ],
+            ['array', 'number', 2, ['semiliteral', [
+                ['to-number', ['slice', ['var', 'text'], ['var', 'start'], ['var', 'comma']], 0],
+                ['to-number', ['slice', ['var', 'text'], ['+', ['var', 'comma'], 1], ['var', 'end']], 0],
+            ]]],
+            ['literal', [0, 0]]]]],
+        ['array', 'number', 2, ['var', 'offset'], ['literal', [0, 0]]],
+    ],
 ];

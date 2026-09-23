@@ -189,6 +189,7 @@ const LIVE_SOURCE_BY_BUCKET = Object.freeze({
     coordination_lines: 'coordination_lines',
     military_symbols: 'military_symbols',
     coordination_measures: 'coordination_measures',
+    engineering_symbols: 'engineering_symbols',
     magnetic_declinations: 'magnetic_declinations',
     los: 'los',
     visibility: 'visibility',

@@ -33,6 +33,7 @@ vi.mock('@store', () => ({ getControl: () => null }));
 import { ICON_OFFSET_EXPRESSION } from '../../src/js/layers/styles/icon-offset.expression.js';
 import {
     setupCoordinationMeasureLayers,
+    setupEngineeringSymbolLayers,
     setupMilitarySymbolsLayers,
     setupDeclinationLayers,
 } from '../../src/js/layers/styles/symbol.layers.js';
@@ -103,6 +104,17 @@ describe('the icon-offset expression', () => {
             expect(evaluate({ iconOffset: [0, 12.5] }, zoom)).toEqual([0, 12.5]);
         }
     });
+
+    it('preserves offsets when tile queries evaluate JSON-encoded array properties', () => {
+        const { evaluate } = compile(ICON_OFFSET_EXPRESSION);
+        const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            for (const iconOffset of ['[-3.5,12.5]', '__$json__:[-3.5,12.5]']) {
+                expect(evaluate({ iconOffset })).toEqual([-3.5, 12.5]);
+            }
+            expect(warning).not.toHaveBeenCalled();
+        } finally { warning.mockRestore(); }
+    });
 });
 
 describe('the layer that applies it', () => {
@@ -116,12 +128,14 @@ describe('the layer that applies it', () => {
             .toEqual([0, 12.5]);
     });
 
-    it('is the ONLY symbol layer with an icon-offset', () => {
+    it('also anchors engineering symbols, without shifting the other symbol families', () => {
         const map = montarMapa();
+        setupEngineeringSymbolLayers({ engineering_symbols: [] }, map);
         setupMilitarySymbolsLayers({ military_symbols: [] }, map);
         setupDeclinationLayers({ magnetic_declinations: [] }, map);
 
         expect(map.layers.get('military-symbols-layer').layout['icon-offset']).toBeUndefined();
-        expect(map.layers.get('magnetic-declinations-layer').layout['icon-offset']).toBeUndefined();
+        expect(map.layers.get('magnetic-declinations-layer').layout['icon-offset']).toBe(ICON_OFFSET_EXPRESSION);
+        expect(map.layers.get('engineering-symbols-layer').layout['icon-offset']).toBe(ICON_OFFSET_EXPRESSION);
     });
 });

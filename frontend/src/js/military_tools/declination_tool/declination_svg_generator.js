@@ -9,6 +9,7 @@
  */
 
 import { formatSignedDegrees } from '@utils/angle-format.js';
+import { convertSvgToPngBlob, cropPngToDrawing } from '../svg-to-png.js';
 
 const SVG_WIDTH = 400;
 const SVG_HEIGHT = 500;
@@ -20,10 +21,19 @@ const ORIGIN_Y = 380;
 /** Arrow length in pixels */
 const ARROW_LENGTH = 300;
 
-/** Diagram colors (military standard blue/cyan) */
-const LINE_COLOR = '#0077CC';
-const TEXT_COLOR = '#0077CC';
-const ARC_COLOR = '#0077CC';
+/** Default retained for diagrams saved before custom colors were available. */
+export const DEFAULT_DECLINATION_COLOR = '#0077CC';
+
+/** Actual ink bounds drive both selection and hit testing, including arrowheads and text. */
+export async function generateDeclinationBitmap(properties) {
+    if (!Number.isFinite(properties.declination) || !Number.isFinite(properties.convergence ?? 0)) {
+        throw new Error('Dados de declinação magnética incompletos. A imagem original foi preservada.');
+    }
+    const svg = generateDeclinationSvg(properties.declination, properties.convergence ?? 0, properties.fillColor);
+    const pixelRatio = 2;
+    const { blob } = await convertSvgToPngBlob(svg, SVG_WIDTH * pixelRatio, SVG_HEIGHT * pixelRatio);
+    return cropPngToDrawing(blob, pixelRatio);
+}
 
 /** Arrow head size */
 const ARROW_HEAD_SIZE = 12;
@@ -48,9 +58,11 @@ const LABEL_NUDGE = 18;
  *
  * @param {number} declinationDeg - Magnetic declination (+East, −West), NV→NM
  * @param {number} [convergenceDeg=0] - Meridian convergence (+East, −West), NV→NQ
+ * @param {string} [color=DEFAULT_DECLINATION_COLOR] - Diagram color (six-digit hex)
  * @returns {string} SVG markup string
  */
-export function generateDeclinationSvg(declinationDeg, convergenceDeg = 0) {
+export function generateDeclinationSvg(declinationDeg, convergenceDeg = 0, color = DEFAULT_DECLINATION_COLOR) {
+    const diagramColor = /^#[0-9a-f]{6}$/i.test(color) ? color : DEFAULT_DECLINATION_COLOR;
     const nv = endpointFor(0);
     const nq = endpointFor(convergenceDeg);
     const nm = endpointFor(declinationDeg);
@@ -65,10 +77,10 @@ export function generateDeclinationSvg(declinationDeg, convergenceDeg = 0) {
         nqDx = nqLeansEast ? LABEL_NUDGE : -LABEL_NUDGE;
     }
 
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_WIDTH}" height="${SVG_HEIGHT}" viewBox="0 0 ${SVG_WIDTH} ${SVG_HEIGHT}">
+    return `<svg xmlns="http://www.w3.org/2000/svg" color="${diagramColor}" width="${SVG_WIDTH}" height="${SVG_HEIGHT}" viewBox="0 0 ${SVG_WIDTH} ${SVG_HEIGHT}">
   <defs>
     <marker id="arrowHead" markerWidth="${ARROW_HEAD_SIZE}" markerHeight="${ARROW_HEAD_SIZE}" refX="${ARROW_HEAD_SIZE / 2}" refY="${ARROW_HEAD_SIZE / 2}" orient="auto-start-reverse">
-      <polygon points="0,0 ${ARROW_HEAD_SIZE},${ARROW_HEAD_SIZE / 2} 0,${ARROW_HEAD_SIZE}" fill="${LINE_COLOR}"/>
+      <polygon points="0,0 ${ARROW_HEAD_SIZE},${ARROW_HEAD_SIZE / 2} 0,${ARROW_HEAD_SIZE}" fill="currentColor"/>
     </marker>
   </defs>
   ${buildBaseLines()}
@@ -107,7 +119,7 @@ function endpointFor(angleDeg) {
  */
 function buildBaseLines() {
     const y = ORIGIN_Y;
-    return `<line x1="${ORIGIN_X - BASE_LINE_HALF}" y1="${y}" x2="${ORIGIN_X + BASE_LINE_HALF}" y2="${y}" stroke="${LINE_COLOR}" stroke-width="1.5" stroke-dasharray="6,3"/>`;
+    return `<line x1="${ORIGIN_X - BASE_LINE_HALF}" y1="${y}" x2="${ORIGIN_X + BASE_LINE_HALF}" y2="${y}" stroke="currentColor" stroke-width="1.5" stroke-dasharray="6,3"/>`;
 }
 
 /**
@@ -117,7 +129,7 @@ function buildBaseLines() {
  * @returns {string} SVG line with marker
  */
 function buildArrow(x2, y2) {
-    return `<line x1="${ORIGIN_X}" y1="${ORIGIN_Y}" x2="${x2}" y2="${y2}" stroke="${LINE_COLOR}" stroke-width="2" marker-end="url(#arrowHead)"/>`;
+    return `<line x1="${ORIGIN_X}" y1="${ORIGIN_Y}" x2="${x2}" y2="${y2}" stroke="currentColor" stroke-width="2" marker-end="url(#arrowHead)"/>`;
 }
 
 /**
@@ -140,7 +152,7 @@ function buildAngleArc(angleDeg, arcRadius) {
     const largeArc = Math.abs(angleDeg) > 180 ? 1 : 0;
     const sweep = angleDeg > 0 ? 1 : 0;
 
-    return `<path d="M ${sx} ${sy} A ${arcRadius} ${arcRadius} 0 ${largeArc} ${sweep} ${ex} ${ey}" fill="none" stroke="${ARC_COLOR}" stroke-width="1.5"/>`;
+    return `<path d="M ${sx} ${sy} A ${arcRadius} ${arcRadius} 0 ${largeArc} ${sweep} ${ex} ${ey}" fill="none" stroke="currentColor" stroke-width="1.5"/>`;
 }
 
 /**
@@ -154,7 +166,7 @@ function buildTipLabel(tip, text, dx = 0) {
     const off = 22;
     const x = tip.x + tip.sinA * off + dx;
     const y = tip.y - tip.cosA * off + 8;
-    return `<text x="${x}" y="${y}" font-family="Arial, sans-serif" font-size="22" font-weight="bold" fill="${TEXT_COLOR}" text-anchor="middle">${text}</text>`;
+    return `<text x="${x}" y="${y}" font-family="Arial, sans-serif" font-size="22" font-weight="bold" fill="currentColor" text-anchor="middle">${text}</text>`;
 }
 
 /**
@@ -169,6 +181,6 @@ function buildLegend(declinationDeg, convergenceDeg) {
     // Convergence sits above declination, and both lines are kept high enough
     // to clear the arrow-tip labels (NV/NQ/NM) that land just below (~y=66).
     return `
-  <text x="${x}" y="22" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="bold" fill="${TEXT_COLOR}">Conv. (NV-NQ): ${formatSignedDegrees(convergenceDeg)}</text>
-  <text x="${x}" y="46" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="bold" fill="${TEXT_COLOR}">Decl. (NV-NM): ${formatSignedDegrees(declinationDeg)}</text>`;
+  <text x="${x}" y="22" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="bold" fill="currentColor">Conv. (NV-NQ): ${formatSignedDegrees(convergenceDeg)}</text>
+  <text x="${x}" y="46" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="bold" fill="currentColor">Decl. (NV-NM): ${formatSignedDegrees(declinationDeg)}</text>`;
 }

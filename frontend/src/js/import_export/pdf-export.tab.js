@@ -1346,7 +1346,7 @@ export default class PDFExportTab {
             'points', 'lines', 'polygons', 'texts', 'images',
             'circles', 'rectangles', 'ellipses', 'brushes',
             'arrows', 'boundarys', 'occupied_fronts', 'coordination_lines',
-            'military_symbols', 'coordination_measures',
+            'military_symbols', 'coordination_measures', 'engineering_symbols',
             'los', 'visibility', 'setores',
         ];
 
@@ -1358,6 +1358,7 @@ export default class PDFExportTab {
             arrows: 'arrow', boundarys: 'boundary', occupied_fronts: 'occupied_front',
             coordination_lines: 'coordination_line',
             military_symbols: 'military_symbol', coordination_measures: 'coordination_measure',
+            engineering_symbols: 'engineering_symbol',
             los: 'los', visibility: 'visibility', setores: 'sector',
         };
 

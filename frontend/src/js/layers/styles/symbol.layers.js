@@ -112,6 +112,41 @@ export function setupDeclinationLayers(features, mapInstance) {
         layout: {
             'icon-image': ['get', 'id'],
             'icon-size': zoomScaledExpression(DECLINATION_SIZE),
+            'icon-offset': ICON_OFFSET_EXPRESSION,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+        },
+        filter: VISIBLE_FILTER,
+    });
+}
+
+export function setupEngineeringSymbolLayers(features, mapInstance) {
+    const control = getControl('AddEngineeringSymbolControl');
+    const raw = features.engineering_symbols || [];
+    const corrected = control && raw.length > 0
+        ? control.applyZoomCorrections(raw)
+        : raw;
+
+    setOrCreateSource(mapInstance, 'engineering_symbols', corrected);
+
+    ensureLayer(mapInstance, {
+        id: 'engineering-symbols-layer',
+        type: 'symbol',
+        source: 'engineering_symbols',
+        paint: {
+            'icon-opacity': ['get', 'opacity'],
+        },
+        layout: {
+            'icon-image': ['get', 'id'],
+            'icon-size': zoomScaledExpression(SYMBOL_SIZE),
+            'icon-rotate': ['get', 'rotation'],
+            'icon-anchor': [
+                'coalesce',
+                ['get', 'anchor'],
+                'center',
+            ],
+            // Anchor the symbol's leader or insertion mark to the map coordinate.
+            'icon-offset': ICON_OFFSET_EXPRESSION,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
         },

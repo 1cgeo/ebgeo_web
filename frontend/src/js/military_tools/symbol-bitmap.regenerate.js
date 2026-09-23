@@ -24,7 +24,7 @@ const COORDINATION_MEASURE = 'coordination_measure';
 
 /**
  * Whether a feature's stored bitmap predates the current layout and has to be
- * rebuilt. Only the two symbol types carry a bitmap version.
+ * rebuilt. The supported symbol types carry a bitmap version.
  *
  * Delegates to `needsBitmapRebuild`, which owns that list: the map-load path in
  * `layers/layer_setup.js` asks the same question and cannot import this module (the
@@ -40,7 +40,7 @@ export function isStaleBitmapFeature(featureType, properties) {
 }
 
 /**
- * Rebuilds the bitmap of one military symbol or coordination measure.
+ * Rebuilds the bitmap of one supported symbol.
  *
  * Never throws: a symbol whose catalog entry vanished, or a generator that fails on
  * one odd feature, must not abort a whole import. The caller reads `null` as "leave
@@ -56,6 +56,14 @@ export function isStaleBitmapFeature(featureType, properties) {
  */
 export async function regenerateSymbolBitmap(featureType, properties, deps = {}) {
     try {
+        if (featureType === 'magnetic_declination') {
+            const { generateDeclinationBitmap } = await import('./declination_tool/declination_svg_generator.js');
+            return (await generateDeclinationBitmap(properties)) || null;
+        }
+        if (featureType === 'engineering_symbol') {
+            const { EngineeringSymbolGenerator } = await import('./engineering_symbol_tool/engineering_generator.js');
+            return (await new EngineeringSymbolGenerator().generateSymbolBlob(properties)) || null;
+        }
         if (featureType === MILITARY_SYMBOL) {
             const generate = deps.military || generateMilitarySymbol;
             return (await generate(properties)) || null;

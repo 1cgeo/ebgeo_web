@@ -55,7 +55,11 @@ function todasAsLinhas(arquivos = FILES) {
 }
 
 // Final-state pre-release baselines need no destructive DDL exceptions.
-const EXCECOES_DESTRUTIVAS = [];
+const EXCECOES_DESTRUTIVAS = [{
+  arquivo: '013_simbolos_engenharia.sql',
+  trecho: 'ALTER TABLE features DROP CONSTRAINT valid_feature_type',
+  motivo: 'Expands the CHECK to engineering_symbol, preserving every previously accepted type and row.'
+}];
 const PADROES_DESTRUTIVOS = [
   /\bDROP\s+TABLE\b/i,
   /\bDROP\s+COLUMN\b/i,

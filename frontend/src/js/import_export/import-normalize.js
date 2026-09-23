@@ -121,6 +121,9 @@ export function normalizeMapDataForCurrentVersion(mapData, processCatalogLayers)
     if (!mapData.features.coordination_measures) {
         mapData.features.coordination_measures = [];
     }
+    if (!Array.isArray(mapData.features.engineering_symbols)) {
+        mapData.features.engineering_symbols = [];
+    }
 
     // Give the map the shape the Coordination Line tool needs. MIN_SCHEMA_VERSION is 1.3,
     // so an accepted `.ebgeo` may well predate that tool and arrive without its collection;

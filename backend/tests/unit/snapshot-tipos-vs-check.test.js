@@ -2,7 +2,7 @@
 //
 // AS DUAS LISTAS DE TIPO DE FEICAO PRECISAM CONCORDAR.
 //
-// O CHECK `valid_feature_type` (migracao 003_atlas.sql) decide o que PODE ser
+// O CHECK `valid_feature_type` (baseline e migracoes incrementais) decide o que PODE ser
 // gravado. O mapa `typeToCollection` (sync.service.js) decide o que aparece no
 // snapshot que todo cliente le. Sao listas independentes, escritas em linguagens
 // diferentes, e nada as amarrava.
@@ -26,7 +26,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -38,10 +38,13 @@ const RAIZ = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
  * @returns {string[]}
  */
 function tiposDoCheck() {
-    const sql = readFileSync(join(RAIZ, 'src/database/migrations/003_atlas.sql'), 'utf8');
-    const i = sql.indexOf('CONSTRAINT valid_feature_type CHECK (feature_type IN (');
-    assert.notEqual(i, -1, 'o CHECK valid_feature_type sumiu da baseline de atlas');
-    const bloco = sql.slice(i, sql.indexOf('))', i));
+    const directory = join(RAIZ, 'src/database/migrations');
+    // The last definition is effective after incremental migrations replace the baseline CHECK.
+    const sql = readdirSync(directory).filter(name => /^\d+.*\.sql$/.test(name)).sort()
+        .map(name => readFileSync(join(directory, name), 'utf8')).join('\n');
+    const definitions = [...sql.matchAll(/CONSTRAINT\s+valid_feature_type\s+CHECK\s*\(\s*feature_type\s+IN\s*\(([\s\S]*?)\)\s*\)/gi)];
+    assert.ok(definitions.length > 0, 'o CHECK valid_feature_type sumiu das migracoes');
+    const bloco = definitions.at(-1)[1];
     return [...bloco.matchAll(/'([a-z_]+)'/g)].map(m => m[1]);
 }
 

@@ -162,6 +162,12 @@ export const FEATURE_TYPE_REGISTRY = Object.freeze([
         selectable: true, copiable: true, imageResource: true, selectionBox: false,
     }),
 
+    Object.freeze({
+        type: 'engineering_symbol', storage: 'engineering_symbols',
+        label: 'Símbolo de Engenharia', icon: './images/icon_engineering_black.svg',
+        selectable: true, copiable: true, imageResource: true, selectionBox: false,
+    }),
+
     // ----- analysis tools -----
     // The four analysis rows come in two pairs: the INPUT geometry the operator draws
     // (`los`, `visibility`) and the OUTPUT the algorithm writes (`processed_*`). Both

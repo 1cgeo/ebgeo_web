@@ -140,7 +140,7 @@ const NOMES_DE_ESTILO = [
     'setupPointLayers', 'setupLineLayers', 'setupBrushLayers', 'setupPolygonLayers',
     'setupCircleLayers', 'setupRectangleLayers', 'setupEllipseLayers', 'setupSectorLayers',
     'setupTextLayers', 'setupImageLayers', 'setupArrowLayers', 'setupMilitarySymbolsLayers',
-    'setupCoordinationMeasureLayers', 'setupDeclinationLayers', 'setupBoundaryLayers',
+    'setupCoordinationMeasureLayers', 'setupEngineeringSymbolLayers', 'setupDeclinationLayers', 'setupBoundaryLayers',
     'setupOccupiedFrontLayers', 'setupCoordinationLineLayers', 'setupLOSLayers',
     'setupVisibilityLayers', 'setupAuxiliaryLayers',
 ];
@@ -151,7 +151,7 @@ vi.mock('../../src/js/layers/styles/index.js', () => {
         'setupPointLayers', 'setupLineLayers', 'setupBrushLayers', 'setupPolygonLayers',
         'setupCircleLayers', 'setupRectangleLayers', 'setupEllipseLayers', 'setupSectorLayers',
         'setupTextLayers', 'setupImageLayers', 'setupArrowLayers', 'setupMilitarySymbolsLayers',
-        'setupCoordinationMeasureLayers', 'setupDeclinationLayers', 'setupBoundaryLayers',
+        'setupCoordinationMeasureLayers', 'setupEngineeringSymbolLayers', 'setupDeclinationLayers', 'setupBoundaryLayers',
         'setupOccupiedFrontLayers', 'setupCoordinationLineLayers', 'setupLOSLayers',
         'setupVisibilityLayers', 'setupAuxiliaryLayers',
     ]) {

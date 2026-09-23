@@ -64,6 +64,8 @@ export const TOOLBAR_ICONS = {
     // Coordination - icon_coordination_black.svg (circle with X)
     coordination: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><line x1="5.5" y1="5.5" x2="18.5" y2="18.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="18.5" y1="5.5" x2="5.5" y2="18.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
 
+    engineering: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="14" cy="10" r="8"/><path d="M6 10h16M8 16l-6 6m0-4v4h4"/><g fill="currentColor" stroke="none" font-family="Arial,sans-serif" font-size="6" text-anchor="middle"><text x="14" y="8">80</text><text x="14" y="16">40</text></g></svg>`,
+
     // Arrow - icon_arrow_black.svg
     arrow: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 20 20"><path d="M3 10 L17 10 M13 6 L17 10 L13 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
 
@@ -153,6 +155,7 @@ export const TOOL_GROUPS = {
         tools: [
             { id: 'militarySymbol', label: 'Símbolo Militar', icon: TOOLBAR_ICONS.militarySymbol, shortcut: 'M', controlKey: 'militarySymbolControl' },
             { id: 'coordination', label: 'Medida de Coordenação', icon: TOOLBAR_ICONS.coordination, shortcut: 'K', controlKey: 'coordinationMeasureControl' },
+            { id: 'engineeringSymbol', label: 'Símbolos de Engenharia', icon: TOOLBAR_ICONS.engineering, controlKey: 'engineeringSymbolControl' },
             { id: 'arrow', label: 'Seta', icon: TOOLBAR_ICONS.arrow, shortcut: 'S', controlKey: 'arrowControl' },
             { id: 'boundary', label: 'Linha de Limite', icon: TOOLBAR_ICONS.boundary, shortcut: 'D', controlKey: 'boundaryControl' },
             { id: 'occupiedFront', label: 'Frente Ocupada', icon: TOOLBAR_ICONS.occupiedFront, shortcut: 'F', controlKey: 'occupiedFrontControl' },

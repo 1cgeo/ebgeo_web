@@ -662,13 +662,13 @@ describe('renderedIconQuad', () => {
         ]);
     });
 
-    it('shifts the coordination-measures rectangle by properties.iconOffset', () => {
+    it.each(['coordination-measures-layer', 'engineering-symbols-layer', 'magnetic-declinations-layer'])('shifts %s by properties.iconOffset', layerId => {
         // The bitmap is cropped to the drawing, so the nucleus anchors its
         // ELLIPSE centre and the generator writes the difference into
         // `iconOffset` (icon px). At icon-size 1 that is 12.5 screen px down.
         const map = makeMap({ image: IMAGE });
         const quad = renderedIconQuad(map, {
-            layerId: 'coordination-measures-layer',
+            layerId,
             coordinates: [10, 20],
             properties: props({ iconOffset: [0, 12.5] }),
         });
@@ -695,7 +695,7 @@ describe('renderedIconQuad', () => {
         }));
     });
 
-    it.each(['image-layer', 'military-symbols-layer', 'magnetic-declinations-layer'])(
+    it.each(['image-layer', 'military-symbols-layer'])(
         'ignores an iconOffset on %s, which declares no icon-offset',
         (layerId) => {
             const shifted = renderedIconQuad(makeMap({ image: IMAGE }), {

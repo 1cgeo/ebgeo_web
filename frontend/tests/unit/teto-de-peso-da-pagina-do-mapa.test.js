@@ -791,7 +791,8 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // `baselayers/glyphs-template.js`, `catalog/endereco-da-miniatura.js` e
         // `presence/viewer-label.js`. Quase todas são folhas puras, que existem para a regra ser
         // testável em node; juntá-las para caber no teto antigo trocaria teste por número.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(764);
+        // Engineering adds nine lazy modules; the eager military budget stays zero.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(773);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);

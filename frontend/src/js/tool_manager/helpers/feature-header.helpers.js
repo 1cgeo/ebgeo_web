@@ -533,6 +533,7 @@ function getFeatureTypeName(featureType) {
         'coordination_line': 'Linhas de Coordenação',
         'military_symbol': 'Símbolos Militares',
         'coordination_measure': 'Medidas de Coordenação',
+        'engineering_symbol': 'Símbolos de Engenharia',
         'magnetic_declination': 'Declinações Magnéticas',
         'los': 'Linhas de Visada',
         'visibility': 'Visibilidade',
@@ -855,6 +856,7 @@ const STYLE_KEYS_BY_TYPE = {
     los: ['opacity', 'width'],
     visibility: ['opacity'],
     military_symbol: ['size', 'opacity', 'fillColor'],
+    engineering_symbol: ['size', 'opacity', 'fillColor'],
     coordination_measure: ['size', 'opacity']
 };
 

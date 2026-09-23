@@ -116,7 +116,7 @@ describe('registro de tipos: piso e forma', () => {
             'point', 'line', 'polygon', 'circle', 'ellipse', 'rectangle', 'sector',
             'text', 'image', 'brush',
             'arrow', 'boundary', 'occupied_front', 'coordination_line', 'military_symbol',
-            'coordination_measure',
+            'coordination_measure', 'engineering_symbol',
             'los', 'visibility', 'processed_los', 'processed_visibility',
             'magnetic_declination',
         ]);

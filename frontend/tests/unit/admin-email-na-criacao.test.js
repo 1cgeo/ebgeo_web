@@ -38,7 +38,7 @@ const FONTE = resolve(dirname(fileURLToPath(import.meta.url)), '../../src/js/adm
 describe('o módulo é folha: um import só, e ele também é folha', () => {
     it('importa apenas `./account-model.js`, que não arrasta a store para `admin.html`', () => {
         const imports = readFileSync(FONTE, 'utf8')
-            .split('\n')
+            .split(/\r?\n/)
             .filter((linha) => /^import\s/.test(linha));
         expect(imports).toEqual(["import { emailAddressProblem } from './account-model.js';"]);
     });

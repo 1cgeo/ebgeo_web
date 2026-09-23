@@ -30,4 +30,13 @@ describe('generateDeclinationSvg — deterministic from synced props', () => {
         expect(() => generateDeclinationSvg(-90, 45)).not.toThrow();
         expect(() => generateDeclinationSvg(89.9, -44.4)).not.toThrow();
     });
+
+    it('uses the chosen color for all diagram ink and retains the legacy blue by default', () => {
+        const colored = generateDeclinationSvg(-15, 2, '#c01830');
+        expect(colored).toContain('color="#c01830"');
+        expect(colored).not.toContain('#0077CC');
+        expect(colored.match(/(?:fill|stroke)="[^"]+"/g).every(value => /"(?:none|currentColor)"/.test(value))).toBe(true);
+        expect(generateDeclinationSvg(-15, 2)).toContain('color="#0077CC"');
+        expect(generateDeclinationSvg(-15, 2, '"><script>')).toBe(generateDeclinationSvg(-15, 2));
+    });
 });

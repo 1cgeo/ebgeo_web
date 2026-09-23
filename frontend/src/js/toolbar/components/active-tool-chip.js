@@ -38,6 +38,8 @@ const TOOL_NAMES = {
     militarysymbol: 'Símbolo Militar',
     coordination_measure: 'Medida de Coordenação',
     coordinationmeasure: 'Medida de Coordenação',
+    engineering_symbol: 'Símbolo de Engenharia',
+    engineeringsymbol: 'Símbolo de Engenharia',
     arrow: 'Seta',
     boundary: 'Linha de Limite',
     occupied_front: 'Frente Ocupada',
@@ -71,6 +73,7 @@ const TOOLBAR_TOOLS = new Set([
     'point', 'line', 'polygon', 'rectangle', 'circle', 'ellipse', 'text', 'image', 'brush', 'sector',
     // Military tools
     'military_symbol', 'militarysymbol', 'coordination_measure', 'coordinationmeasure',
+    'engineering_symbol', 'engineeringsymbol',
     'arrow', 'boundary', 'occupied_front', 'occupiedfront', 'coordination_line', 'coordinationline',
     'declination',
     // Analysis tools

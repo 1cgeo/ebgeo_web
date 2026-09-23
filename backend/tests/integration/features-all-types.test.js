@@ -82,6 +82,21 @@ describe('Every Feature Type via Sync', () => {
   });
 
   describe('Basic Feature Types', () => {
+    it('engineering point preserves symbol data and appearance in the server snapshot', async () => {
+      const properties = {
+        pointCode: '18', engineering: { variant: 0, values: { order: '7', clearance: '4,5', length: '950', roadWidth: '5', totalWidth: '6' } },
+        fillColor: '#004488', rotation: 45, size: 1.4, opacity: 0.7, createdAtZoom: 12, zoomCorrectionEnabled: false,
+      };
+      const { targetId, res } = await pushFeature(app, token, atlasId, mapId, 'engineering_symbol',
+        { type: 'Point', coordinates: [-47, -15] }, properties);
+      assert.equal(res.status, 200);
+      const feature = await findFeatureInSnapshot(app, token, atlasId, mapId, 'engineering_symbols', targetId);
+      assert.ok(feature);
+      assert.equal(feature.geometry.type, 'Point');
+      assert.deepEqual(feature.geometry.coordinates, [-47, -15]);
+      for (const [key, value] of Object.entries(properties)) assert.deepEqual(feature.properties[key], value);
+    });
+
     it('point -> points collection', async () => {
       const { targetId, res } = await pushFeature(
         app, token, atlasId, mapId,

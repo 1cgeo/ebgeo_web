@@ -9,8 +9,10 @@ import {
     createModernToggle,
     createModernButtons,
     createModernInfoBox,
+    createModernColorPicker,
 } from '@tools';
 import { formatSignedDegrees } from '@utils/angle-format.js';
+import { DEFAULT_DECLINATION_COLOR } from './declination_svg_generator.js';
 
 /**
  * Adds declination diagram attributes to the panel.
@@ -45,6 +47,12 @@ export function addDeclinationAttributesToPanel(panel, selectedFeatures, declina
             ],
         }));
     }
+
+    panel.appendChild(createModernColorPicker({
+        label: 'Cor',
+        value: feature.properties.fillColor ?? DEFAULT_DECLINATION_COLOR,
+        onChange: color => declinationControl.updateFeaturesProperty(selectedFeatures, 'fillColor', color),
+    }));
 
     // Size slider
     panel.appendChild(createModernSlider({

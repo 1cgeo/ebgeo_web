@@ -153,7 +153,7 @@ describe('ensureMapDataShape', () => {
     });
 
     it('devolve null quando nada muda, e para todo insumo degenerado', () => {
-        expect(ensureMapDataShape({ features: { coordination_lines: [] } })).toBeNull();
+        expect(ensureMapDataShape({ features: { coordination_lines: [], engineering_symbols: [] } })).toBeNull();
         expect(ensureMapDataShape(null)).toBeNull();
         expect(ensureMapDataShape(undefined)).toBeNull();
         expect(ensureMapDataShape('lixo')).toBeNull();

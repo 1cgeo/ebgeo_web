@@ -96,6 +96,7 @@ export const EXACT_ICON_LAYER_IDS = Object.freeze([
     'image-layer',
     'military-symbols-layer',
     'coordination-measures-layer',
+    'engineering-symbols-layer',
     'magnetic-declinations-layer',
     'point-marker-layer',
 ]);
@@ -161,12 +162,19 @@ export const ICON_SIZE_RULES = Object.freeze({
         maxValue: 10, divideBy: 1,
         rotates: true, anchored: true, offset: true, tolerant: false,
     }),
+    'engineering-symbols-layer': Object.freeze({
+        sizeProp: 'size', baseDefault: 1,
+        anchorProp: 'createdAtZoom', anchorDefault: null,
+        enabledProp: 'zoomCorrectionEnabled',
+        maxValue: 10, divideBy: 1,
+        rotates: true, anchored: true, offset: true, tolerant: false,
+    }),
     'magnetic-declinations-layer': Object.freeze({
         sizeProp: 'size', baseDefault: 0.6,
         anchorProp: 'createdAtZoom', anchorDefault: null,
         enabledProp: 'zoomCorrectionEnabled',
         maxValue: 10, divideBy: 1,
-        rotates: false, anchored: false, offset: false, tolerant: false,
+        rotates: false, anchored: false, offset: true, tolerant: false,
     }),
     'point-marker-layer': Object.freeze({
         sizeProp: 'size', baseDefault: 10,
@@ -187,7 +195,7 @@ export const AREA_FEATURE_TYPES = Object.freeze([
 
 /** Feature types that behave as a single point on screen. @constant {string[]} */
 export const POINT_FEATURE_TYPES = Object.freeze([
-    'point', 'text', 'image', 'military_symbol', 'coordination_measure', 'magnetic_declination',
+    'point', 'text', 'image', 'military_symbol', 'engineering_symbol', 'coordination_measure', 'magnetic_declination',
 ]);
 
 /** Class ranking, best first. @constant {string[]} */

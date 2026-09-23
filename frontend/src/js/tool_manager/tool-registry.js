@@ -187,6 +187,12 @@ export const FERRAMENTAS = Object.freeze({
         zoom: ZOOM_DE_SIMBOLO, regenImagem: 'coordination_measure',
         carregar: () => import('../military_tools/coordination_measure_tool/add_coordination_measure_control.js')
     },
+    engineeringSymbolControl: {
+        tipoDeUi: 'engineeringsymbol', classe: 'AddEngineeringSymbolControl',
+        tipoDeFeicao: 'engineering_symbol', fontes: ['engineering_symbols'], alcaDeEdicao: null,
+        zoom: ZOOM_DE_SIMBOLO, regenImagem: 'engineering_symbol',
+        carregar: () => import('../military_tools/engineering_symbol_tool/add_engineering_symbol_control.js')
+    },
     declinationControl: {
         tipoDeUi: 'declination', classe: 'AddDeclinationControl',
         tipoDeFeicao: 'magnetic_declination', fontes: ['magnetic_declinations'], alcaDeEdicao: null,

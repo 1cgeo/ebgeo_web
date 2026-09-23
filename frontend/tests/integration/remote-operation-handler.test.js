@@ -1284,7 +1284,7 @@ describe('applyRemoteSnapshot', () => {
         // key the reshape adds (2026-09-03): a peer that predates the Coordination Line tool
         // sends no such bucket, and without it the layer setup builds no source, so the tool
         // activates, accepts clicks and draws nothing. See `ensureMapDataShape`.
-        expect(saved.features).toEqual({ points: [], coordination_lines: [] });
+        expect(saved.features).toEqual({ points: [], coordination_lines: [], engineering_symbols: [] });
         expect(saved.layers).toEqual([]);
 
         // (b) Each side-store is populated under the correct key with the correct value.

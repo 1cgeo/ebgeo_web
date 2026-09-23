@@ -38,6 +38,7 @@ import {
     setupArrowLayers,
     setupMilitarySymbolsLayers,
     setupCoordinationMeasureLayers,
+    setupEngineeringSymbolLayers,
     setupDeclinationLayers,
     setupBoundaryLayers,
     setupOccupiedFrontLayers,
@@ -602,6 +603,7 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
         setupPointLayers(features, mapInstance);
         setupMilitarySymbolsLayers(features, mapInstance);
         setupCoordinationMeasureLayers(features, mapInstance);
+        setupEngineeringSymbolLayers(features, mapInstance);
         setupDeclinationLayers(features, mapInstance);
         setupTextLayers(features, mapInstance);
         setupAuxiliaryLayers(mapInstance);

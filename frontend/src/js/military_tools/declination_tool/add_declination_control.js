@@ -16,10 +16,11 @@ import {
 import { IDUtils, showError, loadImageToMap } from '@utils';
 import { calculateMagneticDeclination } from '@utils/geomagnetic/wmm_calculator.js';
 import { calculateMeridianConvergence } from '@utils/geomagnetic/meridian_convergence.js';
-import { convertSvgToPngBlob } from '../svg-to-png.js';
 import { addDeclinationAttributesToPanel } from './declination_attributes_panel.js';
 import AddDeclinationGeometry from './add_declination_geometry.js';
-import { generateDeclinationSvg } from './declination_svg_generator.js';
+import { generateDeclinationBitmap, DEFAULT_DECLINATION_COLOR } from './declination_svg_generator.js';
+import { applyGeneratedBitmap } from '@layers/bitmap-version.js';
+import { stampRegeneratedBitmap } from '../bitmap-stamp.js';
 import { BaseControl } from '@tools';
 import { createRenderedIconSelectionBox } from '@tools/helpers/icon-selection-box.helpers.js';
 import {
@@ -73,9 +74,11 @@ class AddDeclinationControl extends BaseControl {
         // Feature IDs with an in-flight convergence backfill (prevents the
         // fire-and-forget backfill from running twice on rapid panel reopens).
         this._convergenceBackfillIds = new Set();
+        this._colorPreviews = new Map();
     }
 
     static DEFAULT_PROPERTIES = {
+        fillColor: DEFAULT_DECLINATION_COLOR,
         size: 0.6,
         opacity: 1.0,
         width: ICON_WIDTH,
@@ -116,6 +119,7 @@ class AddDeclinationControl extends BaseControl {
     };
 
     onRemove = () => {
+        this._colorPreviews.clear();
         this.map.off('zoom', this.handleZoomChange);
         this.map.off('zoomend', this.handleZoomEnd);
         // Releases the queue, its settle timers and the two map listeners the dispatcher opens
@@ -219,12 +223,9 @@ class AddDeclinationControl extends BaseControl {
         const convergence = calculateMeridianConvergence(lngLat.lat, lngLat.lng) ?? 0;
 
         // Generate SVG diagram and convert to PNG
-        const svgString = generateDeclinationSvg(declination, convergence);
-        let blob;
+        let bitmap;
         try {
-            // The diagram SVG is exactly ICON_WIDTH x ICON_HEIGHT, so the cropped
-            // canvas is the icon size and only the blob is of interest here.
-            ({ blob } = await convertSvgToPngBlob(svgString, ICON_WIDTH, ICON_HEIGHT));
+            bitmap = await generateDeclinationBitmap({ declination, convergence, fillColor: AddDeclinationControl.DEFAULT_PROPERTIES.fillColor });
         } catch (error) {
             console.error('Error converting declination SVG to PNG:', error);
             showError('Erro ao gerar diagrama de declinação');
@@ -233,8 +234,8 @@ class AddDeclinationControl extends BaseControl {
 
         const selectionBox = this.geometry.calculateSelectionBoxGeometry(
             coordinates,
-            ICON_WIDTH,
-            ICON_HEIGHT,
+            bitmap.width,
+            bitmap.height,
             AddDeclinationControl.DEFAULT_PROPERTIES.size,
             0,
             currentZoom,
@@ -265,9 +266,11 @@ class AddDeclinationControl extends BaseControl {
             geometry: this.geometry.generate(coordinates),
         };
 
+        applyGeneratedBitmap(feature.properties, bitmap);
+
         try {
-            await storeImage(featureId, blob);
-            await this.loadIconToMap(featureId, blob);
+            await storeImage(featureId, bitmap.blob);
+            await this.loadIconToMap(featureId, bitmap.blob, bitmap.pixelRatio);
 
             await addFeature('magnetic_declinations', feature);
 
@@ -295,8 +298,8 @@ class AddDeclinationControl extends BaseControl {
      * @param {Blob} blob - PNG blob
      * @returns {Promise<void>}
      */
-    async loadIconToMap(iconId, blob) {
-        return loadImageToMap(this.map, iconId, blob, { replaceExisting: true });
+    async loadIconToMap(iconId, blob, pixelRatio = 1) {
+        return loadImageToMap(this.map, iconId, blob, { replaceExisting: true, pixelRatio });
     }
 
     /**
@@ -320,22 +323,17 @@ class AddDeclinationControl extends BaseControl {
 
     async regenerateIcon(feature) {
         const task = beginImageTask(this.map, feature.properties.id);
-        if (!Number.isFinite(feature.properties.declination)
-            || !Number.isFinite(feature.properties.convergence ?? 0)) {
-            throw new Error('Dados de declinação magnética incompletos. A imagem original foi preservada.');
-        }
-        const svgString = generateDeclinationSvg(
-            feature.properties.declination,
-            feature.properties.convergence ?? 0,
-        );
-
         try {
-            const { blob } = await convertSvgToPngBlob(svgString, ICON_WIDTH, ICON_HEIGHT);
+            const preview = this._colorPreviews.get(feature.properties.id);
+            const properties = preview === undefined ? feature.properties : { ...feature.properties, fillColor: preview };
+            const bitmap = await generateDeclinationBitmap(properties);
             task.assertCurrent();
-            await storeImage(feature.properties.id, blob);
+            await storeImage(feature.properties.id, bitmap.blob);
             task.assertCurrent();
-            await loadImageToMap(this.map, feature.properties.id, blob, { replaceExisting: true, isCurrent: task.isCurrent });
-            return { blob };
+            await loadImageToMap(this.map, feature.properties.id, bitmap.blob, { replaceExisting: true, pixelRatio: bitmap.pixelRatio, isCurrent: task.isCurrent });
+            task.assertCurrent();
+            await stampRegeneratedBitmap(declinationsSource(this.map), feature, bitmap, task.isCurrent);
+            return bitmap;
         } catch (error) {
             if (error.name !== 'AbortError') console.error('Error regenerating declination icon:', error);
             throw error;
@@ -544,6 +542,11 @@ class AddDeclinationControl extends BaseControl {
      * @param {*} value - New value
      */
     updateFeaturesProperty = async (features, property, value) => {
+        // A creation echo or unrelated remote redraw may rebuild from persisted properties
+        // while the panel has an unsaved color. Every local regeneration must see that preview.
+        if (property === 'fillColor') {
+            for (const feature of features) this._colorPreviews.set(feature.properties.id, value);
+        }
         // The collection read survives here on purpose. Two things below need the PREVIOUS source
         // feature and no diff hands them back: whether the feature exists at all (an unknown id
         // must be skipped, not created) and the raster size the selection box is measured from.
@@ -612,6 +615,10 @@ class AddDeclinationControl extends BaseControl {
             return sourceFeature || feature;
         });
         this.updateSelectionManagerFeatures(freshFeatures);
+
+        if (property === 'fillColor') {
+            await Promise.all(freshFeatures.map(feature => this._refreshColorPreview(feature)));
+        }
 
         if (property === 'size' || property === 'createdAtZoom' || property === 'zoomCorrectionEnabled') {
             requestAnimationFrame(() => {
@@ -785,6 +792,7 @@ class AddDeclinationControl extends BaseControl {
                 );
                 if (currentFeature) {
                     await updateFeature('magnetic_declinations', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
+                    this._colorPreviews.delete(selectedFeature.properties.id);
                 }
             }
         }
@@ -794,17 +802,32 @@ class AddDeclinationControl extends BaseControl {
         // The snapshot IS the delta: `Object.assign` over the source properties is exactly a
         // property patch, so no collection read is needed to build it.
         const dispatcher = declinationsSource(this.map);
+        const recolored = [];
         for (const f of features) {
             const initialProps = initialPropertiesMap.get(f.properties.id);
+            this._colorPreviews.set(f.properties.id, initialProps?.fillColor ?? DEFAULT_DECLINATION_COLOR);
+            if ((f.properties.fillColor ?? DEFAULT_DECLINATION_COLOR) !== (initialProps?.fillColor ?? DEFAULT_DECLINATION_COLOR)) recolored.push(f);
             Object.assign(f.properties, initialProps);
+            const removeColor = initialProps && !Object.hasOwn(initialProps, 'fillColor');
+            if (removeColor) delete f.properties.fillColor;
             if (initialProps && !this.isSourceUpdateBlocked()) {
-                dispatcher.patch(f.properties.id, { setProps: initialProps });
+                dispatcher.patch(f.properties.id, { setProps: initialProps, ...(removeColor ? { unsetProps: ['fillColor'] } : {}) });
             }
         }
 
         await dispatcher.flush();
         this.updateSelectionManagerFeatures(features);
+        await Promise.all(recolored.map(feature => this._refreshColorPreview(feature)));
+        for (const feature of features) this._colorPreviews.delete(feature.properties.id);
     };
+
+    async _refreshColorPreview(feature) {
+        try {
+            await this.regenerateIcon(feature);
+        } catch (error) {
+            if (error.name !== 'AbortError') showError('Não foi possível atualizar a cor. Tente novamente.');
+        }
+    }
 
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
@@ -815,6 +838,7 @@ class AddDeclinationControl extends BaseControl {
         // Undo can still restore the diagram.
         for (const feature of features) {
             const featureId = feature.properties.id;
+            this._colorPreviews.delete(featureId);
             try {
                 await removeFeature('magnetic_declinations', featureId);
             } catch (error) {

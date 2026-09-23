@@ -137,11 +137,8 @@ export function generatedBitmapPatch(result) {
 /**
  * The feature sources whose bitmap carries a layout version.
  *
- * ONLY these two are versioned, and the distinction is load-bearing: the magnetic
- * declination also draws a client-generated PNG and also has a regenerator, but its
- * generator returns a bare blob and never stamps anything. Treating "unstamped" as
- * "stale" without this list would regenerate every declination on every map load,
- * for ever, because nothing ever writes the stamp for it.
+ * Every type listed here returns cropped dimensions and stamps them. A bare-blob
+ * generator must not join the list: it could never satisfy the layout version.
  *
  * Written out here rather than derived from the feature-type registry on purpose:
  * this module is a zero-import leaf (see the header), and the registry lives in the
@@ -149,7 +146,7 @@ export function generatedBitmapPatch(result) {
  *
  * @constant {ReadonlyArray<string>}
  */
-export const VERSIONED_BITMAP_SOURCES = Object.freeze(['military_symbol', 'coordination_measure']);
+export const VERSIONED_BITMAP_SOURCES = Object.freeze(['military_symbol', 'coordination_measure', 'engineering_symbol', 'magnetic_declination']);
 
 /**
  * Whether a feature's stored bitmap predates the current layout and must be rebuilt.

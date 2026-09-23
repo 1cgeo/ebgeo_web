@@ -143,7 +143,7 @@ const VALID_FEATURE_TYPES = [
   // Shapes
   'circle', 'rectangle', 'ellipse', 'brush', 'sector',
   // Military
-  'arrow', 'boundary', 'occupied_front', 'military_symbol', 'coordination_measure',
+  'arrow', 'boundary', 'occupied_front', 'military_symbol', 'coordination_measure', 'engineering_symbol',
   'coordination_line', 'magnetic_declination',
   // Analysis
   'los', 'visibility', 'processed_los', 'processed_visibility',

@@ -1,0 +1,41 @@
+.engineering-measure {
+    position: absolute;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.engineering-preview svg {
+    max-width: 100%;
+    max-height: 300px;
+}
+
+.engineering-help {
+    color: var(--gray-600);
+    font-size: var(--font-size-sm);
+    line-height: 1.5;
+}
+
+.engineering-error {
+    color: var(--danger, #a52020);
+    font-size: var(--font-size-sm);
+    line-height: 1.5;
+}
+
+@media (width <= 768px) {
+    #engineering-selector .point-selector-main {
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+    }
+
+    #engineering-selector .point-selector-controls,
+    #engineering-selector .point-selector-preview {
+        flex-shrink: 0;
+        overflow: visible;
+    }
+
+    #engineering-selector .point-selector-preview {
+        padding-left: 0;
+        border-left: 0;
+    }
+}

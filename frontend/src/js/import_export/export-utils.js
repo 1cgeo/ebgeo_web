@@ -28,6 +28,7 @@ const ZOOM_INVARIANT_SOURCES = [
     { sourceName: 'images', property: 'calculatedSize', baseProperty: 'size', maxValue: 10 },
     { sourceName: 'military_symbols', property: 'calculatedSize', baseProperty: 'size', maxValue: 10 },
     { sourceName: 'coordination_measures', property: 'calculatedSize', baseProperty: 'size', maxValue: 10 },
+    { sourceName: 'engineering_symbols', property: 'calculatedSize', baseProperty: 'size', maxValue: 10 },
     {
         sourceName: 'boundarys',
         property: 'calculatedLineWidth',

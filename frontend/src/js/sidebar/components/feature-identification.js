@@ -36,6 +36,7 @@ export const FEATURE_TYPE_CONFIG = {
     coordination_line: { label: 'Linha de Coordenação' },
     military_symbol: { label: 'Símbolo Militar' },
     coordination_measure: { label: 'Medida de Coordenação' },
+    engineering_symbol: { label: 'Símbolo de Engenharia' },
     los: { label: 'Linha de Visada' },
     visibility: { label: 'Visibilidade' },
     magnetic_declination: { label: 'Declinação Magnética' },

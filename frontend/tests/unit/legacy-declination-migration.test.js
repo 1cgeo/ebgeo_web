@@ -45,7 +45,7 @@ describe('legacy declination recovery', () => {
         });
 
     it('does not reinterpret unrelated features or touch valid current declinations', () => {
-        const map = { features: { coordination_lines: [],
+        const map = { features: { coordination_lines: [], engineering_symbols: [],
             points: [{ properties: { declinacao: 42 } }],
             magnetic_declinations: [null, { properties: { declination: -20, convergence: 1 } }],
         } };

@@ -111,7 +111,7 @@ describe('regenerateSymbolBitmap', () => {
         const military = vi.fn();
         const measure = vi.fn();
 
-        for (const type of ['point', 'polygon', 'magnetic_declination', undefined, null]) {
+        for (const type of ['point', 'polygon', undefined, null]) {
             await expect(regenerateSymbolBitmap(type, {}, { military, measure }))
                 .resolves.toBeNull();
         }
@@ -125,6 +125,17 @@ describe('regenerateSymbolBitmap', () => {
             regenerateSymbolBitmap('military_symbol', {}, { military: async () => undefined })
         ).resolves.toBeNull();
     });
+
+    it.each(['magnetic_declination', 'engineering_symbol'])(
+        'preserves the existing bitmap when %s regeneration rejects invalid properties',
+        async (type) => {
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            await expect(regenerateSymbolBitmap(type, null)).resolves.toBeNull();
+            expect(warn).toHaveBeenCalledWith(
+                `Could not regenerate the ${type} bitmap`, expect.any(Error),
+            );
+        },
+    );
 
     it('WORST CASE: degenerate properties do not throw', async () => {
         const measure = vi.fn().mockResolvedValue(RESULT);
@@ -144,15 +155,17 @@ describe('regenerateSymbolBitmap', () => {
 });
 
 describe('isStaleBitmapFeature', () => {
-    it('is true only for the two bitmap types without the current stamp', () => {
+    it('is true for supported bitmap types without the current stamp', () => {
         expect(isStaleBitmapFeature('military_symbol', {})).toBe(true);
         expect(isStaleBitmapFeature('coordination_measure', { bitmapVersion: 1 })).toBe(true);
+        expect(isStaleBitmapFeature('magnetic_declination', {})).toBe(true);
+        expect(isStaleBitmapFeature('engineering_symbol', {})).toBe(true);
         expect(isStaleBitmapFeature('military_symbol', { bitmapVersion: SYMBOL_BITMAP_VERSION }))
             .toBe(false);
     });
 
     it('never claims a type that has no versioned bitmap', () => {
-        for (const type of ['point', 'image', 'magnetic_declination', 'polygon']) {
+        for (const type of ['point', 'image', 'polygon']) {
             expect(isStaleBitmapFeature(type, {}), type).toBe(false);
         }
     });

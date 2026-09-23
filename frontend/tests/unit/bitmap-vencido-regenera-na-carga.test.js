@@ -175,9 +175,9 @@ afterEach(() => {
 });
 
 describe('a lista de tipos versionados', () => {
-    it('são exatamente os DOIS que o gerador carimba, e a declinação não está nela', () => {
-        expect([...VERSIONED_BITMAP_SOURCES]).toEqual(['military_symbol', 'coordination_measure']);
-        expect(needsBitmapRebuild('magnetic_declination', {})).toBe(false);
+    it('inclui os quatro tipos cujos geradores carimbam o recorte', () => {
+        expect([...VERSIONED_BITMAP_SOURCES]).toEqual(['military_symbol', 'coordination_measure', 'engineering_symbol', 'magnetic_declination']);
+        expect(needsBitmapRebuild('magnetic_declination', {})).toBe(true);
         expect(needsBitmapRebuild('military_symbol', {})).toBe(true);
         expect(needsBitmapRebuild('military_symbol', { bitmapVersion: SYMBOL_BITMAP_VERSION })).toBe(false);
     });

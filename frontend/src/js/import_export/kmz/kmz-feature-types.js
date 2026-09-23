@@ -25,7 +25,7 @@ export const LINE_TYPES = Object.freeze(new Set([
 
 /** Feature types rendered as a stored or generated symbol image. */
 export const SYMBOL_TYPES = Object.freeze(new Set([
-    'military_symbol', 'coordination_measure', 'magnetic_declination',
+    'military_symbol', 'engineering_symbol', 'coordination_measure', 'magnetic_declination',
 ]));
 
 /** Analysis artefacts that are not exported as map content. */
