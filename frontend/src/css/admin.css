@@ -2532,6 +2532,67 @@
     color: var(--gray-600);
 }
 
+/* ----- a máquina da ocorrência selecionada, e os navegadores do defeito -----
+
+   O BLOCO FICA ENTRE A LISTA E AS MIGALHAS, e é da ocorrência SELECIONADA como elas: duas abas do
+   mesmo defeito podem ser duas máquinas. A explicação de uma leitura parcial ("Windows 10 ou 11")
+   é texto visível e miúdo, e não tooltip, porque sem ela o valor parece defeito da telemetria. */
+
+/* A célula quebra ENTRE famílias ("Chrome, Edge, / Firefox") e nunca dentro de um nome: sem
+   `nowrap`, porque uma linha só alargaria a tabela e empurraria a coluna Ações para fora da vista,
+   e com `overflow-wrap: normal`, porque a quebra em qualquer ponto da tabela base partia "Chrom e"
+   (as duas medidas na captura de 2026-09-23, com quatro famílias). O seletor leva a tabela junto
+   porque a regra base (`.admin-users__table td`) é mais específica que uma classe sozinha. */
+.admin-diag__defeitos .admin-diag__navegadores {
+    overflow-wrap: normal;
+    color: var(--gray-700);
+}
+
+/* O cabeçalho da tabela de defeitos PREFERE quebrar por sílaba, com hífen ("NAVE-GADORES" em vez
+   de "NAVEG ADORES"), e a hifenização lê o `lang="pt-BR"` de `admin.html`. A quebra em qualquer
+   ponto (`overflow-wrap: anywhere`, da tabela base) continua de reserva, e é de propósito:
+   `nowrap` e a quebra só entre palavras foram medidos e recusados, porque a tabela passava da
+   coluna de conteúdo e a coluna Ações, a dos botões, saía da vista atrás da rolagem. O Firefox não
+   hifeniza palavra que começa em maiúscula, e ali o cabeçalho cai na reserva. */
+.admin-diag__defeitos th {
+    hyphens: auto;
+}
+
+.admin-diag__ocorrencias-navegadores {
+    margin: 0 0 var(--space-2);
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+}
+
+.admin-diag__ambiente {
+    margin: 0 0 var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-md);
+    background: #fff;
+    font-size: var(--font-size-xs);
+}
+
+.admin-diag__ambiente-titulo {
+    margin: 0 0 var(--space-1);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-700);
+}
+
+.admin-diag__ambiente-nota {
+    margin: 0 0 var(--space-1);
+    color: var(--gray-500);
+}
+
+.admin-diag__ambiente-lista {
+    margin: 0;
+}
+
+.admin-diag__ambiente-detalhe {
+    display: block;
+    color: var(--gray-500);
+}
+
 /* ----- a trilha de migalhas da ocorrência selecionada ----- */
 
 .admin-diag__migalhas-titulo {
@@ -3245,6 +3306,41 @@
 .admin-uso__sem-amostra {
     color: var(--gray-600);
     font-style: italic;
+}
+
+/* ----- navegadores e sistemas das sessões -----
+
+   AS DUAS TABELAS SE EMPILHAM, cada uma com a largura da seção: lado a lado, seis colunas cada
+   numa coluna de conteúdo de mil pixels partiam o cabeçalho e o número no meio ("SESSÕ ES",
+   "50,0 %"), medido na captura. A linha de VERSÃO fica recuada sob a da família e em cor mais
+   fraca: ela detalha o número de cima, não soma com ele. */
+
+.admin-uso__ambiente {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.admin-uso__ambiente-tabela {
+    font-variant-numeric: tabular-nums;
+}
+
+.admin-uso__ambiente-tabela th,
+.admin-uso__ambiente-tabela td {
+    white-space: nowrap;
+}
+
+.admin-uso__ambiente-familia td:first-child {
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-900);
+}
+
+.admin-uso__ambiente-versao td {
+    color: var(--gray-600);
+}
+
+.admin-uso__ambiente-versao td:first-child {
+    padding-left: var(--space-6);
 }
 
 /* ==========================================================================

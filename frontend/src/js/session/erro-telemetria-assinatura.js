@@ -567,7 +567,7 @@ export function migalhasSeguras(lista) {
  */
 export function montarCorpo({
     assinatura, mensagem, stack, stackBruta, url, pagina, release, atlasId, userAgent,
-    sessaoId, origem, contexto, migalhas,
+    sessaoId, origem, contexto, migalhas, ambiente,
 } = {}) {
     const corpo = {
         // A ASSINATURA VIAJA, e é ela que o servidor agrupa. Ela é montada AQUI, no cliente, porque
@@ -612,6 +612,14 @@ export function montarCorpo({
     // ligados" (uma página sem barramento, um relato do primeiro instante do boot).
     const trilha = migalhasSeguras(migalhas);
     if (trilha.length > 0) corpo.migalhas = trilha;
+    // THE ENVIRONMENT ARRIVES ALREADY CUT, and this is the one field that is not cut here: its
+    // closed shape needs the browser vocabularies, which live in `ambiente-do-navegador.js`, and
+    // this module has zero imports. The wiring passes the output of `ambienteSeguro` (the
+    // collector returns nothing else); this guard only refuses what is not a plain object.
+    if (ambiente && typeof ambiente === 'object' && !Array.isArray(ambiente)
+        && Object.keys(ambiente).length > 0) {
+        corpo.ambiente = ambiente;
+    }
     return corpo;
 }
 

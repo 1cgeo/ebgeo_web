@@ -22,8 +22,10 @@ import { vitais as vitaisPadrao } from './vitais.js';
 // soma dos dois carimbos do build, e `capturados` é quantos erros esta sessão viu. Recalcular
 // qualquer um dos dois aqui produziria dois números com o mesmo nome.
 import { versaoDoBuild, estadoDaTelemetria } from './erro-telemetria.js';
-import { configurarUso, familiaDoNavegador, registrarUso, descarregarUso } from './uso-lote.js';
+import { configurarUso, registrarUso, descarregarUso } from './uso-lote.js';
 import { EventoDeUso } from './eventos-de-uso.js';
+// The one User-Agent parser of the product (the error report and the admin tab read it too).
+import { identificarNavegador } from './ambiente-do-navegador.js';
 
 /**
  * Instala a telemetria de uso e conta a carga desta página. Síncrona, sem rede e idempotente.
@@ -69,11 +71,22 @@ export function instalarUso({ alvo = globalThis, documento, enviar, intervaloMs 
         let identidade = sessionContext.userId;
         let errosNoInicio = 0;
         const transporte = criarTransporteDeUso({ alvo, identidade: () => identidade });
+        // THREE LOW-CARDINALITY DIMENSIONS, read once: family, major version and system family.
+        // The rest of the environment (screen, GPU, storage) never enters the usage batch: it
+        // would single out machines in a table that is kept for months.
+        let navegador = null;
+        try {
+            navegador = identificarNavegador({ alvo });
+        } catch {
+            navegador = null;
+        }
         const configurar = (id) => configurarUso({
             pagina: paginaDaUrl(alvo?.location?.pathname ?? ''),
             sessaoId: id,
             release: versaoDoBuild(),
-            navegador: familiaDoNavegador(alvo?.navigator?.userAgent ?? ''),
+            navegador: navegador?.navegador ?? 'outro',
+            navegadorVersao: navegador?.navegadorVersao ?? null,
+            so: navegador?.so ?? null,
             resolverBase: resolveBackendBaseUrl,
             erros: () => Math.max(0, estadoDaTelemetria().capturados - errosNoInicio),
             vitais: () => vitaisPadrao.ler(),

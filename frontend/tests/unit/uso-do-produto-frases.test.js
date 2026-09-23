@@ -446,10 +446,13 @@ describe('o horizonte do uso — idade da medição, e NUNCA poda', () => {
         expect(frase).toContain('não dá para afirmar');
     });
 
-    it('a ressalva das quatro seções diz que todo número é um PISO, e por quê', () => {
+    it('a ressalva das seções de uso diz que todo número é um PISO, e por quê', () => {
         const frase = usoDoProdutoHint();
         expect(frase).toContain('PISO');
-        expect(frase).toContain('sem nova tentativa');
+        // The batch queue (`criarTransporteDeUso`) retries for one day since 12/09/2026; the
+        // sentence said "sem nova tentativa" until 2026-09-23.
+        expect(frase).toContain('um dia');
+        expect(frase).not.toContain('sem nova tentativa');
         expect(sessoesInformado({})).toBe(true);
         expect(sessoesInformado(undefined)).toBe(false);
         expect(sessoesNaoInformadoNotice()).toContain('não dá para dizer');

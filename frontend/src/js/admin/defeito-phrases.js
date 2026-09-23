@@ -1103,29 +1103,9 @@ export function textoDeMigalhaLabel(migalha) {
     return texto || 'sem texto';
 }
 
-/**
- * A família do navegador, a partir do user agent.
- *
- * FAMÍLIA E NÃO A STRING INTEIRA, porque a pergunta da linha é "só num navegador?" e um user
- * agent completo ocupa a largura da tela para responder isso. O valor inteiro continua no `title`.
- *
- * A ORDEM DOS TESTES É O CONTRATO desta função, e é o erro clássico de quem a reescreve: o Edge
- * diz `Chrome` na própria string, e o Chrome diz `Safari`, então quem perguntar por Chrome antes
- * de Edge classifica todo Edge como Chrome. Ela é DELIBERADAMENTE grosseira: não devolve versão,
- * não distingue Chromium de Chrome e não tenta cobrir a cauda.
- * @param {*} userAgent
- * @returns {string}
- */
-export function navegadorLabel(userAgent) {
-    const ua = typeof userAgent === 'string' ? userAgent : '';
-    if (!ua.trim()) return 'navegador não declarado';
-    if (/\bEdg\//.test(ua)) return 'Edge';
-    if (/\bOPR\/|\bOpera\b/.test(ua)) return 'Opera';
-    if (/\bFirefox\//.test(ua)) return 'Firefox';
-    if (/\bChrome\//.test(ua)) return 'Chrome';
-    if (/\bSafari\//.test(ua)) return 'Safari';
-    return 'outro navegador';
-}
+// The browser label of an occurrence left this file on 2026-09-23: it was the second User-Agent
+// parser of the product and disagreed with the first on Opera. It is `ambienteCurtoLabel`, in
+// `ambiente-phrases.js`, over the one parser of `session/ambiente-do-navegador.js`.
 
 /**
  * O id da aba, curto.
@@ -1260,6 +1240,9 @@ export const COLUNAS = Object.freeze([
     'Origem',
     'Mensagem',
     'Página',
+    // The browser set of the reports that declared one (2026-09-23), next to the page: the two
+    // columns that say WHERE a defect happens.
+    'Navegadores',
     'Releases',
     'Última vez',
     'Ações',

@@ -156,6 +156,22 @@ import {
     vazioHint,
     vazioNotice,
 } from './uso-phrases.js';
+// Browsers and systems of the sessions (2026-09-23): the same module that labels the machine of
+// an occurrence in the Diagnóstico tab, so a family has one name on both screens.
+import {
+    COLUNAS_DE_AMBIENTE,
+    ambienteUsoCorteNotice,
+    ambienteUsoHint,
+    ambienteUsoInformado,
+    ambienteUsoNaoInformadoNotice,
+    ambienteUsoPisoNotice,
+    ambienteUsoSubtitulo,
+    ambienteUsoTitulo,
+    ambienteUsoVazioHint,
+    ambienteUsoVazioNotice,
+    linhasDeNavegadores,
+    linhasDeSistemas,
+} from './ambiente-phrases.js';
 
 /**
  * A rota, montada a partir da janela.
@@ -459,6 +475,7 @@ class UsoTab {
         this._corpo.appendChild(this._secaoDeFerramentas(dados?.ferramentas, janela, true));
         this._corpo.appendChild(this._secaoDeFerramentas(dados?.ferramentas, janela));
         this._corpo.appendChild(this._secaoDeDesempenho(dados?.desempenho, janela));
+        this._corpo.appendChild(this._secaoDeAmbiente(dados, janela));
         this._corpo.appendChild(this._secaoDeDisponibilidade(dados?.disponibilidade, janela));
 
         // AS DUAS SEÇÕES DE COORTE VÊM DEPOIS DO "QUANTO", e a ordem é de leitura: as quatro
@@ -936,6 +953,61 @@ class UsoTab {
     }
 
     /**
+     * @private Browsers and systems of the retained sessions, with the share that had an error.
+     *
+     * IT RECEIVES THE WHOLE PAYLOAD, not only its block, because its floor note reads the horizon
+     * (`usoSessoesDesde`): this section counts sessions kept one by one, like "Pessoas distintas",
+     * and a window longer than the retention is answered over the part still kept.
+     * @param {*} dados @param {string} janela
+     * @returns {HTMLElement}
+     */
+    _secaoDeAmbiente(dados, janela) {
+        const bloco = dados?.ambiente;
+        const sec = document.createElement('section');
+        sec.className = 'admin-uso__section';
+        sec.dataset.testid = 'admin-uso-ambiente';
+        sec.appendChild(sectionHeader(ambienteUsoTitulo(), {
+            subtitle: ambienteUsoSubtitulo(janelaEmPalavras(janela)),
+        }));
+
+        if (!ambienteUsoInformado(bloco)) {
+            const ausente = card({ testid: 'admin-uso-ambiente-card' });
+            ausente.appendChild(notaDeSecao(ambienteUsoNaoInformadoNotice(), 'admin-uso-ambiente-ausente'));
+            sec.appendChild(ausente);
+            return sec;
+        }
+
+        const piso = ambienteUsoPisoNotice({ desde: dados?.desde, horizonte: dados?.horizonte });
+        if (piso) {
+            const p = document.createElement('p');
+            p.className = 'admin-uso__aviso';
+            p.dataset.testid = 'admin-uso-ambiente-piso';
+            p.textContent = piso;
+            sec.appendChild(p);
+        }
+
+        if (!(bloco.sessoes > 0)) {
+            const vazio = card({ testid: 'admin-uso-ambiente-card' });
+            vazio.appendChild(emptyState(ambienteUsoVazioNotice(janelaEmPalavras(janela)), {
+                hint: ambienteUsoVazioHint(),
+            }));
+            sec.appendChild(vazio);
+            return sec;
+        }
+
+        const grade = document.createElement('div');
+        grade.className = 'admin-uso__ambiente';
+        grade.appendChild(tabelaDeAmbiente('Navegador', linhasDeNavegadores(bloco), 'admin-uso-ambiente-navegadores'));
+        grade.appendChild(tabelaDeAmbiente('Sistema', linhasDeSistemas(bloco), 'admin-uso-ambiente-sistemas'));
+        sec.appendChild(grade);
+
+        const corte = ambienteUsoCorteNotice(bloco);
+        if (corte) sec.appendChild(notaDeSecao(corte, 'admin-uso-ambiente-corte'));
+        sec.appendChild(notaDeSecao(ambienteUsoHint(), 'admin-uso-ambiente-hint'));
+        return sec;
+    }
+
+    /**
      * @private As telas de indisponibilidade que o cliente relatou.
      * @param {*} disponibilidade @param {string} janela
      * @returns {HTMLElement}
@@ -997,6 +1069,55 @@ function notaDeSecao(texto, testid) {
     p.dataset.testid = testid;
     p.textContent = texto;
     return p;
+}
+
+/**
+ * One of the two tables of the browsers section: the first column names the row, the others are
+ * `COLUNAS_DE_AMBIENTE`. A version row is indented under its family by CLASS, not by style.
+ * @param {string} primeira - The header of the name column.
+ * @param {Array<{nivel: string, rotulo: string, celulas: string[]}>} linhas
+ * @param {string} testid
+ * @returns {HTMLElement}
+ */
+function tabelaDeAmbiente(primeira, linhas, testid) {
+    const wrap = card({ testid, padded: false });
+    const table = document.createElement('table');
+    table.className = 'admin-users__table admin-uso__table admin-uso__ambiente-tabela';
+
+    const thead = document.createElement('thead');
+    const hrow = document.createElement('tr');
+    const th0 = document.createElement('th');
+    th0.textContent = primeira;
+    hrow.appendChild(th0);
+    for (const coluna of COLUNAS_DE_AMBIENTE) {
+        const th = document.createElement('th');
+        th.className = 'admin-uso__numero';
+        th.textContent = coluna.rotulo;
+        th.title = coluna.detalhe;
+        hrow.appendChild(th);
+    }
+    thead.appendChild(hrow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    for (const linha of linhas) {
+        const tr = document.createElement('tr');
+        tr.className = linha.nivel === 'versao' ? 'admin-uso__ambiente-versao' : 'admin-uso__ambiente-familia';
+        tr.dataset.testid = `${testid}-linha`;
+        const nome = document.createElement('td');
+        nome.textContent = linha.rotulo;
+        tr.appendChild(nome);
+        for (const valor of linha.celulas) {
+            const td = document.createElement('td');
+            td.className = 'admin-uso__numero';
+            td.textContent = valor;
+            tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    return wrap;
 }
 
 /**

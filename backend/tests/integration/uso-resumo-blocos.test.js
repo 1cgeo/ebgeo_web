@@ -64,7 +64,7 @@ describe('Uso do produto — os blocos do resumo e a costura dia fechado / dia a
          sessao_id, dia, user_id, pagina_inicial, release, navegador,
          inicio, ultimo_sinal, eventos, erros, lcp_ms, inp_ms, cls, tempo_ate_mapa_ms
        ) VALUES (
-         $1, $2, $3, $4, NULL, 'Chrome',
+         $1, $2, $3, $4, NULL, 'chrome',
          NOW() - ($5::int * INTERVAL '1 day') - ($6::int * INTERVAL '1 second'),
          NOW() - ($5::int * INTERVAL '1 day'),
          0, $7, $8, $9, $10, $11

@@ -188,7 +188,6 @@ import {
     limparFiltrosLabel,
     migalhasTitulo,
     migalhasVaziasNotice,
-    navegadorLabel,
     novoChipLabel,
     novoChipTitulo,
     novosDesdeNotice,
@@ -284,6 +283,15 @@ import {
     usandoAgoraRotulo,
     usandoAgoraTitulo,
 } from './enderecos-phrases.js';
+// The browser environment of each occurrence and the browser set of each defect (2026-09-23).
+import {
+    ambienteAusenteNotice,
+    ambienteCurtoLabel,
+    ambienteTitulo,
+    linhasDoAmbiente,
+    navegadoresDasOcorrenciasNotice,
+    navegadoresDoDefeitoLabel,
+} from './ambiente-phrases.js';
 
 /**
  * Os tetos de cada lista.
@@ -1358,7 +1366,7 @@ class DiagTab {
      * @returns {HTMLElement}
      */
     _tabelaDeDefeitos() {
-        // A TABELA ROLA DENTRO DE UM EMBRULHO PRÓPRIO, e não é escolha de estilo: são OITO
+        // A TABELA ROLA DENTRO DE UM EMBRULHO PRÓPRIO, e não é escolha de estilo: são NOVE
         // colunas, quatro delas em `nowrap`, e a de Página carrega até 80 caracteres. Com a
         // coluna de conteúdo limitada a 1080px, o mínimo da tabela passa disso num caso comum,
         // e o `.admin-card` que a envolve tem `overflow: hidden` (ele precisa, por causa do
@@ -1443,6 +1451,13 @@ class DiagTab {
         tr.appendChild(this._celulaDeMensagem(item));
         tr.appendChild(celulaDeTexto(paginaLabel(item), 'admin-diag__pagina',
             typeof item?.url === 'string' ? item.url : ''));
+
+        // THE BROWSER SET of the reports that declared a browser: the column that answers "only on
+        // Firefox?" without opening the drawer, with its limit in the `title`.
+        const navegadores = navegadoresDoDefeitoLabel(item);
+        const celulaNavegadores = celulaDeTexto(navegadores.texto, 'admin-diag__navegadores', navegadores.detalhe);
+        celulaNavegadores.dataset.testid = 'admin-diag-defeito-navegadores';
+        tr.appendChild(celulaNavegadores);
 
         const releases = celulaDeTexto(releasesDoDefeito(item) || '—', 'admin-diag__releases',
             releasesDetalhe(item));
@@ -1835,6 +1850,17 @@ class DiagTab {
         titulo.textContent = ocorrenciasTitulo(ocorrencias.length);
         box.appendChild(titulo);
 
+        // THE BROWSERS OF THE STORED OCCURRENCES, counted: the drawer's answer to "only on one
+        // browser?", next to the defect's lifetime set in the row above.
+        const distribuicao = navegadoresDasOcorrenciasNotice(ocorrencias);
+        if (distribuicao) {
+            const p = document.createElement('p');
+            p.className = 'admin-diag__ocorrencias-navegadores';
+            p.dataset.testid = 'admin-diag-ocorrencias-navegadores';
+            p.textContent = distribuicao;
+            box.appendChild(p);
+        }
+
         const escolhida = Math.min(this._selecionada.get(item?.id) ?? 0, ocorrencias.length - 1);
         const lista = document.createElement('ul');
         lista.className = 'admin-diag__ocorrencias-lista';
@@ -1844,6 +1870,7 @@ class DiagTab {
         });
         box.appendChild(lista);
 
+        box.appendChild(blocoDeAmbiente(ocorrencias[escolhida]));
         box.appendChild(blocoDeMigalhas(ocorrencias[escolhida]));
         return box;
     }
@@ -1872,8 +1899,9 @@ class DiagTab {
         btn.appendChild(pedaco(paginaLabel(oc), 'admin-diag__meta-alvo'));
         btn.appendChild(pedaco(usuarioLabel(oc), 'admin-diag__meta-usuario'));
 
-        const navegador = pedaco(navegadorLabel(oc?.userAgent), 'admin-diag__meta-navegador');
-        // O USER AGENT INTEIRO no `title`, e a família no texto: ver `navegadorLabel`.
+        // BROWSER AND SYSTEM in the text ("Firefox 143 · Windows 10 ou 11"), the whole user
+        // agent in the `title`: see `ambienteCurtoLabel`.
+        const navegador = pedaco(ambienteCurtoLabel(oc), 'admin-diag__meta-navegador');
         if (typeof oc?.userAgent === 'string' && oc.userAgent.trim()) {
             navegador.title = oc.userAgent;
         }
@@ -2306,6 +2334,59 @@ function extrasDoDefeito(item) {
     return campos
         .map((c) => ({ rotulo: c.rotulo, valor: typeof c.valor === 'string' ? c.valor.trim() : '' }))
         .filter((c) => c.valor);
+}
+
+/**
+ * The MACHINE of one occurrence: browser, system, screen, GPU, storage (2026-09-23).
+ *
+ * IT IS THE SELECTED OCCURRENCE'S, like the breadcrumbs below it: two tabs of the same defect can
+ * be two machines, and that difference is exactly what the block exists to show. An occurrence
+ * from before the block still gets browser and system, read from its user agent, with a note
+ * that says so. Every value is text a browser declared about itself, set by `textContent`.
+ * @param {Object} [ocorrencia]
+ * @returns {HTMLElement}
+ */
+function blocoDeAmbiente(ocorrencia) {
+    const box = document.createElement('div');
+    box.className = 'admin-diag__ambiente';
+    box.dataset.testid = 'admin-diag-ambiente';
+
+    const titulo = document.createElement('p');
+    titulo.className = 'admin-diag__ambiente-titulo';
+    titulo.textContent = ambienteTitulo();
+    box.appendChild(titulo);
+
+    const nota = ambienteAusenteNotice(ocorrencia);
+    if (nota) {
+        const p = document.createElement('p');
+        p.className = 'admin-diag__ambiente-nota';
+        p.dataset.testid = 'admin-diag-ambiente-nota';
+        p.textContent = nota;
+        box.appendChild(p);
+    }
+
+    const linhas = linhasDoAmbiente(ocorrencia);
+    if (linhas.length === 0) return box;
+    const dl = document.createElement('dl');
+    dl.className = 'admin-diag__extras admin-diag__ambiente-lista';
+    for (const linha of linhas) {
+        const dt = document.createElement('dt');
+        dt.textContent = linha.rotulo;
+        const dd = document.createElement('dd');
+        dd.textContent = linha.valor;
+        if (linha.titulo) dd.title = linha.titulo;
+        // THE EXPLANATION IS VISIBLE, not a tooltip: "Windows 10 ou 11" without the reason reads
+        // as a telemetry defect, and the reason is one line.
+        if (linha.detalhe) {
+            const detalhe = document.createElement('span');
+            detalhe.className = 'admin-diag__ambiente-detalhe';
+            detalhe.textContent = linha.detalhe;
+            dd.appendChild(detalhe);
+        }
+        dl.append(dt, dd);
+    }
+    box.appendChild(dl);
+    return box;
 }
 
 /**

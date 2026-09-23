@@ -4205,3 +4205,72 @@ instável, e cada uma foi atribuída antes de ser tocada.
 - **Motivo:** manter a identificação de Engenharia na seleção, lista e sincronização, sem misturar seu catálogo com os códigos das medidas de coordenação. Estradas de referência ficam fora da geometria; todos os itens aprovados são pontos.
 - **Compatibilidade:** coleção ausente em mapas antigos recebe lista vazia na leitura. O fundo branco opcional dos cinco desenhos fechados começa desativado quando o atributo não existe.
 - **Referência:** [escopo e implementação](../wiki/simbolos-engenharia.md).
+
+### 2026-09-23: o navegador, o sistema e a máquina entram no Diagnóstico e no Uso
+
+- **Contexto (do dono):** "Adicionar nas telas de administração de Uso e Diagnóstico o browser do
+  usuário, sistema operacional, o que tiver disponível de informação da máquina que possa ajudar o
+  debug." Metade de quem usa o EBGeo está no Firefox, e a auditoria de lançamento achou defeitos que
+  só apareciam nele. Até aqui o relato de erro levava o user agent cru (a aba mostrava só a família)
+  e o lote de uso levava só a família, em texto livre, sem que nenhum relatório a lesse.
+- **Decisão, Diagnóstico:** cada OCORRÊNCIA de defeito leva o bloco `ambiente`
+  (`defeito_ocorrencias.ambiente`): família e versão do navegador e do sistema, a versão real do
+  sistema pelas dicas de cliente quando o navegador as dá, dispositivo e toque, tela, janela e
+  escala, idioma e fuso, núcleos, memória, WebGL com placa e textura máxima, cota de armazenamento e
+  quatro sinais do instante (rede, cookies, IndexedDB, conexão segura). Cada DEFEITO acumula o
+  conjunto de famílias dos relatos que INFORMARAM o navegador (`defeitos.navegadores`, união), que
+  vira a coluna "Navegadores" da lista; relatos de versões anteriores do EBGeo não informavam, e a
+  dica da coluna diz que um defeito antigo pode ter ocorrido também noutro navegador. A gaveta
+  mostra a distribuição das ocorrências guardadas e o bloco "Máquina desta ocorrência". O comando
+  `npm run diag -- defeitos --id` imprime os dois.
+- **Decisão, Uso:** a sessão guarda três dimensões de baixa cardinalidade, a família, a versão
+  PRINCIPAL e a família do sistema, e a aba ganha a seção "Navegadores e sistemas" (sessões, fatia,
+  sessões com erro, taxa de erro e pessoas, por navegador com as versões dentro, e por sistema).
+  A taxa de erro por navegador é o cruzamento com os defeitos, com denominador.
+- **Um parser só, no cliente:** `analisarUserAgent` (`frontend/src/js/session/ambiente-do-navegador.js`)
+  serve o relato, o lote e o rótulo da aba para relatos antigos. O servidor nunca lê user agent; a
+  família chega no corpo, validada contra o espelho. Os dois parsers anteriores discordavam sobre o
+  Opera, e os dois mandavam o navegador do harness de teste (`HeadlessChrome`) para o Safari.
+- **Vocabulário espelhado:** as famílias de navegador e de sistema, os tipos de dispositivo e de
+  WebGL, os tetos e as formas moram num folha de zero imports em cada pacote e em três CHECK
+  (`defeitos_navegadores_check`, `uso_sessoes_navegador_check`, `uso_sessoes_so_check`), pela
+  migração `backend/src/database/migrations/014_ambiente_do_navegador.sql`, aditiva e idempotente.
+  A coluna `uso_sessoes.navegador`, que aceitava texto livre numa rota anônima, passou a vocabulário
+  fechado; o que houver fora da lista vira `outro` antes de o CHECK fechar.
+- **Privacidade e recorte:** o bloco inteiro identifica uma máquina mais do que o user agent sozinho,
+  e por isso fica só na ocorrência (no máximo vinte por defeito, podada com o defeito, lida só pelo
+  administrador) e nunca no lote de uso nem na linha agregada. Nada de modelo do aparelho, fontes,
+  plugins, hash de canvas ou de áudio, endereço ou identificador persistente. A cota de
+  armazenamento viaja arredondada para uma potência de dois, nos dois lados: no Chromium ela é uma
+  fração fixa do disco, e o número exato ligaria ocorrências anônimas da mesma máquina.
+- **Custo:** as dicas de cliente e a estimativa de armazenamento são pedidas na instalação, sem
+  esperar por elas; a sonda de WebGL cria UM contexto no primeiro relato da página, e não no boot, e
+  o perde na hora para não empurrar o contexto do mapa para fora do limite do navegador.
+- **Alternativas rejeitadas:** o user agent cru como dimensão do uso (cardinalidade de milhares e
+  impressão digital numa tabela guardada por meses); parsear o user agent no servidor (uma segunda
+  verdade que diverge da primeira); pôr o ambiente na linha do defeito (guardaria o do último relato
+  e jogaria fora o das outras ocorrências); a biblioteca UAParser (peso nas quatro páginas para
+  responder cinco famílias); a sonda de WebGL no boot (custo em toda carga, e contexto a mais no
+  harness que já cai no boot do mapa); e uma tabela diária por navegador, que manteria a série além
+  da retenção ao preço de multiplicar o agregado por versão. A seção de Uso conta só as sessões
+  retidas e avisa quando a retenção encurtou o período.
+- **Limites declarados:** o Firefox não dá dicas de cliente (o rótulo é "Windows 10 ou 11") nem
+  memória, e mascara a placa numa classe genérica; o Safari mascara a placa; a memória do Chromium
+  é arredondada e limitada. O Playwright reescreve user agent e dicas pelo descritor de dispositivo,
+  então sistema e versão lidos no harness são os do descritor.
+- **De carona, na mesma aba:** a ressalva da metade de uso dizia "sem nova tentativa: o que não
+  chega se perde", e desde a fila de lotes de 12/09/2026 o que falha por rede ou servidor é tentado
+  de novo por até um dia; a frase passou a dizer isso. As frases de horizonte deixaram de contar "as
+  quatro seções", que já eram cinco e agora são seis.
+- **Exige do dono:** aplicar a migração nova no banco de desenvolvimento (`npm run db:migrate` em
+  `backend/`) e no stack de teste do servidor na próxima implantação. Sem ela o código novo fala de
+  colunas que o banco não tem: o relato de erro responde 500 (e vai para a fila do navegador), o
+  lote de uso responde 503 (e fica na fila de um dia), e a lista de defeitos e o resumo de uso
+  respondem erro, ou seja, as duas abas falham até a migração entrar.
+- **Guardas:** `frontend/tests/unit/ambiente-do-navegador.test.js`,
+  `frontend/tests/unit/ambiente-do-navegador-espelha-backend.test.js`,
+  `frontend/tests/unit/relato-com-ambiente.test.js`, `frontend/tests/unit/ambiente-frases.test.js`,
+  `backend/tests/unit/ambiente-do-navegador-check.test.js` e
+  `backend/tests/integration/ambiente-do-navegador.test.js`. Detalhe em
+  [observabilidade](../wiki/observabilidade.md).
+- **Status:** aceita.

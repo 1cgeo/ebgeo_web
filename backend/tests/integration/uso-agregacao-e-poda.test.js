@@ -96,7 +96,7 @@ describe('Uso do produto — a passada de manutenção (agregar, depois podar)',
          sessao_id, dia, user_id, pagina_inicial, release, navegador,
          inicio, ultimo_sinal, eventos, erros, lcp_ms, inp_ms, cls, tempo_ate_mapa_ms
        ) VALUES (
-         $1, $2, $3, $4, $5, 'Chrome',
+         $1, $2, $3, $4, $5, 'chrome',
          NOW() - ($6::int * INTERVAL '1 day') - ($7::int * INTERVAL '1 second'),
          NOW() - ($6::int * INTERVAL '1 day'),
          0, $8, $9, $10, $11, $12

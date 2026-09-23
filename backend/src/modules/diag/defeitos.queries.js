@@ -79,14 +79,30 @@
  * `ignorado` NÃO transiciona por nada, e é isso que o separa de `resolvido`: ele significa
  * "eu sei, e não quero mais ouvir sobre isto", então voltar a acusá-lo desfaria o único ato
  * que o administrador tem para calar ruído conhecido.
+ *
+ * `navegadores` ($15, the client-parsed browser family of this report) is a UNION, never a
+ * replacement, and it is the one field of this row that neither COALESCE regime fits: the
+ * question it answers ("does this only happen on Firefox?") is about every report that DECLARED
+ * a browser, and "the latest non-null" would make one Chrome report erase a thousand Firefox ones.
+ * A report without the family (older client, server defect) adds nothing, which is also the
+ * limit of the set: a defect born before the field has reports that never said their browser,
+ * and the set says nothing about them. The tab says so (`navegadoresDoDefeitoLabel`). The
+ * vocabulary is held by `defeitos_navegadores_check`.
  */
 export const UPSERT_DEFEITO = `
   INSERT INTO defeitos
     (assinatura, mensagem, stack, url, pagina, user_agent, release, user_id, atlas_id,
-     sessao_id, stack_bruta, origem, contexto, ocorrencias, primeira_release, ultima_release)
-  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $7, $7)
+     sessao_id, stack_bruta, origem, contexto, ocorrencias, primeira_release, ultima_release,
+     navegadores)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $7, $7,
+          CASE WHEN $15::text IS NULL THEN '{}'::text[] ELSE ARRAY[$15::text] END)
   ON CONFLICT (assinatura) DO UPDATE SET
     ocorrencias      = defeitos.ocorrencias + EXCLUDED.ocorrencias,
+    navegadores      = ARRAY(
+                         SELECT DISTINCT n
+                           FROM unnest(defeitos.navegadores || EXCLUDED.navegadores) AS n
+                          ORDER BY n
+                       ),
     ultima_em        = NOW(),
     mensagem         = EXCLUDED.mensagem,
     stack            = COALESCE(EXCLUDED.stack, defeitos.stack),
@@ -124,8 +140,8 @@ export const UPSERT_DEFEITO = `
 export const INSERT_OCORRENCIA = `
   INSERT INTO defeito_ocorrencias
     (defeito_id, release, sessao_id, user_id, pagina, url, user_agent, origem,
-     migalhas, contexto, req_id, rota, status_code)
-  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+     migalhas, contexto, req_id, rota, status_code, ambiente)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 `;
 
 /**
@@ -168,7 +184,7 @@ export const DELETE_OCORRENCIAS_EXCEDENTES = `
 export const LIST_OCORRENCIAS = `
   SELECT o.id, o.defeito_id, o.em, o.release, o.sessao_id, o.user_id, u.username,
          o.pagina, o.url, o.user_agent, o.origem, o.migalhas, o.contexto,
-         o.req_id, o.rota, o.status_code
+         o.req_id, o.rota, o.status_code, o.ambiente
     FROM defeito_ocorrencias o
     LEFT JOIN users u ON u.id = o.user_id
    WHERE o.defeito_id = $1
@@ -208,7 +224,7 @@ export const LIST_DEFEITOS = `
          d.sessao_id, d.stack_bruta, d.origem, d.contexto,
          d.estado, d.resolvido_em, d.resolvido_por, r.username AS resolvido_por_username,
          d.resolvido_na_release, d.resolvido_no_commit,
-         d.primeira_release, d.ultima_release,
+         d.primeira_release, d.ultima_release, d.navegadores,
          d.ocorrencias, d.primeira_em, d.ultima_em,
          (SELECT COUNT(*)::int
             FROM defeitos
@@ -256,7 +272,7 @@ export const SELECT_DEFEITO_POR_ID = `
          d.sessao_id, d.stack_bruta, d.origem, d.contexto,
          d.estado, d.resolvido_em, d.resolvido_por, r.username AS resolvido_por_username,
          d.resolvido_na_release, d.resolvido_no_commit,
-         d.primeira_release, d.ultima_release,
+         d.primeira_release, d.ultima_release, d.navegadores,
          d.ocorrencias, d.primeira_em, d.ultima_em
     FROM defeitos d
     LEFT JOIN users u ON u.id = d.user_id

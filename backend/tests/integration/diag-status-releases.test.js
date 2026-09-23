@@ -86,7 +86,7 @@ describe('Saúde por release — o bloco `releases` de GET /diag/status', () => 
          sessao_id, dia, user_id, pagina_inicial, release, navegador,
          inicio, ultimo_sinal, eventos, erros
        ) VALUES (
-         $1, (NOW() - ($2::numeric * INTERVAL '1 hour'))::date, NULL, 'mapa', $3, 'Chrome',
+         $1, (NOW() - ($2::numeric * INTERVAL '1 hour'))::date, NULL, 'mapa', $3, 'chrome',
          NOW() - ($2::numeric * INTERVAL '1 hour'),
          NOW() - ($4::numeric * INTERVAL '1 hour'),
          0, $5

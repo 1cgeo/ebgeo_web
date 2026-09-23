@@ -35,6 +35,7 @@
 import Joi from 'joi';
 import { parseJanela } from '../../utils/diag-consulta.js';
 import { EVENTOS_DE_USO, PAGINAS } from './eventos-de-uso.js';
+import { FAMILIAS_DE_NAVEGADOR, FAMILIAS_DE_SO, TETOS_DE_AMBIENTE } from './ambiente-do-navegador.js';
 import { propAceita } from './uso.lote.js';
 
 /** O maior período que este relatório aceita. Ver o cabeçalho. */
@@ -161,7 +162,14 @@ export const eventosDeUsoSchema = Joi.object({
   // reproduzir um defeito, e por isso vale mais o que o navegador diz de si; aqui a coluna é
   // uma DIMENSÃO de agrupamento, e um `user-agent` cru como dimensão tem cardinalidade de
   // milhares (cada build de cada versão é um valor) e não agrupa nada.
-  navegador: Joi.string().max(40).allow('', null),
+  //
+  // Since 2026-09-23 the family is a CLOSED vocabulary (it was any text up to 40), with the
+  // major version and the system family beside it: three low-cardinality dimensions, mirrored in
+  // `ambiente-do-navegador.js` and in the CHECK constraints of `uso_sessoes`. An anonymous route
+  // that accepted free text here let any caller invent rows in the administrator's browser table.
+  navegador: Joi.string().valid(...FAMILIAS_DE_NAVEGADOR).allow('', null),
+  navegadorVersao: Joi.number().integer().min(0).max(TETOS_DE_AMBIENTE.versaoPrincipal).allow(null),
+  so: Joi.string().valid(...FAMILIAS_DE_SO).allow('', null),
   inicio: Joi.number().integer().min(0).required(),
   ultimoSinal: Joi.number().integer().min(0).required(),
   eventos: Joi.array().max(MAX_EVENTOS_POR_LOTE).items(itemDeEvento).required(),

@@ -23,9 +23,8 @@
  *   3. **`ehNovo` sem marca tratando tudo como novo.** Sem `localStorage` (primeira visita, janela
  *      privativa, dados limpos) o `null` marcaria a lista inteira, que é o alarme que ensina a
  *      ignorar alarme.
- *   4. **`navegadorLabel` perguntando por Chrome antes de Edge.** O Edge diz `Chrome` na própria
- *      string, e o Chrome diz `Safari`: a ordem dos testes É o contrato, e inverter dois deles
- *      classifica todo Edge como Chrome sem nada ficar vermelho, a não ser aqui.
+ *   4. **(moved)** The browser branch-order control moved with the parser to
+ *      `ambiente-do-navegador.test.js` on 2026-09-23; the number stays so the others keep theirs.
  *   5. **`saudeDasReleases` contando "novos" por `ultimaRelease`.** A pergunta do cartão é o que
  *      ESTA build trouxe, e um defeito que nasceu três builds atrás e continua ocorrendo não é
  *      novidade dela; contar pelo avistamento mais recente faria toda release parecer culpada por
@@ -61,7 +60,6 @@ import {
     estadoTom,
     filtroNovosHint,
     janelaEmVooNotice,
-    navegadorLabel,
     novoChipTitulo,
     novosDesdeNotice,
     ocorrenciasTitulo,
@@ -499,25 +497,6 @@ describe('a nota de resolução da linha', () => {
 });
 
 describe('os rótulos da gaveta de ocorrências', () => {
-    it('CONTROLE NEGATIVO 4: a ORDEM dos testes de navegador é o contrato', () => {
-        // O Edge diz `Chrome` na própria string, e o Chrome diz `Safari`. Perguntar por Chrome
-        // antes de Edge classifica todo Edge como Chrome, e nada mais no produto acusaria isso.
-        const edge = 'Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) '
-            + 'Chrome/128.0.0.0 Safari/537.36 Edg/128.0.0.0';
-        const chrome = 'Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) '
-            + 'Chrome/128.0.0.0 Safari/537.36';
-        const safari = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 '
-            + '(KHTML, like Gecko) Version/17.0 Safari/605.1.15';
-        expect(navegadorLabel(edge)).toBe('Edge');
-        expect(navegadorLabel(chrome)).toBe('Chrome');
-        expect(navegadorLabel(safari)).toBe('Safari');
-        expect(navegadorLabel('Mozilla/5.0 (X11; Linux) Gecko/20100101 Firefox/130.0'))
-            .toBe('Firefox');
-        expect(navegadorLabel('curl/8.4.0')).toBe('outro navegador');
-        expect(navegadorLabel('')).toBe('navegador não declarado');
-        expect(navegadorLabel(null)).toBe('navegador não declarado');
-    });
-
     it('o id da aba sai curto, e o vazio não vira reticências', () => {
         expect(sessaoCurta('0189d4c2-4b2f-7a1e-9c33-2f6d1b8e0a55')).toBe('0189d4c2');
         expect(sessaoCurta('abc')).toBe('abc');
@@ -594,6 +573,8 @@ describe('os dois vazios da seção, e o que a tela declara sobre si', () => {
         // As duas perguntas da escolha ("isto está aberto?" e "quantos?") são as duas primeiras.
         expect(COLUNAS[0]).toBe('Estado');
         expect(COLUNAS[1]).toBe('Relatos');
-        expect(COLUNAS).toHaveLength(8);
+        expect(COLUNAS).toHaveLength(9);
+        // The browser set sits next to the page: the two columns that say WHERE a defect happens.
+        expect(COLUNAS.indexOf('Navegadores')).toBe(COLUNAS.indexOf('Página') + 1);
     });
 });

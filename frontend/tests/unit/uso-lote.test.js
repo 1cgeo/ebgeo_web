@@ -53,7 +53,6 @@ import {
     descarregarUso,
     desinstalarUso,
     estadoDoUso,
-    familiaDoNavegador,
     montarCorpoDeUso,
     registrarUso,
 } from '@js/session/uso-lote.js';
@@ -135,38 +134,8 @@ afterEach(() => {
     desinstalarUso();
 });
 
-describe('familiaDoNavegador — cinco valores, e a ordem dos ramos é o contrato', () => {
-    it('reconhece as quatro famílias pelo token próprio', () => {
-        expect(familiaDoNavegador('Mozilla/5.0 Chrome/130.0.0.0 Safari/537.36')).toBe('chrome');
-        expect(familiaDoNavegador('Mozilla/5.0 Firefox/131.0')).toBe('firefox');
-        expect(familiaDoNavegador('Mozilla/5.0 Version/17.0 Safari/605.1.15')).toBe('safari');
-    });
-
-    it('o Edge NÃO cai em chrome, e o Chrome NÃO cai em safari', () => {
-        // ESTE É O CASO INTEIRO: os dois se anunciam como o vizinho, e testar na ordem alfabética
-        // classificaria todo Edge como Chrome e todo Chrome como Safari, sem erro nenhum.
-        expect(familiaDoNavegador(
-            'Mozilla/5.0 Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0',
-        )).toBe('edge');
-        expect(familiaDoNavegador(
-            'Mozilla/5.0 CriOS/130.0 Mobile/15E148 Safari/604.1',
-        )).toBe('chrome');
-    });
-
-    it('o desconhecido e o que não é texto viram `outro`, sem lançar', () => {
-        expect(familiaDoNavegador('curl/8.4.0')).toBe('outro');
-        expect(familiaDoNavegador('')).toBe('outro');
-        expect(familiaDoNavegador(null)).toBe('outro');
-        expect(familiaDoNavegador(undefined)).toBe('outro');
-        expect(familiaDoNavegador({ toString() { throw new Error('hostil'); } })).toBe('outro');
-    });
-
-    it('nunca devolve mais de 40 caracteres (o teto da coluna)', () => {
-        for (const ua of ['Chrome/1', 'Edg/1', 'Firefox/1', 'Safari/1', 'x'.repeat(5000)]) {
-            expect(familiaDoNavegador(ua).length).toBeLessThanOrEqual(40);
-        }
-    });
-});
+// The browser FAMILY moved to `ambiente-do-navegador.js` on 2026-09-23, with the one parser of
+// the product; its branch-order cases live in `ambiente-do-navegador.test.js`.
 
 describe('montarCorpoDeUso — a forma EXATA do corpo', () => {
     const BASE = {
@@ -210,14 +179,35 @@ describe('montarCorpoDeUso — a forma EXATA do corpo', () => {
         expect(Object.keys(corpo.eventos[1]).sort()).toEqual(['contagem', 'evento']);
     });
 
-    it('a `release` é aparada no teto da coluna, e o `navegador` também', () => {
+    it('a `release` é aparada no teto da coluna, e o navegador fora do vocabulário SAI', () => {
         // Os dois são opcionais e dispensáveis, e um valor longo custaria o lote INTEIRO num
-        // 422 por causa deles.
+        // 422 por causa deles. Desde 2026-09-23 a família é vocabulário FECHADO na rota, então
+        // ela não se apara: um valor desconhecido simplesmente não viaja.
         const { corpo } = montarCorpoDeUso({
             ...BASE, release: 'x'.repeat(500), navegador: 'y'.repeat(500),
         });
         expect(corpo.release).toHaveLength(MAX_RELEASE);
-        expect(corpo.navegador).toHaveLength(40);
+        expect(Object.hasOwn(corpo, 'navegador')).toBe(false);
+    });
+
+    it('the three browser dimensions: family, MAJOR version and system, checked and never trimmed', () => {
+        const { corpo } = montarCorpoDeUso({
+            ...BASE, navegador: 'firefox', navegadorVersao: '143.0.1', so: 'windows',
+        });
+        expect(corpo.navegador).toBe('firefox');
+        // The full version is a diagnosis field; the batch carries the grouping dimension only.
+        expect(corpo.navegadorVersao).toBe(143);
+        expect(corpo.so).toBe('windows');
+
+        const recusados = montarCorpoDeUso({
+            ...BASE, navegador: 'Firefox', navegadorVersao: '143 beta', so: 'Windows 11',
+        }).corpo;
+        for (const campo of ['navegador', 'navegadorVersao', 'so']) {
+            expect(Object.hasOwn(recusados, campo), campo).toBe(false);
+        }
+        expect(montarCorpoDeUso({ ...BASE, navegadorVersao: 140 }).corpo.navegadorVersao).toBe(140);
+        expect(Object.hasOwn(montarCorpoDeUso({ ...BASE, navegadorVersao: 10000 }).corpo, 'navegadorVersao'))
+            .toBe(false);
     });
 
     it('opcional AUSENTE é ausente, e nunca `null` (o Joi recusa `null` num opcional)', () => {

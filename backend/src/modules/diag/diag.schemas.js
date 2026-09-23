@@ -21,6 +21,15 @@ import { parseJanela, parseIntervalo } from '../../utils/diag-consulta.js';
 import { LIMITE_PADRAO_DE_ENDERECOS } from '../../utils/diag-enderecos.js';
 import { ORIGENS_DE_ERRO, ORIGENS_DO_CLIENTE } from './origens-de-erro.js';
 import { ESTADOS_DE_DEFEITO, ESTADOS_MANUAIS } from './estados-de-defeito.js';
+import {
+  FAMILIAS_DE_NAVEGADOR,
+  FAMILIAS_DE_SO,
+  TIPOS_DE_DISPOSITIVO,
+  VERSOES_DE_WEBGL,
+  TETOS_DE_AMBIENTE,
+  FORMAS_DE_AMBIENTE,
+  ehPotenciaDeDois,
+} from '../uso/ambiente-do-navegador.js';
 // O PADRÃO E O TETO DO `limite` DO RESUMO VÊM DA CONSTANTE, nunca de um literal repetido aqui.
 // Este arquivo é avaliado por `app.js` e por `scripts/diag.js`, e o import é seguro porque o
 // grafo ESTÁTICO de `resumo.service.js` não alcança `config.js` nem o pool (ele carrega
@@ -289,6 +298,53 @@ export const estadoDeDefeitoSchema = Joi.object({
 });
 
 /**
+ * The ENVIRONMENT of one occurrence: browser, system and machine (2026-09-23).
+ *
+ * CLOSED FIELD BY FIELD, with `unknown(false)`, for the reason and at the price of `contexto`
+ * below: an extra key refuses the whole report with a 422 that names it, instead of being
+ * dropped in silence. Every field is optional, because each one depends on what the browser
+ * exposes (Firefox has no memory reading and no Client Hints; an insecure context has no
+ * storage estimate), and an absent field is the honest answer.
+ *
+ * THE VOCABULARIES AND LIMITS COME FROM `ambiente-do-navegador.js`, never written here: a second
+ * copy would diverge from the client's cut and from the CHECK constraints.
+ */
+const T = TETOS_DE_AMBIENTE;
+const pixels = () => Joi.number().integer().min(0).max(T.pixels);
+const ambienteSchema = Joi.object({
+  navegador: Joi.string().valid(...FAMILIAS_DE_NAVEGADOR),
+  navegadorVersao: Joi.string().max(T.versao).pattern(FORMAS_DE_AMBIENTE.versao),
+  so: Joi.string().valid(...FAMILIAS_DE_SO),
+  soVersao: Joi.string().max(T.versao).pattern(FORMAS_DE_AMBIENTE.versao),
+  soVersaoCh: Joi.string().max(T.versao).pattern(FORMAS_DE_AMBIENTE.versao),
+  dispositivo: Joi.string().valid(...TIPOS_DE_DISPOSITIVO),
+  toque: Joi.number().integer().min(0).max(T.toque),
+  telaLargura: pixels(),
+  telaAltura: pixels(),
+  janelaLargura: pixels(),
+  janelaAltura: pixels(),
+  escala: Joi.number().greater(0).max(T.escala),
+  idioma: Joi.string().max(T.idioma).pattern(FORMAS_DE_AMBIENTE.idioma),
+  fuso: Joi.string().max(T.fuso).pattern(FORMAS_DE_AMBIENTE.fuso),
+  nucleos: Joi.number().integer().min(0).max(T.nucleos),
+  memoriaGb: Joi.number().greater(0).max(T.memoriaGb),
+  webgl: Joi.string().valid(...VERSOES_DE_WEBGL),
+  gpu: Joi.string().max(T.gpu).pattern(FORMAS_DE_AMBIENTE.gpu),
+  texturaMax: Joi.number().integer().min(0).max(T.texturaMax),
+  armazenamentoUsoMb: Joi.number().integer().min(0).max(T.megabytes),
+  // A POWER OF TWO, and nothing else: the exact Chromium quota derives from the disk size and
+  // links anonymous occurrences of the same machine (`ehPotenciaDeDois`, in the leaf).
+  armazenamentoCotaMb: Joi.number().integer().min(1).max(T.megabytes)
+    .custom((v, helpers) => (ehPotenciaDeDois(v) ? v : helpers.error('ambiente.cota')))
+    .messages({ 'ambiente.cota': 'A cota de armazenamento viaja arredondada para uma potência de dois.' }),
+  armazenamentoPersistente: Joi.boolean(),
+  online: Joi.boolean(),
+  cookies: Joi.boolean(),
+  contextoSeguro: Joi.boolean(),
+  indexedDB: Joi.boolean(),
+}).unknown(false);
+
+/**
  * O corpo do relato de erro do navegador.
  *
  * TODO CAMPO TEM TETO, e o teto é a diferença entre 422 e 500. Este é o único endpoint
@@ -431,4 +487,7 @@ export const erroDeClienteSchema = Joi.object({
     tipo: Joi.string().max(20),
     texto: Joi.string().max(120),
   }).unknown(false)),
+
+  // The machine the error happened on. See `ambienteSchema`.
+  ambiente: ambienteSchema,
 });

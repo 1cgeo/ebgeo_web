@@ -482,7 +482,8 @@ export const UPSERT_EVENTOS_DIA = `
  *    login/logout; accepting another identity here would merge unrelated usage;
  *  - `release` e `navegador` são `COALESCE(atual, EXCLUDED)`, o PRIMEIRO não nulo: eles
  *    identificam a build e o navegador em que a sessão COMEÇOU, e é essa a pergunta da saúde
- *    de release;
+ *    de release; `navegador_versao` and `so` (2026-09-23) follow the same rule, for the same
+ *    reason: the question is the browser and system the session STARTED on;
  *  - os quatro VITAIS se dividem em dois regimes, e a divisão é a natureza da métrica.
  *    `tempo_ate_mapa_ms` é número de CARGA: acontece uma vez, e o valor certo é o primeiro
  *    que chegou (`COALESCE(atual, EXCLUDED)`). `lcp_ms`, `inp_ms` e `cls` são REVISADOS pelo
@@ -502,10 +503,12 @@ export const UPSERT_EVENTOS_DIA = `
 export const UPSERT_SESSAO = `
   INSERT INTO uso_sessoes (
     sessao_id, dia, user_id, pagina_inicial, release, navegador,
-    inicio, ultimo_sinal, eventos, erros, lcp_ms, inp_ms, cls, tempo_ate_mapa_ms
+    inicio, ultimo_sinal, eventos, erros, lcp_ms, inp_ms, cls, tempo_ate_mapa_ms,
+    navegador_versao, so
   ) VALUES (
     $1, ($7::timestamptz)::date, $2, $3, $4, $5,
-    $6, $7, $8, $9, $10, $11, $12, $13
+    $6, $7, $8, $9, $10, $11, $12, $13,
+    $14, $15
   )
   ON CONFLICT (sessao_id) DO UPDATE SET
     inicio            = LEAST(uso_sessoes.inicio, EXCLUDED.inicio),
@@ -514,6 +517,8 @@ export const UPSERT_SESSAO = `
     erros             = GREATEST(uso_sessoes.erros, EXCLUDED.erros),
     release           = COALESCE(uso_sessoes.release, EXCLUDED.release),
     navegador         = COALESCE(uso_sessoes.navegador, EXCLUDED.navegador),
+    navegador_versao  = COALESCE(uso_sessoes.navegador_versao, EXCLUDED.navegador_versao),
+    so                = COALESCE(uso_sessoes.so, EXCLUDED.so),
     lcp_ms            = CASE WHEN EXCLUDED.ultimo_sinal >= uso_sessoes.ultimo_sinal THEN COALESCE(EXCLUDED.lcp_ms, uso_sessoes.lcp_ms) ELSE uso_sessoes.lcp_ms END,
     tempo_ate_mapa_ms = COALESCE(uso_sessoes.tempo_ate_mapa_ms, EXCLUDED.tempo_ate_mapa_ms),
     inp_ms            = CASE WHEN EXCLUDED.ultimo_sinal >= uso_sessoes.ultimo_sinal THEN COALESCE(EXCLUDED.inp_ms, uso_sessoes.inp_ms) ELSE uso_sessoes.inp_ms END,
@@ -811,6 +816,62 @@ export const DESEMPENHO_DIARIO = `
      AND d.dia <= ($2::timestamptz)::date
    GROUP BY d.pagina
    ORDER BY d.pagina
+`;
+
+/**
+ * THE BROWSERS AND SYSTEMS of the window's sessions, with how many of them had an error.
+ *
+ * ONE QUERY, THREE GROUPINGS (`eixo`): family, family plus major version, and system family.
+ * One query and not three because it runs in the second wave of `resumo`, and three more
+ * concurrent statements there would take the whole pool of ten that also serves sync.
+ *
+ * IT READS THE RETAINED SESSIONS ONLY. `uso_diario` has no browser dimension (its key is
+ * (dia, pagina), and widening it would multiply the aggregate by every browser version), so a
+ * window beyond `LOG_RETENTION_DAYS` is answered over the part still retained: a FLOOR, which
+ * the tab says with `horizonte.usoSessoesDesde`, the same horizon as the distinct people.
+ *
+ * `sessoes_com_erro` IS THE CROSSING with the defects: the share of each browser's sessions
+ * that captured at least one error, which is the question "does this only break on Firefox?"
+ * asked with a denominator. `usuarios_distintos` ignores NULL, so an anonymous session is not a
+ * person, as everywhere else in this report.
+ *
+ * THE VERSION ROWS ARE CUT at `$3`, the most used first, and `combinacoes` carries the count
+ * before the cut: the version is a number an anonymous caller chooses (within 0..9999), and the
+ * family and system rows are bounded by their CHECK constraints but this one is not.
+ */
+export const AMBIENTE_NA_JANELA = `
+  WITH s AS (
+    SELECT navegador, navegador_versao, so, erros, user_id
+      FROM uso_sessoes
+     WHERE dia >= ($1::timestamptz)::date
+       AND dia <= ($2::timestamptz)::date
+  ),
+  versoes AS (
+    SELECT navegador, navegador_versao,
+           COUNT(*)::int                                  AS sessoes,
+           COUNT(*) FILTER (WHERE erros > 0)::int         AS sessoes_com_erro,
+           COUNT(DISTINCT user_id)::int                   AS usuarios_distintos,
+           ROW_NUMBER() OVER (
+             ORDER BY COUNT(*) DESC, navegador, navegador_versao DESC NULLS LAST
+           )                                              AS posicao,
+           COUNT(*) OVER ()::int                          AS combinacoes
+      FROM s
+     GROUP BY navegador, navegador_versao
+  )
+  SELECT 'versao' AS eixo, navegador AS valor, navegador_versao AS versao,
+         sessoes, sessoes_com_erro, usuarios_distintos, combinacoes
+    FROM versoes
+   WHERE posicao <= $3
+  UNION ALL
+  SELECT 'navegador', navegador, NULL::int,
+         COUNT(*)::int, COUNT(*) FILTER (WHERE erros > 0)::int, COUNT(DISTINCT user_id)::int, NULL::int
+    FROM s
+   GROUP BY navegador
+  UNION ALL
+  SELECT 'so', so, NULL::int,
+         COUNT(*)::int, COUNT(*) FILTER (WHERE erros > 0)::int, COUNT(DISTINCT user_id)::int, NULL::int
+    FROM s
+   GROUP BY so
 `;
 
 /**

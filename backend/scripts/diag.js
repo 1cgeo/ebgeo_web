@@ -119,6 +119,8 @@ import {
   ESTADOS_DE_DEFEITO, ESTADOS_MANUAIS, EstadoDeDefeito,
 } from '../src/modules/diag/estados-de-defeito.js';
 import { ORIGENS_DE_ERRO } from '../src/modules/diag/origens-de-erro.js';
+// A leaf with zero imports, like the two above: the one-line environment of an occurrence.
+import { resumoDoAmbiente } from '../src/modules/uso/ambiente-do-navegador.js';
 // A DESMINIFICAÇÃO MUDOU DE CASA EM 2026-09-02, e o import é o registro disso: ela morava em
 // `scripts/diag/` e passou a ser compartilhada com `GET /api/v1/diag/defeitos/:id/pilha`, que
 // existe para o agente que opera de fora do host e não tem os `.map` na máquina dele. Os dois
@@ -954,6 +956,11 @@ function imprimirUmDefeito(d, ocorrencias) {
   process.stdout.write(`visto      : ${hora(d.primeiraEm)} → ${hora(d.ultimaEm)}\n`);
   process.stdout.write(`url        : ${d.url ?? '-'}\n`);
   process.stdout.write(`usuário    : ${d.username ?? '(anônimo)'}   sessão: ${d.sessaoId ?? '-'}\n`);
+  // The browser families of the reports that DECLARED one (a set). Reports from clients older
+  // than the field never did, so on an older defect the set covers only the recent reports.
+  // Empty means no report declared one: an older client, or a server defect.
+  const familias = Array.isArray(d.navegadores) && d.navegadores.length ? d.navegadores.join(', ') : '-';
+  process.stdout.write(`navegadores: ${familias}\n`);
   if (d.estado === 'resolvido' || d.estado === 'regrediu') {
     process.stdout.write(
       `resolvido  : ${hora(d.resolvidoEm)} por ${d.resolvidoPorUsername ?? '?'} na release ${d.resolvidoNaRelease ?? '(não anotada)'}`
@@ -978,6 +985,8 @@ function imprimirUmDefeito(d, ocorrencias) {
     if (o.rota || o.statusCode || o.reqId) {
       process.stdout.write(`      rota ${o.rota ?? '-'}   status ${o.statusCode ?? '-'}   req ${o.reqId ?? '-'}\n`);
     }
+    const ambiente = resumoDoAmbiente(o.ambiente);
+    if (ambiente) process.stdout.write(`      ambiente: ${ambiente}\n`);
     const migalhas = Array.isArray(o.migalhas) ? o.migalhas : [];
     if (!migalhas.length) continue;
     process.stdout.write('      migalhas:\n');

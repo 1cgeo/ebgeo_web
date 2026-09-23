@@ -53,7 +53,7 @@ import {
   FUNIL_DE_ENTRADA, COORTE_DE_RETENCAO,
   HORIZONTE_DE_USO, SESSOES_POR_DIA, USO_NA_JANELA, EVENTOS_TOP,
   DESEMPENHO_POR_SESSAO, DESEMPENHO_DIARIO, DISPONIBILIDADE_POR_DIA,
-  SAUDE_POR_RELEASE,
+  SAUDE_POR_RELEASE, AMBIENTE_NA_JANELA,
 } from './uso.queries.js';
 
 /**
@@ -135,6 +135,57 @@ export const EVENTOS_TOP_LIMITE = 20;
  * ruim. Uma lista longa aqui viraria histórico, que é outro relatório e outra janela.
  */
 export const RELEASES_NA_SAUDE = 3;
+
+/**
+ * How many (family, major version) rows the environment block carries. Twenty is a screen,
+ * like `EVENTOS_TOP_LIMITE`; the families and the systems are never cut (their vocabularies are
+ * closed by CHECK), and the count before the cut travels beside the rows.
+ */
+export const VERSOES_DE_NAVEGADOR_LIMITE = 20;
+
+/**
+ * The environment block of the usage report, shaped from the three groupings of
+ * `AMBIENTE_NA_JANELA`.
+ *
+ * `null` IN `navegador`, `versao` OR `so` IS A VALUE, not an absence: it is the session that did
+ * not declare it (a client from before the field). Dropping those rows would make the shares
+ * add up to less than the total with no word about why.
+ *
+ * `sessoes` IS DERIVED from the family rows (every retained session of the window falls in
+ * exactly one family group, NULL included), so it cannot disagree with the table above it.
+ * @param {Object[]} linhas
+ * @returns {Object}
+ */
+function ambienteDaJanela(linhas) {
+  const grupo = (l) => ({
+    sessoes: inteiro(l.sessoes),
+    sessoesComErro: inteiro(l.sessoes_com_erro),
+    usuariosDistintos: inteiro(l.usuarios_distintos),
+  });
+  const familias = [];
+  const versoes = [];
+  const sistemas = [];
+  let combinacoes = 0;
+  for (const l of linhas) {
+    if (l.eixo === 'navegador') familias.push({ navegador: l.valor ?? null, ...grupo(l) });
+    else if (l.eixo === 'so') sistemas.push({ so: l.valor ?? null, ...grupo(l) });
+    else if (l.eixo === 'versao') {
+      versoes.push({ navegador: l.valor ?? null, versao: l.versao ?? null, ...grupo(l) });
+      combinacoes = inteiro(l.combinacoes);
+    }
+  }
+  const porSessoes = (a, b) => b.sessoes - a.sessoes;
+  familias.sort(porSessoes);
+  sistemas.sort(porSessoes);
+  versoes.sort(porSessoes);
+  return {
+    sessoes: familias.reduce((s, f) => s + f.sessoes, 0),
+    familias,
+    versoes,
+    versoesCortadas: Math.max(0, combinacoes - versoes.length),
+    sistemas,
+  };
+}
 
 /**
  * O desempenho por página, escolhendo entre as DUAS fontes e DIZENDO qual respondeu.
@@ -230,15 +281,16 @@ export async function resumo({ desde, agora = new Date() }) {
   // A SEGUNDA ONDA, E ELA É SEQUENCIAL EM RELAÇÃO À PRIMEIRA DE PROPÓSITO. O pool desta
   // aplicação tem DEZ conexões e serve o sync e o `GET /api/config`; disparar as quinze
   // consultas do relatório de uma vez tomaria o pool inteiro e faria o resto do produto
-  // esperar por uma tela de administração. Em duas ondas de oito e sete, o pico é oito e
+  // esperar por uma tela de administração. Em duas ondas de no máximo oito, o pico é oito e
   // sobram duas conexões. O custo é uma ida a mais de latência numa rota que ninguém carrega
   // em laço, e a alternativa (uma transação para tudo) prenderia UMA conexão pelo tempo
-  // somado das quinze, que é pior nos dois eixos.
+  // somado de todas, que é pior nos dois eixos. Uma consulta nova entra numa onda que ainda
+  // tenha folga, ou abre uma terceira: nunca passa de oito numa onda.
   //
   // A JANELA É A MESMA `p` das oito de cima, e é isso que mantém o relatório sendo o retrato
   // de UM período. Ver o cabeçalho de `uso.queries.js`.
   //
-  // MAS ELA É LIDA DE OUTRO JEITO AQUI: estas sete comparam DIA, não instante, e o recorte é
+  // MAS ELA É LIDA DE OUTRO JEITO AQUI: estas comparam DIA, não instante, e o recorte é
   // inclusivo nas duas pontas (ver o `fileoverview`). Os mesmos dois parâmetros produzem, nas
   // oito de cima, um intervalo meio-aberto de instantes, e nestas, um intervalo fechado de
   // dias de calendário. É por isso que `sessoes.faixa` existe: sem ela, a única forma de
@@ -246,7 +298,7 @@ export async function resumo({ desde, agora = new Date() }) {
   // isso ele precisaria adivinhar o fuso do servidor.
   const [
     horizonteDeUso, sessoesPorDia, naJanela, eventosTop,
-    desempPorSessao, desempPorDiario, disponibilidade,
+    desempPorSessao, desempPorDiario, disponibilidade, ambiente,
   ] = await Promise.all([
     one(HORIZONTE_DE_USO),
     any(SESSOES_POR_DIA, p),
@@ -255,6 +307,7 @@ export async function resumo({ desde, agora = new Date() }) {
     any(DESEMPENHO_POR_SESSAO, p),
     any(DESEMPENHO_DIARIO, p),
     any(DISPONIBILIDADE_POR_DIA, p),
+    any(AMBIENTE_NA_JANELA, [...p, VERSOES_DE_NAVEGADOR_LIMITE]),
   ]);
 
   const desdeMs = inicio.getTime();
@@ -477,6 +530,10 @@ export async function resumo({ desde, agora = new Date() }) {
       dia: l.dia,
       vistos: inteiro(l.vistos),
     })),
+
+    // BROWSERS AND SYSTEMS (2026-09-23), over the RETAINED sessions of the window: see
+    // `AMBIENTE_NA_JANELA`. Its horizon is `usoSessoesDesde`, like `usuariosDistintos`.
+    ambiente: ambienteDaJanela(ambiente),
   };
 }
 

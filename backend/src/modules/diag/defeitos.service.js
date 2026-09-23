@@ -200,17 +200,22 @@ export async function gravarDefeitoComOcorrencia(t, dados) {
     assinatura, mensagem, stack = null, url = null, pagina = null, userAgent = null,
     release = null, userId = null, atlasId = null, sessaoId = null, stackBruta = null,
     origem = null, contexto = null, migalhas = null, reqId = null, rota = null,
-    statusCode = null, incremento = 1, teto = TETO_DE_OCORRENCIAS,
+    statusCode = null, incremento = 1, teto = TETO_DE_OCORRENCIAS, ambiente = null,
   } = dados;
+
+  // The family goes to the defect row as a set member (`UPSERT_DEFEITO`); the whole environment
+  // stays on the occurrence. It is read from the validated `ambiente`, never from a loose field,
+  // so the two can never describe different browsers.
+  const navegador = typeof ambiente?.navegador === 'string' ? ambiente.navegador : null;
 
   const { id } = await t.one(UPSERT_DEFEITO, [
     assinatura, mensagem, stack, url, pagina, userAgent, release, userId, atlasId,
-    sessaoId, stackBruta, origem, comoJsonb(contexto), incremento,
+    sessaoId, stackBruta, origem, comoJsonb(contexto), incremento, navegador,
   ]);
 
   await t.none(INSERT_OCORRENCIA, [
     id, release, sessaoId, userId, pagina, url, userAgent, origem,
-    comoJsonb(migalhas), comoJsonb(contexto), reqId, rota, statusCode,
+    comoJsonb(migalhas), comoJsonb(contexto), reqId, rota, statusCode, comoJsonb(ambiente),
   ]);
 
   await t.none(DELETE_OCORRENCIAS_EXCEDENTES, [id, teto]);
@@ -263,6 +268,9 @@ export async function registrarErroDeCliente(relato, userId, opcoesDePoda) {
     // aba naquele instante, e agregá-las na linha do defeito significaria guardar as do
     // último relato e jogar fora as das outras dezenove, que é a informação toda.
     migalhas: vazioVirando(relato.migalhas),
+    // The machine, closed by `ambienteSchema` at the edge. Occurrence only, like the breadcrumbs.
+    // An empty object is "declared nothing", which the column says with NULL.
+    ambiente: relato.ambiente && Object.keys(relato.ambiente).length > 0 ? relato.ambiente : null,
   }));
 
   await talvezPodar(opcoesDePoda);
@@ -329,6 +337,8 @@ function itemDeDefeitoCompleto(l) {
     resolvidoNoCommit: l.resolvido_no_commit,
     primeiraRelease: l.primeira_release,
     ultimaRelease: l.ultima_release,
+    // Only in the complete item: the transitional route keeps its frozen shape.
+    navegadores: Array.isArray(l.navegadores) ? l.navegadores : [],
   };
 }
 
@@ -458,6 +468,7 @@ export async function listarOcorrencias(defeitoId) {
       reqId: l.req_id,
       rota: l.rota,
       statusCode: l.status_code,
+      ambiente: l.ambiente ?? null,
     })),
   };
 }

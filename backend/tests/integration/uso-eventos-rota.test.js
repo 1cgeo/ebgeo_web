@@ -76,7 +76,9 @@ describe('Uso do produto — a borda de POST /uso/eventos', () => {
       .send(corpo(id, {
         eventos: [{ evento: 'pagina.vista', contagem: 1 }],
         release: 'dev',
-        navegador: 'Chrome',
+        navegador: 'chrome',
+        navegadorVersao: 140,
+        so: 'windows',
       }))
       .expect(204);
 
@@ -85,7 +87,9 @@ describe('Uso do produto — a borda de POST /uso/eventos', () => {
     assert.equal(linha.user_id, null);
     assert.equal(linha.pagina_inicial, 'mapa');
     assert.equal(linha.release, 'dev');
-    assert.equal(linha.navegador, 'Chrome');
+    assert.equal(linha.navegador, 'chrome');
+    assert.equal(linha.navegador_versao, 140);
+    assert.equal(linha.so, 'windows');
     assert.equal(linha.eventos, 1);
     assert.equal(linha.erros, 0);
   });
@@ -247,5 +251,41 @@ describe('Uso do produto — a borda de POST /uso/eventos', () => {
         .send(corpo(novaSessao(), { eventos: [{ evento: 'pagina.vista', contagem }] }))
         .expect(422);
     }
+  });
+
+  it('browser and system are CLOSED vocabularies: an invented value is 422 and names the field', async () => {
+    // Until 2026-09-23 `navegador` was any text up to 40 characters, which let an anonymous
+    // caller invent rows in the administrator's browser table. The raw UA is the worst case: it
+    // is the one value that must never become a grouping dimension.
+    const invalidos = [
+      { navegador: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Gecko/20100101 Firefox/128.0' },
+      { navegador: 'Chrome' },
+      { so: 'windows11' },
+      { navegadorVersao: 10_000 },
+      { navegadorVersao: 12.5 },
+    ];
+    assert.equal(invalidos.length, 5, 'a loop over an empty list would assert nothing');
+    for (const extra of invalidos) {
+      const r = await supertest(app)
+        .post('/api/v1/uso/eventos')
+        .send(corpo(novaSessao(), extra))
+        .expect(422);
+      const campo = Object.keys(extra)[0];
+      assert.ok(JSON.stringify(r.body).includes(campo), `the 422 must name "${campo}"`);
+    }
+  });
+
+  it('every value of the vocabulary passes, and absence passes too', async () => {
+    // The positive half of the pair above: a refusal of everything would pass the negative case.
+    for (const navegador of ['chrome', 'firefox', 'edge', 'safari', 'opera', 'outro']) {
+      await supertest(app).post('/api/v1/uso/eventos')
+        .send(corpo(novaSessao(), { navegador, navegadorVersao: 1, so: 'outro' })).expect(204);
+    }
+    for (const so of ['windows', 'macos', 'linux', 'chromeos', 'android', 'ios', 'outro']) {
+      await supertest(app).post('/api/v1/uso/eventos')
+        .send(corpo(novaSessao(), { so })).expect(204);
+    }
+    await supertest(app).post('/api/v1/uso/eventos')
+      .send(corpo(novaSessao(), { navegador: null, navegadorVersao: null, so: null })).expect(204);
   });
 });

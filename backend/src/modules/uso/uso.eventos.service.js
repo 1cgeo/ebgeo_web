@@ -266,6 +266,8 @@ export async function registrarLoteDeUso(lote, userId, opcoesDeManutencao) {
         // chegaria ao driver como o literal `undefined` e não como NULL.
         Number.isFinite(vitais.cls) ? vitais.cls : null,
         inteiroOuNulo(vitais.tempoAteMapaMs),
+        Number.isInteger(lote.navegadorVersao) ? lote.navegadorVersao : null,
+        vazioVirando(lote.so),
       ]);
       if (!session) throw new ConflictError('A identidade desta sessão de uso mudou. Inicie outra sessão.');
     });

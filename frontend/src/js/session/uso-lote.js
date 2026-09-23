@@ -12,6 +12,9 @@ import {
     paginaDeUsoValida,
     propDeUsoValida,
 } from './eventos-de-uso.js';
+// The second zero-import leaf of this module: the browser and system vocabularies the batch is
+// checked against, because the route closed them and a value outside costs the whole batch.
+import { FAMILIAS_DE_NAVEGADOR, FAMILIAS_DE_SO, versaoPrincipal } from './ambiente-do-navegador.js';
 
 /** O caminho da rota, sob a base que a fiação resolve. */
 export const ROTA_DE_USO = '/uso/eventos';
@@ -92,35 +95,6 @@ export function estadoDoUso() {
 }
 
 /**
- * A FAMÍLIA do navegador, a partir do `userAgent`.
- *
- * GROSSA DE PROPÓSITO: cinco valores, sem versão e sem sistema operacional. A pergunta que ela
- * responde é a primeira de todo diagnóstico de tela ("acontece só no Edge?"), e a `userAgent`
- * inteira é uma impressão digital razoavelmente única — num relatório agregado ela seria a única
- * coluna capaz de reidentificar uma pessoa. O relato de ERRO carrega a string inteira porque lá
- * ela é sobre UM defeito e o leitor é o administrador; aqui o dado é agregado e fica para sempre.
- *
- * A ORDEM DOS RAMOS É O CONTRATO, e ela é o avesso da intuição: o Edge se anuncia como Chrome
- * (`Edg/`), e o Chrome se anuncia como Safari (`Safari/`). Testar na ordem alfabética classifica
- * todo Edge como Chrome e todo Chrome como Safari, sem erro nenhum.
- * @param {*} ua
- * @returns {string} `chrome`, `firefox`, `safari`, `edge` ou `outro`. Nunca mais que 40 caracteres.
- */
-export function familiaDoNavegador(ua) {
-    try {
-        const texto = typeof ua === 'string' ? ua : '';
-        if (!texto) return 'outro';
-        if (/\bEdg[A-Za-z]*\//.test(texto)) return 'edge';
-        if (/\b(Chrome|CriOS|Chromium)\//.test(texto)) return 'chrome';
-        if (/\b(Firefox|FxiOS)\//.test(texto)) return 'firefox';
-        if (/\bSafari\//.test(texto)) return 'safari';
-        return 'outro';
-    } catch {
-        return 'outro';
-    }
-}
-
-/**
  * Um número inteiro não negativo, ou `null`.
  * @param {*} v
  * @returns {number|null}
@@ -171,7 +145,9 @@ function recortarVitais(lidas) {
  * @param {string} entrada.sessaoId
  * @param {string} entrada.pagina
  * @param {*} [entrada.release]
- * @param {*} [entrada.navegador]
+ * @param {*} [entrada.navegador] - A family of `FAMILIAS_DE_NAVEGADOR`; anything else is left out.
+ * @param {*} [entrada.navegadorVersao] - The MAJOR version (a number, or a version string).
+ * @param {*} [entrada.so] - A family of `FAMILIAS_DE_SO`; anything else is left out.
  * @param {number} entrada.inicio
  * @param {number} entrada.ultimoSinal
  * @param {Array<{evento: string, prop?: string, contagem: number}>} entrada.eventos
@@ -184,6 +160,8 @@ export function montarCorpoDeUso({
     pagina,
     release,
     navegador,
+    navegadorVersao,
+    so,
     inicio,
     ultimoSinal,
     eventos,
@@ -215,9 +193,15 @@ export function montarCorpoDeUso({
         // custaria o lote inteiro num 422 por causa do campo mais dispensável dele.
         corpo.release = release.trim().slice(0, MAX_RELEASE);
     }
-    if (typeof navegador === 'string' && navegador.trim() !== '') {
-        corpo.navegador = navegador.trim().slice(0, 40);
+    // THE THREE BROWSER DIMENSIONS ARE CHECKED, NOT TRIMMED (since 2026-09-23): the route closed
+    // them, so an unknown value is dropped here instead of costing the whole batch in a 422. Only
+    // the MAJOR version travels, because this is a grouping dimension and not a diagnosis.
+    if (typeof navegador === 'string' && FAMILIAS_DE_NAVEGADOR.includes(navegador)) {
+        corpo.navegador = navegador;
     }
+    const principal = versaoPrincipal(navegadorVersao);
+    if (principal !== null) corpo.navegadorVersao = principal;
+    if (typeof so === 'string' && FAMILIAS_DE_SO.includes(so)) corpo.so = so;
     const contagemDeErros = inteiroOuNulo(erros);
     if (contagemDeErros !== null) corpo.erros = contagemDeErros;
     const vitaisRecortadas = recortarVitais(vitais);
@@ -248,7 +232,9 @@ function chaveDaLinha(evento, prop) {
  *   servidor agrupa por página, e um valor inventado custaria o lote num 422.
  * @param {string} [opcoes.sessaoId] - O id desta aba.
  * @param {*} [opcoes.release] - `versao+hash`, quando o build a carimbou.
- * @param {*} [opcoes.navegador] - Já reduzido a família (ver {@link familiaDoNavegador}).
+ * @param {*} [opcoes.navegador] - Já reduzido a família (`analisarUserAgent`, `ambiente-do-navegador.js`).
+ * @param {*} [opcoes.navegadorVersao] - The major version of that browser.
+ * @param {*} [opcoes.so] - The system family.
  * @param {(corpo: Object, url: string) => (boolean|Promise|void)} [opcoes.enviar] - Transporte.
  * @param {() => number} [opcoes.agora] - Relógio.
  * @param {number} [opcoes.intervaloMs] - Espera entre descargas.
@@ -264,6 +250,8 @@ export function configurarUso({
     sessaoId = '',
     release = null,
     navegador = null,
+    navegadorVersao = null,
+    so = null,
     enviar = null,
     agora = () => Date.now(),
     intervaloMs = INTERVALO_PADRAO_MS,
@@ -390,6 +378,8 @@ export function configurarUso({
                     pagina,
                     release,
                     navegador,
+                    navegadorVersao,
+                    so,
                     inicio,
                     ultimoSinal: numeroDoRelogio(agora),
                     eventos: linhas,

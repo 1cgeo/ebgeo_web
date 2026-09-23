@@ -198,12 +198,30 @@ describe('Uso do produto — as regras de conflito da segunda descarga', () => {
 
   it('the authenticated session keeps its first release and browser', async () => {
     const id = novaSessao();
-    await enviar(corpo(id, { release: 'build-a', navegador: 'Firefox' }), comumToken);
-    await enviar(corpo(id, { release: 'build-b', navegador: 'Chrome' }), comumToken);
+    await enviar(corpo(id, { release: 'build-a', navegador: 'firefox', navegadorVersao: 128, so: 'windows' }), comumToken);
+    await enviar(corpo(id, { release: 'build-b', navegador: 'chrome', navegadorVersao: 140, so: 'linux' }), comumToken);
     const linha = await sessaoDe(id);
     assert.equal(linha.user_id, comum.id);
     assert.equal(linha.release, 'build-a');
-    assert.equal(linha.navegador, 'Firefox');
+    assert.equal(linha.navegador, 'firefox');
+    // The version and the system follow the browser's rule (first non-null): the three describe
+    // the browser the session STARTED on, and a later batch cannot move one of them alone.
+    assert.equal(linha.navegador_versao, 128);
+    assert.equal(linha.so, 'windows');
+  });
+
+  it('a first batch without version or system is completed by the next one', async () => {
+    // The COALESCE is per column: a client from before the fields (a tab opened before the
+    // deploy) leaves NULL, and the next batch that knows fills it instead of being ignored.
+    const id = novaSessao();
+    await enviar(corpo(id, { navegador: 'firefox' }));
+    let linha = await sessaoDe(id);
+    assert.equal(linha.navegador_versao, null);
+    assert.equal(linha.so, null);
+    await enviar(corpo(id, { navegador: 'firefox', navegadorVersao: 143, so: 'linux' }));
+    linha = await sessaoDe(id);
+    assert.equal(linha.navegador_versao, 143);
+    assert.equal(linha.so, 'linux');
   });
 
   it('`dia` e `pagina_inicial` são os do PRIMEIRO sinal e não se movem', async () => {

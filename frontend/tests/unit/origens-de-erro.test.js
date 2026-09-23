@@ -103,14 +103,17 @@ describe('o contrato de folha, e o espelho do backend', () => {
         return readFileSync(fileURLToPath(new URL(relativo, import.meta.url)), 'utf8');
     }
 
-    // AS TRÊS FOLHAS DA TELEMETRIA, juntas, porque o contrato é o mesmo e a razão também: elas
-    // são carregadas pelas QUATRO páginas, três das quais bootam sem a store, e um import a mais
-    // em qualquer uma é peso em todas. `sessao-id.js` tem ainda um segundo motivo, escrito no
+    // AS FOLHAS DA TELEMETRIA, juntas, porque o contrato é o mesmo e a razão também: elas são
+    // carregadas pelas QUATRO páginas, três das quais bootam sem a store, e um import a mais em
+    // qualquer uma é peso em todas. `sessao-id.js` tem ainda um segundo motivo, escrito no
     // `fileoverview` dele: ele é lido dentro do capturador de erro, onde nada pode lançar.
+    // `ambiente-do-navegador.js` (2026-09-23) tem o mesmo segundo motivo: o coletor dele roda
+    // dentro do capturador, e ele também é o parser que o painel lê.
     const FOLHAS = [
         'src/js/session/origens-de-erro.js',
         'src/js/session/sessao-id.js',
         'src/js/session/fila-de-relatos.js',
+        'src/js/session/ambiente-do-navegador.js',
     ];
 
     it.each(FOLHAS)('%s tem ZERO IMPORTS', (relativo) => {

@@ -61,6 +61,8 @@ import { OrigemDeErro, origemDoCliente } from './origens-de-erro.js';
 // embrulho de `console.error`, o de `console.warn` e a navegação da instalação) e LIDA num só, na
 // montagem do corpo.
 import { migalhas, configurarMigalhas, TipoDeMigalha } from './migalhas.js';
+// The machine the error happened on: browser, system, screen, GPU, storage. Zero-import leaf.
+import { ambienteSeguro, criarColetorDeAmbiente } from './ambiente-do-navegador.js';
 import {
     MotivoDeEnvio,
     assinaturaDeErro,
@@ -226,6 +228,8 @@ function deveEnfileirar(resposta) {
  * @param {() => string} [opcoes.resolverBase] - De onde sai a base da API.
  * @param {() => string} [opcoes.resolverSessaoId] - De onde sai o id desta aba.
  * @param {{enfileirar: Function, drenar: Function}} [opcoes.fila] - A fila do que não saiu.
+ * @param {{iniciar: Function, coletar: Function}} [opcoes.coletorDeAmbiente] - Where the
+ *   environment block comes from (default: a collector over `alvo`).
  * @returns {{ instalada: boolean, desinstalar: () => void }}
  */
 export function instalarTelemetriaDeErro({
@@ -238,6 +242,7 @@ export function instalarTelemetriaDeErro({
     resolverBase = resolveBackendBaseUrl,
     resolverSessaoId = sessaoIdPadrao,
     fila = filaDeRelatos,
+    coletorDeAmbiente = null,
 } = {}) {
     // TODO O CORPO DENTRO DO `try`: esta função é a primeira linha do boot das quatro páginas, e
     // uma exceção aqui derrubaria o boot inteiro por causa do subsistema que existe para OBSERVAR
@@ -249,6 +254,16 @@ export function instalarTelemetriaDeErro({
         }
 
         const limitador = criarLimitador({ max, intervaloMs, agora });
+
+        // THE ENVIRONMENT COLLECTOR STARTS ITS TWO PROMISES HERE (Client Hints and storage
+        // estimate) and returns at once: nothing of it waits, and nothing of it touches WebGL at
+        // boot. The probe runs on the first report of the page (see `criarColetorDeAmbiente`).
+        const coletor = coletorDeAmbiente ?? criarColetorDeAmbiente({ alvo });
+        try {
+            coletor.iniciar?.();
+        } catch {
+            _estado.falhasInternas++;
+        }
 
         // A NORMALIZAÇÃO DA TRILHA SÓ EXISTE A PARTIR DAQUI, e é por isso que ela é injetada em vez
         // de importada lá dentro: `session/migalhas.js` é folha de zero imports porque o cliente
@@ -416,6 +431,15 @@ export function instalarTelemetriaDeErro({
                     atlasId: (() => {
                         try {
                             return resolverAtlasId();
+                        } catch {
+                            return null;
+                        }
+                    })(),
+                    // THE MACHINE, cut again by `ambienteSeguro` whatever the collector is (an
+                    // injected one included): an extra key refuses the whole report.
+                    ambiente: (() => {
+                        try {
+                            return ambienteSeguro(coletor.coletar?.());
                         } catch {
                             return null;
                         }

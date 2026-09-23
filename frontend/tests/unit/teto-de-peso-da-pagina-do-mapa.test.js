@@ -794,7 +794,14 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // Engineering adds nine lazy modules; the eager military budget stays zero.
         // One shared finalization context replaces repeated drawing race guards.
         // Brush is already eager, so this small helper joins its existing graph; byte budgets stay unchanged.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(774);
+        //
+        // 2026-09-23: 775, with `session/ambiente-do-navegador.js`, the zero-import leaf that holds
+        // the one User-Agent parser and the environment collector of the error report. Measured by
+        // this case's own failure (775 against 774, with no other new source file in the tree). It
+        // enters wherever the capturer (`session/erro-telemetria.js`) enters, by a static import,
+        // because the report is built synchronously inside the error handler. The eager case stayed
+        // green inside its budget in the same run.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(775);
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);

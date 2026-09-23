@@ -1692,32 +1692,34 @@ export function usoHorizonteNotice(estado, { alcance, janela, timeZone } = {}) {
         const data = dataLocal(alcance, { timeZone });
         const desde = data ? ` desde ${data}` : '';
         return `O uso do produto é medido${desde}, e você pediu ${janelaEmPalavras(janela)}: as `
-            + 'quatro seções abaixo cobrem só o trecho medido. Um começo baixo é a idade da '
+            + 'seções abaixo cobrem só o trecho medido. Um começo baixo é a idade da '
             + 'medição, e não uma queda de uso.';
     }
     if (estado === HORIZONTE.VAZIO) {
-        return 'Nenhum navegador relatou uso ainda. As quatro seções abaixo se preenchem à medida '
+        return 'Nenhum navegador relatou uso ainda. As seções abaixo se preenchem à medida '
             + 'que as pessoas usarem o produto.';
     }
     if (estado === HORIZONTE.DESCONHECIDO) {
         return 'O servidor não informou desde quando o uso do produto é medido, então não dá para '
-            + 'afirmar que as quatro seções abaixo cobrem o período inteiro.';
+            + 'afirmar que as seções abaixo cobrem o período inteiro.';
     }
     return '';
 }
 
 /**
- * A ressalva que vale para as QUATRO seções e não se repete em cada uma.
+ * A ressalva que vale para as seções de uso e não se repete em cada uma.
  *
  * ELA DIZ A COISA QUE O NÚMERO NÃO DIZ: a contagem chega por um lote que o navegador manda a cada
- * trinta segundos e na saída da página, sem fila. Uma aba fechada no instante errado, uma rede que
- * caiu, um bloqueador: em todos esses casos o lote some, e o que se lê é menos do que aconteceu.
+ * trinta segundos e na saída da página. Desde 12/09/2026 o lote que falha por rede ou servidor fica
+ * numa fila de um dia (`criarTransporteDeUso`) e é tentado de novo; o que passa do dia, o que o
+ * servidor recusa e o que um armazenamento bloqueado não guarda se perde, e o que se lê é menos do
+ * que aconteceu. A frase dizia "sem nova tentativa" até 2026-09-23, dez dias depois de a fila existir.
  * @returns {string}
  */
 export function usoDoProdutoHint() {
-    return 'Estas quatro seções vêm do navegador de quem usa, e não do servidor: cada número é um '
-        + 'PISO. Os dados são enviados a cada 30 segundos e ao sair da página, sem nova tentativa: '
-        + 'o que não chega se perde.';
+    return 'Estas seções vêm do navegador de quem usa, e não do servidor: cada número é um '
+        + 'PISO. Os dados são enviados a cada 30 segundos e ao sair da página; o que não chega é '
+        + 'tentado de novo por até um dia, e depois disso se perde.';
 }
 
 // ===== sessões =====

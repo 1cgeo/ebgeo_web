@@ -60,6 +60,12 @@ const CENSO = {
     + 'tamanho de cada campo, porque sem o de itens um cliente com defeito mandaria a sessão '
     + 'inteira. Escritor único: POST /diag/erro-cliente. O caminho do SERVIDOR '
     + '(defeitos-de-servidor.js) nunca escreve esta coluna: não há navegador para deixar rastro.'],
+  'defeito_ocorrencias.ambiente': ['CLOSED',
+    'objeto de chaves ESCALARES fechado campo a campo em ambienteSchema (diag.schemas.js): '
+    + 'famílias por lista (navegador, so, dispositivo, webgl, espelhadas em '
+    + 'src/modules/uso/ambiente-do-navegador.js), versões, idioma, fuso e gpu por forma e teto, '
+    + 'números por faixa e quatro booleanos, com unknown(false), que RECUSA a chave extra com 422. '
+    + 'Escritor único: POST /diag/erro-cliente. O caminho do SERVIDOR não escreve esta coluna.'],
 
   // ---- SCRUBBED ------------------------------------------------------------
   'maps.analysis_layers': ['SCRUBBED', 'domínio de grade, com valor aninhado em contrato (los_result_*, {grid:{...}})'],
