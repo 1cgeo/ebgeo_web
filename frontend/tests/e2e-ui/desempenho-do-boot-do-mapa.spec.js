@@ -313,7 +313,12 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
         // Dois atlas de servidor, semeados pelo transporte real dentro da pagina (o mesmo caminho
         // de `aparencia-atravessa-trocas-de-atlas.spec.js`). `clearTokens` no fim porque a
         // primeira metade do caso e anonima: com sessao viva, a URL nua manda para o seletor.
-        await page.goto('/');
+        //
+        // A SEMEADURA RODA NO SELETOR, e nao em `/`, pela mesma razao: o login abaixo grava o token
+        // que o boot desta pagina le, e o boot do mapa que chega a Fase -1 depois dele navega para
+        // o seletor no meio da semeadura, matando o pedido em voo (`TypeError: Failed to fetch`;
+        // corrida medida em `helpers/collab-helpers.js`, `seedSharedAtlas`, em 2026-09-23).
+        await page.goto(PROJETOS);
         await page.evaluate(async ({ base, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const api = new ApiClient({ baseUrl: `${base}/api/v1` });

@@ -31,6 +31,8 @@
     "test:e2e:tablet": "npm run test:e2e:tablet --prefix frontend",
     "test:e2e:atlas": "npm run test:e2e:atlas --prefix frontend",
     "test:e2e:migracao": "npm run test:e2e:migracao --prefix frontend",
+    "test:e2e:sessao-longa": "npm run test:e2e:sessao-longa --prefix frontend",
+    "test:e2e:atlas-grande": "npm run test:e2e:atlas-grande --prefix frontend",
     "knip": "npm run knip --prefix frontend",
     "clean": "npm run clean --prefix frontend",
     "install:all": "npm install --prefix frontend && npm install --prefix backend",

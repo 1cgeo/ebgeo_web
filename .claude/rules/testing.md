@@ -166,18 +166,18 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   | `test:e2e` (contrato, 3ª perna da raiz) | 3911 | `ebgeo_e2e` | não |
   | `test:e2e:ui` e `test:e2e:mega` (Playwright) | 3912 **e 4321** | `ebgeo_ui_e2e` | não |
   | `test:e2e:tablet` (Playwright, contexto com toque) | as MESMAS 3912 e 4321 | o MESMO | não |
-  | os quatro configs de cenário (Playwright) | as MESMAS 3912 e 4321 (salvo `release-production`, com a 3912 literal) | o MESMO | não |
+  | os configs de cenário (Playwright) | as MESMAS 3912 e 4321 (salvo `release-production`, com a 3912 literal) | o MESMO | não |
 
-  **A ÚLTIMA LINHA É QUATRO CONFIGS E NÃO UMA CAMADA NOVA, e é por isso que ela não ganha coluna
+  **A ÚLTIMA LINHA SÃO VÁRIOS CONFIGS E NÃO UMA CAMADA NOVA, e é por isso que ela não ganha coluna
   própria.** `playwright.atlas-safety.config.js`, `playwright.migration-data.config.js`,
-  `playwright.release-checks.config.js` e `playwright.release-production.config.js` (todos em
+  `playwright.release-checks.config.js`, `playwright.release-production.config.js` e, desde 2026-09-23, `playwright.release-long-session.config.js` e `playwright.release-large-atlas.config.js` (todos em
   `frontend/`) fazem spread do `playwright.config.js` base e trocam só testMatch, `retries` e
   `timeout`, de modo que herdam o `globalSetup`, a porta do backend, a do Vite e o banco: uma
   rodada de cenário colide com uma rodada de `test:e2e:ui` exatamente como duas rodadas de
   `test:e2e:ui` colidem entre si, e as três variáveis de isolamento do parágrafo adiante são as
-  mesmas. Três coisas que não se leem na tabela e cada uma já custou uma leitura errada: só dois
-  deles têm script (`test:e2e:atlas` e `test:e2e:migracao`), os outros dois se rodam nomeando o
-  config; o de dados de migração **lança na importação** se `EBGEO_MIGRATION_DATA_DIR` não estiver
+  mesmas. Três coisas que não se leem na tabela e cada uma já custou uma leitura errada: nem todos têm
+  script (têm `test:e2e:atlas`, `test:e2e:migracao`, `test:e2e:sessao-longa` e `test:e2e:atlas-grande`;
+  `release-checks` e `release-production` se rodam nomeando o config); o de dados de migração **lança na importação** se `EBGEO_MIGRATION_DATA_DIR` não estiver
   no ambiente, de propósito, porque nenhuma rodada normal pode depender do acervo externo de
   alguém; e o de produção é o único que troca o `webServer`, por um HTTPS em 127.0.0.1:44431 com
   `reuseExistingServer: false`, mas o `globalSetup` PRÓPRIO dele sobe o mesmo backend na 3912 e no
@@ -453,12 +453,12 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   zero. Por isso o testMatch daquele config é um ARRAY que recolhe também o guarda (custo
   medido: zero, ele não faz E/S nem usa `page`). E um config derivado que faça spread do base
   herda o testIgnore do pai, e testIgnore vence testMatch: o de tablet passaria a ignorar as
-  próprias specs (medido: `0 tests in 0 files`) se não sobrescrevesse a chave. **Desde 2026-09-22 os
-  SEIS configs recolhem o guarda, e o que sustenta isso é censo, não lembrança:**
+  próprias specs (medido: `0 tests in 0 files`) se não sobrescrevesse a chave. **Desde 2026-09-22 TODOS os
+  configs recolhem o guarda (a lista mora no censo, não aqui), e o que sustenta isso é censo, não lembrança:**
   `frontend/tests/unit/configs-do-playwright-coletam-o-guarda.test.js` tira o inventário de
   `git ls-files`, IMPORTA cada config (o objeto RESOLVIDO, depois do spread do base) e cobra as duas
   metades, que o testMatch case o guarda e que o testIgnore não o case; config novo reprova até ser
-  classificado. **O falso verde, porém, NÃO estava alcançável em três dos quatro cenários, e dizer
+  classificado. **O falso verde, porém, NÃO estava alcançável nos cenários que a têm, e dizer
   o contrário é inventar defeito:** cada `*.scenario.js` carrega um `test.beforeAll` escrito à mão
   que assere `readState().skip === false` e REPROVA em vez de pular (medido com Postgres fora:
   `playwright.atlas-safety.config.js` já saía com código 1). O beneficiário concreto é
@@ -467,7 +467,7 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   em vez de gravar `skip: true`. **E aquele setup chama `startBackend` com a porta 3912 escrita à
   mão**, enquanto o arquivo de estado que ele grava deriva de `BACKEND_PORT`: a rodada é coerente
   consigo mesma, mas `EBGEO_UI_E2E_BACKEND_PORT` NÃO a isola, e a linha da tabela acima que diz
-  que os quatro configs de cenário herdam a porta do base vale para três deles.
+  que os configs de cenário herdam a porta do base vale para todos menos ele.
 
   **E UM CASO SÓ MEDE COM O ASSET APONTADO POR AMBIENTE.**
   `frontend/tests/e2e-ui/vazamento-viewers.spec.js` §30.2 abre e fecha o visualizador 3D

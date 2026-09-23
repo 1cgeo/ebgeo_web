@@ -10,8 +10,9 @@
 //
 // POR QUE ESTE ARQUIVO EXISTE, e é uma fresta exata: `guarda-de-e2e-nao-pula.test.js` afirma que
 // os dois arquivos de guarda EXISTEM e que não se gateiam, e nunca pergunta se algum config os
-// recolhe. Enquanto houve um config só, as duas perguntas eram a mesma; hoje são SEIS, e cinco
-// deles trocam o `testMatch` do base. MEDIDO em 2026-09-22, com `npx playwright test --config=<c>
+// recolhe. Enquanto houve um config só, as duas perguntas eram a mesma; em 2026-09-22 eram SEIS, e
+// todos menos o base trocam o `testMatch` dele (a contagem viva é `CONFIGS`, abaixo, cobrada em
+// igualdade contra o git). MEDIDO em 2026-09-22, com `npx playwright test --config=<c>
 // --list`: `playwright.config.js` e `playwright.tablet.config.js` traziam o guarda, e os quatro
 // configs de cenário traziam ZERO. O de tablet só o tem porque alguém lembrou, à mão, em
 // 2026-09-21; lembrar é o que este censo substitui.
@@ -60,6 +61,10 @@ const CONFIGS = new Map([
     ['frontend/playwright.migration-data.config.js', { papel: 'cenário: acervo externo de migração (test:e2e:migracao)', exigeAcervo: true }],
     ['frontend/playwright.release-checks.config.js', { papel: 'cenário: interrupção no meio de gestos de release' }],
     ['frontend/playwright.release-production.config.js', { papel: 'cenário: pacote de produção sobre HTTPS', exigeAcervo: true }],
+    // Os dois de 2026-09-23 (decisão D2): cenários da auditoria de lançamento que entraram no
+    // repositório. Os dois assertam `readState().skip` num `beforeAll`, como as cenas acima.
+    ['frontend/playwright.release-long-session.config.js', { papel: 'cenário: sessão de 90 minutos com quedas, renovação e recargas (test:e2e:sessao-longa)' }],
+    ['frontend/playwright.release-large-atlas.config.js', { papel: 'cenário: atlas de 1 000 a 30 000 feições (test:e2e:atlas-grande)' }],
 ]);
 
 /**

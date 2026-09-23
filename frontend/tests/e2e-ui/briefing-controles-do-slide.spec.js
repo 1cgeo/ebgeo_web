@@ -59,12 +59,32 @@ async function criarBriefingComPosicao(page) {
     await expect(page.locator('.briefing-editor-position-set')).toBeVisible({ timeout: 10000 });
 }
 
+/**
+ * O PALCO SÓ ESTÁ PRONTO DEPOIS DO SLIDE, e não quando `body.briefing-presenting` aparece.
+ *
+ * O apresentador põe `briefing-presenting` ao começar, e isso esconde TODOS os controles; as
+ * classes que o slide pede (`briefing-show-*`) só entram depois de `transitionToSlide` resolver
+ * (`_goToSlide` em `briefing/presentation/briefing-presenter.control.js`), junto com o evento
+ * `BRIEFING_SLIDE_CHANGED`. Ler a tela no primeiro instante da classe media essa janela: o caso
+ * de "o que o autor marcou volta" reprovava sempre que a transição demorava (1 vez na matriz de
+ * 2026-09-22, com o seletor de base na tela no retrato tirado logo depois da falha), e o caso
+ * "nada marcado" passava SEMPRE, porque tudo está escondido na janela, então ele não prendia um
+ * slide que mostrasse controle demais. A espera é pelo EVENTO que o próprio apresentador emite
+ * depois de aplicar as classes, armado ANTES do clique para não perdê-lo.
+ */
 async function salvarEApresentar(page) {
     await page.locator('.briefing-editor-save-btn').click();
     await page.locator('.briefing-editor-back-btn').click();
     await expect(page.locator('#briefing-editor')).toBeHidden({ timeout: 10000 });
+    await page.evaluate(async () => {
+        const { getEventBus } = await import('/src/js/store/services.js');
+        const { EventTypes } = await import('/src/js/events/event_types.js');
+        globalThis.__ebgeoSlideAplicado = false;
+        getEventBus().once(EventTypes.BRIEFING_SLIDE_CHANGED, () => { globalThis.__ebgeoSlideAplicado = true; });
+    });
     await page.locator('.briefing-card').first().click();
     await expect(page.locator('body.briefing-presenting')).toBeAttached({ timeout: 15000 });
+    await page.waitForFunction(() => globalThis.__ebgeoSlideAplicado === true, null, { timeout: 15000 });
 }
 
 describeOrSkip('controles do slide na apresentação', () => {

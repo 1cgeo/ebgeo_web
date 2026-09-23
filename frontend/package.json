@@ -24,6 +24,8 @@
     "test:e2e:tablet": "playwright test --config playwright.tablet.config.js",
     "test:e2e:atlas": "playwright test --config playwright.atlas-safety.config.js",
     "test:e2e:migracao": "playwright test --config playwright.migration-data.config.js",
+    "test:e2e:sessao-longa": "playwright test --config playwright.release-long-session.config.js",
+    "test:e2e:atlas-grande": "playwright test --config playwright.release-large-atlas.config.js",
     "test:e2e:ida-e-volta": "node tests/helpers/main-round-trip.mjs"
   },
   "dependencies": {

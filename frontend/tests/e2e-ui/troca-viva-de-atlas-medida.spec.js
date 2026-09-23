@@ -10,7 +10,7 @@
  * cuidado maior, e o INSTRUMENTO estar errado: dois cronometros diferentes para os dois caminhos
  * produziriam um "ganho" que e so a diferenca entre eles.
  *
- * ============================ AS TRES DECISOES DO INSTRUMENTO ================================
+ * ============================ AS QUATRO DECISOES DO INSTRUMENTO ==============================
  *
  * 1. UM RELOGIO SO, o do lado Node (`Date.now()`), envolvendo as duas medidas. O custo de uma ida
  *    e volta ao navegador (uns poucos milissegundos) entra nas DUAS, entao ele nao inclina a
@@ -26,6 +26,26 @@
  *    de aparencia, e so ENTAO o criterio comum e conferido. A recarga para no criterio comum e
  *    nada mais. Ou seja, a medida da troca ao vivo e um TETO e a da recarga e um piso: o ganho
  *    relatado e o menor que os dados sustentam, nunca o maior.
+ *
+ * 4. O HOST DE TILES DO CATALOGO QUE ESTA CAMADA NAO TEM FALHA NA HORA (desde 2026-09-23). O
+ *    catalogo semeado pela migracao de catalogo aponta tres fontes para `http://localhost/tiles/...`
+ *    (declividade e hipsometria, as duas com a MESMA URL de DEM, mais rodovias e municipios), com
+ *    a URL declarada como placeholder, e nesta camada nada escuta a porta 80. Todo mapa RECEM-CRIADO
+ *    pede as tres, e `map.loaded()` (metade do criterio de chegada) so fica verdadeiro quando elas
+ *    FALHAM. Quanto demora falhar e do sistema operacional e do navegador, nao do produto: medido
+ *    FORA do app nesta maquina, recusa de conexao em `localhost:80` custa de 2,0 a 2,3 s nos dois
+ *    navegadores, e o Firefox 151 leva de 6,3 a 6,4 s para recusar o SEGUNDO de dois pedidos
+ *    iguais em paralelo (o Chromium 149, 2,6 s), que e o que a URL de DEM repetida produz. A troca
+ *    ao vivo nao paga nada disso, porque o mapa dela ja tem as tres fontes em erro. Sem esta rota,
+ *    "recarga menos boot" media a recusa de conexao: no relogio da propria pagina, o trabalho
+ *    depois do gancho custava de 0,5 a 1,1 s nos dois navegadores, e o Node so via o mapa
+ *    carregado 6,2 s depois disso no Firefox (2,2 s no Chromium). A conferencia la embaixo
+ *    reprovou o Firefox por isso, e ela estava CERTA: o cronometro da recarga media outra coisa.
+ *    O preco declarado: `page.route` intercepta todo pedido da pagina, e isso muda o transporte do
+ *    BOOT. No Firefox some o recuo de ~2 s do documento (o Vite desta camada escuta so em `::1`, e
+ *    o Firefox tenta IPv4 primeiro): mediana do boot de 5753 para 3718 ms. No Chromium a
+ *    interceptacao SOMA: de 740 para 1313 ms. Cinco rodadas de cada lado. O boot e o subtraendo, e
+ *    nenhuma asercao o limita.
  *
  * ============================ O GANCHO, PORQUE NAO HA GESTO ==================================
  *
@@ -107,6 +127,14 @@ describeOrSkip('a troca de atlas ao vivo contra a troca por recarga', () => {
         const ctx = await browser.newContext();
         const page = await ctx.newPage();
         await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${state.baseUrl}/api/v1`);
+        // O HOST DE TILES DO CATALOGO QUE ESTA CAMADA NAO TEM FALHA NA HORA: ver a decisao 4 do
+        // `fileoverview`. Sem isto, o cronometro da recarga mede quanto o sistema operacional e o
+        // navegador demoram para recusar uma conexao (de 2,3 a 6,4 s), e nao a abertura do atlas.
+        let recusadosNaHora = 0;
+        await page.route('http://localhost/tiles/**', (route) => {
+            recusadosNaHora += 1;
+            return route.abort('connectionrefused');
+        });
 
         const creds = await createVerifiedUser({ prefix: 'medida', nome: 'Medida' });
         await page.goto('/');
@@ -192,6 +220,7 @@ describeOrSkip('a troca de atlas ao vivo contra a troca por recarga', () => {
                 + ` da troca ao vivo (e o MESMO openRemoteAtlas dos dois lados)`,
             `economia: ${medianaRecarga - medianaAoVivo} ms por troca`
                 + ` (${(medianaRecarga / medianaAoVivo).toFixed(2)}x)`,
+            `pedidos ao host de tiles ausente, recusados na hora: ${recusadosNaHora}`,
         ].join('\n');
         console.info(`\n[medida da troca de atlas]\n${linha}\n`);
         await testInfo.attach('medida-troca-de-atlas.txt', { body: linha, contentType: 'text/plain' });
@@ -205,27 +234,38 @@ describeOrSkip('a troca de atlas ao vivo contra a troca por recarga', () => {
         // primeira versao tinha a PREMISSA ERRADA.
         //
         // Ela afirmava que "recarga menos boot do mapa" e "troca ao vivo" mediam o mesmo termo por
-        // caminhos independentes, e exigia que concordassem dentro de 60%. NAO MEDEM. A recarga
-        // paga DOIS boots, nao um: o da pagina de atlas, onde a pessoa escolhe, e o da pagina do
-        // mapa, para onde ela volta. Subtrair so o segundo deixa o primeiro inteiro dentro da
-        // conta, e a troca ao vivo nao paga nenhum dos dois.
+        // caminhos independentes, e exigia que concordassem dentro de 60%. Numa maquina livre a
+        // troca ao vivo caiu para 1010 ms contra 2864 ms de recarga-menos-boot, a conferencia
+        // reprovou por 65%, e a explicacao escrita entao foi que "a recarga paga DOIS boots, o da
+        // pagina de atlas e o do mapa". ESSA EXPLICACAO ERA FALSA, e a medida de 2026-09-23 a
+        // desmente pelas duas pontas. A recarga desta bancada nao passa pela pagina de atlas: a
+        // Navigation Timing registra uma navegacao so, direto para `/?atlas=`, e o gancho nasce
+        // nesse mesmo documento. E os ~2,3 s de diferenca eram a recusa de conexao ao host de
+        // tiles que esta camada nao tem (decisao 4 do `fileoverview`): sem a rota, o Chromium dava
+        // de 2684 a 2867 ms de recarga-menos-boot; com ela, de 1207 a 1373.
         //
-        // O erro so apareceu quando o conserto ficou BOM: numa maquina livre a troca ao vivo caiu
-        // para 1010 ms contra 2864 ms de recarga-menos-boot, e a conferencia reprovou por 65%.
-        // Ou seja, ela reprovava o produto por ter melhorado. Um instrumento que dispara quando a
-        // coisa medida melhora esta medindo outra coisa.
+        // O QUE AS TRES AFIRMACOES PEGAM, e elas pegaram de verdade: no Firefox, sem a rota, a
+        // terceira reprovou a 11,3 a 12,4 vezes, porque o cronometro da recarga media a recusa de
+        // conexao (6,4 s) e nao a abertura do atlas. A troca ao vivo tem de ser POSITIVA (zero
+        // significa que o marco de chegada resolveu antes de o trabalho comecar), tem de ser MENOR
+        // que recarga-menos-boot, e as duas tem de ficar dentro de uma ordem de grandeza (fora
+        // disso, alguem esta cronometrando outra coisa).
         //
-        // O QUE SOBROU E O QUE DE FATO DISCRIMINA, e as tres afirmacoes juntas ainda pegam o
-        // defeito que a versao antiga existia para pegar (um cronometro apontado para o alvo
-        // errado): a troca ao vivo tem de ser POSITIVA (zero significa que o marco de chegada
-        // resolveu antes de o trabalho comecar), tem de ser MENOR que recarga-menos-boot (porque
-        // ela pula tambem o boot da pagina de atlas), e as duas tem de ficar dentro de uma ordem
-        // de grandeza (fora disso, alguem esta cronometrando outra pagina).
+        // POR QUE A SEGUNDA VALE, com o motivo medido e nao o antigo: depois do gancho a recarga
+        // constroi um MAPA NOVO (estilo, fontes e os tiles do mapa base, e so entao `map.loaded()`),
+        // e a troca ao vivo reusa a instancia. No relogio da pagina, do gancho a cortina cair: de
+        // 0,5 a 1,1 s na recarga; do pedido a URL nomear o mapa: 0,45 a 0,5 s na troca ao vivo; e
+        // a recarga ainda espera de 0,45 a 0,73 s pelos tiles depois da cortina. Com a rota, dez
+        // rodadas de cada navegador em duas baterias, com outros agentes rodando Playwright na
+        // mesma maquina (CPU media de 35 a 45%, picos de 85%): recarga-menos-boot de 1050 a 2096
+        // ms contra 549 a 745 no Firefox (razao de 1,8 a 3,1), e de 1175 a 1373 contra 594 a 755
+        // no Chromium (razao de 1,7 a 2,1). Sem a rota, a mesma bancada dava razao de 11,3 a 12,4
+        // no Firefox.
         const semBoot = medianaRecarga - medianaBoot;
         expect(medianaAoVivo, 'troca ao vivo em zero: o marco de chegada resolveu cedo demais')
             .toBeGreaterThan(50);
         expect(medianaAoVivo, `troca ao vivo (${medianaAoVivo} ms) nao pode custar mais que `
-            + `recarga-menos-boot (${semBoot} ms): ela pula tambem o boot da pagina de atlas`)
+            + `recarga-menos-boot (${semBoot} ms): a recarga refaz o mapa inteiro depois do gancho`)
             .toBeLessThan(semBoot);
         expect(semBoot / medianaAoVivo, `recarga-menos-boot (${semBoot} ms) e troca ao vivo `
             + `(${medianaAoVivo} ms) estao a mais de uma ordem de grandeza: um dos dois cronometros `

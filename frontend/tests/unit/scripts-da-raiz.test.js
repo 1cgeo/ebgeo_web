@@ -64,6 +64,11 @@ const SO_UM_PACOTE_DE_PROPOSITO = new Map([
     // porque o `playwright.config.js` normal não os casa. "test:e2e:ui verde" não os cobre.
     ['test:e2e:atlas', 'Playwright com config própria (playwright.atlas-safety.config.js)'],
     ['test:e2e:migracao', 'Playwright com config própria e EBGEO_MIGRATION_DATA_DIR apontando para CÓPIA dos dados'],
+    // Os dois cenários da auditoria de lançamento (2026-09-23), trazidos do `%TEMP%` para o
+    // repositório: a sessão real de 90 minutos e o atlas grande. Config dedicada, pela mesma
+    // razão dos dois acima, e longos demais para qualquer encadeamento.
+    ['test:e2e:sessao-longa', 'Playwright com config própria (playwright.release-long-session.config.js), 1,5 h'],
+    ['test:e2e:atlas-grande', 'Playwright com config própria (playwright.release-large-atlas.config.js)'],
     ['knip', 'dead-code do frontend; o backend não tem configuração de knip'],
     // `diag` lê o log em arquivo, e quem escreve esse log é o SERVIDOR (`pino`, um arquivo
     // por dia em `LOG_DIR`). O frontend não tem log em disco para consultar: o erro de

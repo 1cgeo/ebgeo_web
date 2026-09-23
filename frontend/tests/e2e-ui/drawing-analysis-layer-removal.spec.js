@@ -42,9 +42,34 @@ for (const [tool, storage, group] of [['image', 'images', 'draw'], ['los', 'los'
                 const ctx = canvas.getContext('2d'); ctx.fillStyle = '#e02030'; ctx.fillRect(0, 0, 40, 20);
                 return canvas.toDataURL('image/png').split(',')[1];
             });
-            const chooser = page.waitForEvent('filechooser');
-            await page.mouse.click(650, 340);
-            await (await chooser).setFiles({ name: 'audit.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
+            // O CLIQUE VAI AO CANVAS PELO LOCALIZADOR, e não por `page.mouse` na coordenada crua:
+            // assim o Playwright confere que o canvas é quem recebe o ponteiro naquele ponto e
+            // espera se algo o cobre, em vez de clicar no que estiver por cima. O ponto é o mesmo
+            // (650, 340) da página. Se o seletor de arquivo não abrir, a falha diz quem recebeu o
+            // clique e qual ferramenta estava ativa: a única vez em que isto falhou (1 de 4 na
+            // bancada da auditoria de 2026-09-22, primeiro caso de uma rodada fria no Chromium) a
+            // espera estourou em 60 s sem dizer nada, com o `data-active` já conferido acima, e 20
+            // rodadas frias no Chromium e 10 no Firefox em 2026-09-23 não a reproduziram.
+            const canvas = page.locator('#map-sig .maplibregl-canvas');
+            const caixa = await canvas.boundingBox();
+            const chooser = page.waitForEvent('filechooser', { timeout: 15000 });
+            await canvas.click({ position: { x: 650 - caixa.x, y: 340 - caixa.y } });
+            let seletor;
+            try {
+                seletor = await chooser;
+            } catch (erro) {
+                const quem = await page.evaluate(async () => {
+                    const el = document.elementFromPoint(650, 340);
+                    const { getStateManager } = await import('/src/js/store/services.js');
+                    return {
+                        noPonto: el ? `${el.tagName.toLowerCase()}#${el.id}.${String(el.className).slice(0, 60)}` : null,
+                        botaoAtivo: document.querySelector('[data-tool-id="image"]')?.dataset.active ?? null,
+                        ferramentaAtiva: getStateManager().getActiveTool?.() ?? null,
+                    };
+                });
+                throw new Error(`o seletor de arquivo não abriu: ${JSON.stringify(quem)}`, { cause: erro });
+            }
+            await seletor.setFiles({ name: 'audit.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
         } else {
             await page.mouse.click(650, 340);
             await page.mouse.click(680, 365);

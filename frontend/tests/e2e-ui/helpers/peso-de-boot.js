@@ -181,7 +181,128 @@ export function instalarPesoDeBoot(page) {
                 .catch(() => { /* fica `pesada: false`, e a rodada conta em `naoPesadas` */ }),
         );
     });
+    instalarRastroDeSincronia(page, estado);
     return estado;
+}
+
+/**
+ * O RASTRO QUE DIZ ONDE A ABERTURA DE UM ATLAS DE SERVIDOR PAROU, lido só quando ela para.
+ *
+ * Ele existe por causa de UMA falha da matriz de 2026-09-22 (transições, Chromium): 30 s de badge
+ * em `offline`/`sem-conexao`, sem nunca passar por `connecting`, com a página parada no mapa, e
+ * nenhuma evidência do que o pipeline estava esperando. Três modos de falha forçados um a um em
+ * 2026-09-23, nos dois navegadores, deixam três ASSINATURAS diferentes: o socket que fecha antes
+ * do quadro `connected` derruba a abertura e leva a página a `atlas.html` em cerca de 3 s; o socket
+ * mudo deixa a badge em `connecting`; e só a parada ANTES do socket (o pull inicial que não
+ * responde) reproduz a da matriz. A assinatura aponta a fase, e este rastro aponta o PASSO: quais
+ * pedidos da API ficaram sem resposta e se algum socket de colaboração chegou a abrir.
+ *
+ * Só pedidos de `/api/v1/` e sockets de `/collab`: é o que o pipeline de abertura toca na rede, e
+ * o resto (módulos, tiles) inflaria a lista sem dizer nada sobre a sincronia.
+ *
+ * SONDAGEM DO RASTRO: 2026-09-23, Chromium e Firefox, por `medirJanela` com a espera de sincronia
+ * encurtada e cada modo forçado por rota: sem bloqueio fica online e não diagnostica nada; pull
+ * parado nomeia o `GET .../sync/0` pendente e lê "antes do socket"; socket mudo lê "não completou
+ * o handshake"; socket fechado lê "voltou ao seletor". Quatro de quatro nos dois.
+ * @private
+ */
+function instalarRastroDeSincronia(page, estado) {
+    estado.pedidos = [];
+    estado.soquetes = [];
+    const porPedido = new WeakMap();
+    const agora = () => Date.now() - estado.t0;
+    page.on('request', (req) => {
+        let url;
+        try { url = new URL(req.url()); } catch { return; }
+        // A telemetria de uso fica de fora: ela é abandonada de propósito a cada navegação
+        // (`net::ERR_ABORTED`), e oito falhas dela por janela afogariam o pedido que importa.
+        if (!url.pathname.includes('/api/v1/') || url.pathname.includes('/api/v1/uso/')) return;
+        const registro = { ms: agora(), fim: null, metodo: req.method(), caminho: url.pathname, falha: null };
+        porPedido.set(req, registro);
+        estado.pedidos.push(registro);
+    });
+    page.on('requestfinished', (req) => {
+        const registro = porPedido.get(req);
+        if (registro) registro.fim = agora();
+    });
+    page.on('requestfailed', (req) => {
+        const registro = porPedido.get(req);
+        if (!registro) return;
+        registro.fim = agora();
+        registro.falha = req.failure()?.errorText ?? 'falhou';
+    });
+    page.on('websocket', (ws) => {
+        if (!ws.url().includes('/collab')) return;
+        const registro = { ms: agora(), fim: null, erro: null };
+        estado.soquetes.push(registro);
+        ws.on('close', () => { registro.fim = agora(); });
+        ws.on('socketerror', (erro) => { registro.erro = String(erro).slice(0, 80); });
+    });
+}
+
+/**
+ * Monta o diagnóstico de uma espera de sincronia que estourou, a partir do rastro e da página.
+ *
+ * Nunca lança: é chamado dentro de um `catch`, e um diagnóstico que quebra esconderia a falha que
+ * ele veio explicar. O estado lido na página é o do módulo que o app usa, porque esta camada serve
+ * sem HMR (`vite.e2e.config.js`) e o `import()` devolve a mesma instância.
+ * @private
+ * @param {import('@playwright/test').Page} page
+ * @param {Object|null} estado - O da sonda, ou nulo quando ela não foi instalada.
+ * @param {number} desde - Início da janela, em ms relativos ao `t0` da sonda.
+ * @returns {Promise<string>}
+ */
+async function diagnosticoDeSincronia(page, estado, desde) {
+    const linhas = [];
+    // A LEITURA SAI DO ESTADO DA CONEXÃO NA PÁGINA, e não da contagem de sockets: um socket
+    // interceptado por `routeWebSocket` não emite o evento `websocket` do Playwright (medido na
+    // sondagem abaixo), enquanto `connectionState` passa a `connecting` no mesmo passo síncrono em
+    // que `WsClient._open()` cria o socket. `offline` com a origem já REMOTA e a página no mapa é,
+    // portanto, a abertura parada antes de `wsClient.connect`.
+    let pagina = null;
+    try {
+        pagina = await page.evaluate(async () => {
+            const { connectionState } = await import('/src/js/store/sync/connection-state.js');
+            const { isRemoteStoreSync } = await import('/src/js/store/store-origin.js');
+            return {
+                caminho: location.pathname + location.search,
+                conexao: connectionState.getState(),
+                origemRemota: isRemoteStoreSync(),
+            };
+        });
+        linhas.push(`página: ${JSON.stringify(pagina)}`);
+    } catch (erro) {
+        linhas.push(`página ilegível: ${String(erro?.message ?? erro).slice(0, 120)}`);
+    }
+    let pendentes = [];
+    if (estado?.pedidos) {
+        const fim = Date.now() - estado.t0;
+        const naJanela = estado.pedidos.filter((p) => p.ms >= desde);
+        pendentes = naJanela.filter((p) => p.fim === null);
+        const falhos = naJanela.filter((p) => p.falha);
+        const soquetes = estado.soquetes.filter((s) => s.ms >= desde);
+        linhas.push(`pedidos da API na janela: ${naJanela.length}; sem resposta: ${pendentes.length}`);
+        for (const p of pendentes) linhas.push(`  PENDENTE ${p.metodo} ${p.caminho} há ${fim - p.ms} ms`);
+        for (const p of falhos) linhas.push(`  FALHOU ${p.metodo} ${p.caminho} (${p.falha})`);
+        linhas.push(`sockets de colaboração vistos pelo Playwright: ${soquetes.length}`
+            + (soquetes.length ? ` ${JSON.stringify(soquetes)}` : ''));
+    } else {
+        linhas.push('sem rastro de rede (instalarPesoDeBoot não foi chamado nesta página)');
+    }
+    if (pagina) {
+        const noMapa = !pagina.caminho.startsWith('/atlas.html');
+        if (!noMapa) {
+            linhas.push('LEITURA: a abertura FALHOU e a página voltou ao seletor.');
+        } else if (pagina.conexao === 'connecting' || pagina.conexao === 'reconnecting') {
+            linhas.push('LEITURA: o socket de colaboração abriu e não completou o handshake.');
+        } else if (pagina.conexao === 'offline' && pagina.origemRemota) {
+            linhas.push(pendentes.length
+                ? 'LEITURA: a abertura parou ANTES do socket, esperando o pedido pendente acima.'
+                : 'LEITURA: a abertura parou ANTES do socket e FORA da rede (IndexedDB, trava ou o '
+                    + 'próprio pipeline de `syncEngine.connect`); nenhum pedido da API ficou sem resposta.');
+        }
+    }
+    return linhas.join('\n');
 }
 
 /**
@@ -270,8 +391,16 @@ export async function medirJanela(page, {
 
     let msSincroniaOnline = null;
     if (sincroniaOnline) {
-        await expect(page.locator('[data-testid="sync-status-badge"]'))
-            .toHaveAttribute('data-state', 'online', { timeout });
+        try {
+            await expect(page.locator('[data-testid="sync-status-badge"]'))
+                .toHaveAttribute('data-state', 'online', { timeout });
+        } catch (erro) {
+            // A espera continua reprovando: o diagnóstico só ACRESCENTA o que o pipeline estava
+            // esperando, que é o que faltou na única falha desta espera (ver o rastro acima).
+            const diagnostico = await diagnosticoDeSincronia(page, estado, inicio);
+            process.stdout.write(`[peso] [${rotulo}] sincronia não ficou online:\n${diagnostico}\n`);
+            throw new Error(`${erro.message}\n\nDIAGNÓSTICO [${rotulo}]\n${diagnostico}`, { cause: erro });
+        }
         msSincroniaOnline = Date.now() - tA;
     }
 

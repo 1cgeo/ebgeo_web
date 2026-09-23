@@ -37,7 +37,15 @@ export async function seedSharedAtlas(browser, baseUrl, { mapName = 'Mapa Tátic
         createVerifiedUser({ prefix: 'bravo', nome: 'Bravo' }),
     ]);
     const seedPage = await browser.newPage();
-    await seedPage.goto('/');
+    // A PÁGINA DA SEMEADURA É `atlas.html`, NUNCA `/`. O login abaixo grava o token no
+    // `localStorage` que o boot DESTA MESMA página lê, e o boot do mapa tem uma Fase -1
+    // (`shouldRouteToProjects`, em `src/js/index.js`) que manda para `atlas.html` quem chega à URL
+    // nua com token guardado. Quando o boot chega nela depois do login, a página navega no meio da
+    // semeadura e o pedido em voo morre com `TypeError: Failed to fetch` (medido em 2026-09-23:
+    // 1 vez na matriz de 2026-09-22 em `browser-confirm-logout`, e 3 de 3 com o boot segurado até
+    // o token existir). `atlas.html` só navega por gesto ou por sessão encerrada, então o token que
+    // aparece durante o boot dela não move a página.
+    await seedPage.goto('/atlas.html');
     const seed = await seedPage.evaluate(async ({ base, mn, perm, a, b }) => {
         const { ApiClient } = await import('/src/js/store/sync/api-client.js');
         const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
@@ -390,9 +398,21 @@ async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
             return el ? el.getBoundingClientRect().right : 0;
         };
         const esquerda = Math.max(100, bordaDireita('.feature-panel'), bordaDireita('.sidebar-panel')) + 20;
+        // E A MESMA RESERVA EMBAIXO, pelo seletor de mapa base, que mora no canto inferior
+        // esquerdo (a faixa dele começa em y = 590 numa janela de 720) e ANDA para a direita junto
+        // com os painéis laterais: o vértice mais a sudoeste cai no canto inferior esquerdo do
+        // quadro, e com a reserva fixa de 100 px ele ficava em y = 620, dentro daquela faixa.
+        // Medido no Firefox em 2026-09-23 (`browser-group-ops`, 4 de 4 no HEAD): o clique do
+        // primeiro vértice ia para um IMG em (450, 620), o canvas nunca o via e a linha ficava com
+        // zero vértices; com a reserva medida, os vértices caem em y = 570 e o caso passa.
+        const topoDoSeletor = (() => {
+            const caixa = document.querySelector('.base-layer-selector')?.getBoundingClientRect();
+            return caixa && caixa.height > 0 ? caixa.top : window.innerHeight;
+        })();
+        const baixo = Math.max(100, window.innerHeight - topoDoSeletor + 20);
         const lngs = cs.map((c) => c[0]); const lats = cs.map((c) => c[1]);
         map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], {
-            padding: { top: 100, bottom: 100, left: esquerda, right: 100 },
+            padding: { top: 100, bottom: baixo, left: esquerda, right: 100 },
             duration: 0,
         });
     }, coords);
@@ -476,7 +496,13 @@ async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
     // INSTÂNCIA prova que o roteador do clique vai encontrá-la. Só o segundo é o predicado real,
     // e ele é reconferido antes de cada clique, mais abaixo, porque quem o apaga no meio do
     // desenho (`switchMap`, `MAP_LOCK_CHANGED`) não avisa ninguém.
-    await page.waitForFunction(async (id) => {
+    //
+    // AS DUAS ESPERAS SONDAM PELO NODE, e até 2026-09-23 não esperavam nada: eram
+    // `page.waitForFunction(async ...)`, e o Playwright testa a VERDADE do valor devolvido sem
+    // aguardar a promessa, então uma promessa (sempre verdadeira) encerrava a espera na primeira
+    // avaliação. `page.evaluate` aguarda; `expect.poll` repete. Censo em
+    // `tests/unit/espera-do-playwright-nao-aguarda-promessa.test.js`.
+    await expect.poll(() => page.evaluate(async (id) => {
         const s = await import('/src/js/store/index.js');
         const active = s.getStateManager?.()?.getActiveTool?.();
         if (!active) return false;
@@ -484,11 +510,17 @@ async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
         // `militarySymbol`: compare case-insensitively, ignoring separators.
         const norm = (v) => String(v).toLowerCase().replace(/[^a-z0-9]/g, '');
         return norm(active) === norm(id);
-    }, toolId, { timeout: 15000 });
-    await page.waitForFunction(async (key) => {
+    }, toolId), {
+        timeout: 15000,
+        message: `drawViaToolUI: o gerente não publicou "${toolId}" como ferramenta ativa`,
+    }).toBe(true);
+    await expect.poll(() => page.evaluate(async (key) => {
         const s = await import('/src/js/store/index.js');
         return s.getControl?.(key)?.isActive === true;
-    }, controlKeyOf(toolId), { timeout: 15000 });
+    }, controlKeyOf(toolId)), {
+        timeout: 15000,
+        message: `drawViaToolUI: a instância "${controlKeyOf(toolId)}" não ficou com isActive`,
+    }).toBe(true);
 
     // O MAPA PRECISA ESTAR ASSENTADO ANTES DE SER DIRIGIDO, e "o tool está ativo" não diz isso.
     //
@@ -631,7 +663,11 @@ async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
         const controlKey = controlKeyOf(toolId);
         for (let i = 0; i < coords.length - 1; i++) {
             await clicarNoMapa(coords[i]);
-            await page.waitForFunction(async ({ key, n }) => {
+            // SONDA PELO NODE, pela mesma razão das esperas de ferramenta ativa acima: com
+            // `waitForFunction(async ...)` esta confirmação devolvia na primeira avaliação e o
+            // clique seguinte saía sem esperar vértice nenhum. O `throw` de dentro continua
+            // imediato: `expect.poll` não repete quando a própria sonda lança.
+            await expect.poll(() => page.evaluate(async ({ key, n }) => {
                 const s = await import('/src/js/store/index.js');
                 const control = s.getControl?.(key);
                 // Sem o controle no registro a espera não tem sujeito: falhar aqui é honesto,
@@ -640,7 +676,10 @@ async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
                     throw new Error(`drawViaToolUI: "${key}" nao expoe drawPoints para confirmar o vertice`);
                 }
                 return control.drawPoints.length >= n;
-            }, { key: controlKey, n: i + 1 }, { timeout: 10000 });
+            }, { key: controlKey, n: i + 1 }), {
+                timeout: 10000,
+                message: `drawViaToolUI: o vértice ${i + 1} de "${toolId}" não entrou em drawPoints`,
+            }).toBe(true);
         }
         await clicarNoMapa(coords[coords.length - 1], { button: 'right' }); // finish
     }

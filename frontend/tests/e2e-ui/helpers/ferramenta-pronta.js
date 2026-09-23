@@ -54,13 +54,30 @@ export async function esperarCargaDeFerramenta(page, timeout = 15000) {
 export async function esperarFerramentaPronta(page, toolId, timeout = 15000) {
     await esperarCargaDeFerramenta(page, timeout);
 
-    await page.waitForFunction(async (id) => {
+    // SONDA PELO NODE, e até 2026-09-23 esta espera não esperava: era `waitForFunction` com
+    // predicado `async`, e o Playwright 1.61 testa a verdade do valor sem aguardar a promessa,
+    // então ela encerrava na primeira avaliação. Censo em
+    // `tests/unit/espera-do-playwright-nao-aguarda-promessa.test.js`.
+    //
+    // E OS CHAMADORES FALAM DOIS VOCABULÁRIOS, o que a espera fantasma escondia: uns passam o
+    // `data-tool-id` da barra (`measureAngle`, `coordination`) e outros o TIPO publicado pelo
+    // gerente (`coordinationmeasure`), e os dois não coincidem nem normalizados (o tipo de
+    // `measureAngle` é `measurementangle`). Quando existe um botão com aquele id, vale o
+    // `data-active` dele, que é o próprio produto aplicando o seu mapeamento (`controlType`, em
+    // `toolbar/components/toolbar-group.js`); sem botão, o argumento é o tipo, e ele é comparado
+    // ao publicado sem caixa e sem separador.
+    await expect.poll(() => page.evaluate(async (id) => {
+        const botao = document.querySelector(
+            `.toolbar-tool-btn[data-tool-id="${id}"], .toolbar-standalone-btn[data-tool-id="${id}"]`,
+        );
+        if (botao) return botao.dataset.active === 'true';
         const s = await import('/src/js/store/index.js');
         const active = s.getStateManager?.()?.getActiveTool?.();
         if (!active) return false;
-        // `AddMilitarySymbolControl` vira `militarysymbol` enquanto o id da barra é
-        // `militarySymbol`: compara sem caixa e sem separador.
         const norm = (v) => String(v).toLowerCase().replace(/[^a-z0-9]/g, '');
         return norm(active) === norm(id);
-    }, toolId, { timeout });
+    }, toolId), {
+        timeout,
+        message: `esperarFerramentaPronta: "${toolId}" não ficou ativa`,
+    }).toBe(true);
 }

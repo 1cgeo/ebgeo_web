@@ -444,6 +444,10 @@ código não afirma nada sobre o código.
 
 ## A matriz do segundo navegador (Firefox)
 
+**O Firefox é navegador de primeira classe, não "o segundo".** O dono informou em 2026-09-23 que
+cerca de metade dos usuários usa Firefox: um conserto medido só no Chromium está medido pela metade,
+e um vermelho que só o Firefox mostra é defeito de metade da base.
+
 A homologação B11 pede um segundo navegador, e até 2026-09-15 só o Chromium tinha sido
 exercitado. O Firefox do Playwright (151, build `firefox-1532`) se busca UMA vez com
 `npx playwright install firefox`, que baixa para o cache global do Playwright e **não toca o
@@ -568,6 +572,52 @@ rodada o coletou não muda aquela rodada.** O processo do Playwright já carrego
 matriz longa mede o instrumento do instante em que começou. Rode a matriz num checkout congelado
 (ver "Duas cópias do repositório no mesmo computador", acima) e não apresente o resultado dela como
 validação de conserto posterior ao congelamento; conserto posterior ganha rodada própria.
+
+### Os cenários de release da auditoria (decisão D2, 2026-09-23)
+
+Dois cenários que a auditoria de lançamento escreveu e rodou fora do repositório entraram nele por
+decisão do dono. São `*.scenario.js` com config própria cada um, então `npm run test:e2e:ui` não os
+coleta; os dois configs recolhem o guarda do verde por pulo, e os dois cenários reprovam no
+`beforeAll` quando o backend não sobe. Sem `--project`, cada script roda só o Chromium.
+
+```bash
+# de dentro de frontend/
+npm run test:e2e:atlas-grande -- --project=firefox
+npm run test:e2e:sessao-longa -- --project=firefox
+```
+
+| cenário | duração medida (2026-09-23) | o que prova |
+|---|---|---|
+| `release-large-atlas.scenario.js` (`test:e2e:atlas-grande`, quatro casos) | 1,1 min no Chromium, 2,7 min no Firefox | um mapa de atlas com 1 000 e 10 000 pontos soltos, e com 10 000 e 30 000 pontos num grupo só, abre pelo retrato do servidor, recebe uma edição que chega ao PostgreSQL, recarrega e lista uma linha por feição; o IndexedDB do cliente bate com o semeado (contagem e hash do conjunto de ids) nas quatro etapas, e nenhuma página lança erro |
+| `release-long-session.scenario.js` (`test:e2e:sessao-longa`, um caso) | 91 min no Firefox, com a subida do backend; o relógio do cenário é fixo em 90 min, e na auditoria de 2026-09-22 uma versão anterior levou 1,5 h no Chromium | noventa minutos de relógio com dois clientes no mesmo atlas: 362 escritas, cada uma conferida no IndexedDB de quem escreveu; três quedas de rede do segundo cliente; recargas aos 30, 60 e 90 min; e no fim um ponto desenhado pela barra real em cada cliente. Termina com as 364 feições nos dois IndexedDB e no PostgreSQL, ao menos três renovações do token de acesso por cliente sem novo login, as duas interfaces online e nenhum erro de página |
+
+O que não se lê nos arquivos sem abri-los:
+
+- **A sessão longa roda de um checkout congelado** (ver "Duas cópias do repositório no mesmo
+  computador"). O Vite desta camada não tem observador de arquivo, mas um módulo pedido pela
+  primeira vez é lido do disco naquela hora, então em noventa minutos uma edição de `src/` no
+  checkout que serve o app pode entrar na medição pela metade.
+- **A premissa é conferida no minuto zero.** A contagem de renovações só vale sob o prazo padrão do
+  token de acesso (15 min), e o backend desta camada herda o ambiente de quem lançou o Playwright:
+  um `JWT_ACCESS_EXPIRY` esquecido no terminal reprova o cenário na partida, e não noventa minutos
+  depois.
+- **O `timeout` do config não alcança o projeto `firefox`**, que declara o próprio (180 s) e vence.
+  Os dois cenários chamam `test.setTimeout` por dentro; uma rodada da auditoria morreu aos 3 min
+  antes disso. Caso longo novo precisa do mesmo.
+- **O gesto final espera a ferramenta ficar ativa** (`data-active`), como os `drawing-*.spec.js`. A
+  ferramenta de ponto chega por `import()`, o clique no mapa saía sem esperá-la, e a rodada da
+  auditoria no Firefox (2026-09-23) terminou em 362 de 363 feições com as filas vazias e os dois
+  clientes online. O mecanismo foi reproduzido à parte no Firefox, na mesma data: sem a espera, 0 de
+  3 gestos criaram o ponto; com ela, 3 de 3.
+- **Os tempos do atlas grande são impressos, não asseridos** (`[large-atlas]`,
+  `[large-group-organize]` e `large-atlas.json`), e o `heap` é só do Chromium. As amostras de
+  memória da sessão longa (`session-samples.json`) vêm do CDP e ficam vazias no Firefox.
+
+Os outros artefatos da auditoria não entraram. Três eram cópias de diagnóstico de specs que já
+existem (`viewshed-3d-pixel.spec.js`, `browser-sync-network-chaos.spec.js`,
+`browser-collab-selection-tools.spec.js`) com sondas penduradas, e o que cada uma achou virou
+conserto com teste permanente; a versão curta da sessão era um subconjunto da longa, sem o
+fechamento do socket que o Firefox exige.
 
 ## Prerequisites (one-time)
 

@@ -130,16 +130,43 @@ async function esperarMapa(page) {
  * depois de `activateBootAtlasScope` e da remontagem do resolvedor de nomes, e ler antes disso
  * alcança os bancos errados. O número de MAPAS não é nenhuma das quantias que as asserções abaixo
  * comparam contra o servidor, então esperar por ele não esconde defeito nenhum.
+ *
+ * ESTA ESPERA NÃO ESPERAVA, E FOI ISSO QUE O FIREFOX ACUSOU EM 2026-09-22. A versão anterior
+ * passava um predicado `async` ao `waitForFunction`. O Playwright testa a VERDADE do valor que o
+ * predicado devolve e não aguarda promessa nenhuma (conferido no pacote instalado, e preso por
+ * `frontend/tests/unit/espera-do-playwright-nao-aguarda-promessa.test.js`): a promessa é sempre
+ * verdadeira, então a espera terminava na PRIMEIRA sondagem, respondesse ela 11 ou 0. E a janela
+ * existe: o mapa e o botão de zoom nascem ANTES de o boot montar o slot, e entre os dois o escopo
+ * ativo é a PONTE legada (`legacy-workspace`, os bancos sem sufixo), que não tem mapa nenhum.
+ * Medido no Firefox segurando o registro de atlas locais por 5 s depois de o mapa existir: a
+ * espera antiga voltou em cerca de 10 ms com o valor `false`, `lerAtlasMontado` leu ZERO chaves no
+ * escopo-ponte e o IndexedDB cru do slot tinha as 11, três vezes em três. Sem o atraso foram zero
+ * falhas em dez, porque a janela só se abre sob carga, que é onde a matriz da auditoria a pegou.
+ * O PRODUTO NÃO PERDIA NADA: a mesma página, lida depois da espera verdadeira, tinha 11 chaves e
+ * 262 feições no endereço certo.
+ *
+ * Daí as duas metades, e nenhuma delas é um predicado assíncrono:
+ *   1. A CORTINA CAI. É um sinal de DOM, que não depende de identidade de módulo, e ele só acontece
+ *      depois de `statePromise` (a montagem do slot) e da pintura. Numa perna sem recarga ela nem
+ *      existe mais, e a espera passa na hora.
+ *   2. A CONTAGEM, sondada pelo NODE com `page.evaluate`, que aguarda a promessa de verdade.
  */
 async function esperarEscopoMontado(page, mapasEsperados) {
     await page.waitForFunction(
-        async (n) => {
-            const store = await import('/src/js/store/index.js');
-            return (await store.getAllMapNamesStore()).length === n;
+        () => {
+            const cortina = document.querySelector('.loading-background');
+            return !cortina || cortina.style.pointerEvents === 'none';
         },
-        mapasEsperados,
+        null,
         { timeout: 60000 },
     );
+    await expect.poll(
+        () => page.evaluate(async () => {
+            const store = await import('/src/js/store/index.js');
+            return (await store.getAllMapNamesStore()).length;
+        }),
+        { message: 'o boot não montou o slot com os mapas do arquivo', timeout: 60000 },
+    ).toBe(mapasEsperados);
 }
 
 /**
@@ -501,11 +528,14 @@ describeOrSkip('a cadeia inteira: arquivo → atlas local → F5 → servidor �
         await esperarEscopoMontado(page, esperado.maps);
 
         const p2 = await page.evaluate(lerAtlasMontado, idsDeImagem);
+        // O ENDEREÇO ANTES DAS CONTAGENS, como na perna 4. Uma leitura feita no escopo errado
+        // (a ponte legada, por exemplo) conta zero chaves, e "Expected: 11, Received: 0" manda
+        // procurar perda de dado onde o que houve foi uma leitura no banco errado.
+        expect(p2.escopo, 'perna 2: o reload voltou ao MESMO endereço de bancos').toEqual(p1.escopo);
         conferirContraOArquivo(p2, 'perna 2 (depois do F5)', {
             c3d: c3dEsperado, sv360: sv360Esperado,
         });
         expect(p2.blobsDaFixture, 'perna 2: os blobs sobreviveram ao reload').toBe(esperado.images);
-        expect(p2.escopo, 'perna 2: o reload voltou ao MESMO endereço de bancos').toEqual(p1.escopo);
 
         // ==================== PERNA 3: "Enviar ao servidor" ====================
         await page.locator('[data-testid="account-control"] .account-control__identity').click();
