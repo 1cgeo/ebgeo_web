@@ -693,12 +693,17 @@ describe('o boot de verdade toma a mesma leitura que este arquivo espelha', () =
         expect(trecho.indexOf('observeLegacyInstallation')).toBeLessThan(trecho.indexOf('initLocalAtlases'));
     });
 
-    it('`initializeWithLastActiveMap` escreve a linha do boot DEPOIS de `initializeRepository`', () => {
+    it('`initializeWithLastActiveMap` NÃO imprime a linha do boot (dono, 2026-09-23)', () => {
+        // A linha saía em TODO boot, inclusive nos que não correram degrau nenhum, e o dono pediu
+        // o console limpo. `reportBootAtlasScope` continua compondo a linha, e é por ela que os
+        // casos deste arquivo leem o desfecho; quem quiser o console de volta muda este caso.
         const fonte = fonteDoStore();
         const corpo = fonte.slice(fonte.indexOf('export async function initializeWithLastActiveMap'));
+        const trecho = corpo.slice(0, corpo.indexOf('\n}'));
 
-        expect(corpo).toContain('reportBootAtlasScope');
-        expect(corpo.indexOf('initializeRepository')).toBeLessThan(corpo.indexOf('reportBootAtlasScope'));
+        // Controle do recorte: sem ele, o `not.toContain` abaixo passaria sobre string vazia.
+        expect(trecho).toContain('initializeRepository');
+        expect(trecho).not.toContain('reportBootAtlasScope');
     });
 });
 

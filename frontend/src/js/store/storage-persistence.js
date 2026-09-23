@@ -48,8 +48,9 @@
  *
  * O QUE ELE NAO FAZ: nao promete que o dado esta seguro (uma concessao REDUZ o risco de despejo,
  * nao o zera), nao mede a cota (`estimate()` fica para quando houver tela que a mostre) e nao
- * fala com o usuario. Quem le o desfecho e a linha de boot de `boot-legacy-adoption.js`, que e a
- * unica linha que o suporte tem para confirmar a travessia.
+ * fala com o usuario. Quem le o desfecho e a linha de boot composta por `boot-legacy-adoption.js`,
+ * que desde 2026-09-23 NAO vai mais ao console, a pedido do dono: o pedido continua valendo e o
+ * desfecho continua guardado, mas hoje so os testes o leem.
  */
 
 /**

@@ -181,9 +181,10 @@ describe('B4-7: pedirPersistencia nos três estados', () => {
 // ============================================================================
 
 describe('B4-7: o desfecho na linha de boot do atlas', () => {
-    it('a linha diz persistente: nao quando o navegador recusou', async () => {
-        // A linha do boot é a ÚNICA que o suporte tem para confirmar a travessia. Saber que o
-        // esquema andou e não saber se o navegador pode despejar o acervo amanhã é meia resposta.
+    it('a linha diz persistente: nao quando o navegador recusou, e não vai ao console', async () => {
+        // Saber que o esquema andou e não saber se o navegador pode despejar o acervo amanhã é
+        // meia resposta, então o desfecho entra na linha. Desde 2026-09-23 a linha não é mais
+        // impressa (o dono pediu o console limpo): ela é composta e devolvida, e só.
         vi.stubGlobal('navigator', { storage: storageDublado({ persisted: false, persist: false }) });
         const linhas = [];
         vi.spyOn(console, 'info').mockImplementation((...args) => {
@@ -195,7 +196,7 @@ describe('B4-7: o desfecho na linha de boot do atlas', () => {
         const linha = await adocao.reportBootAtlasScope();
 
         expect(linha).toContain('persistente: nao');
-        expect(linhas).toContain(linha);
+        expect(linhas).not.toContain(linha);
     });
 
     it('e diz persistente: sim quando a origem é persistente', async () => {

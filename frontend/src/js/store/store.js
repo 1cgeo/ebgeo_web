@@ -53,7 +53,7 @@ import {
 } from './store-origin.js';
 import { purgeAllRemoteAtlases, purgeReachedAtlas, listRemoteAtlases } from './remote-atlas.api.js';
 import { activateCurrentLocalAtlasScope, initLocalAtlases } from './local-atlas.api.js';
-import { observeLegacyInstallation, reportBootAtlasScope } from './migration/boot-legacy-adoption.js';
+import { observeLegacyInstallation } from './migration/boot-legacy-adoption.js';
 import { readLocalAtlasRegistry, getStoreFor, StoreName, LEGACY_DB_SUFFIX, getActiveScope } from './atlas-namespace.js';
 // Folha de zero imports, por ARQUIVO: o wipe precisa saber se o namespace que ele esvazia ja foi
 // CONDENADO, porque num namespace condenado toda escrita e recusada e reconstruir e trabalho que
@@ -621,14 +621,6 @@ export async function initializeWithLastActiveMap() {
     await enforceLocalStoreWhenLoggedOut();
     await activateBootAtlasScope();
     const chaveDeEntrada = await initializeRepository();
-
-    // A ÚNICA LINHA QUE O SUPORTE TEM PARA CONFIRMAR A TRANSIÇÃO. Medido em navegador real em
-    // 2026-09-07: um repositório vindo da outra linha do produto atravessava para cá produzindo
-    // DOZE linhas de console, todas de rede. Nenhuma dizia que os bancos tinham sido adotados,
-    // qual ramo do degrau correra, nem que o esquema se movera. Vem DEPOIS de
-    // `initializeRepository` porque é ele que roda o degrau: antes dele a linha só poderia
-    // anunciar o que estava para acontecer, que é a forma de log que engana.
-    await reportBootAtlasScope();
 
     // O RESOLVEDOR É REFEITO AQUI, e não só esperado, porque a montagem que `initServices()`
     // dispara acontece ANTES de `activateBootAtlasScope()` acima: ela lê o escopo que estava

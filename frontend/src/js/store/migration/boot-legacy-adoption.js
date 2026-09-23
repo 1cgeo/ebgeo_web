@@ -43,10 +43,15 @@
  * ===========================================================================================
  * Measured on 2026-09-07 in a real browser: a `main` 2.4 repository crossing into this line
  * produced TWELVE console lines, all of them network. Nothing said which branch ran, nothing
- * said the databases had been adopted, nothing said the schema had moved. Support cannot
- * confirm an upgrade it cannot see, and neither can the next agent. `reportBootAtlasScope`
- * writes ONE line, at the end of the boot, naming the branch, what it did and how many maps the
- * mounted scope holds.
+ * said the databases had been adopted, nothing said the schema had moved. `reportBootAtlasScope`
+ * composes ONE line naming the branch, what it did and how many maps the mounted scope holds.
+ *
+ * THE LINE IS NO LONGER PRINTED, and the boot no longer asks for it (owner's request,
+ * 2026-09-23): it showed on every boot, including the ones where no step ran. The function stays
+ * because the tests read the outcome through the line it returns. Printing it again is one call
+ * after `initializeRepository` in `initializeWithLastActiveMap` (`store.js`); a probe that
+ * `import()`s this module from the browser console may get a fresh instance with both facts
+ * empty, so it is not a way to read them.
  */
 
 import {
@@ -168,13 +173,12 @@ function describeScope(scope) {
 }
 
 /**
- * Writes the ONE line the transition never had.
+ * Composes the ONE line the transition never had, without printing it.
  *
- * Called at the end of the boot, after `initializeRepository`, so it can say what actually
- * happened rather than what was about to. It never throws: a boot that dies while composing a
- * log line would trade the whole session for a diagnostic.
+ * Meaningful only after `initializeRepository`, so it says what actually happened rather than
+ * what was about to. It never throws: a diagnostic must not cost its caller.
  *
- * @returns {Promise<string|null>} The line written, or null when it could not be composed.
+ * @returns {Promise<string|null>} The line, or null when it could not be composed.
  */
 export async function reportBootAtlasScope() {
     try {
@@ -201,9 +205,7 @@ export async function reportBootAtlasScope() {
         const persistente = desfechoDaPersistencia();
         if (persistente) partes.push(`persistente: ${persistente}`);
 
-        const linha = `Boot do atlas: ${partes.join('; ')}`;
-        console.info(linha);
-        return linha;
+        return `Boot do atlas: ${partes.join('; ')}`;
     } catch (error) {
         console.warn('Boot do atlas: nao foi possivel compor a linha de diagnostico:', error);
         return null;
