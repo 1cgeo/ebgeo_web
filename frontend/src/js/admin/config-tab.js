@@ -188,7 +188,28 @@ class ConfigTab {
             + 'contas. Vale no próximo carregamento da página.';
         form.appendChild(signupHint);
 
+        // Os mapas base que esta aba oferece nos seus DOIS seletores (o mapa base inicial, logo
+        // abaixo, e o do mini-mapa do 360). A lista sai dos mapas base HABILITADOS do catálogo,
+        // na ordem de prioridade, que é a mesma que o seletor principal mostra. Oferecer um
+        // desabilitado seria oferecer uma escolha que o cliente não consegue desenhar.
+        const basesDisponiveis = Object.entries(eff.basemaps ?? {})
+            .filter(([, b]) => b?.enabled !== false)
+            .sort((a, b) => (a[1]?.priority ?? 0) - (b[1]?.priority ?? 0))
+            .map(([id, b]) => ({ value: id, label: b?.name ? `${b.name} (${id})` : id }));
+
         heading(form, 'Mapa 2D');
+        // O MAPA BASE INICIAL (pedido do dono, 2026-09-23): era a constante `DEFAULT_LAYER` do
+        // cliente, e hoje é `map2d.defaultBasemap`. O servidor recusa com 422 um id que não seja
+        // mapa base público do catálogo, e a lista abaixo é exatamente essa.
+        const baseInicial = selectOne(
+            form, 'Mapa base inicial', 'admin-config-map2d-default-basemap',
+            basesDisponiveis, eff.map2d?.defaultBasemap ?? '',
+        );
+        const baseInicialHint = document.createElement('p');
+        baseInicialHint.className = 'admin-form__hint';
+        baseInicialHint.textContent = 'Todo mapa novo nasce com este mapa base, e é nele que o EBGeo '
+            + 'abre pela primeira vez. Um mapa que já existe continua abrindo no mapa base dele.';
+        form.appendChild(baseInicialHint);
         // A FAIXA DE ZOOM NÃO É EDITÁVEL AQUI desde 2026-08-31 (decisão do dono): a da aplicação
         // é fixa em [2, 21] e o servidor recusa o override das duas com 422. Quem aperta é o MAPA
         // BASE, na aba Catálogo, linha a linha, e lá o produtor da OM dona também alcança.
@@ -221,15 +242,8 @@ class ConfigTab {
         heading(form, 'Visualizador 360');
         // SÓ O MAPA BASE, e não uma faixa de zoom própria (decisão do dono, 2026-08-31): o
         // zoom do mini-mapa vem da linha de catálogo do mapa base escolhido, que é o único
-        // lugar do produto onde zoom se configura.
-        //
-        // A lista sai dos mapas base HABILITADOS do catálogo, na ordem de prioridade, que é a
-        // mesma que o seletor principal mostra. Oferecer um desabilitado seria oferecer uma
-        // escolha que o cliente não consegue desenhar.
-        const basesDisponiveis = Object.entries(eff.basemaps ?? {})
-            .filter(([, b]) => b?.enabled !== false)
-            .sort((a, b) => (a[1]?.priority ?? 0) - (b[1]?.priority ?? 0))
-            .map(([id, b]) => ({ value: id, label: b?.name ? `${b.name} (${id})` : id }));
+        // lugar do produto onde zoom se configura. A lista é `basesDisponiveis`, a mesma do
+        // mapa base inicial, montada antes da seção Mapa 2D.
         const miniMapa = selectOne(
             form, 'Mapa base do mini-mapa do 360', 'admin-config-sv360-minimapa',
             basesDisponiveis, eff.streetView360?.miniMapBasemap ?? '',
@@ -355,6 +369,11 @@ class ConfigTab {
             // leu.
             if (sombreamento.checked !== !!eff.map2d?.hillshade?.enabled) {
                 map2dDiff.hillshade = { enabled: sombreamento.checked };
+            }
+            // NUNCA VAZIO: o servidor recusa `''` (um mapa sempre tem base), e um seletor sem
+            // opção nenhuma, num catálogo vazio, reprovaria o salvamento INTEIRO da aba.
+            if (baseInicial.value && baseInicial.value !== (eff.map2d?.defaultBasemap ?? '')) {
+                map2dDiff.defaultBasemap = baseInicial.value;
             }
             if (Object.keys(map2dDiff).length) payload.map2d = map2dDiff;
 

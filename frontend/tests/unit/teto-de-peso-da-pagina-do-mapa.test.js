@@ -812,7 +812,16 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // enters wherever the capturer (`session/erro-telemetria.js`) enters, by a static import,
         // because the report is built synchronously inside the error handler. The eager case stayed
         // green inside its budget in the same run.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(775);
+        //
+        // 2026-09-23: 776, with `baselayers/default-basemap.js`, the leaf (one import, `config.js`)
+        // that reads the default basemap the administrator picks in the "Sistema" tab. It is
+        // EAGER on purpose: the map is born with it (`initialBaseLayer`, `map_sig.js`) and the
+        // blank map document reads it (`store/repository.utils.js`), and it is a separate file so
+        // the store does not reach the base-layer control. Measured by this case's own failure
+        // (776 against 775) with a copy of this walker, which also showed the only other new
+        // source file in the tree that day (`store/migration/abrir-recuperado.js`) outside the
+        // graph. Source total 11540 kB, inside the ceiling below.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(776);
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);

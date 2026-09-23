@@ -168,7 +168,8 @@ const CENSO = [
         arquivo: 'src/js/admin/config-tab.js', gatilho: 'catalogo', n: 1,
         classe: SEM_SINGLETON,
         motivo: 'A aba de configuração do administrador, que desde 2026-08-31 monta o seletor de '
-            + 'mapa base do mini-mapa do 360 a partir de `config.basemaps` do documento EFETIVO. '
+            + 'mapa base do mini-mapa do 360 a partir de `config.basemaps` do documento EFETIVO, e '
+            + 'desde 2026-09-23 o do mapa base inicial, com a MESMA lista. '
             + 'Uma leitura só, e de LISTA, o que a torna a única entrada deste censo cujo alcance '
             + 'é decidido pela rota e não pelo arquivo: `GET /config/admin` é `requireAdmin`, e o '
             + 'administrador lê todo recurso por cláusula 2.7 da constituição.',
@@ -181,7 +182,7 @@ const CENSO = [
             + 'concedido entra por aqui, e o estilo dele viaja numa segunda chave.',
     },
     {
-        arquivo: 'src/js/baselayers/base-layer.control.js', gatilho: 'catalogo', n: 5,
+        arquivo: 'src/js/baselayers/base-layer.control.js', gatilho: 'catalogo', n: 6,
         classe: BASELINE,
         motivo: 'O seletor de camada base, que resolve o estilo por demanda contra '
             + '`config.basemapStyles`. Montar a tabela de estilos no construtor (como fazia antes da '
@@ -197,15 +198,18 @@ const CENSO = [
             + 'lê o mesmo objeto `config.basemaps[id]` das outras, e o que ela expõe a um '
             + 'visitante é a faixa de um mapa base que ele JÁ está vendo, depois do fallback: '
             + 'quem não alcança o basemap privado nunca chega a esta linha com o id dele. '
-            + 'A QUINTA entrou em 2026-09-04 e é a ÚNICA que não roda dentro do controle: '
-            + '`initialBaseStyle()` é uma função de módulo, chamada por `map_sig.js` para criar '
-            + 'o mapa com a MESMA base que o controle assume (`DEFAULT_LAYER`). Ela é a mesma '
-            + 'resolução das outras (`resolveBasemapStyle` sobre `STYLE_MAP` mais '
-            + '`config.basemapStyles`) e não amplia superfície nenhuma: o id que ela consulta é '
-            + 'uma constante, `carta-topografica`, para a qual o embutido sempre ganha do '
-            + 'publicado, então nenhum recurso concedido passa por ela. O que ela fecha é a '
-            + 'divergência entre o estilo com que o mapa NASCE e o que a troca de base assume, '
-            + 'que fazia a primeira troca preservar a base velha inteira por cima da nova.',
+            + 'A QUINTA entrou em 2026-09-04 e a SEXTA em 2026-09-23, e são as únicas que não '
+            + 'rodam dentro do controle: `initialBaseStyle()` e `initialBaseLayer()` são funções '
+            + 'de módulo, chamadas por `map_sig.js` e pelo construtor para o mapa nascer com a '
+            + 'MESMA base que o controle assume. Desde 2026-09-23 o id delas é a base padrão que o '
+            + 'administrador escolhe (`config.map2d.defaultBasemap`), e não mais uma constante. '
+            + 'Elas não ampliam superfície nenhuma, porque são a mesma resolução do seletor '
+            + '(`resolveBasemapStyle` e `firstStyledBasemap` sobre `STYLE_MAP` mais '
+            + '`config.basemapStyles`, contra a lista de `getEnabledBasemaps`): uma base padrão '
+            + 'privada só nasce para quem já a tem no catálogo, e quem não a tem nasce no primeiro '
+            + 'mapa base oferecido. O que elas fecham é a divergência entre o estilo com que o mapa '
+            + 'NASCE e o que a troca de base assume, que fazia a primeira troca preservar a base '
+            + 'velha inteira por cima da nova.',
     },
     {
         arquivo: 'src/js/3d_models_viewer_tool/add_3d_models_viewer_control.js', gatilho: 'catalogo', n: 3,

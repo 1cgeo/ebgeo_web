@@ -45,6 +45,7 @@ import imagensLayer from './imagens_layer.js';
 import bdgexLayer from './bdgex_layer.js';
 import config from '../config.js';
 import { resolveBasemapStyle, firstStyledBasemap } from './basemap-style.js';
+import { defaultBasemap, FACTORY_DEFAULT_BASEMAP } from './default-basemap.js';
 import { faixaDeZoom, aplicarFaixaDeZoom } from './basemap-zoom.js';
 import { baseStyleAlreadyOnMap, collectStyleIds, mergeApplicationStyle, withSwitchAppearance } from './style-transform.js';
 import { applyTileLodParams } from '../map/tile-lod.js';
@@ -66,26 +67,52 @@ const STYLE_MAP = {
     'bdgex': bdgexLayer
 };
 
-// A base com que o mapa NASCE, e este é o único lugar que diz qual é: `map_sig.js`
-// cria o mapa com `initialBaseStyle()`, e o controle guarda os ids dessa mesma base
-// para, na primeira troca, separar por exclusão o que é da base do que é da
-// aplicação. Um mapa nascido com um estilo e um controle assumindo outro fazem a
-// primeira troca manter a base velha INTEIRA por cima da nova, porque a exclusão é
-// feita contra os ids errados.
-export const DEFAULT_LAYER = 'carta-topografica';
+/**
+ * The base the map is BORN with, and this is the only place that says which one: `map_sig.js`
+ * creates the map with `initialBaseStyle()`, and the control keeps the ids of this same base to
+ * separate, on the first switch and by exclusion, what belongs to the base from what belongs to
+ * the application. A map born with one style and a control assuming another make the first switch
+ * keep the old base WHOLE on top of the new one, because the exclusion runs against the wrong ids.
+ *
+ * IT IS THE ADMINISTRATOR'S CHOICE SINCE 2026-09-23 (`defaultBasemap`, `config.map2d.defaultBasemap`),
+ * and it was the constant `DEFAULT_LAYER = 'carta-topografica'` before. The configured id is taken
+ * when this viewer's catalogue OFFERS it and it resolves to a style; otherwise the first offered
+ * basemap that does, which is exactly where the first `switchMap` would land (`getValidBasemapFallback`
+ * and then the style fallback of `switchLayer`). A private default this viewer has no grant to, or
+ * one disabled after the save, is skipped at birth instead of drawn for an instant and replaced.
+ *
+ * With nothing offered at all (a catalogue that never hydrated), the floor `FACTORY_DEFAULT_BASEMAP`,
+ * whose style is built in and always resolves, which is what this function always answered before.
+ *
+ * RESOLVED AT EVERY CALL, never at module load: `config` is hydrated before `createMap` runs
+ * (`index.js`, Phase 1 before Phase 3), and the grant overlay changes the offered list later on.
+ * @returns {string} Basemap id
+ */
+export function initialBaseLayer() {
+    const offered = (config.getEnabledBasemaps?.() ?? []).map(([id]) => id);
+    const wanted = defaultBasemap();
+    if (offered.includes(wanted) && styleOf(wanted)) return wanted;
+    return firstStyledBasemap(offered, STYLE_MAP, config.basemapStyles) ?? FACTORY_DEFAULT_BASEMAP;
+}
 
 /**
- * O estilo com que o mapa é criado: a mesma base que o controle assume.
+ * O estilo com que o mapa é criado: o de `initialBaseLayer()`, a mesma base que o controle assume.
  *
  * PASSA PELA MESMA RESOLUÇÃO QUE A TROCA USA (`resolveBasemapStyle`), e não pelo
- * módulo direto, que era o que `map_sig.js` importava. Hoje as duas formas dão o
- * MESMO objeto, porque o embutido ganha do publicado para os cinco ids que o
- * cliente traz (`basemap-style.js`); ir pela resolução é o que mantém as duas em
- * passo no dia em que o padrão deixar de ser um embutido.
- * @returns {Object|string|null} Especificação de estilo de DEFAULT_LAYER
+ * módulo direto, que era o que `map_sig.js` importava: o publicado vence o embutido
+ * (`basemap-style.js`), e o id de nascimento pode ser qualquer um do catálogo.
+ * @returns {Object|string|null} Especificação de estilo da base de nascimento
  */
 export function initialBaseStyle() {
-    return resolveBasemapStyle(DEFAULT_LAYER, STYLE_MAP, config.basemapStyles);
+    return styleOf(initialBaseLayer());
+}
+
+/**
+ * @param {string} id
+ * @returns {Object|string|null}
+ */
+function styleOf(id) {
+    return resolveBasemapStyle(id, STYLE_MAP, config.basemapStyles);
 }
 
 class BaseLayerControl {
@@ -104,8 +131,15 @@ class BaseLayerControl {
         // False until the first `switchMap` paints, and again after every store wipe: the next
         // entry then reads the base SAVED on the map document even without a saved position,
         // because there is no "what is on screen" worth keeping yet (the map is born with
-        // `DEFAULT_LAYER`, and after a wipe the screen belongs to the atlas that just left).
+        // `initialBaseLayer()`, and after a wipe the screen belongs to the atlas that just left).
         this._viewPainted = false;
+
+        // THE BIRTH IS ASKED BEFORE `validateBasemapsConfig`, and the order is the point:
+        // `createMap` asked `initialBaseLayer()` a moment ago, before this constructor ran
+        // (`map_sig.js`, with no `await` in between), and the validation may re-enable a
+        // basemap, which changes the offered list that the answer depends on. Asked after it,
+        // the control could assume a base the map was not born with.
+        const birth = initialBaseLayer();
 
         config.validateBasemapsConfig();
 
@@ -113,7 +147,12 @@ class BaseLayerControl {
         // (`map_sig.js`), e cada `setStyle` abaixo grava os ids da próxima base dentro
         // do próprio `transformStyle`, de modo que o conteúdo da aplicação se conhece
         // por exclusão: é o que a base anterior não declarava.
-        this._baseStyleIds = collectStyleIds(initialBaseStyle());
+        this._baseStyleIds = collectStyleIds(styleOf(birth));
+        // The belief starts at the base on screen. The StateManager is born saying
+        // `carta-topografica` (`state/state_manager.js`), which was true only while the birth
+        // was a constant; with the default configured elsewhere, the selector would mark one
+        // base while the map shows another until the first `switchMap` paints.
+        this.currentLayer = birth;
     }
 
     /**
@@ -173,9 +212,9 @@ class BaseLayerControl {
 
     get currentLayer() {
         try {
-            return getStateManager().get('baseLayer.activeLayer') || DEFAULT_LAYER;
+            return getStateManager().get('baseLayer.activeLayer') || initialBaseLayer();
         } catch {
-            return DEFAULT_LAYER;
+            return initialBaseLayer();
         }
     }
 
@@ -466,10 +505,10 @@ class BaseLayerControl {
         // registro do mapa já mostram o novo. Quem paga isso é `applySharedBasemap`, que devolve
         // `this.currentLayer` como a única resposta honesta sobre o que está na tela.
         this.currentLayer = layer;
-        // FORA do `if` acima, e essa é a metade que importa. O getter de `currentLayer` devolve
-        // `carta-topografica` quando não há estado, e o mapa NASCE com esse estilo
-        // (`map_sig.js`), então no boot mais comum o bloco inteiro é pulado, e a faixa do mapa
-        // base inicial nunca seria aplicada. O mesmo vale para uma troca que o MapLibre resolve
+        // FORA do `if` acima, e essa é a metade que importa. O mapa NASCE com o estilo de
+        // `initialBaseLayer()` (`map_sig.js`), e a primeira pintura costuma pedir essa mesma
+        // base, então no boot mais comum o bloco inteiro é pulado, e a faixa do mapa base
+        // inicial nunca seria aplicada. O mesmo vale para uma troca que o MapLibre resolve
         // como diff vazio.
         this._applyBasemapZoom(layer);
         await this._updateHillshadeVisibility();

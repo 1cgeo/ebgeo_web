@@ -6,7 +6,7 @@
 import config from '../../config.js';
 import { createAudit } from '../../utils/audit.js';
 import { canDeliverAccountMail, canEnableSelfRegistration } from '../../utils/mailer.js';
-import { BadRequestError } from '../../utils/errors.js';
+import { BadRequestError, ValidationError } from '../../utils/errors.js';
 import { query, tx } from '../../database/index.js';
 import { catalogService } from '../catalog/index.js';
 import { readThroughAppConfigCache, invalidateAppConfigCache } from './config.cache.js';
@@ -102,6 +102,55 @@ function podarZoomDeAplicacao(doc) {
 }
 
 /**
+ * Refuses a `map2d.defaultBasemap` that is not one of the basemaps `GET /api/config` serves.
+ *
+ * THE OTHER HALF OF THE BORDER, and it lives here because Joi runs without the database
+ * (`config.admin.schemas.js` checks only the type). The list is `listBasemaps()`, the SAME one
+ * the document serves as `basemaps` and the "Sistema" tab offers in its select: the active
+ * PUBLIC rows of the catalog. A private basemap is refused too, on purpose: the default is what
+ * every viewer is born with, the anonymous one included, and a base only some of them can draw
+ * would be a default for some and a silent fallback for the rest.
+ *
+ * WHAT IT DOES NOT CATCH is a basemap removed or made private AFTER the save. That is the client's
+ * job, and it already does it: a base this viewer is not offered falls back to the first one the
+ * selector shows (`initialBaseLayer`, `frontend/src/js/baselayers/base-layer.control.js`).
+ *
+ * The refusal has the shape of a Joi 422 (`VALIDATION_ERROR` plus `details`), so the tab shows it
+ * like any other field it got wrong.
+ *
+ * @param {Object} partial - The validated body of `PUT /config/admin`.
+ */
+async function assertDefaultBasemapKnown(partial) {
+  const id = partial?.map2d?.defaultBasemap;
+  if (id === undefined) return;
+  const basemaps = await listBasemaps();
+  if (Object.hasOwn(basemaps, id)) return;
+  const message = `O mapa base inicial "${id}" não está no catálogo público. Escolha um da lista.`;
+  throw new ValidationError('Falha na validação', [{ field: 'map2d.defaultBasemap', message }]);
+}
+
+/**
+ * The base a map created ON THE SERVER is born with: the configured `map2d.defaultBasemap`.
+ *
+ * The one server site that mints a map from nothing is `createAtlas` (its first map). Without this,
+ * that map took the column default of `maps.base_layer`, `carta-topografica`, and a new atlas
+ * opened on it whatever the administrator had chosen. Every other server path writes the base the
+ * client sent or the base of the map being copied.
+ *
+ * Falls back to the static default instead of failing: the config being unreadable must not
+ * stop an atlas from being created, and the static value is what the column would have given.
+ * @returns {Promise<string>}
+ */
+export async function getDefaultBasemap() {
+  try {
+    const id = (await getAppConfig())?.map2d?.defaultBasemap;
+    return typeof id === 'string' && id ? id : S.MAP2D_BASE.defaultBasemap;
+  } catch {
+    return S.MAP2D_BASE.defaultBasemap;
+  }
+}
+
+/**
  * Merges a partial override into the stored override document (so a partial save never wipes
  * untouched sections) and persists it. Returns the merged document.
  *
@@ -138,6 +187,7 @@ export async function updateConfigOverrides(partial, userId, req = null) {
   if (partial?.features?.self_registration === true && !canEnableSelfRegistration()) {
     throw new BadRequestError('Configure SMTP_HOST e APP_BASE_URL antes de habilitar o autocadastro.');
   }
+  await assertDefaultBasemapKnown(partial);
   const merged = await tx(async (t) => {
     const current = (await t.one(Q.LOCK_CONFIG_OVERRIDES, [OVERRIDES_KEY])).value ?? {};
     const next = podarProjecaoDoPainel(podarZoomDeAplicacao(deepMerge(current, partial)));

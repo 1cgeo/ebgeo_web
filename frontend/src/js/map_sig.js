@@ -139,8 +139,9 @@ const CERTIFICATE_ERROR_SOURCES = {
 export function createMap() {
     const map = new maplibregl.Map({
         container: 'map-sig',
-        // A MESMA base que o `BaseLayerControl` assume (o `DEFAULT_LAYER` dele). Importar
-        // o módulo do estilo aqui deixava os dois LIVRES para divergir, e é dessa
+        // A MESMA base que o `BaseLayerControl` assume (`initialBaseLayer()`, a base padrão
+        // que o administrador escolhe na aba Sistema, já hidratada em `config` pela Fase 1).
+        // Importar o módulo do estilo aqui deixava os dois LIVRES para divergir, e é dessa
         // divergência que nasce a troca que preserva a base velha inteira por cima da nova.
         style: initialBaseStyle(),
         attributionControl: false,

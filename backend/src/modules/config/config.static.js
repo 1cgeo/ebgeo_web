@@ -57,6 +57,19 @@ export const MAP2D_BASE = {
   minZoom: 2,
   maxZoom: 21,
   maxPitch: 65,
+  // THE DEFAULT BASEMAP (owner's request, 2026-09-23): the id of the catalog basemap the map is
+  // born with on opening, and the one every NEW map document gets (the blank map of a first
+  // visit, a map created in the "Mapas" tab, the first map of an atlas created on the server).
+  // It was the constant `DEFAULT_LAYER` of the client until this date, fixed at
+  // `carta-topografica`, and the default here is that same value, so a deploy with no override
+  // behaves exactly as before. The administrator picks another one in the "Sistema" tab.
+  //
+  // A MAP THAT ALREADY EXISTS DOES NOT FOLLOW IT: its document carries the base it was born with
+  // (or the one saved with its view), and that is what it opens on. The border is
+  // `config.admin.schemas.js` (type) plus `assertDefaultBasemapKnown` (`config.service.js`,
+  // the id has to be a basemap this document serves). A viewer who cannot draw it falls back on
+  // the client, like any basemap the selector does not offer.
+  defaultBasemap: 'carta-topografica',
   // SEM `globe_projection` desde 2026-09-22 (decisão do dono). A projeção é do ATLAS
   // (`atlas.settings.globeProjection`, globo por padrão) desde 2026-08-16, e a chave de deploy
   // passou um mês servida aqui sem nenhum leitor no cliente, com a caixa do painel ligada a ela:

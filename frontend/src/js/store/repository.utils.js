@@ -6,6 +6,9 @@
  */
 
 import { isValidId } from '../utilities/uuid.js';
+// BY FILE, a leaf that imports only `config.js`: the base-layer control (and its barrel) would drag
+// the MapLibre styles into the store.
+import { defaultBasemap } from '../baselayers/default-basemap.js';
 
 /**
  * Name-keyed legacy stores own the map name; their document may still say "Novo Mapa".
@@ -116,11 +119,16 @@ export function compareVersions(version1, version2) {
 
 /**
  * Returns empty map data structure.
+ *
+ * `baseLayer` is the DEFAULT BASEMAP the administrator configured (`defaultBasemap`, read at the
+ * call, since 2026-09-23), not a constant: a new map is born with the base the map opens on. It is
+ * the CONFIGURED id, not what this viewer can draw; the new-map path resolves it against the
+ * catalogue before journaling (`mintMapDocument`), and drawing falls back by itself.
  * @returns {Object} Empty map data
  */
 export function getEmptyMapData() {
     return {
-        baseLayer: 'carta-topografica',
+        baseLayer: defaultBasemap(),
         analysisLayers: {},
         features: {
             polygons: [],

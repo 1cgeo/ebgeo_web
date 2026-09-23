@@ -128,6 +128,20 @@ export const configOverridesSchema = Joi.object({
     hillshade: Joi.object({
       enabled: Joi.boolean(),
     }).unknown(true),
+    // THE DEFAULT BASEMAP (2026-09-23): the base the map is born with and every new map
+    // document gets. Declaring it creates the capability, like `hillshade` above: the field of
+    // the "Sistema" tab is born with this line.
+    //
+    // THIS IS ONLY THE TYPE HALF of the border. A slug of the catalog (`VARCHAR(100)`), never
+    // empty and never `null`: unlike `terrainPreferredBasemap`, there is no "off" here, a map
+    // always has a base. WHETHER THE ID EXISTS is checked by the service
+    // (`assertDefaultBasemapKnown`, `config.service.js`), because it depends on the catalog
+    // table and this schema runs synchronously, without the database. The neighbours
+    // `terrainPreferredBasemap` and `miniMapBasemap` skip that check on purpose; this one does
+    // not, because this id is WRITTEN into map documents (the blank map of a first visit, the
+    // first map of an atlas created on the server), and a typo would spread to the maps of
+    // every user instead of failing once, on the save.
+    defaultBasemap: Joi.string().trim().max(100),
     // `.custom()` E NÃO SÓ QUATRO BORDAS SOLTAS, pela mesma razão de `catalog.schemas.js`: a
     // inversão (`oeste > leste`, `sul > norte`) é a única falha que nenhuma das quatro posições
     // vê sozinha, e é a que produz o pior estado. O cliente recusa a caixa invertida INTEIRA

@@ -95,7 +95,7 @@ vi.mock('../../src/js/config.js', () => ({
     },
 }));
 
-const { default: BaseLayerControl, DEFAULT_LAYER, initialBaseStyle } = await import('../../src/js/baselayers/base-layer.control.js');
+const { default: BaseLayerControl, initialBaseLayer, initialBaseStyle } = await import('../../src/js/baselayers/base-layer.control.js');
 const { default: cartaTopografica } = await import('../../src/js/baselayers/carta_topografica.js');
 const { default: osmLayer } = await import('../../src/js/baselayers/osm_layer.js');
 const { default: imagensLayer } = await import('../../src/js/baselayers/imagens_layer.js');
@@ -161,8 +161,9 @@ beforeEach(() => {
 });
 
 describe('o estilo de nascimento e a crença do controle são a MESMA coisa', () => {
-    it('`initialBaseStyle()` é o estilo de DEFAULT_LAYER, resolvido como a troca resolve', () => {
-        expect(DEFAULT_LAYER).toBe('carta-topografica');
+    it('`initialBaseStyle()` é o estilo da base de nascimento, resolvido como a troca resolve', () => {
+        // Sem `map2d.defaultBasemap` servido, a base de nascimento é o piso, a mesma de antes.
+        expect(initialBaseLayer()).toBe('carta-topografica');
         expect(initialBaseStyle()).toBe(cartaTopografica);
     });
 

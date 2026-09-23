@@ -32,6 +32,8 @@ import { ATLAS_SEARCH_MIN_TERM, ATLAS_SEARCH_MAX_LIMIT } from './atlas.schemas.j
 // numeros diferentes sobre o mesmo teto.
 import { assertAtlasQuota, assertImportMapCeiling } from './atlas-quota.js';
 import { importImageIds } from './import-image-refs.js';
+// The base the first map of a new atlas is born with (the admin's `map2d.defaultBasemap`).
+import { getDefaultBasemap } from '../config/config.service.js';
 
 // ---------------------------------------------------------------------------
 // Batch INSERT plumbing (L67).
@@ -369,11 +371,15 @@ function withCopySuffix(name) {
  * Creates a new atlas owned by the specified user.
  */
 export async function createAtlas(userId, data) {
+  // THE FIRST MAP IS BORN WITH THE CONFIGURED DEFAULT BASEMAP (2026-09-23), never with the column
+  // default: the map opens on the base its document carries, so a new atlas would ignore the
+  // administrator's choice. Read BEFORE the transaction, which it does not need.
+  const baseLayer = await getDefaultBasemap();
   return tx(async (t) => {
     await assertAtlasQuota(t, userId);
     const atlas = await t.one(Q.INSERT_ATLAS, [data.name, data.description || null, userId]);
-    const map = await t.one('INSERT INTO maps (atlas_id, name) VALUES ($1, $2) RETURNING id',
-      [atlas.id, 'Mapa 1']);
+    const map = await t.one('INSERT INTO maps (atlas_id, name, base_layer) VALUES ($1, $2, $3) RETURNING id',
+      [atlas.id, 'Mapa 1', baseLayer]);
     await ensureMapLayers(t, atlas.id, [map.id]);
     return t.one('UPDATE atlas SET map_order=$2::uuid[] WHERE id=$1 RETURNING *', [atlas.id, [map.id]]);
   });
