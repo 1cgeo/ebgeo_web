@@ -4,7 +4,8 @@ import { ENGINEERING_CATALOG } from './engineering_catalog.js';
 import { engineeringFields } from './engineering_fields.js';
 import { engineeringDraft, engineeringItem, engineeringSvg } from './engineering_generator.js';
 import { errorsFor } from './engineering_drawing.js';
-import { createDigitalComboBoxWithThumbnails, createDigitalComboBox, createDropdownState, createCheckbox } from '../coordination_measure_tool/attributes/ui-components.helpers.js';
+import { createDigitalComboBoxWithThumbnails, createDigitalComboBox, createDropdownState } from '../coordination_measure_tool/attributes/ui-components.helpers.js';
+import { createModernToggle } from '@tools/helpers/form-controls.helpers.js';
 import { createColorControlSection } from '../coordination_measure_tool/attributes/color-control.section.js';
 import { createTextModifierField } from '../coordination_measure_tool/attributes/text-modifiers.section.js';
 
@@ -88,12 +89,12 @@ export class EngineeringSelectorModal extends ModalBase {
         for (const field of schema.fields) {
             const onChange = value => { draft.values[field.key] = value ?? ''; this.preview(); };
             const label = field.kind === 'checkbox'
-                ? createCheckbox(field.label, draft.values[field.key], onChange)
+                ? createModernToggle({ label: field.label, checked: draft.values[field.key], onChange, className: 'engineering-toggle' })
                 : createTextModifierField(field.key, {
                     label: field.label, type: field.kind === 'select' ? 'select' : 'text', required: true,
                     help: field.help, options: field.options?.map(([key]) => key), optionLabels: Object.fromEntries(field.options || [])
                 }, draft.values[field.key], onChange);
-            const input = label.querySelector('input,select');
+            const input = label.querySelector('input,select,.attr-modern-toggle-switch');
             input.dataset.field = field.key; input.setAttribute('aria-label', field.label);
             if (input.type === 'text') { input.maxLength = 40; input.inputMode = field.kind === 'integer' ? 'numeric' : 'decimal'; }
             this.fields.appendChild(label);

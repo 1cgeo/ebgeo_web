@@ -21,21 +21,10 @@
     line-height: 1.5;
 }
 
-@media (width <= 768px) {
-    #engineering-selector .point-selector-main {
-        display: flex;
-        flex-direction: column;
-        overflow-y: auto;
-    }
+.engineering-toggle {
+    grid-column: 1 / -1;
+}
 
-    #engineering-selector .point-selector-controls,
-    #engineering-selector .point-selector-preview {
-        flex-shrink: 0;
-        overflow: visible;
-    }
-
-    #engineering-selector .point-selector-preview {
-        padding-left: 0;
-        border-left: 0;
-    }
+#engineering-selector {
+    --point-selector-height: 800px;
 }

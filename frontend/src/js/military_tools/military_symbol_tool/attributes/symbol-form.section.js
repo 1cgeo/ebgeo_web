@@ -134,10 +134,7 @@ function createCommandCheckbox(tempProperties, updatePreview, flags) {
     return {
         container,
         updateValue: (newValue) => {
-            const checkbox = toggle.querySelector('input[type="checkbox"]');
-            if (checkbox) {
-                checkbox.checked = !!newValue;
-            }
+            toggle.setChecked(!!newValue);
         }
     };
 }

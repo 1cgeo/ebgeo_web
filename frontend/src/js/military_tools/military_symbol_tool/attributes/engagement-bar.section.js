@@ -12,6 +12,7 @@
 
 import { getEngagementBarData } from '../military_constants.js';
 import { encodeEngagementBar, decodeEngagementBar } from './engagement-bar-codec.js';
+import { createModernToggle } from '@tools/helpers/form-controls.helpers.js';
 
 /**
  * Populates a select element with options from data array.
@@ -74,21 +75,16 @@ export function createEngagementBarContent(tempProperties, onUpdate) {
     const stageField = createSelectField('Estágio do Engajamento:', data.stages);
     const weaponField = createSelectField('Armamento/Elemento:', data.weapons);
 
-    const remoteContainer = document.createElement('div');
-    remoteContainer.className = 'engagement-bar__checkbox-row';
-
-    const remoteCheckbox = document.createElement('input');
-    remoteCheckbox.type = 'checkbox';
-    remoteCheckbox.id = 'engagement-remote';
-    remoteCheckbox.className = 'engagement-bar__checkbox';
-
-    const remoteLabel = document.createElement('label');
-    remoteLabel.htmlFor = 'engagement-remote';
-    remoteLabel.className = 'engagement-bar__checkbox-label';
-    remoteLabel.textContent = 'Designação Remota';
-
-    remoteContainer.appendChild(remoteCheckbox);
-    remoteContainer.appendChild(remoteLabel);
+    let remoteDesignation = false;
+    const remoteToggle = createModernToggle({
+        id: 'engagement-remote',
+        label: 'Designação Remota',
+        checked: remoteDesignation,
+        onChange: (checked) => {
+            remoteDesignation = checked;
+            updateEngagementBar();
+        }
+    });
 
     /**
      * Updates engagement bar property from controls.
@@ -97,7 +93,7 @@ export function createEngagementBarContent(tempProperties, onUpdate) {
         tempProperties.engagementBar = encodeEngagementBar({
             stage: stageField.select.value,
             weapon: weaponField.select.value,
-            remote: remoteCheckbox.checked,
+            remote: remoteDesignation,
         });
 
         onUpdate();
@@ -105,11 +101,10 @@ export function createEngagementBarContent(tempProperties, onUpdate) {
 
     stageField.select.addEventListener('change', updateEngagementBar);
     weaponField.select.addEventListener('change', updateEngagementBar);
-    remoteCheckbox.addEventListener('change', updateEngagementBar);
 
     container.appendChild(stageField.container);
     container.appendChild(weaponField.container);
-    container.appendChild(remoteContainer);
+    container.appendChild(remoteToggle);
 
     /**
      * Updates controls from properties.
@@ -125,7 +120,8 @@ export function createEngagementBarContent(tempProperties, onUpdate) {
 
         stageField.select.value = stage;
         weaponField.select.value = weapon;
-        remoteCheckbox.checked = remote;
+        remoteDesignation = remote;
+        remoteToggle.setChecked(remote);
     };
 
     return container;

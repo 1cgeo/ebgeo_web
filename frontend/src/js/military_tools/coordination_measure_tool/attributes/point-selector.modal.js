@@ -9,10 +9,10 @@ import { ModalBase } from '@modals';
 import { addDomListener } from '@utils/event-cleanup.js';
 import { blobToDataUrl } from '@utils/blob-to-data-url.js';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+import { createModernToggle } from '@tools/helpers/form-controls.helpers.js';
 
 import {
     createDigitalComboBoxWithThumbnails,
-    createCheckbox,
     isEchelonPointCode,
     isNucleoFT,
     trocarFamiliaDoNucleo,
@@ -387,7 +387,7 @@ export class PointSelectorModal extends ModalBase {
     }
 
     /**
-     * Rebuilds the task force checkbox, shown only for the nucleus.
+     * Rebuilds the task force toggle, shown only for the nucleus.
      * @private
      */
     _updateFtCheck() {
@@ -400,11 +400,11 @@ export class PointSelectorModal extends ModalBase {
 
         if (!ehNucleo) return;
 
-        this._ftCheckWrapper.appendChild(createCheckbox(
-            'Força-Tarefa',
-            isNucleoFT(this._tempProperties.pointCode),
-            (marcado) => this._handleForcaTarefaChange(marcado)
-        ));
+        this._ftCheckWrapper.appendChild(createModernToggle({
+            label: 'Força-Tarefa',
+            checked: isNucleoFT(this._tempProperties.pointCode),
+            onChange: (marcado) => this._handleForcaTarefaChange(marcado)
+        }));
     }
 
     /**

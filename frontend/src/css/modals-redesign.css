@@ -987,11 +987,13 @@
 .symbol-selector-modal-container {
     max-width: 1300px;
     width: 95%;
-    max-height: 90vh;
+    height: 760px;
+    max-height: 90dvh;
 }
 
 .symbol-selector-modal-container .modal-body {
     overflow: hidden;
+    max-height: none;
     padding: var(--space-4);
     display: flex;
     flex-direction: column;
@@ -1022,7 +1024,7 @@
     flex-direction: column;
     min-width: 0;
     min-height: 0;
-    overflow-y: auto;
+    overflow: hidden;
     padding-right: var(--space-3);
 }
 
@@ -1034,6 +1036,8 @@
     position: sticky;
     top: 0;
     padding-right: var(--space-4);
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .symbol-selector-preview-label {
@@ -1045,6 +1049,7 @@
 }
 
 .symbol-selector-preview-container {
+    box-sizing: border-box;
     border: 2px solid var(--border-color);
     border-radius: var(--radius-lg);
     padding: var(--space-3);
@@ -1213,6 +1218,7 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+    min-height: 0;
 }
 
 .symbol-selector-tabs__buttons {
@@ -1242,6 +1248,7 @@
 
 .symbol-selector-tabs__content {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
 }
@@ -1700,10 +1707,16 @@
 .point-selector-modal-container {
     max-width: 900px;
     width: 90%;
+    height: var(--point-selector-height, 760px);
+    max-height: 85dvh;
 }
 
 .point-selector-modal-container .modal-body {
     overflow: hidden;
+    max-height: none;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
 }
 
 .point-selector-content {
@@ -1711,7 +1724,8 @@
     flex-direction: column;
     gap: var(--space-4);
     overflow: hidden;
-    max-height: calc(85vh - 80px);
+    flex: 1;
+    min-height: 0;
 }
 
 .point-selector-main {
@@ -1762,6 +1776,8 @@
     min-width: 0;
     padding-left: var(--space-3);
     border-left: 2px solid var(--border-color);
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .point-selector-preview-label {
@@ -1799,6 +1815,27 @@
     gap: var(--space-3);
     padding-top: var(--space-3);
     border-top: var(--border-width) solid var(--border-color);
+    flex-shrink: 0;
+}
+
+/* Keep scrollbars and their reserved space consistent when switching tabs or symbols. */
+:is(.symbol-selector-main, .symbol-selector-tabs__content, .symbol-selector-preview, .symbol-selector-gallery, .symbol-gallery-scroll, .point-selector-main, .point-selector-controls, .point-selector-preview) {
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary) transparent;
+}
+
+:is(.symbol-selector-main, .symbol-selector-tabs__content, .symbol-selector-preview, .symbol-selector-gallery, .symbol-gallery-scroll, .point-selector-main, .point-selector-controls, .point-selector-preview)::-webkit-scrollbar {
+    width: 6px;
+}
+
+:is(.symbol-selector-main, .symbol-selector-tabs__content, .symbol-selector-preview, .symbol-selector-gallery, .symbol-gallery-scroll, .point-selector-main, .point-selector-controls, .point-selector-preview)::-webkit-scrollbar-thumb {
+    background: var(--primary);
+    border-radius: var(--radius-full);
+}
+
+:is(.symbol-selector-main, .symbol-selector-tabs__content, .symbol-selector-preview, .symbol-selector-gallery, .symbol-gallery-scroll, .point-selector-main, .point-selector-controls, .point-selector-preview)::-webkit-scrollbar-thumb:hover {
+    background: var(--primary-hover);
 }
 
 .point-selector-btn {
@@ -2239,8 +2276,24 @@
     }
 
     .symbol-selector-main {
-        grid-template-columns: 1fr;
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
         gap: var(--space-4);
+    }
+
+    .symbol-selector-controls,
+    .symbol-selector-preview,
+    .symbol-selector-gallery {
+        flex-shrink: 0;
+    }
+
+    .symbol-selector-tabs {
+        height: auto;
+    }
+
+    .symbol-selector-tabs__content {
+        overflow: visible;
     }
 
     .symbol-selector-preview {
@@ -2288,17 +2341,24 @@
     }
 
     .point-selector-main {
-        grid-template-columns: 1fr;
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
         gap: var(--space-4);
     }
 
     .point-selector-controls {
         max-height: none;
         overflow-y: visible;
+        flex-shrink: 0;
     }
 
     .point-selector-preview {
         position: relative;
+        flex-shrink: 0;
+        overflow: visible;
+        padding-left: 0;
+        border-left: 0;
     }
 
     .point-selector-preview-container {
@@ -2318,6 +2378,34 @@
     }
 }
 
+/* Short screens scroll the complete symbol content without squeezing the tab fields. */
+@media (height <= 600px) {
+    .symbol-selector-main {
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+    }
+
+    .symbol-selector-controls,
+    .symbol-selector-preview,
+    .symbol-selector-gallery {
+        flex-shrink: 0;
+        overflow: visible;
+    }
+
+    .symbol-selector-tabs {
+        height: auto;
+    }
+
+    .symbol-selector-tabs__content {
+        overflow: visible;
+    }
+
+    .symbol-selector-gallery {
+        max-height: none;
+    }
+}
+
 /* =========================================================================
    RESPONSIVE — LANDSCAPE + TABLET
    ========================================================================= */
@@ -2327,6 +2415,11 @@
         max-height: 95vh;
         height: auto;
         border-radius: var(--radius-xl);
+    }
+
+    .symbol-selector-modal-container,
+    .point-selector-modal-container {
+        height: min(var(--point-selector-height, 760px), 90dvh);
     }
 
     .shortcuts-modal-container,
