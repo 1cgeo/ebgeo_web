@@ -92,10 +92,14 @@ export class SymbolSelectorModal extends ModalBase {
      * @param {SymbolModalConfig} config - Modal configuration
      */
     constructor(config) {
+        // A fresh instance per open (`openSymbolModal`), so it must remove itself on close: without
+        // `destroyOnHide` every open left its hidden overlay and its document keydown listener
+        // behind (three opens, three overlays in the DOM, measured 2026-09-23).
         super({
             id: 'symbol-selector-modal',
             title: 'Configurar Símbolo Militar',
-            icon: ICONS.militarySymbol
+            icon: ICONS.militarySymbol,
+            destroyOnHide: true
         });
 
         this._feature = config.feature;

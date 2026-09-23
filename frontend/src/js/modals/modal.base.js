@@ -171,17 +171,16 @@ export class ModalBase {
 
         this._isOpen = false;
 
-        // Move focus out BEFORE setting aria-hidden to avoid accessibility warning
-        // "Blocked aria-hidden on an element because its descendant retained focus"
-        if (this._previousActiveElement) {
-            this._previousActiveElement.focus();
-            this._previousActiveElement = null;
-        } else {
-            // Fallback: blur current focus to prevent aria-hidden warning
-            const activeElement = document.activeElement;
-            if (activeElement && this._overlay.contains(activeElement)) {
-                activeElement.blur();
-            }
+        // Move focus out BEFORE setting aria-hidden, or Chrome blocks the attribute with
+        // "Blocked aria-hidden on an element because its descendant retained focus". Returning
+        // focus to the opener is only a first attempt: `focus()` fails in silence when the opener
+        // is `document.body` or left the DOM while the modal was open, so the blur runs in that
+        // case too, not only when nothing was saved.
+        this._previousActiveElement?.focus?.();
+        this._previousActiveElement = null;
+        const activeElement = document.activeElement;
+        if (activeElement && this._overlay.contains(activeElement)) {
+            activeElement.blur();
         }
 
         this._overlay.dataset.visible = 'false';
