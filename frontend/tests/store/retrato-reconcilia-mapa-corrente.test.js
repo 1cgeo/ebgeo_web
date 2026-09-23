@@ -308,6 +308,39 @@ describe('O3 — o retrato reconcilia o mapa corrente: (b) ele nao existe mais',
     });
 });
 
+describe('O3 — a recontagem de cores adiada nao escreve no console', () => {
+    it('depois dos 100 ms do temporizador, nenhum aviso de analise de cor', async () => {
+        // O ERRO DE FECHAMENTO que isto prende (2026-09-23): trocar de mapa arma
+        // `performInitialColorAnalysis` para 100 ms depois (`loadColorUsageFromDB`,
+        // `store/store-state-manager.js`), e este arquivo termina antes disso. Com o documento
+        // `null` do mock a recontagem avisava no console, o aviso chegava com o worker do vitest
+        // fechando, e o `npm test` da raiz reprovava com "Closing rpc while onUserConsoleLog was
+        // pending" e todos os testes verdes, em cerca de um terço das rodadas. O caso espera o
+        // temporizador de proposito, nos dois desfechos que o disparam (mapa que sumiu e atlas
+        // vazio, este com o nome `undefined`).
+        const avisos = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            semearAbaNoMapa({ corrente: true });
+            mockMaps.value.set(OUTRO_ID, { id: OUTRO_ID, name: VIZINHO });
+            mapResolver.replaceAll([[VIZINHO, OUTRO_ID]]);
+            anunciar({ mapId: MAP_ID, oldName: VELHO, newName: null });
+            await assentar();
+
+            semearAbaNoMapa({ corrente: true });
+            mapResolver.replaceAll([]);
+            mockMaps.value.clear();
+            anunciar({ mapId: MAP_ID, oldName: VELHO, newName: null });
+            await assentar();
+
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            const deCor = avisos.mock.calls.filter((c) => String(c[0]).includes('color analysis'));
+            expect(deCor, 'a recontagem adiada avisou no console').toEqual([]);
+        } finally {
+            avisos.mockRestore();
+        }
+    });
+});
+
 describe('O3 — as bordas do anuncio', () => {
     it('anuncio sem id, sem nome velho, ou com o mesmo nome dos dois lados nao faz nada', async () => {
         semearAbaNoMapa({ corrente: true });

@@ -300,10 +300,11 @@ describeOrSkip('§30 vazamento de recurso ao abrir e fechar visualizador', () =>
         // segunda leitura, e a sonda contava o listener dele porque `WeakRef.deref()` responde
         // "vivo" enquanto o coletor de lixo não passa. Deixar isso como flake seria medir o
         // coletor; a régua passou a separar o ANCORADO (window, document, elemento conectado) do
-        // SOLTO, e este bloco é o controle negativo dessa separação: com a sonda antiga ele soma
-        // um ao total e o `toBe(60)` reprova; com a de hoje ele entra no balde solto e o total
-        // continua exato. O sinal que a régua existe para ver (o listener pendurado num botão
-        // que nunca sai do documento) continua do lado ancorado.
+        // SOLTO, e este bloco é o controle negativo dessa separação: com a sonda antiga o
+        // listener dele caía no balde ancorado, e hoje quem o acusa é a checagem do balde solto
+        // mais abaixo (`abortosSoltos`), que volta a zero se ele mudar de balde. O sinal que a
+        // régua existe para ver (o listener pendurado num botão que nunca sai do documento)
+        // continua do lado ancorado.
         await page.evaluate(() => {
             const ctrl = new AbortController();
             window.__ruidoDeAbort = [ctrl, () => {}];
@@ -314,12 +315,25 @@ describeOrSkip('§30 vazamento de recurso ao abrir e fechar visualizador', () =>
         // O vazador retém, por chamada, 20 listeners de `document`, 1 contexto WebGL e 1 timer.
         // Se qualquer uma das três contas não bater, a sonda não está medindo o que se pensa que
         // ela mede, e o §30.2 abaixo não pode ser lido.
+        //
+        // A CONTA EXATA É A DO TIPO INJETADO, e não o total da página, desde 2026-09-23. O total
+        // amarrava o controle a nenhum código do app registrar nada nestes milissegundos, e sob
+        // carga ele registrou (<canvas>:mouseleave +1, 61 contra 60, nos dois navegadores; a
+        // origem não foi identificada, e uma sonda sem carga não viu registro de mouseleave em
+        // canvas nenhum nos 6 s depois do boot). O controle prova o INSTRUMENTO; quem julga o app
+        // é o §30.2, com linha de base própria. O total ancorado continua cobrado de um lado só:
+        // a sonda não pode ter PERDIDO nenhum dos injetados.
+        const injetados = (leitura) => new Map(leitura.porTipo).get('document:ebgeo-sonda-vazamento') ?? 0;
+        const detalhe = `cresceu em: ${diferencaPorTipo(antes, depois)} (soltos: `
+            + `${diferencaPorTipo(antes, depois, 'porTipoSolto')})`;
+        expect(
+            injetados(depois) - injetados(antes),
+            `a sonda nao viu exatamente os listeners retidos; ${detalhe}`,
+        ).toBe(20 * CICLOS);
         expect(
             depois.listeners - antes.listeners,
-            'a sonda nao viu os listeners retidos, ou contou o ruido de AbortSignal junto; cresceu '
-            + `em: ${diferencaPorTipo(antes, depois)} (soltos: `
-            + `${diferencaPorTipo(antes, depois, 'porTipoSolto')})`,
-        ).toBe(20 * CICLOS);
+            `a conta ancorada perdeu listener injetado; ${detalhe}`,
+        ).toBeGreaterThanOrEqual(20 * CICLOS);
         // E O RUÍDO FOI MEDIDO, não ignorado: sem esta linha, uma sonda que parasse de registrar
         // alvo solto nenhum passaria igual, e o balde separado viraria cobertura vazia.
         //

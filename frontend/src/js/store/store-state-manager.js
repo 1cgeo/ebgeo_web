@@ -71,7 +71,9 @@ function colorDataToMap(colorData) {
 function countMapColors(mapData) {
     const colorCounts = new Map();
 
-    for (const features of Object.values(mapData.features || {})) {
+    // A missing document counts zero colours. The deferred recount below can land on a map that
+    // was removed or renamed during its 100 ms delay, and that is not an error to report.
+    for (const features of Object.values(mapData?.features || {})) {
         if (!Array.isArray(features)) continue;
 
         for (const feature of features) {
@@ -302,7 +304,9 @@ class MapManager {
 
             this.memoryStore.colorUsageCache = colorMap;
 
-            if (colorMap.size === 0) {
+            // No map, no recount: an empty atlas reaches here with `undefined`, and the recount
+            // would write a colour count under that key.
+            if (colorMap.size === 0 && mapName) {
                 setTimeout(() => this.performInitialColorAnalysis(mapName), 100);
             }
 

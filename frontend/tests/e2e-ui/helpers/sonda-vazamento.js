@@ -193,10 +193,15 @@ export const SONDA_VAZAMENTO = `(() => {
         },
         /** O pior caso, para o spec provar que a régua reprova antes de deixá-la julgar o app. */
         vazarDeProposito() {
+            // UM TIPO DE EVENTO QUE SÓ ESTA SONDA USA, e não 'click', desde 2026-09-23. O controle
+            // do §30.1 exigia o TOTAL ancorado exato, e sob carga a página ganhava um listener dela
+            // mesma na janela da medida (<canvas>:mouseleave +1, no Firefox em 2026-09-22 e no
+            // Chromium em 2026-09-23): o controle reprovava a página em vez de provar o instrumento.
+            // Com um tipo exclusivo, a contagem do que foi injetado não colide com nada do app.
             for (let i = 0; i < 20; i++) {
                 const fn = () => {};
                 lixoRetido.push(fn);
-                document.addEventListener('click', fn);
+                document.addEventListener('ebgeo-sonda-vazamento', fn);
             }
             const canvas = document.createElement('canvas');
             const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
