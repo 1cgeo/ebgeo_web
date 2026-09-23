@@ -12,6 +12,7 @@ import {
 // Direct, never through `@utils`: the barrel drags the store into the three pages that boot without it.
 import { showToast } from '../utilities/toast_service.js';
 import { pruneAbandonedCopies } from '../store/migration/legacy-cleanup.js';
+import { apontarParaORecuperado } from '../store/migration/abrir-recuperado.js';
 import {
     APAGANDO, BAIXANDO, BAIXAR_LABEL, CONTINUAR_CANCELAR_LABEL, CONTINUAR_CONFIRMAR_LABEL,
     CONTINUAR_LABEL, SAIDAS, alteracoesGuardadasEm, apagarBloqueado, apagarConcluido,
@@ -274,18 +275,36 @@ async function sweepAbandonedCopies() {
  * product to open and it opened, with nothing moved and nothing named differently. A rescue IS
  * news, because their work is safe somewhere they did not put it.
  *
- * @param {Array<{ kind: string, entry?: { name?: string } }>|undefined} reparos - What was repaired.
+ * THE RESCUED ATLAS IS WHAT OPENS (owner's decision, 2026-09-23): the boot is pointed at it
+ * (`store/migration/abrir-recuperado.js`) before the store mounts anything, so the map comes up on
+ * the work the person did in the old version instead of leaving them to find it in the list.
+ *
+ * @param {Array<{ kind: string, entry?: { id?: string, name?: string } }>|undefined} reparos - What was repaired.
+ * @param {{ mapa?: boolean }} [opcoes] - `mapa` when this page is the map, the one page that opens it.
  */
-function reportRepairs(reparos) {
+async function reportRepairs(reparos, { mapa = false } = {}) {
     for (const reparo of reparos || []) {
         if (reparo.kind !== ReparoAutomatico.ALTERACOES_RECUPERADAS) continue;
         registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_CONFLITO);
         descarregarUso();
-        showToast(alteracoesGuardadasEm(reparo.entry?.name ?? 'recuperado'), 'info', { duration: AVISO_DE_RESGATE_MS });
+        let apontado = false;
+        try {
+            apontado = await apontarParaORecuperado(reparo.entry);
+        } catch (falha) {
+            // The rescue itself is done and safe; failing to point at it costs only the shortcut.
+            console.warn('Atualização local: o atlas recuperado não pôde ser aberto direto.', falha?.message);
+        }
+        showToast(alteracoesGuardadasEm(reparo.entry?.name ?? 'recuperado', { aberto: apontado && mapa }),
+            'info', { duration: AVISO_DE_RESGATE_MS });
     }
 }
 
-export async function runLegacyUpgradeGate() {
+/**
+ * @param {{ mapa?: boolean }} [opcoes] - `mapa` on the map page (`index.js`): the rescued atlas
+ *   opens there, and the notice says so. The other three pages only move the pointer.
+ * @returns {Promise<boolean>}
+ */
+export async function runLegacyUpgradeGate({ mapa = false } = {}) {
     registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_INICIO);
     descarregarUso();
     // ARMED, not drawn: on a machine with nothing to migrate this gate settles in a fraction of a
@@ -310,7 +329,7 @@ export async function runLegacyUpgradeGate() {
         // progress card over a boot that already succeeded.
         progress.cancel();
         closeScreen();
-        reportRepairs(result?.reparos);
+        await reportRepairs(result?.reparos, { mapa });
         reportLateOutcome(result?.late);
         registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_SUCESSO);
         descarregarUso();
@@ -361,7 +380,13 @@ function reportLateOutcome(late) {
     }
 }
 
-export function watchLegacyChanges() {
+/**
+ * @param {{ abrirAtlas?: (atlasId: string) => Promise<{ ok?: boolean }> }} [opcoes] - On the map
+ *   page, how to switch to the rescued atlas LIVE (`switchAtlas`, which this module cannot import:
+ *   it would drag the store into the three pages that boot without it). Without it, the pointer
+ *   moves and the rescued atlas is what the map opens next.
+ */
+export function watchLegacyChanges({ abrirAtlas = null } = {}) {
     if (watching) return;
     watching = true;
     let running = false;
@@ -377,13 +402,27 @@ export function watchLegacyChanges() {
                 // screen is what is left when taking it did not work.
                 registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_CONFLITO);
                 descarregarUso();
+                let entry;
                 try {
-                    const entry = await recuperarAlteracoesTardias();
-                    showToast(alteracoesGuardadasEm(entry?.name ?? 'recuperado'), 'info', { duration: AVISO_DE_RESGATE_MS });
+                    entry = await recuperarAlteracoesTardias();
                 } catch (falha) {
                     console.warn('Atualização local: não foi possível guardar as alterações da versão antiga.', falha?.message);
                     showMigrationRecovery({ code: 'legacy_changes' });
+                    return;
                 }
+                // THE RESCUED ATLAS OPENS (owner's decision, 2026-09-23), live on the map, by
+                // pointer elsewhere. A failure here costs the shortcut, never the rescue.
+                let aberto = false;
+                try {
+                    if (abrirAtlas) aberto = (await abrirAtlas(entry.id))?.ok === true;
+                    else await apontarParaORecuperado(entry);
+                } catch (falha) {
+                    console.warn('Atualização local: o atlas recuperado não pôde ser aberto direto.', falha?.message);
+                }
+                showToast(alteracoesGuardadasEm(entry?.name ?? 'recuperado', { aberto }), 'info', { duration: AVISO_DE_RESGATE_MS });
+                // AFTER the switch: the Recuperado this one superseded was just unmounted, and the
+                // sweep drops it only if nobody worked in it (`legacy-cleanup.js`).
+                await sweepAbandonedCopies();
                 return;
             }
             reportLateOutcome(late);

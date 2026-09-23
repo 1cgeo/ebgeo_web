@@ -136,8 +136,10 @@ describe('o portão de migração roda nas quatro páginas', () => {
         // A MESMA forma nas quatro, e ela carrega as três propriedades de uma vez: é aguardado
         // (`await`), decide pelo valor (`!`) e ABANDONA o boot (`return`). O `false` já desenhou a
         // tela de recuperação dentro do portão, então voltar aqui é o desfecho completo.
-        expect(codigo).toMatch(/if\s*\(!\s*await\s+runLegacyUpgradeGate\(\)\)\s*return;/);
-        expect(codigo).toContain('watchLegacyChanges()');
+        // O argumento é opcional: o mapa passa `{ mapa: true }` desde 2026-09-23, porque é a página
+        // que abre o atlas recuperado. As três propriedades não mudam com ele.
+        expect(codigo).toMatch(/if\s*\(!\s*await\s+runLegacyUpgradeGate\((\{[^()]*\})?\)\)\s*return;/);
+        expect(codigo).toMatch(/watchLegacyChanges\((\{[\s\S]*?\})?\);/);
     });
 
     it.each(SEM_MAPA)('%s não varre os namespaces remotos sem reapontar o escopo local', (html) => {

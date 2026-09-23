@@ -210,3 +210,5 @@ que envelheceu na decisão seguinte.)
 - 2026-09-23: a abertura de atlas de servidor que falha no boot não apaga fila, bytes nem slot local; a queda entra no slot local pela troca viva e o seletor só navega com o motivo, [registro](decisions-2026.md).
 - 2026-09-23: o lote de uso de outra conta espera o dono em vez de ser apagado, e só o gesto Sair apaga os lotes de uma conta, [registro](decisions-2026.md).
 - 2026-09-23: sessão num spec de navegador só por duas portas (credencial em memória, ou login em atlas.html), com censo que reprova a forma crua, [registro](decisions-2026.md).
+- 2026-09-23: a base com que o mapa nasce e com que nasce todo mapa novo é escolha do administrador na aba Sistema (`map2d.defaultBasemap`, padrão `carta-topografica`), com borda de existência no servidor; mapa que já existe abre na base dele, [registro](decisions-2026.md).
+- 2026-09-23: o Recuperado das alterações tardias abre direto, e o anterior sai só se ninguém trabalhou nele e nenhuma aba o tem aberto, [registro](decisions-2026.md).

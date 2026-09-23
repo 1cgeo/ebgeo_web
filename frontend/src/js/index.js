@@ -121,8 +121,10 @@ async function initApp() {
     // de arquivo do build anterior) passa a terminar num aviso com "Recarregar", em vez de um
     // clique que não faz nada. Síncrona, sem rede. Ver `utilities/carga-sob-demanda.js`.
     instalarRedeDeCargaSobDemanda();
-    if (!await runLegacyUpgradeGate()) return;
-    watchLegacyChanges();
+    // O MAPA É A PÁGINA QUE ABRE O RECUPERADO (decisão do dono, 2026-09-23): no boot o portão aponta
+    // para ele, e com a página aberta o vigia troca para ele ao vivo.
+    if (!await runLegacyUpgradeGate({ mapa: true })) return;
+    watchLegacyChanges({ abrirAtlas: (atlasId) => switchAtlas({ kind: 'local', atlasId }) });
 
     // Capture the URL deep-link params at the VERY TOP, before any async boot work. The store boot
     // (initializeWithLastActiveMap, kicked off inside initializeApp) and initAtlasUrlSync emit

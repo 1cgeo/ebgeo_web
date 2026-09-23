@@ -220,10 +220,15 @@ export function baixouComoCopiaBruta(nome, motivo) {
  * safe but it is no longer where the person left it, and an atlas they cannot name is an atlas
  * they will not look for. Before 2026-09-22 this was a screen that stopped the boot to ask.
  *
+ * Since 2026-09-23 the map OPENS that atlas (owner's decision), and the sentence says so there;
+ * the pages that only move the pointer keep saying where to find it.
+ *
  * @param {string} nome - Name of the local atlas that was created.
+ * @param {{ aberto?: boolean }} [opcoes] - `aberto` when the map is now showing that atlas.
  * @returns {string}
  */
-export function alteracoesGuardadasEm(nome) {
+export function alteracoesGuardadasEm(nome, { aberto = false } = {}) {
+    if (aberto) return `As alterações feitas na versão antiga foram guardadas no atlas “${nome}”, que está aberto agora.`;
     return `As alterações feitas na versão antiga foram guardadas no atlas “${nome}”. `
         + 'Ele está na sua lista, em Seus atlas.';
 }

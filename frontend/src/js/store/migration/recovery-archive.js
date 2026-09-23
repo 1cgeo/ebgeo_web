@@ -139,6 +139,34 @@ export async function restoreRecoveryArchive(archive, index) {
     return navigator.locks.request(TRANSITION_LOCK, () => restoreSnapshot(archive.scopes[index]));
 }
 
+/**
+ * UM RECUPERADO SÓ, a não ser que a pessoa tenha trabalhado nele (decisão do dono, 2026-09-23).
+ *
+ * Cada resgate copia a origem INTEIRA da versão antiga, então o Recuperado novo já traz tudo o que
+ * o anterior trazia, mais o que a versão antiga gravou depois. Até esta data cada resgate criava
+ * mais um atlas com o mesmo nome. O anterior agora vai para `recoverySuperseded` com o inventário
+ * que ele tinha ao nascer, e a poda (`legacy-cleanup.js`) o apaga só se o inventário ainda for
+ * esse: atlas em que a pessoa desenhou fica. Abrir o atlas não muda o inventário (medido no boot
+ * da store sobre o Recuperado: zero registros mudaram).
+ *
+ * O inventário é o da cópia JÁ PREPARADA (`prepareIsolatedScope` migra o que foi copiado), e não o
+ * do legado, que é outra coisa.
+ * @param {Object} state - O diário da transição, gravado pelo chamador.
+ * @param {{id: string}} entry - O Recuperado que acabou de nascer (ou que a retomada devolveu).
+ * @param {Array} inventory - `inventoryScope` do escopo dele.
+ */
+function registrarRecuperadoVigente(state, entry, inventory) {
+    const anterior = state.recoveryCopy;
+    if (anterior?.id === entry.id) return;
+    if (anterior?.id) {
+        state.recoverySuperseded = [
+            ...(state.recoverySuperseded || []).filter(s => s.id !== anterior.id),
+            anterior
+        ];
+    }
+    state.recoveryCopy = { id: entry.id, inventory };
+}
+
 export async function recoverLateLegacyChanges() {
     if (!navigator.locks?.request) throw new Error('A recuperação requer coordenação entre janelas.');
     return navigator.locks.request(TRANSITION_LOCK, async () => {
@@ -157,6 +185,7 @@ export async function recoverLateLegacyChanges() {
                 throw new Error('A janela antiga continua gravando. Feche-a e tente novamente.');
             }
         } });
+        registrarRecuperadoVigente(state, entry, await inventoryScope(localScope(entry.id, entry.dbSuffix)));
         state.acknowledgedInventory = item.inventory;
         delete state.recovery;
         await getGlobalStore().setItem(LEGACY_TRANSITION_KEY, state);

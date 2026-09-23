@@ -44,7 +44,8 @@
  */
 
 import {
-    LEGACY_DB_SUFFIX, getGlobalStore, dropAtlasDatabases, localScope, readLocalAtlasRegistry
+    GlobalKey, LEGACY_DB_SUFFIX, atlasMountLockName, getGlobalStore, dropAtlasDatabases,
+    localAtlasRegistryKey, localScope, readLocalAtlasRegistry
 } from '../atlas-namespace.js';
 import { legacyScope } from './migration-scope.js';
 import { inventoryScope, legacyHasChanged } from './legacy-transition.js';
@@ -121,8 +122,78 @@ export async function pruneAbandonedCopies({
         await finishOrderedSourceDrop(report, timeoutMs);
         await pruneTransitionHistory(report, timeoutMs);
         await pruneStaleRestorations(report, now, maxAgeMs, timeoutMs);
+        await pruneSupersededRecoveries(report, timeoutMs);
         return report;
     });
+}
+
+/**
+ * Apaga o Recuperado que um resgate mais novo substituiu, SE ninguém trabalhou nele.
+ *
+ * O resgate (`recovery-archive.js`, `registrarRecuperadoVigente`) deixa em `recoverySuperseded` o
+ * Recuperado anterior e o inventário com que ele nasceu. Três respostas, e só uma apaga:
+ *
+ *   - MONTADO em alguma aba (a trava `atlasMountLockName` está tomada) ou sem Web Locks para
+ *     perguntar: fica na lista, e o próximo boot tenta de novo. Apagar bancos que outra aba está
+ *     lendo é o único jeito de esta função perder dado.
+ *   - INVENTÁRIO DIFERENTE do nascimento: a pessoa trabalhou nele. O atlas FICA, e sai da lista
+ *     para nunca mais ser candidato.
+ *   - IGUAL e livre: sai do registro e do disco. O Recuperado vigente já traz tudo o que ele trazia.
+ *
+ * O ponteiro de instalação apontando para ele também o deixa para depois: quem aponta é o resgate
+ * (para o vigente), e um ponteiro que ainda o nomeia é uma ordem que esta função não conhece.
+ * @param {CleanupReport} report - Mutated with what happened.
+ * @param {number|undefined} timeoutMs - Per-database bound.
+ * @returns {Promise<void>}
+ */
+async function pruneSupersededRecoveries(report, timeoutMs) {
+    let state = null;
+    try {
+        state = await readLegacyTransition();
+    } catch {
+        return;
+    }
+    const lista = Array.isArray(state?.recoverySuperseded) ? state.recoverySuperseded : [];
+    if (lista.length === 0) return;
+
+    const global = getGlobalStore();
+    const registro = await readLocalAtlasRegistry();
+    const travas = await travasDeMontagemVivas();
+    const ponteiro = await global.getItem(GlobalKey.CURRENT_LOCAL_ATLAS);
+    const fica = [];
+    for (const substituido of lista) {
+        const entry = registro.find(e => e.id === substituido?.id);
+        if (!entry || entry.id === state.recoveryCopy?.id) continue;
+        if (!travas || travas.has(atlasMountLockName(entry.dbSuffix)) || ponteiro === entry.id) {
+            fica.push(substituido);
+            report.recoveries.push({ id: entry.id, outcome: 'superseded-in-use' });
+            continue;
+        }
+        const escopo = localScope(entry.id, entry.dbSuffix);
+        if (JSON.stringify(await inventoryScope(escopo)) !== JSON.stringify(substituido.inventory)) {
+            report.recoveries.push({ id: entry.id, outcome: 'superseded-edited-kept' });
+            continue;
+        }
+        await global.removeItem(localAtlasRegistryKey(entry.id));
+        const { blocked } = await dropAtlasDatabases(escopo, options(timeoutMs));
+        if (blocked.length > 0) report.blocked.push(entry.dbSuffix);
+        report.recoveries.push({ id: entry.id, outcome: 'superseded-dropped' });
+    }
+    if (fica.length !== lista.length) {
+        await global.setItem(LEGACY_TRANSITION_KEY, { ...state, recoverySuperseded: fica });
+    }
+}
+
+/**
+ * @returns {Promise<Set<string>|null>} Os nomes de Web Lock tomados ou na fila, ou null quando o
+ *   ambiente não tem Web Locks (HTTP puro). Null significa "não dá para saber", e quem lê trata
+ *   como "em uso".
+ */
+async function travasDeMontagemVivas() {
+    const locks = globalThis.navigator?.locks;
+    if (!locks?.query) return null;
+    const { held = [], pending = [] } = await locks.query();
+    return new Set([...held, ...pending].map(lock => lock.name));
 }
 
 /**

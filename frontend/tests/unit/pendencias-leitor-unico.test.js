@@ -89,7 +89,8 @@ describe('o leitor de pendências alcança as quatro páginas', () => {
 
     it.each(PAGINAS)('$html passa pelo portão, que é quem instala o leitor', ({ entrada }) => {
         const codigo = semComentarios(readFileSync(join(FRONT, entrada), 'utf8'));
-        expect(codigo).toMatch(/if\s*\(!\s*await\s+runLegacyUpgradeGate\(\)\)\s*return;/);
+        // O argumento é opcional: o mapa passa `{ mapa: true }` desde 2026-09-23.
+        expect(codigo).toMatch(/if\s*\(!\s*await\s+runLegacyUpgradeGate\((\{[^()]*\})?\)\)\s*return;/);
     });
 
     it('o portão instala o leitor, e só no ramo de SUCESSO', () => {

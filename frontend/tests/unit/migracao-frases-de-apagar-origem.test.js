@@ -152,4 +152,11 @@ describe('o resgate automático fala, e nomeia o atlas', () => {
         expect(frase).toContain('Recuperado — alterações da versão antiga');
         expect(frase).toContain('Seus atlas');
     });
+
+    it('no mapa, que abre o atlas desde 2026-09-23, a frase diz que ele está aberto', () => {
+        const frase = alteracoesGuardadasEm('Recuperado — alterações da versão antiga', { aberto: true });
+        expect(frase).toContain('Recuperado — alterações da versão antiga');
+        expect(frase).toContain('aberto agora');
+        expect(frase).not.toContain('Seus atlas');
+    });
 });

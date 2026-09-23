@@ -629,6 +629,13 @@ describeOrSkip('Migração 2.2 para 2.3 em Chromium, com a fixture de produção
 
             // 6. E O BOOT CHEGA AO MAPA, sem gesto nenhum da pessoa.
             await waitForMap(page);
+
+            // 7. NO RECUPERADO (decisão do dono, 2026-09-23): o mapa abre o atlas em que o trabalho
+            //    da versão antiga foi parar, e o aviso diz isso. O escopo montado se lê do ponteiro
+            //    da aba, e não por `import()` aqui dentro, que pegaria outra instância do módulo.
+            const montado = await page.evaluate(() => JSON.parse(sessionStorage.getItem('ebgeo_tab_mount') || 'null'));
+            expect(montado?.dbSuffix, 'a aba montou o atlas recuperado').toBe(recuperado.dbSuffix);
+            await expect(page.locator('.toast', { hasText: 'que está aberto agora' })).toBeVisible();
         } finally { await ctx.close(); }
     });
 

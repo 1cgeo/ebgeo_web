@@ -116,7 +116,7 @@ describe('a rede no boot do mapa', () => {
 
     it('e a instala ANTES do portão de migração e dos serviços, que já carregam sob demanda', () => {
         const rede = entrada.indexOf('instalarRedeDeCargaSobDemanda();');
-        const portao = entrada.indexOf('await runLegacyUpgradeGate()');
+        const portao = entrada.indexOf('await runLegacyUpgradeGate(');
         const servicos = entrada.indexOf('initServices();');
         expect(portao, 'o portão de migração saiu do boot: reveja esta âncora').toBeGreaterThan(-1);
         expect(servicos, 'initServices saiu do boot: reveja esta âncora').toBeGreaterThan(-1);
