@@ -23,6 +23,7 @@
 // diferentes: a primeira custa um estado, a segunda custa a página.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 
 /** Um grafo de módulos NOVO: o desfecho é estado de módulo. */
 async function carregarModulos() {
@@ -217,5 +218,57 @@ describe('B4-7: o desfecho na linha de boot do atlas', () => {
         const { adocao } = await carregarModulos();
 
         expect(await adocao.reportBootAtlasScope()).not.toContain('persistente');
+    });
+});
+
+// ============================================================================
+// O boot DISPARA o pedido e não o espera (2026-09-23)
+// ============================================================================
+//
+// Com o prazo, o Firefox montava o mapa, mas pagava os 2000 ms inteiros em todo boot em que a
+// tarja de permissão não foi respondida, em toda carga e em toda troca de atlas por recarga, e
+// metade de quem usa o EBGeo está no Firefox. A concessão vale para a origem inteira, inclusive
+// o que já foi gravado antes dela, então esperar não comprava nada. O dono decidiu disparar e
+// seguir.
+
+describe('o boot dispara o pedido de persistência e não o espera', () => {
+    it('index.js chama pedirPersistencia, e sem await', () => {
+        // Por LEITURA DE FONTE porque `index.js` é o entry do mapa e não se importa em node. A
+        // primeira asserção é o controle da segunda: sem ela, apagar a chamada passaria verde.
+        const fonte = readFileSync(new URL('../../src/js/index.js', import.meta.url), 'utf8');
+
+        expect(fonte).toMatch(/\bpedirPersistencia\s*\(\s*\)/);
+        expect(fonte, 'o boot voltou a esperar o pedido: 2 s por carga no Firefox').not.toMatch(
+            /await\s+pedirPersistencia\s*\(/
+        );
+    });
+
+    it('o desfecho é pendente DESDE o pedido, e a linha de boot já o diz', async () => {
+        // Sem o boot esperando, a linha de boot pode ser composta com a tarja ainda aberta. Se o
+        // desfecho ficasse null até o prazo, a linha omitiria o campo, que é o que ela faz para
+        // "esta página nunca pediu", e o suporte leria ausência onde há pedido em curso.
+        let responder = null;
+        const storage = {
+            persisted: vi.fn(async () => false),
+            persist: vi.fn(() => new Promise((r) => { responder = r; }))
+        };
+        vi.stubGlobal('navigator', { storage });
+        vi.spyOn(console, 'info').mockImplementation(() => {});
+        const { persistencia, adocao } = await carregarModulos();
+
+        let assentou = false;
+        const pedido = persistencia.pedirPersistencia({ prazoMs: 60000 }).then((d) => {
+            assentou = true;
+            return d;
+        });
+        await vi.waitFor(() => expect(storage.persist).toHaveBeenCalledTimes(1));
+
+        expect(assentou, 'o caso mede o intervalo ANTES de qualquer resposta ou prazo').toBe(false);
+        expect(persistencia.desfechoDaPersistencia()).toBe('pendente');
+        expect(await adocao.reportBootAtlasScope()).toContain('persistente: pendente');
+
+        responder(false);
+        expect(await pedido).toBe('nao');
+        expect(persistencia.desfechoDaPersistencia()).toBe('nao');
     });
 });

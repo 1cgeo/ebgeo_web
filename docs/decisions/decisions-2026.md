@@ -4274,3 +4274,23 @@ instável, e cada uma foi atribuída antes de ser tocada.
   `backend/tests/integration/ambiente-do-navegador.test.js`. Detalhe em
   [observabilidade](../wiki/observabilidade.md).
 - **Status:** aceita.
+
+### 2026-09-23: o boot dispara o pedido de armazenamento persistente e não o espera
+
+- **Contexto:** desde 2026-09-15 o boot do mapa aguardava `pedirPersistencia`
+  (`frontend/src/js/store/storage-persistence.js`) com prazo de 2000 ms, porque no Firefox
+  `persist()` abre uma tarja de permissão e fica pendente até alguém responder. A auditoria de
+  lançamento mediu que o prazo disparava em todo boot do Firefox no harness e era cancelado no
+  Chromium: todo usuário de Firefox que não respondeu à tarja pagava 2 s a mais em toda carga e em
+  toda troca de atlas por recarga. O dono informou que metade dos usuários está no Firefox.
+- **Decisão (do dono):** `index.js` dispara o pedido e segue, sem `await`. O desfecho vira
+  `pendente` no instante do pedido e se corrige sozinho quando o navegador responder; o prazo
+  continua na função para quem aguardar a promessa.
+- **Motivo:** a concessão vale para o grupo de origem inteiro, inclusive o que já foi gravado antes
+  dela, então pedir antes de o store abrir os bancos nunca foi condição; esperar não comprava nada.
+- **Alternativa rejeitada:** encurtar o prazo, que só diminuiria o custo e manteria um boot refém de
+  um diálogo opcional.
+- **Guarda:** `frontend/tests/store/pedido-de-persistencia-no-boot.test.js` (reprova um `await` de
+  volta em `index.js`, e reprova o desfecho nulo durante o pedido). Detalhe em
+  [sessão, boot e ciclo de vida](../wiki/sessao-boot-e-ciclo-de-vida.md).
+- **Status:** aceita.

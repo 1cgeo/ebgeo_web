@@ -30,6 +30,15 @@
  * pedido OPCIONAL de faxina segurava a aplicacao inteira refem de uma resposta que podia nunca
  * vir. Dai a quarta regra abaixo, e daí o quarto desfecho.
  *
+ * E DESDE 2026-09-23 O BOOT NEM ESPERA (decisao do dono). Com o prazo, o mapa montava, mas todo
+ * boot de Firefox em que a tarja nao foi respondida pagava os 2000 ms inteiros, em toda carga e
+ * em toda troca de atlas por recarga, e metade de quem usa o EBGeo esta no Firefox (medido pelo
+ * agente da auditoria: o temporizador disparava em todo boot do Firefox no harness, e era
+ * cancelado no Chromium). Esperar nao comprava nada: a concessao vale para o grupo de origem
+ * INTEIRO, inclusive o que ja foi gravado antes dela, entao pedir antes de o store abrir os
+ * bancos nunca foi condicao. `index.js` dispara o pedido e segue; o desfecho e `pendente` desde o
+ * instante do pedido e se corrige sozinho quando o navegador responder.
+ *
  * ===========================================================================================
  * QUATRO REGRAS, E TODAS SAO SOBRE NAO CUSTAR O BOOT
  * ===========================================================================================
@@ -57,10 +66,13 @@
  * @typedef {'sim'|'nao'|'indisponivel'|'pendente'} DesfechoDePersistencia
  *   `sim` = o armazenamento desta origem e persistente; `nao` = o navegador recusou;
  *   `indisponivel` = a API nao existe ou lancou, e nada se sabe; `pendente` = o navegador abriu
- *   um dialogo e ninguem respondeu dentro do prazo, entao o boot seguiu sem a resposta.
+ *   um dialogo e ninguem respondeu AINDA (o pedido esta em curso, ou o prazo estourou).
  */
 
-/** Prazo do pedido, em ms. Curto de proposito: o boot inteiro espera por ele. */
+/**
+ * Prazo do pedido, em ms. O boot NAO espera por ele desde 2026-09-23 (ver o `fileoverview`); o
+ * prazo segura so quem aguardar a promessa, e garante que ela nunca fique pendente para sempre.
+ */
 export const PRAZO_DE_PERSISTENCIA_MS = 2000;
 
 /** @type {DesfechoDePersistencia|null} O ultimo desfecho, ou null enquanto ninguem pediu. */
@@ -90,6 +102,10 @@ export async function pedirPersistencia({ prazoMs = PRAZO_DE_PERSISTENCIA_MS } =
 
         // O PRAZO E EM VOLTA DO `persist()` E NAO DO `persisted()`: so o primeiro pode abrir
         // dialogo. Pôr o prazo nos dois faria o boot desistir de uma leitura que sempre responde.
+        // `pendente` JA NO PEDIDO, e nao so quando o prazo estoura: o boot nao aguarda mais esta
+        // promessa, entao a linha de boot pode ser composta com o dialogo ainda aberto, e sem
+        // isto ela leria null, que significa "esta pagina nunca pediu".
+        _desfecho = 'pendente';
         const pedido = armazenamento.persist();
         _desfecho = await comPrazo(pedido, prazoMs);
         return _desfecho;

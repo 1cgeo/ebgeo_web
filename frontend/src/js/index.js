@@ -23,9 +23,9 @@ import './map/maplibre.js';
 import { initializeAppConfig } from './config-loader.js';
 import { initConfigHelpers } from './config.helpers.js';
 import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-config.js';
-// Pelo ARQUIVO, de um módulo folha com zero imports: o pedido de armazenamento persistente corre
-// antes de o store existir, e passar pelo barril `./store` o amarraria à ordem de inicialização
-// dele. Ver o `fileoverview` de `storage-persistence.js`.
+// Pelo ARQUIVO, de um módulo folha com zero imports: o pedido de armazenamento persistente é
+// disparado antes de o store existir, e passar pelo barril `./store` o amarraria à ordem de
+// inicialização dele. Ver o `fileoverview` de `storage-persistence.js`.
 import { pedirPersistencia } from '@store/storage-persistence.js';
 import { syncEngine } from '@store/sync/sync-engine.js';
 import { apiClient } from '@store/sync/api-client.js';
@@ -206,13 +206,16 @@ async function initApp() {
     // sozinha; quem a usa é o `performance` do navegador, ao lado de `mapa-pronto`.
     vitais.marcar(MARCA_CONFIG);
 
-    // O PEDIDO DE ARMAZENAMENTO PERSISTENTE, e o lugar dele é este: depois do `GET /api/config`,
-    // que é o primeiro instante em que se sabe que há aplicação para bootar, e ANTES de o store
-    // inicializar, porque o que ele protege é justamente o que a inicialização vai abrir. Sem
-    // ele o grupo de origem inteiro (todo o IndexedDB desta origem, não o banco menos usado) é
-    // despejável sob pressão de disco, sem gesto do usuário e sem uma linha. Nunca rejeita, e o
-    // desfecho ('sim', 'nao' ou 'indisponivel') sai na linha de boot do atlas, lá embaixo.
-    await pedirPersistencia();
+    // O PEDIDO DE ARMAZENAMENTO PERSISTENTE sai aqui, depois do `GET /api/config`, que é o
+    // primeiro instante em que se sabe que há aplicação para bootar. Sem ele o grupo de origem
+    // inteiro (todo o IndexedDB desta origem, não o banco menos usado) é despejável sob pressão
+    // de disco, sem gesto do usuário e sem uma linha. Ele é DISPARADO e NÃO aguardado, desde
+    // 2026-09-23: no Firefox `persist()` abre uma tarja de permissão, e esperar custava o prazo
+    // inteiro (2 s) em todo boot de quem não a respondeu, para nada, porque a concessão vale para
+    // a origem inteira, inclusive o que o store já tiver aberto. Nunca rejeita; o desfecho fica
+    // guardado para a linha de boot do atlas (composta, e não impressa, desde 2026-09-23) e é
+    // `pendente` enquanto o navegador não responder.
+    pedirPersistencia();
 
     initializeAppConfig();
     initConfigHelpers();
