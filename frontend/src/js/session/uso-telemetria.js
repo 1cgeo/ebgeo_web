@@ -22,7 +22,7 @@ import { vitais as vitaisPadrao } from './vitais.js';
 // soma dos dois carimbos do build, e `capturados` é quantos erros esta sessão viu. Recalcular
 // qualquer um dos dois aqui produziria dois números com o mesmo nome.
 import { versaoDoBuild, estadoDaTelemetria } from './erro-telemetria.js';
-import { configurarUso, registrarUso, descarregarUso } from './uso-lote.js';
+import { configurarUso, registrarUso, descarregarUso, consumirSaidaDaConta } from './uso-lote.js';
 import { EventoDeUso } from './eventos-de-uso.js';
 // The one User-Agent parser of the product (the error report and the admin tab read it too).
 import { identificarNavegador } from './ambiente-do-navegador.js';
@@ -103,16 +103,25 @@ export function instalarUso({ alvo = globalThis, documento, enviar, intervaloMs 
         const retomar = alvo.setInterval?.(transporte.retomar, 30000);
         const remover = sessionContext.onSessionChanged(snapshot => {
             if (snapshot.userId === identidade) return;
+            const anterior = identidade;
+            // THE SAIR GESTURE marked this change (`anunciarSaidaDaConta`, `uso-lote.js`).
+            const porEscolha = consumirSaidaDaConta();
             descarregarUso();
             resultado.desinstalar();
             identidade = snapshot.userId;
+            // AFTER the flush above, which wrote one last batch of the account that is leaving.
+            if (porEscolha) transporte.esquecerDaConta(anterior);
             errosNoInicio = estadoDaTelemetria().capturados;
             resultado = configurar(generateUUID());
             presenca.pulsar();
+            // THE SESSION HAS SETTLED ON AN ACCOUNT: its batches left by the previous page (the
+            // `pagehide` one above all) are sendable now, and a short page would not live to see
+            // the 30 s resend. What is already in flight is skipped by the transport.
+            transporte.retomar();
         });
         instalado = () => {
             remover(); resultado.desinstalar(); presenca.desinstalar();
-            alvo.clearInterval?.(retomar); instalado = null;
+            alvo.clearInterval?.(retomar); instalado = null; consumirSaidaDaConta();
         };
         return { instalada: true, desinstalar: instalado };
     } catch {

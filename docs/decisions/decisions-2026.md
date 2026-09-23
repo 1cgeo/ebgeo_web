@@ -4304,6 +4304,15 @@ instável, e cada uma foi atribuída antes de ser tocada.
 - **Guardas:** `frontend/tests/integration/abertura-que-falha-preserva-a-fila.repro.test.js`, `frontend/tests/e2e-ui/abertura-remota-que-falha.repro.spec.js` e `frontend/tests/integration/descarte-que-sobrevive-a-saida.repro.test.js`. Detalhe em [sessão, boot e ciclo de vida](../wiki/sessao-boot-e-ciclo-de-vida.md).
 - **Status:** aceita.
 
+### 2026-09-23: o lote de uso de outra conta espera o dono, e só o gesto Sair apaga os lotes de uma conta
+
+- **Contexto:** a fila de lotes de uso entre cargas de página (2026-09-12) apagava, na primeira descarga de cada carga, todo lote guardado de outra identidade, e contava cada um como falha. As quatro páginas instalam a telemetria antes de restaurar a sessão, então toda carga de quem está logado começa com identidade nula, e o lote apagado era o que a página anterior escreveu no `pagehide`. Medido nos dois navegadores, com 503 no lote da saída: 0 de 3 chegavam para quem estava logado, contra 3 de 3 do anônimo; toda navegação logada mandava duas falhas de coleta; e, com o token nos últimos 30 s, a descarga da saída disparava uma renovação dentro do `pagehide` e o `fetch` nunca saía.
+- **Decisão (do dono, Q2):** lote de outra identidade é pulado, nunca apagado, e o pulo não é falha; a limpeza continua pela validade de 24 h e pelo teto de 30, que conta os lotes de todas as contas. No gesto Sair os lotes pendentes da conta que sai são apagados; na troca de página, no boot e na sessão perdida sem gesto, não. Junto: a sessão que assenta reenvia na hora os lotes dela, a descarga do `pagehide` usa o token em memória sem renovar, e os POSTs de uso e presença leem o corpo da resposta, porque cancelá-lo é o que o Chromium registra como ERR_ABORTED. Lote de conta sem credencial para levar é pulado, e 401 ou 409 num lote de conta o guarda para a próxima retomada; no lote anônimo continuam definitivos, porque não há credencial a consertar.
+- **Motivo:** o lote de uma conta só é aceito sob ela, então apagar na chegada da identidade nula não protegia nada que o pulo não proteja; apagar no Sair atende a quem deixa um computador compartilhado sem custar o lote de quem só trocou de página.
+- **Alternativas rejeitadas:** apagar os lotes da conta em toda perda de sessão, que perderia o trabalho de quem caiu sem escolher; reatribuir o lote à identidade corrente, que o contrato do servidor recusa por desenho.
+- **Onde mora:** `criarTransporteDeUso` (`frontend/src/js/session/uso-transporte.js`) e `anunciarSaidaDaConta` (`frontend/src/js/session/uso-lote.js`), chamada por `confirmLogoutWithPendingWork` (`frontend/src/js/session/confirm-logout.js`).
+- **Guardas:** `frontend/tests/unit/lote-de-uso-de-outra-conta.repro.test.js`, o caso novo de `frontend/tests/unit/confirm-logout.test.js` e `frontend/tests/e2e-ui/lote-de-uso-sobrevive-a-navegacao.spec.js`. Detalhe em [observabilidade](../wiki/observabilidade.md).
+- **Status:** aceita.
 
 ### 2026-09-23: sessão num spec de navegador só por duas portas
 

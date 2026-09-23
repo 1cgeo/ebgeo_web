@@ -1,5 +1,5 @@
 // Path: js/session/confirm-logout.js
-import { registrarUso, descarregarUso } from '@js/session/uso-lote.js';
+import { registrarUso, anunciarSaidaDaConta } from '@js/session/uso-lote.js';
 import { EventoDeUso, PropDeUso } from '@js/session/eventos-de-uso.js';
 import { showConfirm } from '@modals/confirm.modal.js';
 /** Voluntary logout: confirm the loss across every remote namespace on this browser. */
@@ -204,7 +204,10 @@ async function confirmAndPrepareLogout(settled, drained = true, entries = null) 
     if (!Number.isFinite(pendingOps) || pendingOps > 0) {
         if (Number.isFinite(pendingOps)) registrarUso(EventoDeUso.LOGOUT_DESCARTE, PropDeUso.DESCARTE_PENDENCIAS);
         else registrarUso(EventoDeUso.LOGOUT_DESCARTE, PropDeUso.DESCARTE_DESCONHECIDO);
-        descarregarUso();
     }
+    // EVERY confirmed Sair passes here, on the four pages, and nothing else does: this is where the
+    // account's pending usage batches are marked for erasure (owner, 2026-09-23), after a flush
+    // that still carries the account's token. See `anunciarSaidaDaConta`.
+    anunciarSaidaDaConta();
     return true;
 }

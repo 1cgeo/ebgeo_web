@@ -30,6 +30,7 @@
 import { generateUUID, isValidUUID } from '@utils/uuid.js';
 import { resolveBackendBaseUrl } from '@store/sync/runtime-config.js';
 import { apiClient } from '@store/sync/api-client.js';
+import { descartarCorpo } from '@js/session/uso-lote.js';
 
 /** The channel the tabs of one browser use to tell each other that one of them is leaving. */
 const CANAL_DE_PRESENCA = 'ebgeo:presenca';
@@ -69,16 +70,20 @@ export function instalarPresenca({ alvo = globalThis, falhas = () => 0 } = {}) {
             ]) : {};
             alvo.clearTimeout?.(prazo);
             prazo = null;
+            // CHECKED BEFORE THE HEADER TOO: `authHeader()` may rotate the refresh token, and a
+            // rotation started by a page that is leaving loses its answer with the page.
+            if (!vivo || saiu) return;
             const auth = await apiClient.authHeader();
             if (!vivo || saiu) return;
             controller = new AbortController();
             prazo = alvo.setTimeout(() => controller?.abort(), 10000);
-            await alvo.fetch(url(), {
+            const resposta = await alvo.fetch(url(), {
                 method: 'POST', credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json', ...auth },
                 body: JSON.stringify({ navegadorId: id, abaId, ...pendencias, falhasColeta: falhas() + falhasLocais }),
                 signal: controller.signal,
             });
+            descartarCorpo(resposta);
         } catch { /* A missing pulse expires on the server. */ } finally {
             alvo.clearTimeout?.(prazo); prazo = null; ocupado = false;
             controller = null;
@@ -114,7 +119,7 @@ export function instalarPresenca({ alvo = globalThis, falhas = () => 0 } = {}) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ navegadorId: id, abaId, saindo: true }),
             });
-            envio?.catch?.(() => {});
+            envio?.then?.(descartarCorpo, () => {});
         } catch { /* The window expires the row. */ }
     };
     const aoVoltar = (evento) => {

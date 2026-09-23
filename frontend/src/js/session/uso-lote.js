@@ -602,6 +602,60 @@ export function descarregarUso({ motivo } = {}) {
 }
 
 /**
+ * READS the response body nobody needs, so Chromium records the request as finished. Measured on
+ * 2026-09-23: a POST answered 204 whose body is never read, or is CANCELLED (`body.cancel()`), is
+ * reported as `net::ERR_ABORTED`, while the same request with the body read finishes cleanly;
+ * Firefox reports neither. Cosmetic either way (the server got it), but it reads as a lost batch.
+ * Used by the usage transport and by the presence pulse; it lives in this module because both
+ * reach it without adding a file to the map's graph. Best effort, never throws.
+ * @param {*} resposta
+ */
+export function descartarCorpo(resposta) {
+    try {
+        if (!resposta || resposta.bodyUsed || typeof resposta.arrayBuffer !== 'function') return;
+        resposta.arrayBuffer()?.catch?.(() => {});
+    } catch { /* Not a real response. */ }
+}
+
+/**
+ * Set by {@link anunciarSaidaDaConta}, consumed by the next identity change. Outside `_instalacao`
+ * on purpose: that identity change reinstalls this module, and the mark has to survive until then.
+ */
+let _saidaDaConta = false;
+
+/**
+ * THE SAIR GESTURE, and only it (owner, 2026-09-23): the account's pending usage batches are erased
+ * when it leaves by choice, and kept across page loads, boots and an involuntary session loss.
+ *
+ * Called by `confirmLogoutWithPendingWork` (`session/confirm-logout.js`) once the exit is
+ * confirmed, which is the one step the four pages' Sair share. It flushes NOW, while the access
+ * token is still alive, so the segment that ends with the logout is sent under its account instead
+ * of being written after the tokens are gone; and it arms the erasure, which the identity change in
+ * `session/uso-telemetria.js` runs after the last flush of the account. A logout that fails before
+ * changing the identity leaves the mark armed, and the next exit of that account erases its
+ * batches: the cost is on the side of the rule, never of keeping a batch the owner asked to drop.
+ *
+ * It lives HERE, and not next to the transport, because `confirm-logout.js` is in the map's graph
+ * and this module already was: importing the wiring module from there added a file to the map's
+ * weight ceiling (`tests/unit/teto-de-peso-da-pagina-do-mapa.test.js`) for one boolean.
+ * @returns {boolean} Whether a batch was produced.
+ */
+export function anunciarSaidaDaConta() {
+    _saidaDaConta = true;
+    return descarregarUso({ motivo: 'saida-da-conta' });
+}
+
+/**
+ * Reads and clears the mark of {@link anunciarSaidaDaConta}.
+ * @returns {boolean} Whether the identity change now happening is the Sair gesture.
+ */
+export function consumirSaidaDaConta() {
+    const marcada = _saidaDaConta;
+    _saidaDaConta = false;
+    return marcada;
+}
+
+/**
  * Desfaz a instalação. Existe para o teste e para o HMR; o produto não a chama.
  * @returns {void}
  */

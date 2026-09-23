@@ -4,7 +4,11 @@ const fake = vi.hoisted(() => ({
     list: vi.fn(), locals: vi.fn(), count: vi.fn(), confirm: vi.fn(), discard: vi.fn(),
     announce: vi.fn(), error: vi.fn(), quarantine: vi.fn(),
     pauseWrites: vi.fn(), pauseSends: vi.fn(), resumeWrites: vi.fn(), resumeSends: vi.fn(),
-    holdBarrier: vi.fn(), releaseBarrier: vi.fn(), note: vi.fn(),
+    holdBarrier: vi.fn(), releaseBarrier: vi.fn(), note: vi.fn(), saidaDaConta: vi.fn(),
+}));
+vi.mock('@js/session/uso-lote.js', async (importOriginal) => ({
+    ...(await importOriginal()),
+    anunciarSaidaDaConta: fake.saidaDaConta,
 }));
 vi.mock('@store/remote-atlas.api.js', () => ({
     listRemoteAtlases: fake.list,
@@ -50,6 +54,17 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('confirmed voluntary logout', () => {
+    it('só a saída CONFIRMADA anuncia a saída da conta à telemetria de uso (decisão Q2 do dono)', async () => {
+        // O Sair das quatro páginas passa por aqui, e é o único gesto que apaga os lotes de uso
+        // pendentes da conta. Cancelar não pode apagar nada, e confirmar tem de anunciar uma vez.
+        fake.count.mockResolvedValue(1);
+        expect(await confirmLogoutWithPendingWork()).toBe(false);
+        expect(fake.saidaDaConta).not.toHaveBeenCalled();
+
+        fake.count.mockResolvedValue(0);
+        expect(await confirmLogoutWithPendingWork()).toBe(true);
+        expect(fake.saidaDaConta).toHaveBeenCalledOnce();
+    });
     it('cancellation leaves every queue, namespace and peer untouched', async () => {
         fake.count.mockImplementation(async id => id === 'B' ? 2 : 0);
         expect(await confirmLogoutWithPendingWork()).toBe(false);

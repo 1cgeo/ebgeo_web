@@ -208,4 +208,5 @@ que envelheceu na decisão seguinte.)
 - 2026-09-23: o navegador, o sistema e a máquina entram no Diagnóstico (por ocorrência, com o conjunto de navegadores de cada defeito) e no Uso (família, versão principal e sistema por sessão, com a taxa de erro por navegador), com um parser só e o vocabulário espelhado, [registro](decisions-2026.md).
 - 2026-09-23: o boot dispara o pedido de armazenamento persistente e não o espera, porque no Firefox o prazo custava 2 s em toda carga e a concessão vale para a origem inteira, [registro](decisions-2026.md).
 - 2026-09-23: a abertura de atlas de servidor que falha no boot não apaga fila, bytes nem slot local; a queda entra no slot local pela troca viva e o seletor só navega com o motivo, [registro](decisions-2026.md).
+- 2026-09-23: o lote de uso de outra conta espera o dono em vez de ser apagado, e só o gesto Sair apaga os lotes de uma conta, [registro](decisions-2026.md).
 - 2026-09-23: sessão num spec de navegador só por duas portas (credencial em memória, ou login em atlas.html), com censo que reprova a forma crua, [registro](decisions-2026.md).
