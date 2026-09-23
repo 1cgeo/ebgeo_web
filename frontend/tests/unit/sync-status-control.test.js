@@ -410,6 +410,28 @@ describe('atlas local e visitante', () => {
         const container = control.onAdd({});
         expect(container.hidden).toBe(true);
     });
+
+    it('a origem que vira LOCAL sem evento repinta na batida seguinte, em vez de congelar', async () => {
+        // A CENA DE 2026-09-23: a abertura por `?atlas=` falhou, a última pintura foi feita com a
+        // origem ainda REMOTA e sem conexão, e a queda do boot para o mapa local marcou a origem
+        // LOCAL (`markStoreLocal`), que não emite evento nenhum. A batida periódica chegava a
+        // `_readQueue` e voltava antes de `_render()`, e a luz ficava em `sem-conexao` para sempre
+        // numa aba local. Medido no navegador por `tests/e2e-ui/abertura-remota-que-falha.repro.spec.js`.
+        cenario.conexao = 'offline';
+        cenario.censo = { pendentes: 1, preparadas: 0, problemas: 0 };
+        const control = vigiado(new SyncStatusControl());
+        const container = control.onAdd({});
+        await control._readQueue();
+        const comando = comandoDe(container);
+        // Controle: a primeira pintura é mesmo a remota, sem conexão.
+        expect(comando.getAttribute('data-work')).toBe('pendente-sem-conexao');
+
+        cenario.remoto = false;
+        await control._readQueue();
+
+        expect(comando.getAttribute('data-work'), 'a luz congelou na última pintura remota').toBe('local');
+        expect(comando.getAttribute('data-tone')).toBe('idle');
+    });
 });
 
 /**

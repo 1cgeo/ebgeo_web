@@ -4295,6 +4295,16 @@ instável, e cada uma foi atribuída antes de ser tocada.
   [sessão, boot e ciclo de vida](../wiki/sessao-boot-e-ciclo-de-vida.md).
 - **Status:** aceita.
 
+### 2026-09-23: a abertura de atlas de servidor que falha no boot não apaga nada
+
+- **Contexto:** quando `?atlas=` falhava depois de montar o namespace, a cadeia de boot caía em `enterLocalMapOnBoot` ou em `openAtlasChooserOnBoot`, e os dois esvaziavam o escopo montado com os padrões de `clearAllDataStore`, cujo `clearQueue` segue `markLocal`. Isso levava a fila de saída e os bytes pendentes do atlas que falhou, deixava a aba morta (escopo remoto, origem local, escrita recusada) e, como a decisão lia o marcador de origem da instalação e não o escopo da aba, apagava um slot LOCAL no F5 quando outra aba tinha aberto um atlas de servidor. Medido nos dois navegadores: fila de 1 operação para 0 e a reabertura seguinte sem a edição, em 4 de 4 casos.
+- **Decisão (do dono, Q1):** a abertura que falha preserva a fila e os bytes pendentes e descarta só a visão. O seletor só navega, levando o motivo em `?aviso=`; a queda para o mapa local entra no slot local pela troca viva (`enterLocalAtlasOnBoot`, `frontend/src/js/account/open-atlas.service.js`); a próxima abertura bem-sucedida entrega a fila. Junto, a causa provável da falha da matriz de 2026-09-22: `dropAtlasDatabases` passou a aguardar a remoção do espelho de época, `registerRemoteAtlas` reconcilia os ponteiros duráveis antes de ler a cerca, e o indicador de sincronização redesenha quando a origem vira local.
+- **Motivo:** com namespace por atlas nada fica solto: a abertura normal já preserva desde 2026-09-19, e quem coleta é a saída da conta. "A rede falhou" nunca é abandono.
+- **Alternativa rejeitada:** manter o wipe com `clearQueue: false`, que ainda apagaria a projeção e não tiraria a aba do estado morto.
+- **Guardas:** `frontend/tests/integration/abertura-que-falha-preserva-a-fila.repro.test.js`, `frontend/tests/e2e-ui/abertura-remota-que-falha.repro.spec.js` e `frontend/tests/integration/descarte-que-sobrevive-a-saida.repro.test.js`. Detalhe em [sessão, boot e ciclo de vida](../wiki/sessao-boot-e-ciclo-de-vida.md).
+- **Status:** aceita.
+
+
 ### 2026-09-23: sessão num spec de navegador só por duas portas
 
 - **Contexto:** `login()` dentro de `page.evaluate` numa `/` ainda bootando grava `ebgeo_auth` no meio do boot, e a fase -1 e a restauração da sessão (fase 2.5) levam a página para `atlas.html`. Medido: 10 de 10 no Firefox, 1 de 10 no Chromium, 3 de 3 com a trava do portão segurada; dois specs já tinham caído na auditoria de lançamento. O conserto por sítio (semear em `atlas.html`) deixava 73 sítios em 49 arquivos na forma que sequestra.

@@ -66,6 +66,8 @@ import { EBGEO_LOGO_BASE64 } from '../utilities/logo-base64.js';
 // From the FILE, never from the `@utils` barrel: the barrel reaches `@store` transitively.
 import { initTabLock, noneKey } from '@utils/tab-lock.js';
 import { startIdleWatch } from '../session/idle-watch.js';
+// Folha de zero imports, pelo ARQUIVO: esta pagina boota sem a store.
+import { clearLocalMapIntent } from '@js/deep-link/local-intent.js';
 // Pelo ARQUIVO, como os vizinhos de `session/` (a pasta nao tem barrel). Best-effort e sem rede na
 // instalacao: ver a chamada no topo de `initCalibracaoPage`.
 import { instalarTelemetriaDeErro, descarregarFilaDeRelatos } from '@js/session/erro-telemetria.js';
@@ -197,6 +199,9 @@ async function endSession(reason, { voluntary = false } = {}) {
         // logout() ja engole erro de rede e limpa localmente; nao sobra o que fazer.
     }
     sessionContext.clearSession();
+    // A intencao "Mapa local" e da sessao que acabou (o mesmo passo de `AccountControl._handleLogout`
+    // e de `projects-page.js`).
+    clearLocalMapIntent();
     // O MESMO CAMINHO DE `discardRemoteAtlasNamespaces`, e nao mais a varredura crua (achado F17):
     // ela AVISA as abas irmas antes de destruir (o aviso vive dentro dela, derivado da mesma
     // lista), e o escopo que ela desativa e reapontado para um slot local aqui. Sem o segundo, uma

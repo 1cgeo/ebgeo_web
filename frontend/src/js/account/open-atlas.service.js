@@ -37,15 +37,15 @@
  * which is the pair `deep-link/atlas-url-sync.js` reads for the URL. Deriving it from anything
  * else is how the URL and the lock end up disagreeing about the same tab.
  *
- * The pre-flights are the load-bearing calls, and there are two of them, because there are two
- * shapes of wipe. `claimRemoteAtlas` answers "may I open THAT atlas" before the one branch of
- * `openRemoteAtlas` that still wipes (the confirmed discard of a rescued slot) runs, and before
- * any write lands in the destination. `clearMountedAtlasIfGranted` answers "may I erase the atlas I
- * ALREADY have" for the boot paths, which used to call `clearAllDataStore()` outright: with a
- * namespace per atlas, that wipe lands on the exact databases another tab may be writing to,
- * and a duplicated tab inherits the sessionStorage intent that takes it there.
+ * The pre-flights are the load-bearing calls. `claimRemoteAtlas` answers "may I open THAT atlas"
+ * before the one branch of `openRemoteAtlas` that still wipes (the confirmed discard of a rescued
+ * slot) runs, and before any write lands in the destination. The claim inside
+ * `switchToExistingLocalAtlas` answers "may I mount THAT local slot", and it is also the only claim
+ * the boot's fall-back to the local map makes: that path used to ERASE the atlas the tab had
+ * mounted, behind a pre-flight of its own, and since 2026-09-23 it erases nothing
+ * (`enterLocalAtlasOnBoot`).
  *
- * BOTH PRE-FLIGHTS NOW CARRY A WITNESS, and that is the correction of an assumption this file made
+ * EVERY PRE-FLIGHT NOW CARRIES A WITNESS, and that is the correction of an assumption this file made
  * for a phase: that an AWAITED `acquire()` was proof. It is not. The settle answers by absence, and
  * a boot is where absence is cheapest to produce — the sibling tab is busy rendering, the two
  * settle windows overlap, one dropped message costs a heartbeat — so both tabs were granted and
@@ -65,6 +65,7 @@ import {
     resetAtlasView,
     markStoreRemote,
     markStoreLocal,
+    isRemoteStoreSync,
     activateAtlasInitialMap,
     activateRemoteAtlas,
 } from '@store/store.js';
@@ -76,6 +77,7 @@ import { flushPendingLayerWrites } from '@store/layer.operations.js';
 import {
     createLocalAtlas,
     importLocalAtlasAtomically,
+    getCurrentLocalAtlasId,
     getLocalAtlas,
     localAtlasAdoptingRemote,
     mountLocalAtlas,
@@ -363,11 +365,11 @@ const OCCUPIED_MESSAGE = 'Este atlas já está aberto em outra aba deste navegad
  * `selfHolds` IS THE WHOLE SUBTLETY. This client holds AT MOST ONE mount lock (Decision 5 keeps it
  * on `globalThis` and releases the previous one when the scope changes), so the count that means
  * "somebody else" depends on whether the address being asked about is the one THIS tab has
- * mounted: 1 for the wipe of the mounted atlas, 0 for an atlas this tab has not entered yet. Get
- * this backwards and the pre-flight either blocks every tab on its own mount or stops seeing the
- * only peer that matters.
+ * mounted: 1 when it is (a reload of a tab sitting in its own atlas), 0 for an atlas this tab has
+ * not entered yet. Get this backwards and the pre-flight either blocks every tab on its own mount or
+ * stops seeing the only peer that matters.
  *
- * @param {string|null|undefined} dbSuffix - Database suffix of the namespace about to be destroyed.
+ * @param {string|null|undefined} dbSuffix - Database suffix of the namespace about to be claimed.
  * @param {number} selfHolds - How many holds on that lock belong to this client (0 or 1).
  * @returns {(() => Promise<boolean|null>)|null} The witness, or null where there is nothing to
  *   read (no LockManager at all, i.e. plain HTTP, or no address to name).
@@ -482,53 +484,55 @@ function clearFeatureClipboard() {
 }
 
 /**
- * Wipes the atlas THIS TAB HAS MOUNTED, and only if the lock says it may.
+ * THE BOOT THAT FALLS BACK TO THE LOCAL MAP ENTERS A REAL LOCAL ATLAS, AND ERASES NOTHING ON THE WAY.
  *
- * The two boot paths (`enterLocalMapOnBoot`, `openAtlasChooserOnBoot` in `index.js`) called
- * `clearAllDataStore()` outright. That was safe only while every server atlas shared one scratch
- * AND no second tab could hold it; today the wipe lands on `remote-<atlasId>`, which is precisely
- * the namespace another tab may be writing to, and the route there is ordinary: `ebgeo_local_intent`
- * lives in sessionStorage, sessionStorage is INHERITED by a duplicated tab, so the duplicate boots
- * with the intent, reads a remote origin and erases the original's live databases.
+ * UNTIL 2026-09-23 THIS STEP WAS A WIPE (`clearAllDataStore()` with its defaults, behind an awaited
+ * claim), and it erased exactly what it should have kept. It is reached by the "Mapa local" intent
+ * (`enterLocalMapOnBoot`, `index.js`), and two ordinary routes arrive here with a SERVER atlas
+ * mounted: an `?atlas=` open that FAILED after mounting (network, 5xx, `AbortError`), and a tab whose
+ * mount pointer still names the server atlas it came from. In both, the defaults emptied that
+ * atlas's OUTBOUND QUEUE (and the image bytes its operations wait on), and the tab was left on a
+ * remote scope with the origin marked LOCAL, where every write is refused because logging is off.
+ * Measured in Chromium and Firefox by `tests/e2e-ui/abertura-remota-que-falha.repro.spec.js`: one
+ * pending operation before the failed open, zero after, the edit never reached the server, and the
+ * next edit was refused with `OperationIntentRefusedError`.
  *
- * IT MUST AWAIT, not read a flag. At boot the lock has just been constructed and has heard from
- * nobody, so `isTabLockBlocked()` is `false` for a tab that is about to lose. Only `acquire()`, with
- * its settle window, can answer.
+ * AND THE WIPE ASKED THE WRONG QUESTION. Its callers decided on the ORIGIN MARKER, which speaks for
+ * the INSTALLATION (`store-origin.js`), not on the scope this tab had mounted: a tab working in a
+ * LOCAL atlas erased that local atlas at its next F5 whenever another tab had opened a server atlas
+ * in the meantime. Same spec, third case.
  *
- * AND THE SETTLE ALONE IS NOT AN ANSWER EITHER, which is why this is the pre-flight that most
- * needed the witness. A boot is exactly where the other tab is least likely to be heard in time:
- * it is busy rendering a map, the duplicate's own settle overlaps it, and a dropped message costs
- * a whole heartbeat. The witness reads the sibling's SHARED MOUNT LOCK instead of waiting for it
- * to speak — and `selfHolds` is 1 here, because the address being asked about is the one this tab
- * has mounted, so this tab's own hold must not be read as a peer.
+ * WHAT HAPPENS NOW (owner's decision Q1, 2026-09-23): nothing is erased. A mounted REMOTE scope is
+ * LEFT through the same live switch that enters an existing local slot (`switchToExistingLocalAtlas`:
+ * claim with a witness, mount, rebuild memory from the slot, declare LOCAL, repaint). The VIEW of the
+ * server atlas is discarded, because memory is rebuilt from the slot; its databases, its queue and
+ * its bytes stay where they are, and the next successful open of that atlas delivers the queue. A
+ * scope that is ALREADY local is not touched at all; only the marker, which may be speaking for
+ * another tab, is realigned with it.
  *
- * @param {(() => Promise<unknown>)|null} [replay] - What to re-run if the claim is refused, so the
- *   overlay's "Usar aqui" finishes the boot step instead of leaving the tab merely unblocked.
- * @returns {Promise<boolean>} True when the wipe ran.
+ * THE DUPLICATED-TAB HAZARD THE OLD PRE-FLIGHT GUARDED IS GONE WITH THE WIPE, not moved: the
+ * duplicate inherits the intent and the remote pointer, and now it leaves that namespace instead of
+ * emptying it. The claim that remains is the LOCAL slot's, with its witness, because two tabs in the
+ * same ten databases is still what the lock exists to prevent; refused, the switch stays deferred
+ * behind the overlay and "Usar aqui" finishes it.
+ *
+ * IT DOES NOT COUNT AN OPENING: the boot's routing chain counts the local boot once per page load,
+ * and the switch would count it a second time (`contarAbertura: false`).
+ *
+ * @returns {Promise<AtlasSwitchResult>} `ok` when this tab is on a local atlas at the end.
  */
-export async function clearMountedAtlasIfGranted(replay = null) {
-    const key = currentAtlasLockKey();
-    // Holding nothing means there is no atlas to arbitrate: nobody else can be writing to a
-    // namespace this tab has not resolved.
-    if (key.kind !== TabLockKeyKind.NONE) {
-        // Read AFTER `currentAtlasLockKey()`, which is what runs `ensureAtlasScope()`: the key and
-        // the address must name the same slot, or the witness would guard a namespace nobody is
-        // about to erase.
-        const { granted, deniedBy } = await acquireTabLock(key, {
-            witness: mountWitness(getActiveScope()?.dbSuffix, 1),
-        });
-        if (!granted) {
-            if (replay) deferAtlasOpen(replay);
-            console.warn(`[tab-lock] wipe refused (${deniedBy}): another tab holds this atlas`);
-            // Only the witness path needs a message. A refusal by the ORDER already put the
-            // overlay on screen, and a toast behind it would be the same news said twice.
-            if (deniedBy === 'witness') showError(OCCUPIED_MESSAGE);
-            return false;
-        }
+export async function enterLocalAtlasOnBoot() {
+    // `currentAtlasLockKey` is not read here, but `ensureAtlasScope` is what it runs first: the
+    // repository bridge activates a scope on first access, and the question below must be asked of
+    // the scope the store actually resolves to.
+    ensureAtlasScope();
+    if (getActiveScope()?.kind !== StoreScopeKind.REMOTE) {
+        if (isRemoteStoreSync()) await markStoreLocal();
+        return { ok: true, changed: false };
     }
-    clearFeatureClipboard();
-    await clearAllDataStore();
-    return true;
+    const atlasId = getCurrentLocalAtlasId();
+    if (!atlasId) return { ok: false, changed: false, reason: 'not-found' };
+    return switchAtlas({ kind: 'local', atlasId }, { contarAbertura: false });
 }
 
 /**
@@ -707,7 +711,8 @@ async function openRemoteAtlasNow(atlasId, { mapId = null } = {}) {
     await reapplyAtlasAppearance(getControl('TerrainControl'), globalThis.__ebgeoMap);
     startAutoFlush();
     // AQUI, E NAO NO BARRAMENTO: `ATLAS_SWITCHED` so e anunciado por `switchAtlas`, que hoje e
-    // alcancada pelo gancho de medicao e por mais nada, entao um tap de barramento contaria quase
+    // alcancada pelo gancho de medicao e pela queda do boot para o mapa local
+    // (`enterLocalAtlasOnBoot`, que nao conta), entao um tap de barramento contaria quase
     // nada. Esta e a UNICA porta de abertura de atlas de SERVIDOR (o comentario de
     // `switchAtlas` diz por que ela nao pode ter uma segunda), e a linha fica depois do
     // `startAutoFlush` para contar so o que de fato abriu.
@@ -757,18 +762,20 @@ async function openRemoteAtlasNow(atlasId, { mapId = null } = {}) {
  * duas coisas seria um segundo dono para a segunda.
  *
  * @param {AtlasDestination} destination - Para onde ir.
- * @param {{ mapId?: string|null }} [options] - `mapId` alternativo ao do destino.
+ * @param {{ mapId?: string|null, contarAbertura?: boolean }} [options] - `mapId` alternativo ao
+ *   do destino. `contarAbertura: false` e so para o boot (`enterLocalAtlasOnBoot`), cuja cadeia de
+ *   roteamento ja conta a entrada local uma vez por carga de pagina.
  * @returns {Promise<AtlasSwitchResult>} `ok` diz se a aba esta no atlas pedido ao fim da chamada.
  * @throws Propaga um erro de conexao do ramo remoto (403/404, backend fora), como
  *   `openRemoteAtlas` faz, para o chamador poder falar com o usuario.
  */
-export async function switchAtlas(destination, { mapId = null } = {}) {
+export async function switchAtlas(destination, { mapId = null, contarAbertura = true } = {}) {
     // Capture caller arguments too: mutating a queued request cannot redirect it.
     const target = { ...destination };
-    return serializeAtlasTransition(() => switchAtlasNow(target, { mapId }));
+    return serializeAtlasTransition(() => switchAtlasNow(target, { mapId, contarAbertura }));
 }
 
-async function switchAtlasNow(destination, { mapId = null } = {}) {
+async function switchAtlasNow(destination, { mapId = null, contarAbertura = true } = {}) {
     const kind = destination?.kind;
     const atlasId = destination?.atlasId;
     if (typeof atlasId !== 'string' || atlasId.length === 0) {
@@ -788,7 +795,7 @@ async function switchAtlasNow(destination, { mapId = null } = {}) {
         return { ok: opened, changed: opened, reason: opened ? undefined : 'refused' };
     }
     if (kind === 'local') {
-        const result = await switchToExistingLocalAtlas(atlasId, targetMapId);
+        const result = await switchToExistingLocalAtlas(atlasId, targetMapId, { contarAbertura });
         if (result.ok) announceAtlasSwitch(kind, atlasId, targetMapId);
         return result;
     }
@@ -887,10 +894,12 @@ function localMountWitness(scope) {
  *
  * @param {string} atlasId - Id do slot local (entrada do registro).
  * @param {string|null} mapId - Mapa a ativar dentro do slot, ou null para o ultimo ativo.
+ * @param {{ contarAbertura?: boolean }} [options] - `false` so no boot, que conta sozinho; a
+ *   retomada guardada pela recusa herda o mesmo valor, senao o "Usar aqui" contaria de novo.
  * @returns {Promise<AtlasSwitchResult>} Uma recusa nomeada quando o slot nao existe ou quando
  *   outra aba o segura; nos dois casos NADA se moveu.
  */
-async function switchToExistingLocalAtlas(atlasId, mapId) {
+async function switchToExistingLocalAtlas(atlasId, mapId, { contarAbertura = true } = {}) {
     const entry = getLocalAtlas(atlasId);
     if (!entry) return { ok: false, changed: false, reason: 'not-found' };
     // PELO ESCOPO, e nao pela entrada de registro. As duas parecem intercambiaveis e nao sao: a
@@ -908,7 +917,7 @@ async function switchToExistingLocalAtlas(atlasId, mapId) {
     if (!granted) {
         // Fica reivindicando e BLOQUEADA, com a troca guardada: a sobreposicao e a resposta ao
         // usuario, e o "Usar aqui" dela termina esta mesma troca.
-        deferAtlasOpen(() => switchAtlas({ kind: 'local', atlasId }, { mapId }));
+        deferAtlasOpen(() => switchAtlas({ kind: 'local', atlasId }, { mapId, contarAbertura }));
         if (deniedBy === 'witness') showError(OCCUPIED_MESSAGE);
         return { ok: false, changed: false, reason: deniedBy ?? 'refused' };
     }
@@ -948,7 +957,8 @@ async function switchToExistingLocalAtlas(atlasId, mapId) {
     // A TROCA VIVA PARA UM SLOT LOCAL TAMBEM E UMA ABERTURA, e ela nao passa pelo boot: quem conta
     // o local no boot e a cadeia de roteamento de `index.js`, e este caminho nao a atravessa. Sem
     // esta linha, so a PRIMEIRA entrada num slot local por carga de pagina apareceria no relatorio.
-    registrarUso(EventoDeUso.ATLAS_ABERTO, PropDeUso.ATLAS_LOCAL);
+    // A ENTRADA DO BOOT (`enterLocalAtlasOnBoot`) passa por aqui e NAO conta: a cadeia conta.
+    if (contarAbertura) registrarUso(EventoDeUso.ATLAS_ABERTO, PropDeUso.ATLAS_LOCAL);
     return { ok: true, changed: true };
 }
 

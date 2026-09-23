@@ -580,23 +580,30 @@ describe('ATAQUE 1 - a janela de tempo', () => {
             .granted).toBe(false);
     });
 
-    it('1.4: as TRES chamadas destrutivas deste repo passam a testemunha, e ela vem do lock de '
-        + 'montagem da store', () => {
+    it('1.4: as DUAS chamadas destrutivas destes arquivos e a entrada local do boot passam a '
+        + 'testemunha, e ela vem do lock de montagem da store', () => {
         // Uma testemunha que ninguem passa e uma opcao morta. Este caso e o que impede o conserto
         // de existir so no modulo do lock: o recorte e a FUNCAO, pelo motivo do ATAQUE 0.
         //
-        // ERAM DUAS, E SAO TRES. `openPublicAtlasFromUrl` (`index.js`) e o quarto sitio que
-        // reivindica e destroi, e ficou de fora quando os outros foram ligados, porque `index.js`
-        // nao estava na lista de arquivos daquela frente. Um sitio destrutivo sem testemunha e o
-        // furo inteiro de volta, num caminho so, e nada apontava para ele: por isso a contagem
-        // agora esta no NOME do caso, onde um quarto sitio novo obriga alguem a mexer aqui.
+        // ERAM TRES DESTRUTIVAS, E SAO DUAS desde 2026-09-23. `openPublicAtlasFromUrl` (`index.js`)
+        // entrou tarde porque `index.js` nao estava na lista de arquivos daquela frente; o pre-voo
+        // do wipe de BOOT saiu porque o wipe saiu (decisao Q1 do dono): a queda da cadeia de boot
+        // para o mapa local nao apaga mais nada, e a unica reivindicacao que ela faz e a do slot
+        // local, dentro da troca viva. A contagem continua no NOME do caso, onde um sitio novo
+        // obriga alguem a mexer aqui.
         const svc = read('account/open-atlas.service.js');
 
         const claim = functionText(svc, 'async function claimRemoteAtlas');
         expect(claim).toMatch(/witness: remoteMountWitness\(atlasId\)/);
 
-        const boot = functionText(svc, 'export async function clearMountedAtlasIfGranted');
-        expect(boot).toMatch(/witness: mountWitness\(getActiveScope\(\)\?\.dbSuffix, 1\)/);
+        // A entrada local do boot passa pela troca viva, e a troca viva reivindica o SLOT com a
+        // testemunha local. Os dois recortes juntos: um sem o outro deixaria o boot fora da regra.
+        const boot = functionText(svc, 'export async function enterLocalAtlasOnBoot');
+        expect(boot).toMatch(/switchAtlas\(\{ kind: 'local', atlasId \}/);
+        expect(boot).not.toMatch(/clearAllDataStore\(/);
+        const troca = functionText(svc, 'async function switchToExistingLocalAtlas');
+        expect(troca).toMatch(/witness: localMountWitness\(scope\)/);
+        expect(svc, 'o pre-voo do wipe de boot voltou').not.toMatch(/function clearMountedAtlasIfGranted/);
 
         // A testemunha le o lock de montagem DA STORE, e nao um nome inventado aqui: e isso que
         // faz dela um fato mantido por toda aba, inclusive as que nunca falam com o tab-lock.
@@ -763,36 +770,44 @@ describe('ATAQUE 3 - a ordem contra o clearAllDataStore', () => {
         expect(iWipe).toBeGreaterThan(iClaim);
     });
 
-    it('3.2 CORRIGIDO: enterLocalMapOnBoot passa pelo pre-voo aguardavel, no lugar do wipe cru', () => {
+    it('3.2 CORRIGIDO DE NOVO: enterLocalMapOnBoot nao apaga nada, entra no slot local', () => {
+        // A PRIMEIRA CORRECAO foi pôr um pre-voo aguardavel na frente do wipe cru. A SEGUNDA, de
+        // 2026-09-23 (decisao Q1 do dono), tirou o wipe: ele apagava a fila de saida do atlas cuja
+        // abertura acabara de falhar e, decidido pelo marcador da instalacao, um slot LOCAL. O
+        // ataque desta secao (a aba duplicada apagando os bancos vivos da original) perdeu o alvo:
+        // nao ha mais o que apagar no boot.
         const index = read('index.js');
         const fn = functionText(index, 'async function enterLocalMapOnBoot');
-        expect(fn).not.toMatch(/await clearAllDataStore\(/);
-        expect(fn).toMatch(/await clearMountedAtlasIfGranted\(\(\) => enterLocalMapOnBoot\(\)\)/);
+        expect(fn).not.toMatch(/clearAllDataStore\(/);
+        expect(fn).not.toMatch(/clearMountedAtlasIfGranted/);
+        expect(fn).toMatch(/await enterLocalAtlasOnBoot\(\)/);
         // Controle positivo do recorte: a funcao foi mesmo lida ate o fim (o `return` final).
         expect(fn).toMatch(/hasLocalMapIntent\(\)/);
         expect(fn).toMatch(/return true;\s*\}$/);
     });
 
-    it('3.3 CORRIGIDO: openAtlasChooserOnBoot idem, e nao abre o seletor se foi recusado', () => {
+    it('3.3 CORRIGIDO DE NOVO: openAtlasChooserOnBoot so navega, e leva o motivo da falha', () => {
         // A asercao NEGATIVA daqui morava numa janela de 800 caracteres sobre uma funcao de 460:
         // ela nao alcancava um wipe empurrado para o fim da funcao por comentarios, e de quebra
         // lia `initApp` e o rodape do arquivo. Agora o recorte e a funcao (ver ATAQUE 0).
         const index = read('index.js');
         const fn = functionText(index, 'async function openAtlasChooserOnBoot');
-        expect(fn).not.toMatch(/await clearAllDataStore\(/);
-        expect(fn).toMatch(/!await clearMountedAtlasIfGranted\(/);
+        expect(fn).not.toMatch(/clearAllDataStore\(/);
+        expect(fn).not.toMatch(/clearMountedAtlasIfGranted/);
         expect(fn).toMatch(/openProjectPicker/);
+        // O motivo da abertura que falhou viaja com a navegacao, que mata o toast do mapa.
+        expect(fn).toMatch(/_falhaDaAbertura/);
         // ...e o recorte parou na funcao, em vez de continuar pelo resto do arquivo.
         expect(fn).not.toMatch(/initApp\(\)/);
     });
 
-    it('3.4 CORRIGIDO no comportamento: o pre-voo recusa e nao apaga (o ponteiro para a prova)', () => {
-        // A prova comportamental dos dois wipes esta na integracao, com o lock REAL e um par no
-        // mesmo atlas; aqui fica so o ponteiro, para que a inversao acima nao pareca so textual.
+    it('3.4 CORRIGIDO no comportamento: a queda do boot preserva a fila (o ponteiro para a prova)', () => {
+        // A prova comportamental esta na integracao, com armazenamento REAL; aqui fica so o
+        // ponteiro, para que a inversao acima nao pareca so textual.
         const spec = readFileSync(
-            resolve(SRC, '../../tests/integration/tab-lock-atlas-integration.test.js'), 'utf8');
-        expect(spec).toMatch(/os DOIS wipes do boot: clearMountedAtlasIfGranted/);
-        expect(spec).toMatch(/expect\(calls\)\.not\.toContain\('clearAllDataStore'\)/);
+            resolve(SRC, '../../tests/integration/abertura-que-falha-preserva-a-fila.repro.test.js'), 'utf8');
+        expect(spec).toMatch(/a queda do boot apagou a fila do atlas/);
+        expect(spec).toMatch(/o boot apagou o atlas LOCAL da aba/);
     });
 
     it('3.5 CORRIGIDO: no boot o lock ainda nao decidiu, e e por isso que o pre-voo ESPERA em vez '
@@ -833,9 +848,12 @@ describe('ATAQUE 3 - a ordem contra o clearAllDataStore', () => {
         // (c) e clearAllDataStore limpa o ESCOPO ATIVO, mais a fila global.
         expect(read('store/repository.js'))
             .toMatch(/export async function clearAllAtlasStores\([^)]*\)\s*\{[\s\S]{0,300}?ensureAtlasScope\(\)/);
-        // (d) o unico elo que mudou: o caminho agora consulta o lock antes de apagar.
+        // (d) o elo que mudou, e mudou duas vezes: primeiro o caminho passou a consultar o lock
+        // antes de apagar; desde 2026-09-23 ele nao apaga mais (decisao Q1 do dono). A aba
+        // duplicada entra no slot LOCAL pela troca viva e deixa o namespace remoto em paz.
         const fn = functionText(read('index.js'), 'async function enterLocalMapOnBoot');
-        expect(fn).toMatch(/clearMountedAtlasIfGranted/);
+        expect(fn).toMatch(/enterLocalAtlasOnBoot/);
+        expect(fn).not.toMatch(/clearAllDataStore\(/);
     });
 });
 
@@ -1282,9 +1300,12 @@ describe('ATAQUE 6 - regressao', () => {
         // ela silencia sozinha quando um argumento novo aparece.
         expect(read('index.js')).toMatch(/await acquireTabLock\(remoteAtlasKey\(atlas\.id\)/);
         expect(read('index.js')).toMatch(/installTabLockSyncBrake/);
-        // `acquireTabLock(key, { witness })`: a chamada segue existindo, agora com a testemunha
-        // do caso 1.4 junto. Casar o parenteses de fechar aqui era casar a AUSENCIA de argumento.
-        expect(read('account/open-atlas.service.js')).toMatch(/await acquireTabLock\(key, \{/);
+        // A reivindicacao do slot LOCAL (a troca viva, que e tambem a entrada local do boot desde
+        // 2026-09-23), com a testemunha do caso 1.4 junto. A de `acquireTabLock(key, {` morava no
+        // pre-voo do wipe de boot, que saiu com o wipe. Casar o parenteses de fechar aqui era casar
+        // a AUSENCIA de argumento.
+        expect(read('account/open-atlas.service.js'))
+            .toMatch(/await acquireTabLock\(localKeyOfScope\(scope\), \{/);
     });
 
     it('6.5 CONFIRMADO: todo furo aberto citado aqui existe no TESTING-BACKLOG, e o fileoverview '

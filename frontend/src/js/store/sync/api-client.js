@@ -2705,9 +2705,20 @@ export class ApiClient {
         return this._request('POST', `/atlas/${atlasId}/sync/receipts`, { body: { operations }, timeoutMs: 30000, signal });
     }
 
-    /** Negotiates the write contract before remote editing is enabled. */
+    /**
+     * Negotiates the write contract before remote editing is enabled.
+     *
+     * WITH A DEADLINE, like the two POSTs above it. This is the FIRST request of every `connect`,
+     * and `_request` has no deadline of its own: without `timeoutMs` a server that accepted the
+     * connection and never answered held the whole opening until some other gesture aborted the
+     * session, with no `connecting`, no socket and no failure to fall back from. The same 30 s as
+     * the receipts, because it is a small read of the same route family.
+     * @param {string} atlasId
+     * @param {{ signal?: AbortSignal }} [options]
+     * @returns {Promise<{ writeVersions: number[], receiptLookup: boolean }>}
+     */
     async getSyncProtocol(atlasId, { signal } = {}) {
-        return this._request('GET', `/atlas/${atlasId}/sync/protocol`, { signal });
+        return this._request('GET', `/atlas/${atlasId}/sync/protocol`, { timeoutMs: 30000, signal });
     }
 
     // ===== IMAGES (feature photos §17.14 / custom marker icons §17.19) =====

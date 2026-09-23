@@ -110,6 +110,7 @@ import {
     isRemoteAtlasRegistryKey,
     activateScope,
     readLocalAtlasRegistry,
+    reconcileDurablePointers,
     releaseMountLock,
     releaseRemoteMountLock,
     remoteAtlasRegistryKey,
@@ -480,6 +481,17 @@ export async function registerRemoteAtlas(atlasId) {
     const key = remoteAtlasRegistryKey(atlasId);
 
     const existing = await globalStore.getItem(key);
+    // THE DURABLE MIRROR IS READ BEFORE THE FENCE IS ASKED, and the order is the fix of 2026-09-23.
+    // `remoteWritesDiscarded` reads `localStorage` only, while the discard also lives in a mirror
+    // in `ebgeo_global` that `reconcileDurablePointers` restores later, inside `connect`. A logout
+    // that removed the `localStorage` copy and died before removing the mirror (the page navigated
+    // first), or a `localStorage` the browser cleared, left the fence OPEN here and CLOSED a few
+    // steps later: registration said "nothing was discarded", the connect restored the discard, and
+    // the session fence threw `AbortError`, so the open failed with nothing wrong on the server.
+    // Reconciling first lets the restored discard take the branch below, which is exactly the
+    // repair that already exists (empty the abandoned namespace, then `reopenRemoteWrites`). It
+    // never throws, so a mirror it cannot read leaves this function where it was.
+    await reconcileDurablePointers(scope);
     // A confirmed logout may have been interrupted before the purge finished. Never mount its
     // abandoned queue again. A local atlas that adopted this suffix remains outside this policy.
     if ((existing?.discardRequested || remoteWritesDiscarded(scope)) && !(await locallyClaimedSuffixes()).has(scope.dbSuffix)) {

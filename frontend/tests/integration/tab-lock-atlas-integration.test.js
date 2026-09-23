@@ -10,8 +10,9 @@
  * RETRACTED, and that the announced key follows the atlas through the flows that change it without
  * a reload.
  *
- * The BOOT wipes get their own section, because they had no pre-flight at all and they are the one
- * place where reading `blocked` cannot substitute for an awaited claim.
+ * The BOOT fall-back gets its own section. It used to be a wipe behind a pre-flight, the one place
+ * where reading `blocked` could not substitute for an awaited claim; since 2026-09-23 it erases
+ * nothing at all (owner's decision Q1), and the section measures that instead.
  *
  * The lock is the REAL module on a fake in-process transport, with a second instance standing in
  * for the other tab. Mocking the lock here would only prove that the mock was called.
@@ -41,6 +42,12 @@ const fixture = vi.hoisted(() => {
         syncEngine,
         /** Active store scope, the second half of the key derivation. */
         scope: { value: { kind: 'local', atlasId: 'slot-a', dbSuffix: 'slot-a' } },
+        /**
+         * The installation's current LOCAL slot, as the registry would answer it. Null by default,
+         * which is what the real registry answers when it was never loaded (the state every other
+         * case of this file runs in); the boot fall-back cases set it.
+         */
+        localSlot: { value: null },
     };
 });
 
@@ -94,6 +101,29 @@ vi.mock('@store/atlas-namespace.js', () => ({
     readLocalAtlasRegistry: vi.fn(async () => []),
 }));
 vi.mock('@store/repositories/local.repository.js', () => ({ ensureAtlasScope: vi.fn() }));
+// O REGISTRO LOCAL e a MONTAGEM do slot, para a queda do boot para o mapa local
+// (`enterLocalAtlasOnBoot`), que entra no slot pela troca viva. Tudo o mais vem do módulo real,
+// porque os outros casos deste arquivo o atravessam (o resgate lê o registro pelo dublê de
+// `atlas-namespace.js`). O ESCOPO da montagem é escrito no mesmo `fixture.scope` que a chave lê,
+// e é isso que deixa a asserção "montou o slot, e não o endereço do par" ser uma leitura só.
+vi.mock('@store/local-atlas.api.js', async (importOriginal) => ({
+    ...await importOriginal(),
+    getCurrentLocalAtlasId: vi.fn(() => fixture.localSlot.value?.id ?? null),
+    getLocalAtlas: vi.fn((id) => (fixture.localSlot.value?.id === id ? { ...fixture.localSlot.value } : null)),
+    scopeOfLocalAtlas: vi.fn((entry) => ({ kind: 'local', atlasId: entry.id, dbSuffix: entry.dbSuffix })),
+    mountLocalAtlas: vi.fn(async (id) => {
+        fixture.calls.push(`mountLocalAtlas:${id}`);
+        const entry = fixture.localSlot.value;
+        fixture.scope.value = { kind: 'local', atlasId: entry.id, dbSuffix: entry.dbSuffix };
+        return { ok: true, atlas: { ...entry } };
+    }),
+}));
+// A metade não destrutiva da entrada em slot local: refazer a memória a partir do slot montado.
+// O real precisa do container de serviços, que este arquivo não sobe.
+vi.mock('@store/map.operations.js', async (importOriginal) => ({
+    ...await importOriginal(),
+    adoptMountedLocalAtlas: vi.fn(async () => { fixture.calls.push('adoptMountedLocalAtlas'); return 'Principal'; }),
+}));
 vi.mock('@modals/confirm.modal.js', () => ({ showChoice: vi.fn(async () => 'discard') }));
 vi.mock('@modals/prompt.modal.js', () => ({ showPrompt: vi.fn(async () => 'nome') }));
 vi.mock('@js/import_export/save-local-atlas.service.js', () => ({
@@ -136,7 +166,7 @@ import {
     sameAtlasClaim,
     syncAtlasLockKey,
     retractAtlasClaim,
-    clearMountedAtlasIfGranted,
+    enterLocalAtlasOnBoot,
     deferAtlasOpen,
     resumeDeferredAtlasOpen,
 } from '@js/account/open-atlas.service.js';
@@ -236,6 +266,7 @@ beforeEach(() => {
     pageNow = 2000;
     syncEngineDouble.atlasId = null;
     fixture.scope.value = { kind: 'local', atlasId: 'slot-a', dbSuffix: 'slot-a' };
+    fixture.localSlot.value = null;
     vi.mocked(isRemoteStoreSync).mockReturnValue(false);
     vi.mocked(hasAnyMapFeatures).mockResolvedValue(false);
     vi.mocked(showChoice).mockResolvedValue('discard');
@@ -568,69 +599,90 @@ describe('abertura adiada', () => {
     });
 });
 
-describe('os DOIS wipes do boot: clearMountedAtlasIfGranted', () => {
-    it('recusa o wipe quando outra aba segura o atlas montado, e guarda a retomada', async () => {
-        // A aba duplicada herda `ebgeo_local_intent` do sessionStorage e boota com a origem remota
-        // da original: sem pré-voo, o `clearAllDataStore()` do boot cairia nos bancos vivos de lá.
+/**
+ * A QUEDA DO BOOT PARA O MAPA LOCAL, que ATE 2026-09-23 era um wipe com pre-voo. Os casos daqui
+ * mediam o pre-voo (a aba duplicada recusada antes de apagar os bancos vivos da original). O wipe
+ * saiu (decisao Q1 do dono), porque ele apagava tambem a fila de saida do atlas cuja abertura
+ * acabara de falhar e, decidido pelo marcador da instalacao, um slot LOCAL; o que sobra para medir
+ * aqui e a propriedade que o pre-voo protegia, agora por construcao: a queda do boot nao apaga
+ * nada, nem com a aba duplicada no mesmo atlas. A prova com armazenamento real esta em
+ * `tests/integration/abertura-que-falha-preserva-a-fila.repro.test.js`.
+ */
+describe('a queda do boot para o mapa local nao apaga: enterLocalAtlasOnBoot', () => {
+    it('com um par no MESMO atlas remoto (a aba duplicada), a aba SAI para o slot local e nada e apagado', async () => {
+        // A aba duplicada herda `ebgeo_local_intent` do sessionStorage e boota no escopo remoto da
+        // original. O wipe antigo precisava do lock para nao cair nos bancos vivos de la; a queda
+        // de hoje nao tem o que apagar, e o que ela FAZ e o que se afirma aqui: reivindica o slot
+        // local, monta o slot (e nao o endereco do par) e declara a origem local.
+        //
+        // A AUSENCIA DO WIPE SOZINHA NAO PRENDIA NADA, e foi a revisao que apontou: com
+        // `enterLocalAtlasOnBoot` virando um no-op este caso continuava verde. Controle negativo,
+        // conferido em 2026-09-23: com o corpo trocado por `return { ok: true, changed: false }`,
+        // ficam vermelhos os tres casos desta secao que esperam um efeito (este, o do adiamento e
+        // o do marcador realinhado), e so o controle que espera efeito NENHUM continua verde.
         fixture.scope.value = { kind: 'remote', atlasId: 'atlas-uuid', dbSuffix: 'remote-atlas-uuid' };
+        fixture.localSlot.value = { id: 'slot-a', name: 'Meu Atlas', dbSuffix: 'slot-a' };
         peer = bootPeer(remoteAtlasKey('atlas-uuid'));
         const lock = bootPageLock(remoteAtlasKey('atlas-uuid'));
 
-        const replay = vi.fn(async () => 'replayed');
-        const wiped = await clearMountedAtlasIfGranted(replay);
+        const entrada = await enterLocalAtlasOnBoot();
 
-        expect(wiped).toBe(false);
-        expect(calls).not.toContain('clearAllDataStore');
-        expect(lock.blocked).toBe(true);
-        // A retomada foi guardada: o "Usar aqui" do overlay termina o passo do boot em vez de
-        // apenas descobrir a aba.
-        expect(await resumeDeferredAtlasOpen()).toBe(true);
-        expect(replay).toHaveBeenCalledTimes(1);
-    });
-
-    it('CONTROLE NEGATIVO: sem par no mesmo atlas, o mesmo caminho apaga normalmente', async () => {
-        fixture.scope.value = { kind: 'remote', atlasId: 'atlas-uuid', dbSuffix: 'remote-atlas-uuid' };
-        // O par e uma aba em OUTRO atlas de servidor, que e o controle que nomeia a propria
-        // causa: mesmo tipo de chave, endereco diferente. Ele so voltou a valer com a saida da
-        // espera da ROW 4 (E7); enquanto dois remotos colidiam por KIND, este caminho era barrado
-        // pela espera em vez de seguir, e o controle media outra coisa.
-        peer = bootPeer(remoteAtlasKey('atlas-do-vizinho'));
-        bootPageLock(remoteAtlasKey('atlas-uuid'));
-
-        const replay = vi.fn(async () => 'replayed');
-        const wiped = await clearMountedAtlasIfGranted(replay);
-
-        expect(wiped).toBe(true);
-        expect(calls).toContain('clearAllDataStore');
-        expect(replay).not.toHaveBeenCalled();
-        expect(await resumeDeferredAtlasOpen()).toBe(false);
-    });
-
-    it('é o AWAIT que pega o par: no instante do boot o lock ainda não decidiu', async () => {
-        // O par já está no ar, mas a aba acabou de construir o lock e o canal entrega em outro
-        // tick, então ela não ouviu ninguém. Uma leitura de `blocked` (ou de `isTabLockBlocked()`)
-        // responde `false` aqui, e era exatamente isso que o boot tinha de informação: nada.
-        hub = createHub(1);
-        fixture.scope.value = { kind: 'remote', atlasId: 'atlas-uuid', dbSuffix: 'remote-atlas-uuid' };
-        peer = bootPeer(remoteAtlasKey('atlas-uuid'));
-        const lock = bootPageLock(remoteAtlasKey('atlas-uuid'), { settleMs: 40 });
-        expect(lock.blocked).toBe(false);          // a leitura síncrona, mentindo
-
-        const wiped = await clearMountedAtlasIfGranted();
-
-        expect(lock.blocked).toBe(true);           // a resposta, depois do settle
-        expect(wiped).toBe(false);
-        expect(calls).not.toContain('clearAllDataStore');
-    });
-
-    it('uma aba que não segura atlas nenhum apaga sem pedir licença a ninguém', async () => {
-        fixture.scope.value = null;                // `none`: nada resolvido, nada a arbitrar
-        peer = bootPeer(remoteAtlasKey('atlas-uuid'));
-        const lock = bootPageLock(noneKey());
-
-        expect(await clearMountedAtlasIfGranted()).toBe(true);
-        expect(calls).toContain('clearAllDataStore');
+        expect(entrada).toEqual({ ok: true, changed: true });
+        // O desfecho: a chave anunciada e a do slot local, e o que montou foi o slot. A duplicata
+        // PERDE a ordem para a original no boot (o `onBlocked`, igual ao produto), e a reivindicacao
+        // do slot local e o que a tira da colisao: ela termina desbloqueada.
+        expect(lock.key).toEqual(localAtlasKey('slot-a'));
         expect(lock.blocked).toBe(false);
+        expect(calls.filter((c) => c !== 'onBlocked'))
+            .toEqual(['mountLocalAtlas:slot-a', 'adoptMountedLocalAtlas', 'markStoreLocal']);
+        // Nada montou SOBRE o par: o escopo desta aba deixou o endereco dele, e ele segue livre.
+        expect(fixture.scope.value.dbSuffix).not.toBe('remote-atlas-uuid');
+        expect(peer.blocked).toBe(false);
+        expect(calls).not.toContain('clearAllDataStore');
+    });
+
+    it('com o SLOT LOCAL seguro por outra aba, a entrada fica ADIADA: nada monta, nada apaga', async () => {
+        // O desfecho do outro lado da mesma reivindicacao: o par segura o slot local de destino,
+        // entao montar por cima seria duas abas nos mesmos dez bancos. A aba fica bloqueada, com a
+        // troca guardada para o "Usar aqui", e o escopo remoto dela continua onde estava.
+        fixture.scope.value = { kind: 'remote', atlasId: 'atlas-uuid', dbSuffix: 'remote-atlas-uuid' };
+        fixture.localSlot.value = { id: 'slot-a', name: 'Meu Atlas', dbSuffix: 'slot-a' };
+        peer = bootPeer(localAtlasKey('slot-a'));
+        const lock = bootPageLock(remoteAtlasKey('atlas-uuid'));
+
+        const entrada = await enterLocalAtlasOnBoot();
+
+        expect(entrada.ok).toBe(false);
+        expect(lock.blocked).toBe(true);
+        expect(calls.some((c) => c.startsWith('mountLocalAtlas'))).toBe(false);
+        expect(calls).not.toContain('clearAllDataStore');
+        expect(fixture.scope.value.dbSuffix).toBe('remote-atlas-uuid');
+        // A troca ficou guardada: o desbloqueio a termina, em vez de so destravar a aba.
+        peer.destroy();
+        peer = null;
+        await settle();
+        expect(calls).toContain('mountLocalAtlas:slot-a');
+    });
+
+    it('num escopo JA local com o marcador falando de servidor, so o marcador e realinhado', async () => {
+        // O marcador e da INSTALACAO: outra aba abriu um atlas de servidor. O wipe antigo era
+        // decidido por ele e apagava o slot local DESTA aba.
+        fixture.scope.value = { kind: 'local', atlasId: 'slot-a', dbSuffix: 'slot-a' };
+        vi.mocked(isRemoteStoreSync).mockReturnValue(true);
+        bootPageLock(localAtlasKey('slot-a'));
+
+        const entrada = await enterLocalAtlasOnBoot();
+
+        expect(entrada).toEqual({ ok: true, changed: false });
+        expect(calls).toEqual(['markStoreLocal']);
+    });
+
+    it('CONTROLE: num escopo local com o marcador local, nada acontece', async () => {
+        fixture.scope.value = { kind: 'local', atlasId: 'slot-a', dbSuffix: 'slot-a' };
+        bootPageLock(localAtlasKey('slot-a'));
+
+        expect(await enterLocalAtlasOnBoot()).toEqual({ ok: true, changed: false });
+        expect(calls).toEqual([]);
     });
 });
 
@@ -673,34 +725,33 @@ describe('furo #1: o pré-voo consulta o lock de montagem, e não só o silênci
     beforeEach(() => { soltar = []; });
     afterEach(async () => { await Promise.all(soltar.map((f) => f())); });
 
-    it('o wipe do boot é RECUSADO por um par que o canal nunca ouviu', async () => {
+    // O `selfHolds` 1 ERA MEDIDO AQUI PELO WIPE DE BOOT, que saiu em 2026-09-23 (a queda do boot
+    // para o mapa local nao apaga mais nada). O mesmo 1 continua valendo no open do atlas que esta
+    // aba JA montou, que e o F5 de uma aba sentada no proprio atlas: a posse dela nao pode contar
+    // como par, e a da irma tem de contar.
+    it('o F5 no PROPRIO atlas é RECUSADO por uma irmã que o canal nunca ouviu', async () => {
         fixture.scope.value = { kind: 'remote', atlasId: 'atlas-uuid', dbSuffix: 'remote-atlas-uuid' };
         await montar('remote-atlas-uuid', 2);          // a desta aba + a da irmã
         const lock = bootPageLock(remoteAtlasKey('atlas-uuid'));
 
-        const replay = vi.fn(async () => 'replayed');
-        const wiped = await clearMountedAtlasIfGranted(replay);
+        const opened = await openRemoteAtlas('atlas-uuid');
 
-        expect(wiped).toBe(false);
+        expect(opened).toBe(false);
+        expect(calls).not.toContain('activateRemoteAtlas');
         expect(calls).not.toContain('clearAllDataStore');
         // E NÃO foi a ordem: o roster está vazio, que é a cena das três faces.
-        expect(lock.blocked).toBe(false);
         expect(lock.peers()).toHaveLength(0);
-        // O usuário é avisado, porque aqui não há overlay para explicar (não há par a quem pedir
-        // "Usar aqui": ele nunca entrou no roster).
+        // O usuário é avisado, porque aqui não há overlay para explicar.
         expect(vi.mocked(showError)).toHaveBeenCalledTimes(1);
-        // E a retomada fica guardada, como na recusa pela ordem.
-        expect(await resumeDeferredAtlasOpen()).toBe(true);
-        expect(replay).toHaveBeenCalledTimes(1);
     });
 
-    it('CONTROLE NEGATIVO: com a posse desta aba SOZINHA, o mesmo caminho apaga normalmente', async () => {
+    it('CONTROLE NEGATIVO: com a posse desta aba SOZINHA, o mesmo F5 abre normalmente', async () => {
         fixture.scope.value = { kind: 'remote', atlasId: 'atlas-uuid', dbSuffix: 'remote-atlas-uuid' };
         await montar('remote-atlas-uuid', 1);          // só a desta aba
         bootPageLock(remoteAtlasKey('atlas-uuid'));
 
-        expect(await clearMountedAtlasIfGranted()).toBe(true);
-        expect(calls).toContain('clearAllDataStore');
+        expect(await openRemoteAtlas('atlas-uuid')).toBe(true);
+        expect(calls).toContain('activateRemoteAtlas');
         expect(vi.mocked(showError)).not.toHaveBeenCalled();
     });
 

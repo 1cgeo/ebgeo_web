@@ -29,7 +29,7 @@ import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-c
 import { pedirPersistencia } from '@store/storage-persistence.js';
 import { syncEngine } from '@store/sync/sync-engine.js';
 import { apiClient } from '@store/sync/api-client.js';
-import { initServices, loadStoreOrigin, markStoreRemote, clearAllDataStore, activateAtlasInitialMap, activateRemoteAtlas, getControl, getEventBus } from './store';
+import { initServices, markStoreRemote, clearAllDataStore, activateAtlasInitialMap, activateRemoteAtlas, getControl, getEventBus } from './store';
 import { reapplyAtlasAppearance } from './store/atlas-appearance.service.js';
 import { installTabLockSyncBrake } from '@store/sync/tab-lock-sync-brake.js';
 import { EventTypes } from '@events/event_types.js';
@@ -42,7 +42,7 @@ import {
     deferAtlasOpen,
     resumeDeferredAtlasOpen,
     retractAtlasClaim,
-    clearMountedAtlasIfGranted,
+    enterLocalAtlasOnBoot,
     remoteMountWitness,
     switchToNewLocalAtlas,
     switchAtlas,
@@ -427,10 +427,10 @@ async function initApp() {
         if (await openPublicAtlasFromUrl(bootPublicLink)) return;
         if (await openAtlasFromUrl(bootAtlasLink)) return;
         if (await enterLocalMapOnBoot()) {
-            // AQUI, E NÃO LÁ DENTRO: a função é reentrante por `clearMountedAtlasIfGranted` (ela
-            // é o próprio callback de "Usar aqui"), e este ramo da cadeia roda uma vez por carga
-            // de página. Conta mesmo quando o descarte do dado remoto falhou, porque este boot É
-            // um boot local de qualquer forma, e contar só o caminho feliz subdeclararia
+            // AQUI, E NÃO LÁ DENTRO: a troca para o slot local que a função faz pode ser recusada
+            // pelo lock e retomada pelo "Usar aqui", e este ramo da cadeia roda uma vez por carga
+            // de página. Conta mesmo quando a entrada no slot local não se completou, porque este
+            // boot É um boot local de qualquer forma, e contar só o caminho feliz subdeclararia
             // justamente as sessões com problema.
             registrarUso(EventoDeUso.ATLAS_ABERTO, PropDeUso.ATLAS_LOCAL);
             return;
@@ -469,6 +469,16 @@ async function initApp() {
 let _abriuAtlasDeServidor = false;
 
 /**
+ * O código do desfecho de um `?atlas=` que FALHOU, para o seletor dizer por que a pessoa chegou lá.
+ *
+ * Um sinalizador de módulo pela mesma razão do de cima: `openAtlasFromUrl` devolve `false` e a
+ * cadeia segue, e a pergunta "por que falhou" só interessa ao último elo, `openAtlasChooserOnBoot`,
+ * que navega. O ramo da intenção "Mapa local" fica na página, onde o toast continua visível.
+ * @type {string|null}
+ */
+let _falhaDaAbertura = null;
+
+/**
  * O GANCHO DE MEDICAO DA TROCA AO VIVO. Sem interface, de proposito.
  *
  * PARA QUE ELE EXISTE: `switchAtlas` elimina a recarga da pagina, e a recarga e o custo inteiro
@@ -502,34 +512,39 @@ function installLiveAtlasSwitchHook() {
 /**
  * Honours the "Mapa local" choice by landing on a REAL local workspace.
  *
- * The intent flag alone only stopped the redirect — the IndexedDB store still held the atlas that
- * was open when the user left, so "Mapa local" reopened that atlas's maps and merely looked local.
- * Discarding remote-origin data here is what makes the choice mean what it says; `clearAllDataStore`
- * lands on a blank default map and emits `ALL_DATA_CLEARED`, which repopulates the live sources from
- * it (no features left drawn on the canvas).
+ * The intent flag alone only stopped the redirect: a tab whose mounted scope is a SERVER atlas (the
+ * `?atlas=` open that just failed, or a mount pointer left by the atlas it came from) would reopen
+ * that atlas's maps and merely look local. `enterLocalAtlasOnBoot` LEAVES that scope for the
+ * installation's current local slot, through the same live switch the rest of the product uses.
  *
- * A store that is ALREADY local is left untouched: that is the offline user's own work.
+ * IT ERASES NOTHING, AND IT USED TO ERASE TWO THINGS (decision Q1 of 2026-09-23). The step was a
+ * wipe of the mounted scope with the defaults of `clearAllDataStore`, which empty the outbound
+ * queue: after a failed open that was the queue of the very atlas that failed, and the tab was left
+ * on a remote scope with the origin marked LOCAL, where every write is refused. And the wipe was
+ * decided by the INSTALLATION's origin marker, so a tab in a LOCAL atlas erased that local atlas on
+ * F5 whenever another tab had opened a server atlas. Both measured in
+ * `tests/e2e-ui/abertura-remota-que-falha.repro.spec.js`.
  *
- * THE WIPE IS GATED, and this path is the reason the gate exists. `ebgeo_local_intent` lives in
- * sessionStorage, and sessionStorage is INHERITED when a tab is duplicated: the duplicate boots
- * carrying the intent, reads the same remote origin, and would erase the namespace the original tab
- * is working in. `clearMountedAtlasIfGranted` asks the lock and AWAITS the answer, which a boot-time
- * read of `isTabLockBlocked()` cannot do (the lock has not heard from anybody yet). Refused, the tab
- * stays blocked with the overlay, and "Usar aqui" replays this same entry.
+ * A scope that is ALREADY local is left untouched: that is the offline user's own work.
+ *
+ * Refused by the lock (another tab holds the local slot), the switch stays deferred behind the
+ * overlay and "Usar aqui" finishes it. The duplicated-tab hazard that used to justify a pre-flight
+ * here no longer has a wipe to guard: the duplicate leaves the server namespace instead of emptying
+ * it, and the claim it does make is the local slot's, with its witness.
  * @returns {Promise<boolean>} true when this boot is a local-map boot (the chooser must not run).
  */
 async function enterLocalMapOnBoot() {
     if (!hasLocalMapIntent()) return false;
     try {
-        const origin = await loadStoreOrigin();
-        if (origin.kind === 'remote') await clearMountedAtlasIfGranted(() => enterLocalMapOnBoot());
+        const entrada = await enterLocalAtlasOnBoot();
+        if (!entrada.ok) console.warn(`[boot] local map entry not completed (${entrada.reason ?? 'refused'})`);
     } catch (error) {
         console.warn('[boot] local map entry failed:', error);
     }
-    // A CONTAGEM NÃO MORA AQUI, e a razão é a reentrância: `clearMountedAtlasIfGranted` recebe
-    // ESTA MESMA função como callback de "Usar aqui", então uma aba bloqueada que ganha o lock
-    // executa `enterLocalMapOnBoot` de novo e contaria o mesmo boot duas vezes. Quem conta é o
-    // chamador da cadeia de roteamento, que roda uma vez por carga de página.
+    // A CONTAGEM NÃO MORA AQUI, e a razão é a retomada: a troca recusada pelo lock fica guardada e
+    // o "Usar aqui" a executa de novo, então contar lá dentro contaria o mesmo boot duas vezes (é
+    // por isso que ela vai com `contarAbertura: false`). Quem conta é o chamador da cadeia de
+    // roteamento, que roda uma vez por carga de página.
     return true;
 }
 
@@ -574,9 +589,15 @@ async function openAtlasFromUrl(link = parseAtlasLink()) {
         if (status === 403) showToast('Você não tem acesso a este atlas.', 'error');
         else if (status === 404) showToast('Atlas não encontrado ou sem acesso.', 'error');
         else showToast('Não foi possível abrir o atlas do servidor.', 'error');
+        // O MESMO DESFECHO, EM CÓDIGO, para o caso de a cadeia seguir até o seletor: a navegação
+        // mata o toast acima, e a frase é remontada lá (`arrivalNotice`, `projects/atlas-drive.js`).
+        _falhaDaAbertura = status === 403 ? 'abertura-sem-acesso'
+            : status === 404 ? 'abertura-nao-encontrada' : 'abertura-falhou';
         console.warn('[boot] atlas open from URL failed:', error);
         clearAtlasUrl();
-        return false; // origin reverted to local in openRemoteAtlas → reconnect is a no-op; land local
+        // The origin stays REMOTE (openRemoteAtlas keeps the provenance since 2026-09-19); where the
+        // tab lands is the rest of the chain's decision, and neither of its two links erases anything.
+        return false;
     }
 }
 
@@ -875,12 +896,19 @@ async function restoreSessionFromStorage() {
  *
  * Normally Phase -1 already routed this boot away, so the only way here is a fallthrough — an
  * `?atlas=` deep link that failed to open, or a "Mapa local" tab whose session outlived the intent.
- * Discards any remote-atlas data left over from a previous session first, so the user does not
- * leave a disconnected atlas sitting in IndexedDB (clearAllDataStore re-marks LOCAL).
  *
- * Same gate as `enterLocalMapOnBoot`, for the same reason: that "left over" data is left over only
- * from THIS tab's point of view, and another tab may have it open right now. Refused, the chooser
- * does not open either — the tab is blocked, and the overlay is the answer the user needs first.
+ * IT DOES NOT WIPE ANYTHING ANY MORE (decision Q1 of 2026-09-23). It used to empty the mounted
+ * scope first "so a disconnected atlas does not sit in IndexedDB", with the defaults that empty the
+ * outbound queue, and after a failed `?atlas=` open the mounted scope IS that atlas: the queue the
+ * next successful open would have delivered was destroyed by a network error (one pending operation
+ * before, zero after, the edit never reached the server; measured in
+ * `tests/e2e-ui/abertura-remota-que-falha.repro.spec.js`). With a namespace per atlas nothing is left
+ * lying around: the atlas keeps its own databases, the ordinary open preserves them (2026-09-19),
+ * and the logout sweep is what collects server data. The navigation discards the view.
+ *
+ * THE REASON TRAVELS WITH IT (`?aviso=`), because the failure toast `openAtlasFromUrl` raised dies
+ * with this page. While the wipe ran first it flashed for as long as the wipe took; without it the
+ * navigation is immediate and the person would land on the chooser with no word of why.
  *
  * The boot deliberately does NOT reconnect the last atlas: the address bar is the source of truth.
  * @returns {Promise<void>}
@@ -888,12 +916,9 @@ async function restoreSessionFromStorage() {
 async function openAtlasChooserOnBoot() {
     try {
         if (!sessionContext.isAuthenticated()) return;
-        const origin = await loadStoreOrigin();
-        if (origin.kind === 'remote'
-            && !await clearMountedAtlasIfGranted(() => openAtlasChooserOnBoot())) {
-            return;
-        }
-        getControl('account')?.openProjectPicker?.();
+        const notice = _falhaDaAbertura;
+        _falhaDaAbertura = null;
+        await getControl('account')?.openProjectPicker?.(notice ? { notice } : undefined);
     } catch (error) {
         console.warn('[boot] atlas chooser failed:', error);
     }

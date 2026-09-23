@@ -202,13 +202,17 @@
  * that appears without being classified fails there, and a site that loses its pre-flight fails
  * there too, which is the guard a sentence in this file cannot be.
  *
- * THE BOOT PAIR IS THE WORST CASE, and it is worth keeping by name because the route to it is
- * ordinary. `enterLocalMapOnBoot` and `openAtlasChooserOnBoot` (`index.js`) wipe on a path where
- * `ebgeo_local_intent` lives in sessionStorage, which is INHERITED when a tab is duplicated, so the
- * duplicate boots with the intent, reads a remote origin, and wipes the namespace the original tab
- * is using. A boot is also where a flag read cannot work, because at that instant the lock has not
- * yet heard from anybody: only an AWAITED acquire (settle included) can answer. Both go through
- * `clearMountedAtlasIfGranted` (`account/open-atlas.service.js`).
+ * THE BOOT PAIR WAS THE WORST CASE, and it stays here by name because the cure was to REMOVE the
+ * wipe, not to arbitrate it better. `enterLocalMapOnBoot` and `openAtlasChooserOnBoot` (`index.js`)
+ * used to empty the mounted scope on a path where `ebgeo_local_intent` lives in sessionStorage,
+ * which is INHERITED when a tab is duplicated, so the duplicate booted with the intent, read a
+ * remote origin, and emptied the namespace the original tab was using; an awaited acquire guarded
+ * that. Since 2026-09-23 neither of them erases anything (owner's decision Q1): the chooser only
+ * navigates, and the local-map entry LEAVES a mounted server scope through the live switch into
+ * the local slot (`enterLocalAtlasOnBoot`, `account/open-atlas.service.js`), whose claim carries
+ * the witness because two tabs in one slot is still a collision. The wipe was also erasing the
+ * failed atlas's outbound queue, and a LOCAL slot whenever another tab had marked the installation
+ * remote; `tests/e2e-ui/abertura-remota-que-falha.repro.spec.js` measures both.
  *
  * A read of `blocked` right after `initTabLock()` is always `false` and means nothing.
  *
@@ -483,8 +487,9 @@
  *     runs that same sweep and used to warn nobody; on that path there is no singleton yet, which
  *     is what `announceTabLockTeardown` builds a throwaway participant for.
  *   - `open-atlas.service.js` owns every claim of an atlas: `claimRemoteAtlas` before an
- *     open, `clearMountedAtlasIfGranted` before a boot wipe, `syncAtlasLockKey` on the live
- *     changes, `retractAtlasClaim` on a claim it cannot honour.
+ *     open, the local slot's claim inside the live switch (which is also how the boot falls back
+ *     to the local map, `enterLocalAtlasOnBoot`), `syncAtlasLockKey` on the live changes,
+ *     `retractAtlasClaim` on a claim it cannot honour.
  *   - the three pages without a map call `initTabLock({ key: noneKey(), overlayHost: null })`
  *     and nothing else.
  *

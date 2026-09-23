@@ -351,9 +351,10 @@ export class SyncStatusControl {
         );
 
         // O SINAL DE SAÚDE VEM POR OBSERVADOR PRÓPRIO, e não pelo barramento nem pela batida
-        // periódica. Pela batida seria tarde e, pior, CEGO em atlas local: `_readQueue`
-        // devolve antes de repintar ali, então a única pessoa que veria o aviso seria a que
-        // está num atlas de servidor. `onResourceAccessHealthChanged` avisa só na virada.
+        // periódica. Pela batida chegaria até 3 s atrasado, e até 2026-09-23 chegava CEGO em
+        // atlas local, porque `_readQueue` voltava antes de repintar ali; hoje aquele ramo repinta
+        // (a origem vira local sem evento, e a luz congelava), mas o observador continua sendo a
+        // via certa: `onResourceAccessHealthChanged` avisa na virada, sem esperar batida nenhuma.
         this._unsubscribeHealth = onResourceAccessHealthChanged(() => {
             this._render();
         });
@@ -566,7 +567,17 @@ export class SyncStatusControl {
      */
     async _readQueue() {
         if (!this._container) return;
-        if (!sessionContext.isAuthenticated() || !isRemoteStoreSync()) return;
+        if (!sessionContext.isAuthenticated() || !isRemoteStoreSync()) {
+            // THE QUEUE IS NOT READ HERE, BUT THE LIGHT IS STILL REPAINTED, and the repaint is the
+            // fix of 2026-09-23. The origin flips to LOCAL (`markStoreLocal`) without any event, and
+            // the heartbeat that lands here was the only thing still looking: returning before
+            // `_render()` froze the last paint, which was taken while the origin was still REMOTE.
+            // Measured after an `?atlas=` open that failed on a tab with the "Mapa local" intent:
+            // the tab was local and the light said `sem-conexao` forever. Painting costs no
+            // IndexedDB traffic, which is what this branch exists to avoid.
+            this._render();
+            return;
+        }
         if (this._reading) {
             this._readAgain = true;
             return;

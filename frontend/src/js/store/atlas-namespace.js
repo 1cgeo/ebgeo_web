@@ -2009,6 +2009,19 @@ export async function dropAtlasDatabases(scope, { timeoutMs = DROP_TIMEOUT_MS, a
     if (blocked.length === 0 && !atlasDataOnly) {
         forgetGeneration(scope);
         forgetRemoteWriteFence(scope);
+        // AND THE DURABLE HALF OF BOTH IS AWAITED HERE, because the callers navigate away right
+        // after. The two calls above remove the `localStorage` copies at once, but the removal of
+        // their MIRRORS in `ebgeo_global` is only QUEUED on `_mirrorChain`, which nobody awaited.
+        // `endSession` in `atlas.html` (and in `admin.html` and `calibracao.html`) purges and then
+        // calls `location.replace`, and a document that dies before the chain drains leaves the
+        // mirror behind with `{ discarded: true }`. The next open of that atlas then has
+        // `reconcileDurablePointers` restore the discard inside `connect`, the session fence throws
+        // `AbortError`, and the open fails with nothing wrong on the server. Measured on
+        // 2026-09-23 with the mirror removal delayed by 2 s: `{ epoch: 1, discarded: true }`
+        // survived every logout, and the reopen died with "As pendências desta sessão foram
+        // descartadas" (`tests/e2e-ui/abertura-remota-que-falha.repro.spec.js`, case 4). The chain
+        // never rejects, so this cannot turn a drop into a failure.
+        await durableMirrorSettled();
     }
     // THE REMEMBERED VIEW OF THE PERSON IS NOT A POINTER, so neither condition above applies to it:
     // no retry derives anything from it, and the maps it describes left with the data databases.

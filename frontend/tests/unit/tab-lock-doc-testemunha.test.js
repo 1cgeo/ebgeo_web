@@ -137,16 +137,20 @@ function chamadasDeAcquire(texto) {
 const CENSO = Object.freeze({
     // `openPublicAtlasFromUrl`: o quarto sítio destrutivo, ligado em 2026-08-16.
     'src/js/index.js': { chamadas: 1, comTestemunha: 1 },
-    // TRES, E A TERCEIRA NAO E DESTRUTIVA. `claimRemoteAtlas` e `clearMountedAtlasIfGranted` sao
-    // os dois que a frente original ligou. A terceira e `switchToExistingLocalAtlas` (a troca ao
-    // vivo para um atlas LOCAL que ja existe, 2026-08-25), e ela e o primeiro sitio deste
-    // repositorio que reivindica SEM apagar nada: o que ela protege nao e um wipe, e a MONTAGEM
-    // por cima de um slot que outra aba pode ter aberto — duas abas nos mesmos dez bancos, cada
-    // uma achando que e a unica. A testemunha (`localMountWitness`) e a irma local de
-    // `remoteMountWitness`, com a mesma regra de `selfHolds`. Por ela nao destruir nada, ela NAO
-    // aparece no segundo censo (o de `clearAllDataStore`) mais abaixo, e essa ausencia e a
-    // afirmacao de que a entrada em atlas local existente e nao-destrutiva.
-    'src/js/account/open-atlas.service.js': { chamadas: 4, comTestemunha: 4 },
+    // TRES. `claimRemoteAtlas` e o que a frente original ligou. A segunda e `switchToExistingLocalAtlas`
+    // (a troca ao vivo para um atlas LOCAL que ja existe, 2026-08-25), e ela reivindica SEM apagar
+    // nada: o que ela protege nao e um wipe, e a MONTAGEM por cima de um slot que outra aba pode ter
+    // aberto — duas abas nos mesmos dez bancos, cada uma achando que e a unica. A testemunha
+    // (`localMountWitness`) e a irma local de `remoteMountWitness`, com a mesma regra de `selfHolds`.
+    // Por ela nao destruir nada, ela NAO aparece no segundo censo (o de `clearAllDataStore`) mais
+    // abaixo. A terceira e a importacao de `.ebgeo` num slot local (`replaceAtlasFromImport`).
+    //
+    // ERAM QUATRO ate 2026-09-23: o pre-voo do wipe de BOOT (a funcao que apagava o escopo montado
+    // na queda da cadeia de roteamento) saiu junto com o wipe (decisao Q1 do dono), porque ele
+    // apagava a fila de saida do atlas cuja abertura acabara de falhar e, decidido pelo marcador da
+    // instalacao, um slot LOCAL. A queda do boot para o mapa local passa hoje pela troca viva acima
+    // (`enterLocalAtlasOnBoot`), entao a reivindicacao dela e a do slot, com testemunha.
+    'src/js/account/open-atlas.service.js': { chamadas: 3, comTestemunha: 3 },
     // `AccountControl.saveLocalToServer`: ERA O FURO VIVO, fechado em 2026-08-24. Ficou aberto por
     // ser o mais estreito dos cinco (o atlas nasce uma linha antes do pre-flight, então nenhuma
     // outra aba pode tê-lo montado, e `remoteMountWitness` deriva `selfHolds: 0` do escopo ATIVO,
@@ -161,7 +165,7 @@ const MODULOS = Object.freeze({
     'index.js': 'src/js/index.js',
     'open-atlas.service.js': 'src/js/account/open-atlas.service.js',
     'claimRemoteAtlas': 'src/js/account/open-atlas.service.js',
-    'clearMountedAtlasIfGranted': 'src/js/account/open-atlas.service.js',
+    'enterLocalAtlasOnBoot': 'src/js/account/open-atlas.service.js',
     'account.control.js': 'src/js/account/account.control.js',
     'saveLocalToServer': 'src/js/account/account.control.js',
 });
@@ -391,14 +395,17 @@ const ARBITRAGEM = Object.freeze({
  * reprova até entrar aqui, e um sítio que perde (ou ganha) o pre-flight reprova nomeando o arquivo.
  */
 const CENSO_DE_WIPE = Object.freeze({
-    // ---- os quatro com pre-flight (a cláusula da seção 5) ----
+    // ---- os três com pre-flight (a cláusula da seção 5) ----
     // Entra num atlas de servidor recém-criado. Era o quinto sítio destrutivo sem testemunha, e a
     // fechadura tem repro próprio em
     // `tests/integration/wipe-de-salvar-no-servidor-sem-testemunha.repro.test.js`.
     'src/js/account/account.control.js :: saveLocalToServer': ARBITRAGEM.PRE_FLIGHT,
-    // O par de BOOT (`enterLocalMapOnBoot`, `openAtlasChooserOnBoot`) chega aqui. `selfHolds` é 1:
-    // o endereço perguntado é o que ESTA aba montou.
-    'src/js/account/open-atlas.service.js :: clearMountedAtlasIfGranted': ARBITRAGEM.PRE_FLIGHT,
+    // O PAR DE BOOT (`enterLocalMapOnBoot`, `openAtlasChooserOnBoot`) SAIU DESTE CENSO em
+    // 2026-09-23, e não por ter perdido o pre-flight: ele deixou de apagar (decisão Q1 do dono).
+    // Os dois caíam num wipe do escopo montado que levava a fila de saída do atlas cuja abertura
+    // acabara de falhar, e um slot LOCAL quando o marcador da instalação dizia servidor. Repro em
+    // `tests/integration/abertura-que-falha-preserva-a-fila.repro.test.js` e
+    // `tests/e2e-ui/abertura-remota-que-falha.repro.spec.js`.
     // Reivindica por `claimRemoteAtlas`, que é quem monta a testemunha.
     'src/js/account/open-atlas.service.js :: openRemoteAtlasNow': ARBITRAGEM.PRE_FLIGHT,
     // Link público: o quarto sítio destrutivo, ligado em 2026-08-16.

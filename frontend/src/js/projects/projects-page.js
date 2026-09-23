@@ -129,7 +129,7 @@ import {
 // The name only, from a module with no imports: the server importer that lives next to it opens
 // with `import JSZip`, and this path never parses the archive (the map's importer does).
 import { atlasNameFromFilename } from './ebgeo-filename.js';
-import { LOCAL_INTENT_KEY } from '../deep-link/local-intent.js';
+import { LOCAL_INTENT_KEY, clearLocalMapIntent } from '../deep-link/local-intent.js';
 // The logo the boot splash of this very page already fetched — a URL, not the Base64 the name
 // still promises (see the module's own note). By FILE, like everything else here.
 import { EBGEO_LOGO_BASE64 } from '../utilities/logo-base64.js';
@@ -234,16 +234,18 @@ function clearSplash() {
 }
 
 /**
- * Explains an arrival the user did not ask for — the atlas they had open was deleted, so the map
- * tore itself down and sent them here with `?aviso=<motivo>`. The message travels in the URL
+ * Explains an arrival the user did not ask for — the atlas they had open was deleted, or the
+ * `?atlas=` they followed failed to open, so the map sent them here with `?aviso=<motivo>`. The
+ * message travels in the URL
  * because a toast raised on the map would be destroyed by the navigation that follows it.
  * One-shot: the param is stripped so a reload does not repeat it. Unknown values are ignored
  * rather than echoed.
  *
  * WHAT TO SAY (including "say nothing") is {@link arrivalNotice}, which is pure and where the
- * session gate lives: both codes are facts about a SERVER atlas, and echoing them to a visitor
- * with no account described the ownership of an atlas they never had, off a hand-written URL.
- * The param is stripped either way.
+ * session gate lives: every code is a fact about a SERVER atlas (an atlas deleted under the
+ * person, or an `?atlas=` open that failed on the map's boot), and echoing one to a visitor with
+ * no account described an atlas they never had, off a hand-written URL. The param is stripped
+ * either way.
  * @param {boolean} signedIn
  */
 function explainArrivalFromUrl(signedIn) {
@@ -357,10 +359,12 @@ async function retryLocalAtlases() {
  *
  * THE ORDER IS THE WHOLE FUNCTION, and each step defuses one silent failure:
  *
- * 1. `markStoreLocal()` FIRST. With the persisted marker still saying REMOTE, the map's
- *    `enterLocalMapOnBoot` calls `clearMountedAtlasIfGranted`, which empties the ACTIVE scope —
- *    and the active scope, by then, is the very slot the user just picked. Declaring LOCAL before
- *    leaving is what stops the open from wiping what it opens.
+ * 1. `markStoreLocal()` FIRST, so the marker the map's boot reads agrees with the slot it is about
+ *    to mount. Until 2026-09-23 this step was what stopped the open from WIPING what it opened: the
+ *    map's `enterLocalMapOnBoot` emptied the active scope whenever the marker said REMOTE, and the
+ *    active scope was the very slot the user had just picked. That wipe is gone (the boot's fall-back
+ *    to the local map erases nothing, `enterLocalAtlasOnBoot`), so what is left here is coherence,
+ *    and the tab no longer depends on this line to keep its work.
  * 2. `setCurrentLocalAtlas` moves the installation pointer AND mounts, and the mount is what
  *    rewrites THIS TAB's mount pointer (`atlas-namespace.js`, Decision 6). That pointer BEATS the
  *    installation pointer at the map's boot and survives navigation inside the same tab, so a tab
@@ -855,6 +859,10 @@ async function endSession(reason) {
         // logout() already swallows network errors and clears locally.
     }
     sessionContext.clearSession();
+    // A INTENÇÃO "MAPA LOCAL" É DA SESSÃO QUE ACABOU, como `AccountControl._handleLogout` já dizia
+    // no mapa. Esta página não a limpava, e a intenção viva levava a PRÓXIMA conta desta aba, na
+    // primeira abertura de atlas que falhasse, para o ramo do mapa local em vez do seletor.
+    clearLocalMapIntent();
     // O MESMO CAMINHO DE `discardRemoteAtlasNamespaces`, e não mais a varredura crua (achado F17):
     // ela AVISA as abas irmãs antes de destruir (o aviso vive dentro dela, derivado da mesma
     // lista), e o escopo que ela desativa é reapontado para um slot local aqui. Sem o segundo, uma

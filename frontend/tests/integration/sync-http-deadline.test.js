@@ -16,6 +16,23 @@ describe('Sync HTTP deadline and cancellation', () => {
         expect(JSON.parse(fetch.mock.calls[0][1].body).operations[0].id).toBe('original-id');
     });
 
+    /**
+     * O PRIMEIRO PEDIDO DE TODO `connect` TEM PRAZO (2026-09-23). Sem `timeoutMs`, `_request` só
+     * desiste quando outro gesto aborta a sessão, e um servidor que aceitou a conexão e nunca
+     * respondeu segurava a abertura do atlas inteira, sem `connecting`, sem socket e sem falha de
+     * onde a cadeia de boot pudesse cair. Mesmo prazo dos recibos, e com o mesmo sinal de parada.
+     */
+    it('bounds the protocol negotiation, which is the first request of every connect', async () => {
+        vi.useFakeTimers();
+        const fetch = vi.fn(() => new Promise(() => {}));
+        const api = new ApiClient({ fetch });
+        const rejected = expect(api.getSyncProtocol('atlas')).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' });
+        await vi.advanceTimersByTimeAsync(30000);
+        await rejected;
+        expect(fetch.mock.calls[0][0]).toMatch(/\/atlas\/atlas\/sync\/protocol$/);
+        expect(fetch.mock.calls[0][1].signal.aborted).toBe(true);
+    });
+
     it('keeps the deadline until the response body is read', async () => {
         vi.useFakeTimers();
         const api = new ApiClient({ fetch: vi.fn(async () => ({

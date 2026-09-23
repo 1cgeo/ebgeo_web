@@ -204,13 +204,45 @@ export function instalarPesoDeBoot(page) {
  * encurtada e cada modo forçado por rota: sem bloqueio fica online e não diagnostica nada; pull
  * parado nomeia o `GET .../sync/0` pendente e lê "antes do socket"; socket mudo lê "não completou
  * o handshake"; socket fechado lê "voltou ao seletor". Quatro de quatro nos dois.
+ *
+ * RE-SONDADO EM 2026-09-23 para o QUINTO modo, o da falha da matriz de 2026-09-22: a abertura
+ * FALHA (o `/sync/protocol` abortado por rota) numa aba com a intenção "Mapa local", e a cadeia de
+ * boot cai no mapa local, com a origem local e sem `?atlas=`. Sem a leitura nova o diagnóstico
+ * dessa cena não dizia nada; com ela, e com a linha de console capturada, leu nos dois navegadores
+ * "a abertura FALHOU ... caiu no mapa LOCAL", com o motivo (`TypeError: Failed to fetch` no
+ * Chromium, `NetworkError when attempting to fetch resource.` no Firefox, que chega como
+ * `JSHandle@object` no texto cru e por isso é lido do argumento).
  * @private
  */
 function instalarRastroDeSincronia(page, estado) {
     estado.pedidos = [];
     estado.soquetes = [];
+    estado.falhasDeAbertura = [];
     const porPedido = new WeakMap();
     const agora = () => Date.now() - estado.t0;
+    // A LINHA QUE O BOOT ESCREVE QUANDO A ABERTURA POR `?atlas=` FALHA, e ela é a única que nomeia
+    // o erro: depois dela a cadeia de roteamento segue (seletor, ou mapa local com a intenção), e a
+    // página não guarda o motivo em lugar nenhum que o diagnóstico alcance. Foi o que faltou na
+    // falha da matriz de 2026-09-22, cujo erro era um `AbortError` do fence de descarte.
+    page.on('console', (mensagem) => {
+        let texto = '';
+        try { texto = mensagem.text(); } catch { return; }
+        if (!texto.includes('[boot] atlas open from URL failed')) return;
+        const registro = { ms: agora(), texto: texto.slice(0, 240) };
+        estado.falhasDeAbertura.push(registro);
+        // NO FIREFOX O ERRO CHEGA COMO `JSHandle@object` no texto (medido em 2026-09-23), então o
+        // motivo é lido do próprio argumento. Best-effort: a página pode ter navegado e levado o
+        // handle junto, e aí fica o texto cru.
+        let args = [];
+        try { args = mensagem.args(); } catch { /* sem argumentos legíveis */ }
+        if (args.length > 1) {
+            args[1].evaluate((e) => (e && typeof e === 'object' ? `${e.name}: ${e.message}` : String(e)))
+                .then((motivo) => {
+                    registro.texto = `[boot] atlas open from URL failed: ${motivo}`.slice(0, 240);
+                })
+                .catch(() => {});
+        }
+    });
     page.on('request', (req) => {
         let url;
         try { url = new URL(req.url()); } catch { return; }
@@ -289,6 +321,8 @@ async function diagnosticoDeSincronia(page, estado, desde) {
     } else {
         linhas.push('sem rastro de rede (instalarPesoDeBoot não foi chamado nesta página)');
     }
+    const falhas = (estado?.falhasDeAbertura ?? []).filter((f) => f.ms >= desde);
+    for (const f of falhas) linhas.push(`  CONSOLE ${f.texto}`);
     if (pagina) {
         const noMapa = !pagina.caminho.startsWith('/atlas.html');
         if (!noMapa) {
@@ -300,6 +334,16 @@ async function diagnosticoDeSincronia(page, estado, desde) {
                 ? 'LEITURA: a abertura parou ANTES do socket, esperando o pedido pendente acima.'
                 : 'LEITURA: a abertura parou ANTES do socket e FORA da rede (IndexedDB, trava ou o '
                     + 'próprio pipeline de `syncEngine.connect`); nenhum pedido da API ficou sem resposta.');
+        } else if (pagina.conexao === 'offline' && !pagina.origemRemota && !/[?&]atlas=/.test(pagina.caminho)) {
+            // O CASO QUE FICAVA SEM LEITURA, e é a assinatura da falha da matriz de 2026-09-22: a
+            // abertura FALHOU, o `?atlas=` saiu da barra, a origem voltou a local e a página ficou no
+            // mapa, porque a aba carregava a intenção "Mapa local" e a cadeia caiu no ramo local em
+            // vez do seletor. O motivo está na linha de console acima, quando ela foi capturada.
+            linhas.push(falhas.length
+                ? 'LEITURA: a abertura FALHOU (motivo na linha de console acima) e a cadeia de boot '
+                    + 'caiu no mapa LOCAL pela intenção "Mapa local" desta aba.'
+                : 'LEITURA: a página está no mapa, fora de atlas de servidor e sem `?atlas=`, e '
+                    + 'nenhuma falha de abertura foi vista no console: a abertura nem começou.');
         }
     }
     return linhas.join('\n');

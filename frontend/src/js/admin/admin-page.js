@@ -47,6 +47,8 @@ import { initTabLock, noneKey } from '@utils/tab-lock.js';
 // `index.js` e `projects/projects-page.js` consomem.
 import { classifyRequestFailure, RequestFailure } from '@utils/request-failure.js';
 import { startIdleWatch } from '../session/idle-watch.js';
+// Folha de zero imports, pelo ARQUIVO: esta página boota sem a store.
+import { clearLocalMapIntent } from '@js/deep-link/local-intent.js';
 // Pelo ARQUIVO, como os vizinhos de `session/` (a pasta não tem barrel). Best-effort e sem rede na
 // instalação: ver a chamada no topo de `initAdminPage`.
 import { instalarTelemetriaDeErro, descarregarFilaDeRelatos } from '@js/session/erro-telemetria.js';
@@ -150,6 +152,9 @@ async function endSession(reason) {
         // logout() already swallows network errors and clears locally; nothing left to do.
     }
     sessionContext.clearSession();
+    // A intenção "Mapa local" é da sessão que acabou (o mesmo passo de `AccountControl._handleLogout`
+    // e de `projects-page.js`).
+    clearLocalMapIntent();
     // O MESMO CAMINHO DE `discardRemoteAtlasNamespaces`, e não mais a varredura crua (achado F17).
     // Duas coisas mudaram, e nenhuma delas é estilo: a varredura AVISA as abas irmãs antes de
     // destruir (o aviso vive dentro dela, derivado da mesma lista), e o escopo que ela desativa é

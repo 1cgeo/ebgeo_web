@@ -2302,25 +2302,40 @@ export function localCountLabel({ count, max } = {}) {
 }
 
 /**
- * O que o mapa manda dizer quando se desmonta sozinho, por código de `?aviso=`.
+ * O que o mapa manda dizer quando manda a pessoa para cá sem ela ter pedido, por código de
+ * `?aviso=`.
  *
- * SÓ PERDAS MORAM AQUI: um atlas de servidor que deixou de existir debaixo de quem o tinha
- * aberto. A tabela hospedou por um dia uma GARANTIA (`trabalho-local-intacto`, dita a quem
- * entrava numa conta trabalhando local), retirada em 2026-08-25 a pedido do chefe. O desfecho de
- * dados que ela descrevia continua o mesmo e continua o certo: `syncEngine.login` não toca no
- * store e `openProjectPicker` só navega, então entrar numa conta nunca moveu nem apagou o que já
- * estava no navegador. O que caiu foi só a frase, que levantava a dúvida que vinha responder.
+ * SÃO FATOS SOBRE UM ATLAS DE SERVIDOR, e nunca garantias. Até 2026-09-23 a tabela só tinha perdas
+ * (um atlas que deixou de existir debaixo de quem o tinha aberto); naquela data entraram os três
+ * desfechos de uma abertura por `?atlas=` que falhou no boot do mapa. A tabela hospedou por um dia
+ * uma GARANTIA (`trabalho-local-intacto`, dita a quem entrava numa conta trabalhando local),
+ * retirada em 2026-08-25 a pedido do chefe, porque levantava a dúvida que vinha responder. A mesma
+ * disciplina vale para as frases novas: nenhuma diz o que foi preservado, porque o código que
+ * chega aqui não sabe (ver o comentário da entrada `abertura-falhou`).
  */
 const ARRIVAL_NOTICES = Object.freeze({
     excluido: 'Atlas excluído.',
     'excluido-por-outro': 'Este atlas foi excluído pelo proprietário.',
+    // A ABERTURA POR `?atlas=` QUE FALHOU NO MAPA (2026-09-23). O toast de lá morre com a navegação
+    // até aqui, então o desfecho viaja como código e a frase é esta. As duas de acesso repetem as
+    // do mapa palavra por palavra.
+    //
+    // A TERCEIRA NÃO PROMETE QUE NADA FOI APAGADO, e prometeu por uma revisão. A queda do boot não
+    // apaga mais nada (decisão Q1 do dono), mas a abertura em si ainda apaga em dois ramos ANTES do
+    // `connect` que pode falhar: o slot RESGATADO cujo descarte a pessoa confirmou em "Apagar e
+    // abrir" (`openRemoteAtlasNow`), e o reparo de um descarte interrompido (`registerRemoteAtlas`).
+    // O mapa não manda dizer qual ramo rodou, então a frase fica no que ele sabe: não abriu.
+    'abertura-sem-acesso': 'Você não tem acesso a este atlas.',
+    'abertura-nao-encontrada': 'Atlas não encontrado ou sem acesso.',
+    'abertura-falhou': 'Não foi possível abrir o atlas. Verifique sua conexão e tente de novo.',
 });
 
 /**
  * A frase de chegada, ou `null` quando não há nada honesto a dizer.
  *
- * TODO CÓDIGO DAQUI PRESSUPÕE SESSÃO. Os dois avisos são fatos sobre um atlas de SERVIDOR, e só
- * o mapa de uma sessão viva os produz (`AccountControl._handleRemoteAtlasDeleted`): ecoá-los para
+ * TODO CÓDIGO DAQUI PRESSUPÕE SESSÃO. Os avisos são fatos sobre um atlas de SERVIDOR, e só o mapa
+ * de uma sessão viva os produz (`AccountControl._handleRemoteAtlasDeleted`, e a abertura por
+ * `?atlas=` que falhou no boot, em `openAtlasChooserOnBoot` de `index.js`): ecoá-los para
  * quem não tem sessão descrevia a um anônimo a propriedade de um atlas que ele nunca teve, por um
  * parâmetro que qualquer um monta na barra de endereços. Daí o portão `signedIn`.
  *
