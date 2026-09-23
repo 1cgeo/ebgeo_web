@@ -31,8 +31,8 @@ import { validateMapLibreStyle } from '@utils/maplibre-style-validate.js';
 import { validateImagePayload, compressImage } from '@utils/image_utils.js';
 import { blobToDataUrl } from '@utils/blob-to-data-url.js';
 import { sectionHeader, card, emptyState, ICON_CATALOG, failureState } from './admin-dom.js';
-import { orgLabel, buildDomainOptions } from './org-options.js';
-import config from '@js/config.js';
+import { orgLabel, buildOrgSearchItems } from './org-options.js';
+import { createSearchableSelect } from '@ui/searchable-select.js';
 // Two LEAF modules, imported one by one and never through the `@catalog` barrel: this page boots
 // without the store, and the barrel re-exports `catalog.service.js`, which reaches it.
 import { CAMPO_FORMA_3D, FORMAS_3D, Forma3D, derivarForma3d } from '@catalog/forma-3d.js';
@@ -293,11 +293,50 @@ class CatalogTab {
         // que um ouvinte for pendurado fora do container desmontado (em `document`, em `window`,
         // num timer) ele sobrevive, e esta e a aba em que o produtor passa mais tempo.
         setupCleanup(this);
+        this._combos = [];
         this._build();
         return () => {
             this._alive = false;
+            this._resetCombos();
             cleanup(this);
         };
+    }
+
+    /**
+     * @private Um campo de OM BUSCÁVEL (`ui/searchable-select.js`), o mesmo da aba de usuários, que
+     * casa pelo nome e pela sigla. O chamador monta os combos (`mount()`) depois de pôr o formulário
+     * no documento.
+     * @param {HTMLFormElement} form
+     * @param {string} label
+     * @param {string} testid - Também o id do campo.
+     * @param {Array<{value: string, label: string, sigla?: string|null}>} items
+     * @param {string} value - Id a pré-selecionar, ou ''.
+     * @returns {import('@ui/searchable-select.js').SearchableSelect}
+     */
+    _comboDeOm(form, label, testid, items, value) {
+        const combo = createSearchableSelect({
+            id: testid,
+            label,
+            testid,
+            items,
+            placeholder: 'Digite o nome ou a sigla…',
+            emptyText: 'Nenhuma unidade encontrada',
+            fieldClass: 'admin-form__field',
+        });
+        combo.setValue(value);
+        form.appendChild(combo.element);
+        this._combos.push(combo);
+        return combo;
+    }
+
+    /**
+     * @private A LISTA DE CADA COMBO MORA EM `document.body` (um portal), então trocar o conteúdo
+     * da aba não a leva junto: sem isto, cada formulário aberto deixaria uma lista e os ouvintes
+     * dela no documento.
+     */
+    _resetCombos() {
+        for (const combo of this._combos || []) combo.destroy();
+        this._combos = [];
     }
 
     /** @private Builds the persistent sub-nav + a content area, then renders the first category. */
@@ -409,6 +448,7 @@ class CatalogTab {
     /** @private */
     async _renderResourceList(category) {
         const c = this._content;
+        this._resetCombos();
         c.replaceChildren();
 
         // AS CINCO SUB-ABAS PASSARAM A DIVIDIR O MESMO REGIME em 2026-09-20: todas recortadas
@@ -552,6 +592,7 @@ class CatalogTab {
     _renderResourceForm(category, resource) {
         const isEdit = !!resource;
         const c = this._content;
+        this._resetCombos();
         c.replaceChildren();
         const categoriaRotulo = CATEGORIES.find((x) => x.key === category)?.label ?? category;
 
@@ -589,13 +630,14 @@ class CatalogTab {
         const podeTransferir = isEdit && sessionContext.isAdmin();
         let ownerSelect = null;
         if (podeTransferir) {
-            // "— (nenhuma)" é o INSTITUCIONAL, um destino legítimo, e não uma linha vazia: o
-            // valor '' vira `null` no envio, que devolve o recurso ao acervo sem OM dona.
-            const opts = buildDomainOptions(
-                config.organizacoesMilitares, ownerOrgId, orgLabel(ownerOrgId), '— (nenhuma) Institucional');
-            ownerSelect = selectField(form, 'OM dona', 'admin-catalog-owner-org', opts, ownerOrgId ?? '');
-            form.appendChild(hintParagraph('Mudar a OM dona (ou tornar o item institucional) é ato '
-                + 'de administrador e fica registrado na auditoria.'));
+            // BUSCÁVEL, como as listas de OM da aba de usuários (pedido do dono, 2026-09-23): são
+            // dezenas de unidades. O campo VAZIO é o INSTITUCIONAL, um destino legítimo: o valor ''
+            // vira `null` no envio, que devolve o recurso ao acervo sem OM dona. Texto digitado que
+            // não virou escolha também dá '', e por isso o `onSave` o recusa antes de gravar.
+            ownerSelect = this._comboDeOm(form, 'OM dona', 'admin-catalog-owner-org',
+                buildOrgSearchItems(ownerOrgId, orgLabel(ownerOrgId)), ownerOrgId ?? '');
+            form.appendChild(hintParagraph('Mudar a OM dona é ato de administrador e fica registrado '
+                + 'na auditoria. Apague o campo para tornar o item institucional, sem OM dona.'));
         } else {
             const ownerField = readOnlyField(form, 'OM dona', 'admin-catalog-owner-org',
                 ownerOrgId ? orgLabel(ownerOrgId) : 'Institucional (nenhuma OM)');
@@ -817,6 +859,12 @@ class CatalogTab {
             const name = nameInput.value.trim();
             if (!isEdit && !id) { showFormError(error, 'Informe um ID.'); return; }
             if (!name) { showFormError(error, 'Informe um nome.'); return; }
+            // Texto digitado que não virou escolha não pode viajar calado como "institucional".
+            if (ownerSelect && ownerSelect.text.trim() && !ownerSelect.value) {
+                showFormError(error, 'Escolha a OM dona na lista, ou apague o campo para deixar o item institucional.');
+                ownerSelect.input.focus();
+                return;
+            }
 
             // O config PARTE DA LINHA EXISTENTE (ou do template, na criação), e os campos gravam
             // por cima. Assim uma chave sem campo (extra de 3D, estilo MapLibre) sobrevive à edição.
@@ -1023,6 +1071,8 @@ class CatalogTab {
         saveBtn.addEventListener('click', onSave);
 
         c.appendChild(form);
+        // DEPOIS de o formulário estar no documento: a lista do combo é um portal em `body`.
+        for (const combo of this._combos) combo.mount();
     }
 
     /**
@@ -1041,6 +1091,7 @@ class CatalogTab {
      */
     _render360Upload() {
         const c = this._content;
+        this._resetCombos();
         c.replaceChildren();
 
         const form = card({ testid: 'admin-360-upload-form' });
@@ -1197,6 +1248,7 @@ class CatalogTab {
     /** @private */
     async _render360List() {
         const c = this._content;
+        this._resetCombos();
         c.replaceChildren();
 
         // A PORTA DO ENVIO mora no cabecalho da secao desde 2026-08-25, e nao mais numa faixa
@@ -1353,6 +1405,7 @@ class CatalogTab {
      */
     _render360Form(project) {
         const c = this._content;
+        this._resetCombos();
         c.replaceChildren();
         const slug = project.slug ?? project.name;
         const orgId = project.organization_id ?? project.organizationId ?? null;
@@ -1395,12 +1448,10 @@ class CatalogTab {
         const isAdmin = sessionContext.isAdmin();
         let orgSelect = null;
         if (isAdmin) {
-            const lista = Array.isArray(config.organizacoesMilitares) ? config.organizacoesMilitares : [];
-            const opts = lista.filter((o) => o && o.id).map((o) => ({ value: o.id, label: o.name }));
-            if (orgId && !opts.some((o) => o.value === orgId)) {
-                opts.unshift({ value: orgId, label: `${orgLabel(orgId)} (atual)` });
-            }
-            orgSelect = selectField(form, 'OM dona', 'admin-360-owner-org', opts, orgId ?? '');
+            // BUSCÁVEL, como no formulário de recurso. Aqui o campo vazio NÃO tem sentido (não há
+            // 360 institucional), e o `onSave` exige uma escolha da lista.
+            orgSelect = this._comboDeOm(form, 'OM dona', 'admin-360-owner-org',
+                buildOrgSearchItems(orgId, orgLabel(orgId)), orgId ?? '');
             form.appendChild(hintParagraph('Mover para outra OM é ato de administrador, registrado '
                 + 'na auditoria. Troca só a dona; os arquivos não mudam de lugar.'));
         } else {
@@ -1518,6 +1569,11 @@ class CatalogTab {
             error.hidden = true;
             const nome = nameInput.value.trim();
             if (!nome) { showFormError(error, 'Informe um nome.'); return; }
+            if (orgSelect && !orgSelect.value) {
+                showFormError(error, 'Escolha a OM dona na lista.');
+                orgSelect.input.focus();
+                return;
+            }
 
             // A privatização confirma ANTES de qualquer escrita, como no formulário de recurso.
             let accessAfter = accessInput.value;
@@ -1605,6 +1661,7 @@ class CatalogTab {
         };
         saveBtn.addEventListener('click', onSave);
         c.appendChild(form);
+        for (const combo of this._combos) combo.mount();
     }
 
     /**
