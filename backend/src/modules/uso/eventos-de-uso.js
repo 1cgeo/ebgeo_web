@@ -65,6 +65,7 @@ export const EVENTOS_DE_USO = Object.freeze([
   'indisponivel.visto',
   'migracao.resultado', 'sync.resultado', 'logout.descarte',
   'preferencia.base', 'preferencia.camada', 'recurso.aberto',
+  'luminosidade.aberta',
 ]);
 
 /**
@@ -121,6 +122,8 @@ export const PROPS_PERMITIDAS = Object.freeze({
   'ebgeo.exportado': Object.freeze([]),
   'ebgeo.importado': Object.freeze([]),
   'indisponivel.visto': Object.freeze([]),
+  // O painel de luminosidade (dados solares e lunares do PITCIC), aberto pelo menu de contexto.
+  'luminosidade.aberta': Object.freeze([]),
 });
 
 /**

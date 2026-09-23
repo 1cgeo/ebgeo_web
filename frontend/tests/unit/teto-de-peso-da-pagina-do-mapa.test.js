@@ -450,7 +450,13 @@ const EXTERNOS_SO_DINAMICOS = Object.freeze([
     // caminhador não enxerga. Agora vem do npm pelo ponto único `src/js/vendor/milsymbol.js`,
     // alcançado só pelo `import()` de `military_symbol_tool/milsymbol-loader.js`.
     'milsymbol',
-    'quill'
+    'quill',
+    // `suncalc` ENTROU EM 2026-09-23 com o painel de luminosidade (dados solares e lunares do
+    // PITCIC). Ele é o molde do Turf e NÃO o do WMM: o `geomagnetism` está na lista de cima porque
+    // entrou no boot pelo painel de feição sem que nada acusasse, e este caso é o que impede o
+    // mesmo caminho aqui. O único leitor é `utilities/luminosidade/efemerides.js`, alcançado só pelo
+    // `import()` de `utilities/luminosidade/carregador.js`, cuja porta estática é o menu de contexto.
+    'suncalc'
 ]);
 
 describe('(a) o grafo de imports de `map_sig.js`', () => {
@@ -821,7 +827,20 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // (776 against 775) with a copy of this walker, which also showed the only other new
         // source file in the tree that day (`store/migration/abrir-recuperado.js`) outside the
         // graph. Source total 11540 kB, inside the ceiling below.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(776);
+        //
+        // 2026-09-23: 785, with the NINE modules of the PITCIC light panel (dados solares e lunares),
+        // measured by this case's own failure (785 against 776, no other new source file in the
+        // tree). TWO are eager and small, the door the context menu reaches statically:
+        // `utilities/luminosidade/carregador.js` (the on-demand loader) and
+        // `utilities/luminosidade/luminosidade-phrases.js` (a zero-import leaf, for the menu label).
+        // SEVEN arrive only by the loader's `import()`: the public door `index.js`, the adapter
+        // `efemerides.js`, the pure leaves `matriz-pitcic.model.js`, `hora-brasilia.js` and
+        // `quadro-pitcic.js`, the panel, and the single entry of the package, `vendor/suncalc.js`.
+        // Together they are 81.1 kB of source, and the source ceiling below moved from 11560 to 11650
+        // for them: 11625 kB measured, 11541 without them, which is the 11540 of the paragraph above.
+        // The PACKAGE is not in these kB (the walker counts the tree's own files), and its static
+        // absence from the boot graph is what `EXTERNOS_SO_DINAMICOS` holds.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(785);
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
@@ -835,7 +854,7 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // propósito, como as subidas anteriores.
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
-        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11560);
+        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11650);
     });
 
     it('seguir `import()` de fato acrescenta grafo, e é isso que prova a regex dinâmica', () => {

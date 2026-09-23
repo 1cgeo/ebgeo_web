@@ -35,10 +35,23 @@ import {
 
 const RAIZ = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
-/** A migração que declara os CHECK. O espelho do banco é ela, e não outra cópia aqui. */
-const MIGRACAO = fs.readFileSync(
-  path.join(RAIZ, 'src/database/migrations/011_uso_e_presenca.sql'), 'utf8'
-);
+/**
+ * A migração que declara os CHECK. O espelho do banco é ela, e não outra cópia aqui.
+ *
+ * O CHECK de EVENTO é o da ÚLTIMA migração que o redeclara, e não o da base: desde que as bases
+ * congelaram (2026-09-22) evento novo entra por arquivo incremental que refaz o CHECK, e o banco
+ * aplica a sequência em ordem, então vale o último. Achar pelo CONTEÚDO, e não por um nome escrito
+ * aqui, é o que impede este espelho de continuar olhando para a base depois do próximo incremento.
+ * O CHECK de PÁGINA continua sendo só o da base.
+ */
+const DIR_MIGRACOES = path.join(RAIZ, 'src/database/migrations');
+const MIGRACAO_BASE = fs.readFileSync(path.join(DIR_MIGRACOES, '011_uso_e_presenca.sql'), 'utf8');
+const MIGRACAO = fs.readdirSync(DIR_MIGRACOES)
+  .filter((f) => f.endsWith('.sql'))
+  .sort()
+  .map((f) => fs.readFileSync(path.join(DIR_MIGRACOES, f), 'utf8'))
+  .filter((sql) => /uso_eventos_dia_evento_check CHECK \(evento IN \(/.test(sql))
+  .at(-1);
 
 describe('O vocabulário de uso: espelho, forma e ordem', () => {
   it('os treze eventos estão na ordem do contrato, congelados', () => {
@@ -57,10 +70,11 @@ describe('O vocabulário de uso: espelho, forma e ordem', () => {
       'ebgeo.importado',
       'indisponivel.visto',
     'migracao.resultado', 'sync.resultado', 'logout.descarte', 'preferencia.base', 'preferencia.camada', 'recurso.aberto',
+    'luminosidade.aberta',
     ]);
-    assert.equal(EVENTOS_DE_USO.length, 19);
+    assert.equal(EVENTOS_DE_USO.length, 20);
     assert.ok(Object.isFrozen(EVENTOS_DE_USO), 'a lista precisa ser congelada');
-    assert.equal(new Set(EVENTOS_DE_USO).size, 19, 'evento duplicado');
+    assert.equal(new Set(EVENTOS_DE_USO).size, 20, 'evento duplicado');
   });
 
   it('as quatro páginas são as quatro entradas HTML do produto, congeladas', () => {
@@ -86,7 +100,7 @@ describe('O vocabulário de uso: espelho, forma e ordem', () => {
     // num teste de veracidade, e é por isso que a asserção é sobre o valor exato.
     const semQualificador = EVENTOS_DE_USO
       .filter((e) => !['atlas.aberto', 'pdf.exportado', 'ferramenta.ativada', 'medicao.aberta', 'migracao.resultado', 'sync.resultado', 'logout.descarte', 'preferencia.base', 'preferencia.camada', 'recurso.aberto'].includes(e));
-    assert.equal(semQualificador.length, 9);
+    assert.equal(semQualificador.length, 10);
     for (const e of semQualificador) {
       assert.deepEqual(PROPS_PERMITIDAS[e], [], `${e} deveria não aceitar qualificador`);
     }
@@ -97,7 +111,7 @@ describe('O vocabulário de uso: espelho, forma e ordem', () => {
     // recusam em momentos diferentes: o Joi com 422 nomeando o campo, o CHECK com 23514 mesmo
     // que alguém escreva por outro caminho. Sem este caso, valor novo entraria no JS e a
     // escrita morreria no banco, com uma mensagem sem relação aparente com o assunto.
-    assert.equal(EVENTOS_DE_USO.length, 19, 'laço sobre lista vazia seria zero asserções');
+    assert.equal(EVENTOS_DE_USO.length, 20, 'laço sobre lista vazia seria zero asserções');
     for (const evento of EVENTOS_DE_USO) {
       assert.ok(
         MIGRACAO.includes(`'${evento}'`),
@@ -113,7 +127,7 @@ describe('O vocabulário de uso: espelho, forma e ordem', () => {
 
     assert.equal(PAGINAS.length, 4, 'laço sobre lista vazia seria zero asserções');
     for (const pagina of PAGINAS) {
-      assert.ok(fs.readFileSync(path.join(RAIZ, 'src/database/migrations/011_uso_e_presenca.sql'), 'utf8').includes(`'${pagina}'`), `o CHECK de página não declara '${pagina}'`);
+      assert.ok(MIGRACAO_BASE.includes(`'${pagina}'`), `o CHECK de página não declara '${pagina}'`);
     }
   });
 });
@@ -123,7 +137,7 @@ describe('propAceita: os três estados do qualificador', () => {
     // A decisão está no espelho: a linha sem qualificador é o TOTAL daquele gesto, que
     // continua sendo uma contagem verdadeira. Recusá-la faria um cliente que não soube
     // qualificar perder o lote inteiro.
-    assert.equal(EVENTOS_DE_USO.length, 19, 'laço sobre lista vazia seria zero asserções');
+    assert.equal(EVENTOS_DE_USO.length, 20, 'laço sobre lista vazia seria zero asserções');
     for (const evento of EVENTOS_DE_USO) {
       assert.deepEqual(propAceita(evento, ''), { ok: true }, `${evento} com prop vazia`);
       assert.deepEqual(propAceita(evento, undefined), { ok: true }, `${evento} sem prop`);

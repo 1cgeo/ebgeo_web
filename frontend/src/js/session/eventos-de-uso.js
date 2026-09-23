@@ -66,7 +66,7 @@ export const EVENTOS_DE_USO = Object.freeze([
     'preferencia.base',
     'preferencia.camada',
     'recurso.aberto',
-
+    'luminosidade.aberta',
 ]);
 
 /**
@@ -111,7 +111,8 @@ export const EventoDeUso = Object.freeze({
     PREFERENCIA_BASE: 'preferencia.base',
     PREFERENCIA_CAMADA: 'preferencia.camada',
     RECURSO_ABERTO: 'recurso.aberto',
-
+    /** O painel de luminosidade (dados solares e lunares do PITCIC) abriu, pelo menu de contexto. */
+    LUMINOSIDADE_ABERTA: 'luminosidade.aberta',
 
 });
 
@@ -163,6 +164,9 @@ export const PROPS_PERMITIDAS = Object.freeze({
     'ebgeo.exportado': Object.freeze([]),
     'ebgeo.importado': Object.freeze([]),
     'indisponivel.visto': Object.freeze([]),
+    // Sem qualificador: o número que decide se a entrada pelo menu de contexto é achada é quantas
+    // vezes o painel abre, e nada mais.
+    'luminosidade.aberta': Object.freeze([]),
 });
 
 /**

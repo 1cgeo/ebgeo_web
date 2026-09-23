@@ -59,6 +59,10 @@ const EXCECOES_DESTRUTIVAS = [{
   arquivo: '013_simbolos_engenharia.sql',
   trecho: 'ALTER TABLE features DROP CONSTRAINT valid_feature_type',
   motivo: 'Expands the CHECK to engineering_symbol, preserving every previously accepted type and row.'
+}, {
+  arquivo: '015_uso_luminosidade.sql',
+  trecho: 'ALTER TABLE uso_eventos_dia DROP CONSTRAINT IF EXISTS uso_eventos_dia_evento_check',
+  motivo: 'Widens the usage-event CHECK to luminosidade.aberta, keeping every event accepted before.'
 }];
 const PADROES_DESTRUTIVOS = [
   /\bDROP\s+TABLE\b/i,

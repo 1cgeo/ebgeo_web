@@ -98,6 +98,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[formato-ebgeo-roundtrip]] - o contêiner portável do trabalho local e as invariantes de round-trip.
 - [[sair-do-servidor]] - as DUAS regras de poda de recurso restrito na cópia, e por que sair do servidor e mudar de dono dentro dele exigem regras diferentes.
 - [[modulo-temporal]] - a dimensão de tempo por mapa e a fronteira entre estado compartilhado e estado local.
+- [[luminosidade-pitcic]] - os dados solares e lunares do PITCIC num ponto: as três leituras da doutrina, as armadilhas de dia civil e de dia UTC, e a referência contra o USNO.
 - [[vista-da-pessoa-e-vista-salva]] - mapa base e interruptor temporal são estado de vista de cada pessoa; o que viaja é a vista salva do mapa e a de cada slide.
 - [[deploy-backend]] - um processo Node atrás de NGINX, três schemas e stores binários fora do banco.
 - [[deploy-web]] - publicação do bundle por troca de symlink, e por que ele precisa ser relativo.

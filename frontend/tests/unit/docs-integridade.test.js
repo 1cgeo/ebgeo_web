@@ -68,16 +68,18 @@ const ALVOS = [
     // `docs/wiki/tile-privado.md`, que a varredura de `PASTAS` já cobre. Documento de
     // trabalho que fecha vira página; mantê-lo na raiz depois de pronto é como um
     // "pendente" sobrevive à própria resolução.
-    // A PROPOSTA solar/lunar entrou em 2026-08-23, e ela mostra por que a lista escrita a mao e o
-    // ponto fraco deste guarda: o arquivo vivia na raiz desde 2026-08-14, com decisao de escopo do
-    // Chefe da DGEO dentro, e NENHUM caminho ou simbolo dele era verificado, porque a raiz nao e
-    // varrida e ninguem o declarou aqui. Documento de PROPOSTA e o caso em que a checagem de caminho
-    // mais rende: ele cita o codigo que vai ANCORAR o trabalho (`geomagnetic/` como molde,
-    // `pdf-cartographic-elements.js` como destino), e uma ancora que se move sem aviso e o que
-    // transforma uma proposta viva numa proposta impossivel de executar. O que ele NAO deve fazer e
-    // citar em crase o codigo que ainda nao existe: proposta se escreve em prosa (CLAUDE.md,
-    // Documentacao), e a regra de simbolo abaixo cobra isso.
-    'PROPOSTA-DADOS-SOLARES-E-LUNARES.md',
+    // A PROPOSTA solar/lunar esteve nesta lista de 2026-08-23 a 2026-09-23, e mostrou por que a
+    // lista escrita a mao e o ponto fraco deste guarda: o arquivo vivia na raiz desde 2026-08-14,
+    // com decisao de escopo do Chefe da DGEO dentro, e NENHUM caminho ou simbolo dele era
+    // verificado, porque a raiz nao e varrida e ninguem o declarou aqui. Documento de PROPOSTA e o
+    // caso em que a checagem de caminho mais rende: ele cita o codigo que vai ANCORAR o trabalho, e
+    // uma ancora que se move sem aviso transforma uma proposta viva numa proposta impossivel de
+    // executar. Ela SAIU porque foi implementada: o que sobrevive dela e
+    // `docs/wiki/luminosidade-pitcic.md`, que a varredura de `PASTAS` ja cobre.
+    // A proposta METEOROLOGICA entrou em 2026-09-23, irma da solar: as outras sete linhas da
+    // mesma matriz do PITCIC, com fonte externa. A varredura da raiz ja a pegaria; a declaracao
+    // e o que acusa se ela for renomeada.
+    'PROPOSTA-DADOS-METEOROLOGICOS.md',
     // A PENDENCIA DO LINK DE COMPARTILHAMENTO esteve aqui de 2026-08-26 a 2026-08-27, e saiu com o
     // arquivo. Ela não foi marcada como resolvida: foi APAGADA, e o que sobrou dela (a gramática
     // congelada para a wiki, e as quatro dívidas que continuam abertas) virou entrada em

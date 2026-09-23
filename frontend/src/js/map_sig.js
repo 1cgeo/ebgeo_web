@@ -114,6 +114,7 @@ import { edicaoIndisponivelSync } from '@store/edicao-indisponivel.js';
 // Folha de zero imports: a marca do instante em que o mapa ficou pronto, que fecha a medida
 // `tempo-ate-mapa`. Ela nao participa do boot em mais nada.
 import { vitais } from './session/vitais.js';
+import { aquecerLuminosidade } from '@utils/luminosidade/carregador.js';
 
 // ============================================================================
 // CONSTANTS
@@ -920,6 +921,10 @@ export function initializeApp(map, controlsPromise, { pintarSlotLocal = true } =
             hideLoadingScreen(); // never leave the splash up on a boot error
         } finally {
             resolveBootRendered();
+            // The light panel is worth the most to a unit with no network, and a chunk fetched on
+            // first use fails if the network dropped before it: warm it up in idle time, now that
+            // the map is drawn (`utilities/luminosidade/carregador.js`).
+            aquecerLuminosidade();
         }
     });
 

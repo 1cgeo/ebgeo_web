@@ -1,0 +1,399 @@
+/* Path: css/luminosidade.css */
+
+/**
+ * The light panel (PITCIC "Dados solares" and "Dados lunares"), opened from the map's context
+ * menu. On desktop it is a card under the search bar, shifted with it when the sidebar or the
+ * feature panel opens; on a phone it is a bottom sheet with three heights.
+ *
+ * Numbers are tabular: a column of times must line up digit by digit, or 05:13h and 18:54h read
+ * as different widths and the eye compares shapes instead of values.
+ */
+
+.luminosidade-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
+.luminosidade-painel {
+    position: fixed;
+    box-sizing: border-box;
+
+    /* Under the search bar AND the chip row beneath it (Catálogo, Tutorial...), which it
+       would otherwise cover. */
+    top: calc(var(--space-4) + var(--search-bar-height) + var(--space-2) + var(--chip-height) + var(--space-3));
+    left: calc(var(--sidebar-collapsed-width) + var(--space-4));
+    z-index: var(--z-floating);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+
+    /* Wide enough for the Fig 4-10 block (its longest label is "Primeira claridade (Sol a −18°)")
+       plus three columns with a "(+1)" mark, so the card never scrolls sideways. */
+    width: min(500px, calc(100vw - var(--sidebar-collapsed-width) - var(--space-8)));
+    max-height: calc(100vh - var(--search-bar-height) - var(--chip-height) - var(--space-8) - var(--space-6));
+    padding: var(--space-3) var(--space-4) var(--space-4);
+    overflow: hidden auto;
+
+    /* The app's green scrollbar (as the login modal and the attribute table). */
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary) transparent;
+    background: #fff;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    color: var(--gray-900);
+    transition: transform var(--transition-panel);
+    will-change: transform;
+}
+
+.luminosidade-painel[data-sidebar-state="expanded"] {
+    transform: translateX(var(--sidebar-panel-width));
+}
+
+.luminosidade-painel::-webkit-scrollbar {
+    width: 8px;
+}
+
+.luminosidade-painel::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.luminosidade-painel::-webkit-scrollbar-thumb {
+    background-color: var(--primary);
+    border-radius: var(--radius-full);
+}
+
+.luminosidade-painel::-webkit-scrollbar-thumb:hover {
+    background-color: var(--primary-hover);
+}
+
+.luminosidade-painel__cabecalho {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.luminosidade-painel__titulo {
+    margin: 0;
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+}
+
+.luminosidade-painel__titulo:focus {
+    outline: none;
+}
+
+.luminosidade-painel__titulo:focus-visible {
+    outline: 2px solid var(--primary-600);
+    outline-offset: 2px;
+}
+
+.luminosidade-painel__fechar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    color: var(--gray-600);
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-base);
+}
+
+.luminosidade-painel__fechar:hover {
+    background: var(--gray-100);
+}
+
+.luminosidade-painel__espiada {
+    display: none;
+}
+
+.luminosidade-painel__ponto-e-data {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+.luminosidade-painel__coordenada {
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-medium);
+}
+
+.luminosidade-painel__data {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+.luminosidade-painel__seta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    color: var(--gray-700);
+    cursor: pointer;
+    background: var(--gray-50);
+    border: var(--border-width) solid var(--gray-300);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-2xs);
+}
+
+.luminosidade-painel__seta:hover {
+    background: var(--gray-100);
+}
+
+.luminosidade-painel__campo-data {
+    height: 28px;
+    padding: 0 var(--space-1);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    font-variant-numeric: tabular-nums;
+    border: var(--border-width) solid var(--gray-300);
+    border-radius: var(--radius-sm);
+}
+
+.luminosidade-painel__origem {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+}
+
+.luminosidade-painel__aviso-fuso {
+    margin: 0;
+    padding: var(--space-1) var(--space-2);
+    font-size: var(--font-size-xs);
+    color: var(--color-warning-strong);
+    background: #fffbeb;
+    border-left: 3px solid var(--color-warning);
+    border-radius: var(--radius-sm);
+}
+
+.luminosidade-painel__aviso-fuso[hidden] {
+    display: none;
+}
+
+.luminosidade-painel__conteudo {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.luminosidade-quadro {
+    width: 100%;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+}
+
+.luminosidade-quadro th,
+.luminosidade-quadro td {
+    padding: 3px var(--space-2);
+    text-align: left;
+    vertical-align: baseline;
+    border-bottom: var(--border-width) solid var(--gray-100);
+}
+
+.luminosidade-quadro__coluna {
+    font-weight: var(--font-weight-semibold);
+    white-space: nowrap;
+}
+
+.luminosidade-quadro__relativo {
+    display: block;
+    color: var(--gray-900);
+}
+
+.luminosidade-quadro__dia {
+    display: block;
+    font-size: var(--font-size-2xs);
+    font-weight: var(--font-weight-normal);
+    color: var(--gray-500);
+}
+
+.luminosidade-quadro__grupo th {
+    padding-top: var(--space-2);
+    font-size: var(--font-size-2xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-600);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: var(--gray-50);
+}
+
+.luminosidade-quadro__rotulo {
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+}
+
+.luminosidade-quadro__rotulo abbr {
+    text-decoration: underline dotted var(--gray-400);
+    cursor: help;
+}
+
+.luminosidade-quadro__celula {
+    white-space: nowrap;
+}
+
+.luminosidade-quadro__celula--vazia {
+    font-style: italic;
+    color: var(--gray-500);
+}
+
+.luminosidade-quadro__marca {
+    font-size: var(--font-size-2xs);
+    color: var(--gray-600);
+}
+
+.luminosidade-painel__nota {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+}
+
+.luminosidade-painel__bloco {
+    border-top: var(--border-width) solid var(--gray-200);
+    padding-top: var(--space-1);
+}
+
+.luminosidade-painel__bloco-titulo {
+    padding: var(--space-1) 0;
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
+    cursor: pointer;
+}
+
+.luminosidade-painel__rodape {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: var(--border-width) solid var(--gray-200);
+}
+
+.luminosidade-painel__ressalva {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+}
+
+.luminosidade-painel__acoes {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-2);
+}
+
+.luminosidade-painel__botao {
+    padding: var(--space-1) var(--space-3);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: #fff;
+    cursor: pointer;
+    background: var(--primary);
+    border: var(--border-width) solid var(--primary);
+    border-radius: var(--radius-md);
+}
+
+.luminosidade-painel__botao:hover {
+    background: var(--primary-hover);
+}
+
+/* =========================================================================
+   PHONE: the same panel as a bottom sheet with three heights.
+   ========================================================================= */
+
+.luminosidade-painel__alca {
+    display: none;
+}
+
+.luminosidade-painel--folha,
+.luminosidade-painel--folha[data-sidebar-state] {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: var(--phone-sheet-full);
+    max-height: none;
+    padding: 0 var(--space-4) calc(var(--space-4) + var(--safe-area-bottom));
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.18);
+    transform: translateY(calc(100% - 132px + var(--luminosidade-arrasto, 0%)));
+}
+
+.luminosidade-painel--folha[data-estado="meia"] {
+    transform: translateY(calc(100% - var(--phone-sheet-half) + var(--luminosidade-arrasto, 0%)));
+}
+
+.luminosidade-painel--folha[data-estado="inteira"] {
+    transform: translateY(var(--luminosidade-arrasto, 0%));
+}
+
+.luminosidade-painel--arrastando {
+    transition: none;
+}
+
+.luminosidade-painel--folha .luminosidade-painel__alca {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: block;
+    flex: none;
+    width: 100%;
+    height: 24px;
+    padding: 0;
+    cursor: grab;
+    background: #fff;
+    border: none;
+    touch-action: none;
+}
+
+.luminosidade-painel--folha .luminosidade-painel__alca::before {
+    content: '';
+    display: block;
+    width: 40px;
+    height: 4px;
+    margin: 10px auto;
+    background: var(--gray-300);
+    border-radius: var(--radius-full);
+}
+
+.luminosidade-painel--folha .luminosidade-painel__espiada {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: var(--font-size-sm);
+    font-variant-numeric: tabular-nums;
+    color: var(--gray-700);
+}
+
+.luminosidade-painel__espiada-dia {
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-900);
+}
+
+.luminosidade-painel--folha[data-estado="espiada"] .luminosidade-painel__rodape,
+.luminosidade-painel--folha[data-estado="espiada"] .luminosidade-painel__conteudo {
+    visibility: hidden;
+}
+
+.luminosidade-painel--folha .luminosidade-quadro th,
+.luminosidade-painel--folha .luminosidade-quadro td {
+    padding: 3px 4px;
+    font-size: 13px;
+}

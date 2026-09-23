@@ -389,6 +389,18 @@ Além de "Copiar coordenadas" e "Orientar para o norte", o clique direito oferec
 - Mover as feições para outra camada ou para outro mapa.
 - Dar zoom para a seleção e duplicar a seleção.
 
+##### Luminosidade neste ponto (dados solares e lunares)
+
+O item "Luminosidade neste ponto", com o ícone de sol, abre um painel com as linhas de luz da matriz das condições meteorológicas do PITCIC (EB70-MC-10.336, Quadro 4-5) para o ponto clicado, em hora de Brasília (P, UTC−3), para o dia D e os dois seguintes:
+
+- **ICMN** e **FCVN**: início do crepúsculo matutino náutico e fim do crepúsculo vespertino náutico, com o Sol a 12° abaixo do horizonte.
+- **Fase lunar**: nova, crescente, cheia ou minguante, pela janela de sete dias centrada na fase principal (Fig 4-11), avaliada no meio da noite.
+- **Ini Luar** e **Fim do luar**: o nascer e o ocaso da Lua que ilumina a noite de D. Horário que cai no dia seguinte leva "(+1)".
+
+O dia D começa em hoje; as setas e o campo de data mudam o dia. Os blocos "Crepúsculos e claridade (Fig 4-10)" e "Cálculo auxiliar, fora do PITCIC" trazem os oito horários do Sol, da primeira à última claridade (Sol a −18°), e o percentual iluminado da Lua. Passe o mouse sobre um horário de crepúsculo para ler o que o manual diz dele.
+
+"Salvar tabela" baixa a tabela em CSV, com o ponto, o fuso e a ressalva do horizonte. O cálculo usa o horizonte teórico ao nível do mar: relevo, nuvens e chuva não entram. Quando um fenômeno não acontece na data (em latitudes altas), a célula diz "não ocorre" ou "sem luar", com o motivo na dica. O cálculo é feito no próprio navegador, sem consultar a rede, e no celular o toque longo no mapa abre o mesmo item.
+
 ### Módulo 5: Painel Auxiliar Direito
 
 <img src="./images/lateral_inf_direito.png" alt="Lateral Inferior Direito" width="50%"/>

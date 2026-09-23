@@ -23,6 +23,7 @@ Consolidação autorizada em 12/09/2026, antes da primeira implantação deste b
 | [012_presenca_aba_e_miniaturas.sql](012_presenca_aba_e_miniaturas.sql) | Coluna `aba_id` na presença (a saída explícita só apaga a linha do mesmo documento) e as três miniaturas semeadas de `.png` para `.webp`. |
 | [013_simbolos_engenharia.sql](013_simbolos_engenharia.sql) | O CHECK de tipos de feição alargado para `engineering_symbol`, sem tocar em feição existente. |
 | [014_ambiente_do_navegador.sql](014_ambiente_do_navegador.sql) | O ambiente do navegador na telemetria: `ambiente` na ocorrência de defeito, o conjunto `navegadores` no defeito, e `navegador_versao` e `so` na sessão de uso, com os três CHECK do vocabulário espelhado. |
+| [015_uso_luminosidade.sql](015_uso_luminosidade.sql) | O CHECK de evento de uso alargado para `luminosidade.aberta` (o painel de dados solares e lunares do PITCIC), sem tocar em linha existente. |
 
 **As bases acima CONGELARAM em 2026-09-22, antes da primeira implantação de produção, por decisão do dono.** O stack de teste publicado no servidor aplicou as onze e guarda o trabalho dos testadores, e o migrador recusa arquivo já aplicado com conteúdo alterado: editar uma base passaria a exigir recriar aquele banco. Daqui em diante, toda mudança de schema ou de dado semeado entra por arquivo numerado novo, aditivo e idempotente, e o que a seção seguinte diz sobre bases editáveis deixou de valer.
 

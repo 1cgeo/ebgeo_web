@@ -31,6 +31,19 @@ import {
 // at zero eager modules. Its header says why it sits there.
 import { canSplitBoundary } from '@tools/helpers/boundary-split.model.js';
 import { semEdicaoSync } from '@store/edicao-indisponivel.js';
+// The light panel: its DOOR is static and tiny (the loader and the phrase leaf); the panel, the
+// model and the astronomy library come by `import()` behind it.
+import { carregarLuminosidade } from '@utils/luminosidade/carregador.js';
+import { ROTULO_DO_ITEM_DE_MENU } from '@utils/luminosidade/luminosidade-phrases.js';
+import { ehFalhaDeCarga } from '@utils/carga-sob-demanda.model.js';
+
+/** A sun over the horizon, 16 px, static markup. */
+const LUMINOSIDADE_ICON_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
+    + 'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M17 18a5 5 0 0 0-10 0"/><line x1="12" y1="2" x2="12" y2="9"/>'
+    + '<line x1="4.22" y1="10.22" x2="5.64" y2="11.64"/><line x1="1" y1="18" x2="3" y2="18"/>'
+    + '<line x1="21" y1="18" x2="23" y2="18"/><line x1="18.36" y1="11.64" x2="19.78" y2="10.22"/>'
+    + '<line x1="23" y1="22" x2="1" y2="22"/></svg>';
 // ── Portões de combinar/separar setas ─────────────────────────────────────────────────────────
 //
 // POR QUE OS PREDICADOS ESTÃO AQUI, COPIADOS. O import estático de `arrow-merge.js` prendia
@@ -645,6 +658,11 @@ class ContextMenuControl {
             this._contextMenu.appendChild(this._createSeparator());
         }
 
+        // ALWAYS OFFERED, in every role and every state: the light panel only computes and never
+        // writes, so there is no rank to hide it from and no state to refuse it in. It sits right
+        // above "Copiar Coordenadas" because both act on the clicked point.
+        this._contextMenu.appendChild(this._createLuminosidadeItem());
+
         const copyItem = this._createMenuItem('Copiar Coordenadas', this._onCopyCoordinates);
         this._contextMenu.appendChild(copyItem);
 
@@ -1188,6 +1206,50 @@ class ContextMenuControl {
 
         this._copyToClipboard(textToCopy);
         this._hideMenu();
+    }
+
+    /**
+     * The "Luminosidade neste ponto" item, with its own icon: the context menu is hard to discover,
+     * and an icon is one of the two things that pay for it (the other is the tutorial entry).
+     * @returns {HTMLElement}
+     * @private
+     */
+    _createLuminosidadeItem() {
+        const item = this._createMenuItem(ROTULO_DO_ITEM_DE_MENU, () => this._onLuminosidade());
+        item.classList.add('context-menu-item--com-icone');
+        item.textContent = '';
+        const icone = document.createElement('span');
+        icone.className = 'context-menu-item__icone';
+        icone.setAttribute('aria-hidden', 'true');
+        icone.innerHTML = LUMINOSIDADE_ICON_SVG;
+        const rotulo = document.createElement('span');
+        rotulo.textContent = ROTULO_DO_ITEM_DE_MENU;
+        item.append(icone, rotulo);
+        return item;
+    }
+
+    /**
+     * Opens the light panel on the clicked point. The module arrives on demand; a load failure is
+     * already announced by `carregarSobDemanda` (with "Recarregar"), so only a bug reaches the
+     * generic message of `_createMenuItem`.
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _onLuminosidade() {
+        if (!this._lastCoordinates || !this._map) return;
+        const ponto = { ...this._lastCoordinates };
+        const formato = this._mouseCoordinatesControl?.getCurrentFormat?.() || 'latlong';
+        let modulo;
+        try {
+            modulo = await carregarLuminosidade();
+        } catch (error) {
+            if (ehFalhaDeCarga(error)) {
+                console.warn('[luminosidade] o módulo não chegou:', error);
+                return;
+            }
+            throw error;
+        }
+        modulo.abrirPainelLuminosidade({ map: this._map, ponto, formato });
     }
 
     _onResetNorth() {

@@ -49,6 +49,7 @@
     "quill": "2.0.2",
     "shpjs": "^6.2.0",
     "sortablejs": "^1.15.6",
+    "suncalc": "2.0.2",
     "three": "0.164.0"
   },
   "devDependencies": {
