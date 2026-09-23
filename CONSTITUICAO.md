@@ -510,6 +510,11 @@ local por `frontend/tests/unit/copia-de-atlas-local.test.js`, apagar local por
 `frontend/tests/unit/local-atlas-api.test.js`, clonar remoto por
 `backend/tests/integration/clone-visitante-publico.test.js`, e a lixeira restaurável por
 `backend/tests/integration/atlas-restore-integrity.test.js`, que cobra o CONTEÚDO de volta e não só a linha.
+A preservação da ordem explícita na cópia remota é cobrada por
+`backend/tests/integration/atlas-clone-ordem.repro.test.js`; comentários já visíveis ao solicitante,
+com autoria preservada e sem ampliar o acesso de `read`, por
+`backend/tests/integration/atlas-clone-comentarios.repro.test.js`; publicação apenas depois da cópia
+dos arquivos por `backend/tests/integration/copia-imagens-publicacao.repro.test.js`.
 
 **7.5** **Somente atlas remotos** se compartilham pelo sistema. Atlas local se compartilha por arquivo
 `.ebgeo`. **[vigente]** Preso por `frontend/tests/unit/aba-mapas-acoes-por-estado.test.js`, do lado do cliente

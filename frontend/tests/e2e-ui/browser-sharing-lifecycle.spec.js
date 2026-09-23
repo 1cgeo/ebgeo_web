@@ -41,7 +41,11 @@ describeOrSkip('User-share lifecycle: read → upgrade → revoke (real Chromium
         const ownerCreds = await createVerifiedUser({ prefix: 'shl_owner', nome: 'Lifecycle Owner' });
         const user2Creds = await createVerifiedUser({ prefix: 'shl_user2', nome: 'Lifecycle Target' });
 
-        await page.goto('/');
+        // This case exercises browser transport, not map boot. The atlas chooser
+        // has no asynchronous map-entry redirect to destroy the in-flight evaluation.
+        // Keep a real server response: a synthetic document changes Chromium's
+        // address-space classification and can block loopback API requests.
+        await page.goto('/atlas.html');
 
         const result = await page.evaluate(
             async ({ baseUrl, creds }) => {

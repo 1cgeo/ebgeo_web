@@ -42,7 +42,7 @@ export async function prepareEbgeoScope(scope, entry, data, zip, processCatalogL
             ['gridStyle', StoreName.SETTINGS, 'gridStyle_'],
         ];
         for (const [section, store, prefix] of sections) {
-            let value = data[section]?.[name];
+            let value = Object.hasOwn(data[section] || {}, name) ? data[section][name] : undefined;
             if (section === 'cesium3d' && value) {
                 value = { cameraPositions: {}, markers: [], measurements: [], viewsheds: [], ...value };
             }
@@ -54,7 +54,9 @@ export async function prepareEbgeoScope(scope, entry, data, zip, processCatalogL
             }
             if (value != null) await put(store, prefix + map.id, value);
         }
-        if (data.temporal?.[name] != null) await put(StoreName.SETTINGS, `temporal_${name}`, data.temporal[name]);
+        if (Object.hasOwn(data.temporal || {}, name) && data.temporal[name] != null) {
+            await put(StoreName.SETTINGS, `temporal_${name}`, data.temporal[name]);
+        }
     }
     const briefingIds = new Set();
     for (const briefing of data.briefings || []) {

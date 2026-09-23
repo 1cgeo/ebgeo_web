@@ -98,7 +98,7 @@ export async function importEbgeoAsAtlas(file, { apiClient, name, confirmMissing
     // stop the import, and since the exporter may now write a file KNOWING a picture is missing
     // (the person confirmed it there), refusing here would make that file unusable on a server.
     const missing = [...wanted].filter(id => !foundIds.has(id));
-    const question = missingImagesUploadConfirm(classifyMissingImages(missing, exportData), { from: 'arquivo' });
+    const question = missingImagesUploadConfirm(classifyMissingImages(missing, exportData), { from: 'arquivo', exportData });
     if (question && !(await confirmMissingImages?.(question))) throw uploadCancelledError();
     const { uploads, skipped } = await buildImageUploads(found);
     if (skipped.length) throw new Error(`Importação interrompida: ${skipped.length === 1 ? '1 imagem não pôde ser enviada' : `${skipped.length} imagens não puderam ser enviadas`} ao servidor. Nenhum atlas foi criado.`);

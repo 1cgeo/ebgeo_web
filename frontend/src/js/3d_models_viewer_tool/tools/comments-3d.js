@@ -35,6 +35,7 @@ import {
     ehDaSuperficie,
     montarCartaoDeCompose,
     montarCartaoDeThread,
+    escrevendoNoCartao,
     podeComentar,
     respostasDe,
 } from '@js/comment_tool/comment-card.js';
@@ -188,6 +189,7 @@ function abrirConversa(raizId, x, y) {
     const raiz = estado.colecao[raizId];
     if (!raiz) return;
     ancorar(montarCartaoDeThread({
+        aoAtualizar: recarregar,
         raiz,
         respostas: respostasDe(estado.colecao, raizId),
         // Scoped to THIS thread: after a resolution the card calls it only once the store accepted
@@ -210,6 +212,7 @@ async function recarregar() {
     // gesture closes the card, from inside it (comment_tool/comment-card.js).
     if (estado.raizAberta) {
         const raiz = estado.colecao[estado.raizAberta];
+        if (raiz && escrevendoNoCartao(estado.cartao)) return;
         const onde = estado.cartao
             ? { x: parseFloat(estado.cartao.style.left) + estado.cartao.offsetWidth / 2, y: parseFloat(estado.cartao.style.top) + estado.cartao.offsetHeight + 24 }
             : null;

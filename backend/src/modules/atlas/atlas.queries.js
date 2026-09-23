@@ -464,6 +464,20 @@ export const COLLECT_ATLAS_RESOURCE_REFS = `
      WHERE m.atlas_id = $1 AND m.deleted_at IS NULL AND s.deleted_at IS NULL
        AND COALESCE(s.photo_name, s.data->>'photoName') IS NOT NULL
     UNION ALL
+    SELECT 'comments.modelo3d', c.data->>'tilesetId', NULL, NULL
+      FROM comments c
+      JOIN maps m ON m.id = c.map_id
+     WHERE m.atlas_id = $1 AND m.deleted_at IS NULL AND c.deleted_at IS NULL
+       AND c.parent_id IS NULL AND c.data->>'surface' IN ('3d', 'fp')
+       AND c.data->>'tilesetId' IS NOT NULL
+    UNION ALL
+    SELECT 'comments.foto360', c.data->>'photoName', NULL, NULL
+      FROM comments c
+      JOIN maps m ON m.id = c.map_id
+     WHERE m.atlas_id = $1 AND m.deleted_at IS NULL AND c.deleted_at IS NULL
+       AND c.parent_id IS NULL AND c.data->>'surface' = '360'
+       AND c.data->>'photoName' IS NOT NULL
+    UNION ALL
     SELECT 'briefing.slide.modelId', sl.model_id, NULL, NULL
       FROM slides sl
       JOIN briefings b ON b.id = sl.briefing_id

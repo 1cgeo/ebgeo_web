@@ -79,7 +79,7 @@ describeOrSkip('Map lifecycle SYNC actions (real Chromium + real backend)', () =
     test('§1.6 notes + §1.7 rename: notes land in notes_* columns; a plain update renames the map', async ({
         page,
     }) => {
-        await page.goto('/');
+        await page.goto('/atlas.html');
         const { atlasId, mapIds } = await seed(page, state.baseUrl, 'mlc_notes', ['Alpha']);
         const [mapId] = mapIds;
 
@@ -158,7 +158,7 @@ describeOrSkip('Map lifecycle SYNC actions (real Chromium + real backend)', () =
     test('§1.12 save position + §1.13 clear position: mapPosition columns set then nulled', async ({
         page,
     }) => {
-        await page.goto('/');
+        await page.goto('/atlas.html');
         const { atlasId, mapIds } = await seed(page, state.baseUrl, 'mlc_pos', ['Bravo']);
         const [mapId] = mapIds;
 
@@ -237,7 +237,7 @@ describeOrSkip('Map lifecycle SYNC actions (real Chromium + real backend)', () =
     test('§1.11 reorder: PUT /atlas/:id rewrites atlas.mapOrder, verified via snapshot', async ({
         page,
     }) => {
-        await page.goto('/');
+        await page.goto('/atlas.html');
         const { atlasId, mapIds } = await seed(page, state.baseUrl, 'mlc_order', [
             'One',
             'Two',
@@ -292,7 +292,7 @@ describeOrSkip('Map lifecycle SYNC actions (real Chromium + real backend)', () =
     }) => {
         // Victim: its own user + atlas + map, with a known baseline position + order.
         const victimPage = await browser.newPage();
-        await victimPage.goto('/');
+        await victimPage.goto('/atlas.html');
         const victim = await seed(victimPage, state.baseUrl, 'mlc_victim', ['Victim A', 'Victim B']);
         const baseline = await victimPage.evaluate(
             async ({ atlasId: aid, mapId: mid }) => {
@@ -314,7 +314,7 @@ describeOrSkip('Map lifecycle SYNC actions (real Chromium + real backend)', () =
 
         // Attacker: a separate user/atlas in its own page (own ApiClient).
         const attackerPage = await browser.newPage();
-        await attackerPage.goto('/');
+        await attackerPage.goto('/atlas.html');
         const attacker = await seed(attackerPage, state.baseUrl, 'mlc_attacker', ['Att']);
 
         // no-UI: a cross-atlas IDOR security test. Both attacks — a `mapPosition` op naming

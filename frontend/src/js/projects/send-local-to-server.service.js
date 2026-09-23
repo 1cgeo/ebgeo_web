@@ -44,14 +44,14 @@ import {
 } from '@store/atlas-namespace.js';
 import { ATLAS_SCHEMA_VERSION } from '@store/atlas/atlas.entity.js';
 // DIRETO DO ARQUIVO, e nao pelo barril `@store`: o barril arrasta a store inteira, e este modulo
-// existe justamente por a pagina de escolha nao a ter. `repository.utils.js` nao importa nada.
-import { getDefaultLayer, ensureCoordinationLines } from '@store/repository.utils.js';
+// existe justamente por a pagina de escolha nao a ter. O utilitario depende so de funcoes puras.
+import { getDefaultLayer, ensureCoordinationLines, storedMapName } from '@store/repository.utils.js';
 // Quanto ha dentro de um escopo, por um leitor que NAO passa por este arquivo: e o denominador do
 // aviso, e ele so serve para isso se for independente do numerador. Do ARQUIVO, como os vizinhos.
 import { countAtlasContents } from '@store/atlas-contents.js';
 import { buildServerImportPayload } from '@js/import_export/local-atlas-to-server.js';
 import { buildImageUploads } from '@js/import_export/atlas-image-upload.js';
-import { generateUUID, isValidId } from '@utils/uuid.js';
+import { generateUUID } from '@utils/uuid.js';
 import { classifyMissingImages, missingImagesUploadConfirm, uploadCancelledError } from '../import_export/ebgeo-missing-images.js';
 
 /**
@@ -72,6 +72,7 @@ const KEY = Object.freeze({
     layers: (mapKey) => `layers_${mapKey}`,
     cesium3d: (mapKey) => `cesium3d_${mapKey}`,
     streetview360: (mapKey) => `streetview360_${mapKey}`,
+    comments: (mapKey) => `comments_${mapKey}`,
     mapNotes: (mapKey) => `map_notes_${mapKey}`,
     gridStyle: (mapKey) => `gridStyle_${mapKey}`,
     temporal: (mapName) => `temporal_${mapName}`,
@@ -117,8 +118,7 @@ function porSecao(destino, chave, valor) {
  * @returns {string}
  */
 function nomeDoMapa(mapKey, mapData) {
-    if (!isValidId(mapKey)) return String(mapKey);
-    return String(mapData?.name || mapKey);
+    return storedMapName(mapKey, mapData);
 }
 
 /**
@@ -200,9 +200,10 @@ export async function buildLocalAtlasExportData(scope) {
         version: ATLAS_SCHEMA_VERSION,
         currentMap: null,
         mapOrder: [],
-        maps: {},
-        mapNotes: {}, groups: {}, layers: {},
-        cesium3d: {}, streetview360: {}, temporal: {}, gridStyle: {},
+        maps: Object.create(null),
+        mapNotes: Object.create(null), groups: Object.create(null), layers: Object.create(null),
+        cesium3d: Object.create(null), streetview360: Object.create(null),
+        temporal: Object.create(null), gridStyle: Object.create(null), comments: Object.create(null),
         briefings: [],
     };
 
@@ -273,6 +274,8 @@ export async function buildLocalAtlasExportData(scope) {
             await ler(StoreName.CESIUM3D, scope, KEY.cesium3d(mapKey)));
         porSecao(data.streetview360, mapName,
             await ler(StoreName.STREETVIEW360, scope, KEY.streetview360(mapKey)));
+        porSecao(data.comments, mapName,
+            await ler(StoreName.COMMENTS, scope, KEY.comments(mapKey)));
         porSecao(data.mapNotes, mapName,
             await ler(StoreName.SETTINGS, scope, KEY.mapNotes(mapKey)));
         porSecao(data.gridStyle, mapName,
@@ -411,7 +414,7 @@ export async function sendLocalAtlasToServer(entry, { apiClient, scopeOf, name, 
     }
     const { uploads, skipped } = await buildImageUploads(found);
     if (skipped.length || built.stats.droppedFeatures) throw comEtapa(new Error('Algumas imagens ou feições não puderam ser convertidas para o servidor. Nada foi enviado.'), 'leitura');
-    const question = missingImagesUploadConfirm(classifyMissingImages(missing, exportData), { from: 'disco' });
+    const question = missingImagesUploadConfirm(classifyMissingImages(missing, exportData), { from: 'disco', exportData });
     if (question && !(await confirmMissingImages?.(question))) throw uploadCancelledError();
     const local = await countAtlasContents(scope);
     let atlas;

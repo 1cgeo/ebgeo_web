@@ -1,10 +1,9 @@
 // Path: js/military_tools/boundary_tool/add_boundary_control.js
+import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
 import {
-    addFeature,
     updateFeature,
     removeFeature,
-    getActiveLayerIdSync,
     getFeatureById,
     getStateManager,
 } from '../../store';
@@ -396,6 +395,7 @@ class AddBoundaryControl extends BaseControl {
     // ===== TOOL ACTIVATION/DEACTIVATION =====
 
     activate = () => {
+        this._activationId = (this._activationId ?? 0) + 1;
         this.isActive = true;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
@@ -704,64 +704,72 @@ class AddBoundaryControl extends BaseControl {
     }
 
     createFeature = async () => {
-        if (this.drawPoints.length < 2) return;
-
-        if (!this.geometry.validate(this.drawPoints)) {
-            console.warn('Insufficient valid points for boundary creation');
-            return;
-        }
-
-        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
-        const featureName = await IDUtils.generateFeatureName('boundary', this.map);
-
-        const currentZoom = this.map.getZoom();
-        const adaptiveSymbolSize = this.calculateSymbolSizeForZoom(currentZoom);
-
-        const properties = {
-            ...AddBoundaryControl.DEFAULT_PROPERTIES,
-            // Clone so each feature owns its instances (the default is shared by reference).
-            symbol_instances: deepClone(AddBoundaryControl.DEFAULT_PROPERTIES.symbol_instances),
-            symbol_size: adaptiveSymbolSize,
-            baseCoordinates: [...this.drawPoints],
-            createdAtZoom: Math.round(currentZoom * 10) / 10,
-            id: featureId,
-            nome: featureName,
-            layerId: getActiveLayerIdSync(),
-        };
-
-        // At creation the factor is 1 by construction; computing it anyway keeps
-        // the derived properties written in one place only.
-        Object.assign(properties, computeBoundaryZoomSizes(properties, currentZoom));
-
-        const geometry = this.geometry.generate(properties, currentZoom);
-
-        if (!geometry || !geometry.coordinates) {
-            console.error('Failed to generate valid geometry for boundary');
-            return;
-        }
-
-        const feature = {
-            type: 'Feature',
-            id: geoJsonId,
-            properties: properties,
-            geometry: geometry
-        };
-
+        const activation = this._activationId;
+        this._pendingCreations ??= new Set();
+        if (this._pendingCreations.has(activation)) return;
+        this._pendingCreations.add(activation);
         try {
-            await addFeature('boundarys', feature);
+            const creation = captureFeatureCreation(this);
+            if (this.drawPoints.length < 2) return;
 
-            const dispatcher = boundarysSource(this.map);
-            dispatcher.add(feature);
-            await dispatcher.flush();
+            if (!this.geometry.validate(this.drawPoints)) {
+                console.warn('Insufficient valid points for boundary creation');
+                return;
+            }
 
-            await this.updateDependentFeatures(feature);
+            const drawPoints = [...this.drawPoints];
+            const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
+            const featureName = await IDUtils.generateFeatureName('boundary', this.map);
 
-            this.drawPoints = [];
-            this.toolManager.deactivateCurrentTool();
-            await this.selectionManager.toggleFeatureSelection('boundary', featureId, feature);
-            this.selectionManager.updateUI();
-        } catch (error) {
-            console.error('Error creating boundary:', error);
+            const currentZoom = creation.zoom;
+            const adaptiveSymbolSize = this.calculateSymbolSizeForZoom(currentZoom);
+
+            const properties = {
+                ...AddBoundaryControl.DEFAULT_PROPERTIES,
+                // Clone so each feature owns its instances (the default is shared by reference).
+                symbol_instances: deepClone(AddBoundaryControl.DEFAULT_PROPERTIES.symbol_instances),
+                symbol_size: adaptiveSymbolSize,
+                baseCoordinates: [...drawPoints],
+                createdAtZoom: Math.round(currentZoom * 10) / 10,
+                id: featureId,
+                nome: featureName,
+                layerId: creation.layerId,
+            };
+
+            // At creation the factor is 1 by construction; computing it anyway keeps
+            // the derived properties written in one place only.
+            Object.assign(properties, computeBoundaryZoomSizes(properties, currentZoom));
+
+            const geometry = this.geometry.generate(properties, currentZoom);
+
+            if (!geometry || !geometry.coordinates) {
+                console.error('Failed to generate valid geometry for boundary');
+                return;
+            }
+
+            const feature = {
+                type: 'Feature',
+                id: geoJsonId,
+                properties: properties,
+                geometry: geometry
+            };
+
+            try {
+                if (!(await creation.save('boundarys', feature))) return;
+                if (!creation.isCurrent()) return;
+
+                const dispatcher = boundarysSource(this.map);
+                dispatcher.add(feature);
+                await dispatcher.flush();
+
+                await this.updateDependentFeatures(feature);
+
+                await creation.finish('boundary', feature);
+            } catch (error) {
+                console.error('Error creating boundary:', error);
+            }
+        } finally {
+            this._pendingCreations.delete(activation);
         }
     }
 

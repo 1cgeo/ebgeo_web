@@ -98,6 +98,25 @@ describe('salvar atlas local no servidor: o blob sobe com id novo', () => {
         };
     });
 
+    it('comments omitted by bulk import require consent before any network write', async () => {
+        const source = await exportService.buildExportDataObject();
+        source.comments = { 'Mapa A': { root: { id: 'root', text: 'Preserve this discussion' } } };
+        exportService.buildExportDataObject.mockResolvedValue(source);
+        const before = structuredClone(source);
+        await expect(saveLocalAtlasToServer(apiClient, exportService, { name: 'With comments' }))
+            .rejects.toMatchObject({ cancelled: true });
+        expect(apiClient.importAtlas).not.toHaveBeenCalled();
+        const confirmMissingImages = vi.fn(async () => false);
+        await expect(saveLocalAtlasToServer(apiClient, exportService, { name: 'With comments', confirmMissingImages }))
+            .rejects.toMatchObject({ cancelled: true });
+        expect(confirmMissingImages.mock.calls[0][0].message).toMatch(/1 comentário/);
+        expect(apiClient.importAtlas).not.toHaveBeenCalled();
+        confirmMissingImages.mockResolvedValue(true);
+        await saveLocalAtlasToServer(apiClient, exportService, { name: 'With comments', confirmMissingImages });
+        expect(apiClient.importAtlas).toHaveBeenCalledTimes(1);
+        expect(source).toEqual(before);
+    });
+
     it('a feicao de imagem e o blob enviado usam O MESMO id, e ele nao e o local', async () => {
         await saveLocalAtlasToServer(apiClient, exportService, { name: 'Atlas com imagem' });
 

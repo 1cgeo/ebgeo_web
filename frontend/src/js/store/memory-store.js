@@ -27,18 +27,19 @@ import { getEmptyCesium3dData, getEmptyStreetview360Data } from './repository.ut
  */
 function createInitialState() {
     return {
-        maps: {
+        // Keys are user-supplied map names, including __proto__ and constructor.
+        maps: Object.assign(Object.create(null), {
             [DEFAULT_MAP_NAME]: {
                 undoStacks: {},
                 redoStacks: {}
             }
-        },
+        }),
         currentMap: DEFAULT_MAP_NAME,
         isUndoing: false,
         isRedoing: false,
         batchCollector: null,
-        groups: {},
-        layers: {},
+        groups: Object.create(null),
+        layers: Object.create(null),
         activeLayerId: 'default',
         colorUsageCache: new Map(),
         cesium3d: getEmptyCesium3dData(),

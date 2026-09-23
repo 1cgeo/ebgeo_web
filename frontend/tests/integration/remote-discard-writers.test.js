@@ -55,31 +55,26 @@ it('blocks a repository write delayed across discard and a fresh mount, preservi
     expect(await settings.getItem('gridStyle_Principal')).toEqual({ fresh: true });
 });
 
-it('rejects a queued journal callback after discard even when a new queue already holds the same id', async () => {
+it('rejects a queued journal callback after discard while a fresh queue already holds new data', async () => {
     const oldScope = remoteScope(atlasId);
     activateScope(oldScope);
     const queue = new OperationQueue(oldScope);
     const raw = getStoreFor(StoreName.OPERATION_QUEUE, oldScope);
     await raw.clear();
-    const originalOpen = indexedDB.open;
     let release;
     let reached;
     const barrier = new Promise(resolve => { release = resolve; });
     const opened = new Promise(resolve => { reached = resolve; });
-    vi.spyOn(indexedDB, 'open').mockImplementation(function (...args) {
-        const request = originalOpen.apply(this, args);
-        return new Proxy(request, {
-            get: (target, key) => Reflect.get(target, key, target),
-            set(target, key, value) {
-                if (key === 'onsuccess') {
-                    target.onsuccess = event => { reached(); barrier.then(() => value.call(target, event)); };
-                    return true;
-                }
-                return Reflect.set(target, key, value, target);
-            },
-        });
+    const getItem = raw.getItem.bind(raw);
+    // Pause this writer's driver read, not the connection shared with the new
+    // session. The native-open fence itself is covered in fenced-store.test.js.
+    vi.spyOn(raw, 'getItem').mockImplementationOnce(async (...args) => {
+        const value = await getItem(...args);
+        reached();
+        await barrier;
+        return value;
     });
-    const late = queue.enqueue({ id: 'same-id', data: { old: true } });
+    const late = queue.enqueue({ id: 'old-only', data: { old: true } });
     const rejected = expect(late).rejects.toMatchObject({ name: 'AbortError' });
     try {
         await opened;

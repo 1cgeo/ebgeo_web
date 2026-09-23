@@ -59,7 +59,10 @@ const { default: AddLineControl } = await import('../../src/js/draw_tools/line_t
 // feição em `addFeature`, sobre o `fake-indexeddb` do setup) sem precisar dublar o barril
 // inteiro, que outros módulos deste grafo também importam.
 const { setLayerDependencies } = await import('../../src/js/store/layer.operations.js');
-setLayerDependencies({ layerManager: { getActiveLayerIdSync: () => 'layer-1' } });
+setLayerDependencies({ layerManager: {
+    getActiveLayerIdSync: () => 'layer-1',
+    getLayers: () => [{ id: 'layer-1', name: 'Camada de teste', visible: true, locked: false }],
+} });
 
 // `globalThis.turf` com os três métodos que `calculateProfile` usa, e só eles.
 const turfStub = {
@@ -129,7 +132,11 @@ function makeControl() {
         toggleFeatureSelection: vi.fn(async () => {}),
         updateUI: vi.fn(),
     };
-    const control = new AddLineControl({ selectionManager, deactivateCurrentTool: vi.fn() });
+    const toolManager = { selectionManager, activeTool: null,
+        deactivateCurrentTool: vi.fn(() => { toolManager.activeTool = null; }) };
+    const control = new AddLineControl(toolManager);
+    control.isActive = true;
+    toolManager.activeTool = control;
     control.map = {
         getTerrain: () => ({ exaggeration: 1.5 }),
         queryTerrainElevation: async () => 100,
@@ -230,6 +237,19 @@ describe('updateFeaturesProperty — o perfil se calcula quando o interruptor li
  * recalcula quando alguém liga o interruptor.
  */
 describe('createFeature — a linha recém-desenhada nasce sem perfil', () => {
+    beforeEach(async () => {
+        // The drawing belongs to a mounted map; exercise the real persistent writer.
+        const { createMapCompat } = await import('../../src/js/store/repositories/index.js');
+        const { mapResolver } = await import('../../src/js/store/services/map-resolver.service.js');
+        const { memoryStore } = await import('../../src/js/store/memory-store.js');
+        const services = await import('../../src/js/store/services.js');
+        const map = await createMapCompat('Perfil', { features: {} }, { uuidKeyed: true });
+        mapResolver.registerMap(map.name, map.id);
+        memoryStore.currentMap = map.name;
+        vi.spyOn(services, 'getStateManager').mockReturnValue({ getUnsafe: () => null });
+    });
+    afterEach(() => vi.restoreAllMocks());
+
     it('com `profile: false` nos padrões não calcula nada e o despachante recebe profileData nulo', async () => {
         const { control, selectionManager } = makeControl();
         control.drawPoints = [...COORDS];

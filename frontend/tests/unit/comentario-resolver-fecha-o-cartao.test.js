@@ -88,6 +88,7 @@ vi.mock('@js/map/maplibre.js', () => {
         constructor() { this.removed = false; this.content = null; h.popups.push(this); }
         setLngLat() { return this; }
         setDOMContent(content) { this.content = content; return this; }
+        getElement() { return this.content; }
         addTo() { return this; }
         remove() { this.removed = true; return this; }
     }
@@ -321,6 +322,41 @@ describe('mapa 2D (o popup do MapLibre)', () => {
     });
     afterEach(() => overlay.stop());
 
+    it('a peer update preserves an unsent reply and a refused send keeps it', async () => {
+        await overlay.focusComment('a');
+        const popup = abertos()[0];
+        const input = popup.content.querySelector('textarea');
+        input.value = 'Resposta ainda nao enviada';
+        fire(input, 'input');
+        await parResolve('a');
+        expect(abertos()[0]).toBe(popup);
+        expect(input.value).toBe('Resposta ainda nao enviada');
+        h.addReply = vi.fn(async () => undefined);
+        byTestid(popup.content, 'comment-reply-submit').click();
+        await tick();
+        expect(input.value).toBe('Resposta ainda nao enviada');
+        expect(h.warning).toHaveBeenCalledWith(AVISO_RESPOSTA_RECUSADA);
+    });
+
+    it('an accepted reply appears after its protected draft is cleared', async () => {
+        await overlay.focusComment('a');
+        const input = abertos()[0].content.querySelector('textarea');
+        input.value = 'Resposta publicada';
+        fire(input, 'input');
+        h.addReply = vi.fn(async () => {
+            const reply = { id: 'new', parentId: 'a', text: 'Resposta publicada', authorId: 'me' };
+            h.comments.new = reply;
+            h.emit(EventTypes.COMMENT_CREATED, { comment: reply });
+            await tick();
+            return reply;
+        });
+        byTestid(abertos()[0].content, 'comment-reply-submit').click();
+        await tick();
+        await tick();
+        expect(allText(abertos()[0].content)).toContain('Resposta publicada');
+        expect(abertos()[0].content.querySelector('textarea').value).toBe('');
+    });
+
     it('Resolver fecha o popup, mesmo quando a recarga já trocou o popup da MESMA conversa', async () => {
         await overlay.focusComment('a');
         const primeiro = abertos()[0];
@@ -397,6 +433,23 @@ describe('360 e 3D (o cartão flutuante)', () => {
     ];
 
     for (const [nome, abrir, ancora] of superficies) {
+        it(`${nome}: a peer update preserves an unsent reply and a refused send keeps it`, async () => {
+            h.comments = { a: raiz('a', ancora) };
+            await abrir('a');
+            const card = cartaoAberto();
+            const input = card.querySelector('textarea');
+            input.value = 'Resposta ainda nao enviada';
+            fire(input, 'input');
+            await parResolve('a');
+            expect(cartaoAberto()).toBe(card);
+            expect(input.value).toBe('Resposta ainda nao enviada');
+            h.addReply = vi.fn(async () => undefined);
+            byTestid(card, 'comment-reply-submit').click();
+            await tick();
+            expect(input.value).toBe('Resposta ainda nao enviada');
+            expect(h.warning).toHaveBeenCalledWith(AVISO_RESPOSTA_RECUSADA);
+        });
+
         it(`${nome}: Resolver fecha o cartão`, async () => {
             h.comments = { a: raiz('a', ancora) };
             await abrir('a');

@@ -168,6 +168,24 @@ describe('"Baixar meus dados" tenta o .ebgeo antes da cópia bruta', () => {
         expect(data.maps.Principal.name).toBeUndefined();
     });
 
+    it.each(['__proto__', 'constructor', 'toString'])('a cópia de recuperação conserva o mapa %s e suas notas', async name => {
+        await seedUmAcervo();
+        await seedDatabase('ebgeo_maps', Object.fromEntries([[name, {
+            id: 'mapa-reservado', name, features: { points: [] }
+        }]]));
+        await seedDatabase('ebgeo_app_settings', {
+            [`map_notes_${name}`]: { title: `Nota ${name}` }
+        });
+        const { construirEbgeoDeRecuperacao } = await import('@store/migration/ebgeo-de-recuperacao.js');
+        const { blob } = await construirEbgeoDeRecuperacao();
+        const { readEbgeoArchive } = await import('@js/import_export/ebgeo-file-gate.js');
+        const { data } = await readEbgeoArchive(blob);
+        expect(Object.keys(data.maps)).toContain(name);
+        expect(data.maps[name].features.points).toEqual([]);
+        expect(Object.hasOwn(data.mapNotes, name)).toBe(true);
+        expect(data.mapNotes[name]).toEqual({ title: `Nota ${name}` });
+    });
+
     it('com DOIS acervos cai para a cópia bruta, e a frase diz por quê', async () => {
         await seedUmAcervo();
         await seedSegundoAcervo();
@@ -177,6 +195,75 @@ describe('"Baixar meus dados" tenta o .ebgeo antes da cópia bruta', () => {
         expect(baixados[0].nome).toMatch(/^ebgeo-recuperacao-\d{4}-\d{2}-\d{2}\.zip$/);
         expect(texto.textContent).toContain('mais de um atlas');
         expect(texto.textContent).toContain('equipe do EBGeo');
+    });
+
+    it('mapas diferentes com o mesmo nome vão completos para a cópia bruta', async () => {
+        await seedUmAcervo();
+        await seedDatabase('ebgeo_maps', {
+            'aaaaaaaa-0000-4000-8000-000000000001': { id: 'aaaaaaaa-0000-4000-8000-000000000001', name: 'Principal', features: { points: [] } }
+        });
+        const { botoes, texto } = await desenharTela('unreadable');
+        fire(botoes[0], 'click');
+        await vi.waitFor(() => expect(baixados).toHaveLength(1));
+        expect(baixados[0].nome).toMatch(/\.zip$/);
+        const { readRecoveryArchive } = await import('@store/migration/recovery-archive.js');
+        const archive = await readRecoveryArchive(blobPorUrl.get(baixados[0].href));
+        expect(archive.scopes[0].records.filter(record => record.store === 'maps').map(record => record.key).sort())
+            .toEqual(['Principal', 'Segundo', 'aaaaaaaa-0000-4000-8000-000000000001']);
+        expect(texto.textContent).toContain('mesmo nome');
+    });
+
+    it('recusa um arquivo montado enquanto outra janela muda os documentos', async () => {
+        await seedUmAcervo();
+        const ns = await import('@store/atlas-namespace.js');
+        const { legacyScope } = await import('@store/migration/migration-scope.js');
+        const maps = ns.getStoreFor(ns.StoreName.MAPS, legacyScope());
+        await maps.ready(); // localforage installs its driver methods during initialization.
+        const originalIterate = maps.iterate.bind(maps);
+        let mudou = false;
+        vi.spyOn(maps, 'iterate').mockImplementationOnce(async callback => {
+            const result = await originalIterate(callback);
+            await maps.setItem('Segundo', { id: 'seg', name: 'Segundo', features: { points: [] }, modified: true });
+            mudou = true;
+            return result;
+        });
+        const { construirEbgeoDeRecuperacao } = await import('@store/migration/ebgeo-de-recuperacao.js');
+        await expect(construirEbgeoDeRecuperacao()).rejects.toMatchObject({ code: 'source_changed' });
+        expect(mudou).toBe(true);
+        expect((await maps.getItem('Segundo')).modified).toBe(true);
+    });
+
+    it('o campo Novo Mapa herdado não junta registros com chaves diferentes', async () => {
+        await seedUmAcervo();
+        await seedDatabase('ebgeo_maps', {
+            Alfa: { name: 'Novo Mapa', features: { points: [] } },
+            Bravo: { name: 'Novo Mapa', features: { points: [] } }
+        });
+        const { construirEbgeoDeRecuperacao } = await import('@store/migration/ebgeo-de-recuperacao.js');
+        const { blob } = await construirEbgeoDeRecuperacao();
+        const { readEbgeoArchive } = await import('@js/import_export/ebgeo-file-gate.js');
+        const { data } = await readEbgeoArchive(blob);
+        expect(Object.keys(data.maps).sort()).toEqual(['Alfa', 'Bravo', 'Principal', 'Segundo']);
+    });
+
+    it('a ordem e o mapa corrente traduzem os UUIDs para os nomes do arquivo', async () => {
+        await seedUmAcervo();
+        const alfa = 'aaaaaaaa-0000-4000-8000-000000000001';
+        const bravo = 'bbbbbbbb-0000-4000-8000-000000000001';
+        await seedDatabase('ebgeo_maps', {
+            [alfa]: { id: alfa, name: 'Alfa', features: { points: [] } },
+            [bravo]: { id: bravo, name: 'Bravo', features: { points: [] } }
+        });
+        await seedDatabase('ebgeo_atlas', { current_atlas: {
+            id: 'atlas', name: 'Meu Atlas', schemaVersion: '2.4',
+            mapOrder: [bravo, alfa, bravo, 'ausente', 'Segundo', 'Principal'], lastActiveMapId: bravo
+        } });
+        const { construirEbgeoDeRecuperacao } = await import('@store/migration/ebgeo-de-recuperacao.js');
+        const { blob } = await construirEbgeoDeRecuperacao();
+        const { readEbgeoArchive } = await import('@js/import_export/ebgeo-file-gate.js');
+        const { data } = await readEbgeoArchive(blob);
+        expect(data.mapOrder).toEqual(['Bravo', 'Alfa', 'Segundo', 'Principal']);
+        expect(data.currentMap).toBe('Bravo');
     });
 
     it('sem acervo nenhum ainda entrega a cópia bruta, nomeando a ausência', async () => {

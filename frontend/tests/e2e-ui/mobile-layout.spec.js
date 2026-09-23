@@ -137,11 +137,16 @@ describeOrSkip('§28 Mobile / phone layout (real browser, phone-emulated, local 
         await expect.poll(() => zoom(page), { timeout: 6000 }).toBeLessThan(z1 - 0.5);
     });
 
-    test('§28.8/§28.11 selecting a layer node in the mobile tree expands it and lifts the sheet', async ({ page }) => {
+    test('§28.8/§28.11 opening the sheet and tapping a layer expands and collapses its tree', async ({ page }, testInfo) => {
         await bootPhone(page);
 
         const sheet = page.locator('.phone-bottom-sheet');
         await expect(sheet).toHaveAttribute('data-state', 'peek');
+        // Layer headers are below the visible peek strip. Expose them through the
+        // actual gesture before tapping; evaluating a detached header's click can
+        // silently miss the delegated listener while the tree re-renders.
+        await flickSheetHandle(page, -260);
+        await expect(sheet).toHaveAttribute('data-state', 'half');
 
         // The default local map always seeds the "Padrão" layer node in the tree.
         const layerHeader = sheet.locator('.phone-layer-tree__header').first();
@@ -150,8 +155,8 @@ describeOrSkip('§28 Mobile / phone layout (real browser, phone-emulated, local 
         // Node starts collapsed (no --expanded modifier on its chevron).
         await expect(chevron).not.toHaveClass(/phone-layer-tree__chevron--expanded/);
 
-        // Tapping the layer node expands it AND lifts the peek sheet to half.
-        await layerHeader.evaluate((el) => el.click()); // dispatch the real click listener (sheet animates; avoids actionability hang)
+        // Tapping a visible layer node expands its features.
+        await layerHeader.tap();
         await expect(chevron).toHaveClass(/phone-layer-tree__chevron--expanded/, { timeout: 5000 });
         await expect(sheet).toHaveAttribute('data-state', 'half', { timeout: 5000 });
         // Its features container is now un-hidden (collapsed nodes keep display:none).
@@ -161,9 +166,10 @@ describeOrSkip('§28 Mobile / phone layout (real browser, phone-emulated, local 
             .locator('.phone-layer-tree__features')
             .evaluate((el) => el.style.display);
         expect(featuresDisplay).not.toBe('none');
+        await page.screenshot({ path: testInfo.outputPath('phone-layer-expanded.png') });
 
         // Tapping again collapses the node back.
-        await layerHeader.evaluate((el) => el.click()); // dispatch the real click listener (sheet animates; avoids actionability hang)
+        await layerHeader.tap();
         await expect(chevron).not.toHaveClass(/phone-layer-tree__chevron--expanded/, { timeout: 5000 });
     });
 });

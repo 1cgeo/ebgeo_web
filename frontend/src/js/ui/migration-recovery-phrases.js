@@ -186,6 +186,8 @@ export function baixouComoEbgeo(nome) {
 const SEM_EBGEO = Object.freeze({
     varios_acervos: 'há mais de um atlas neste computador, e um arquivo .ebgeo guarda um atlas só.',
     sem_acervo: 'não há um atlas legível neste computador.',
+    mapas_ambiguos: 'há mapas diferentes com o mesmo nome, e reuni-los no arquivo perderia dados.',
+    source_changed: 'os dados mudaram enquanto a cópia era preparada.',
     leitura_falhou: 'a leitura do atlas falhou.'
 });
 

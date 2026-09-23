@@ -89,7 +89,8 @@ async function seed(page, baseUrl, prefix) {
 
 describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', () => {
     test('marker3d update (name/desc/style) + temporal validity, then delete', async ({ page }) => {
-        await page.goto('/');
+        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        await page.goto('/atlas.html');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_marker_crud');
 
         // O tileset tem de EXISTIR no catálogo: a borda de escrita do sync recusa uma op que
@@ -179,7 +180,8 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
     });
 
     test('measurement3d create then delete vanishes from measurements bucket', async ({ page }) => {
-        await page.goto('/');
+        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        await page.goto('/atlas.html');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_measure_crud');
 
         // O tileset tem de EXISTIR no catálogo: a borda de escrita do sync recusa uma op que
@@ -229,7 +231,8 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
     });
 
     test('viewshed3d create + config update (height/radius/angles) + delete', async ({ page }) => {
-        await page.goto('/');
+        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        await page.goto('/atlas.html');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_viewshed_crud');
 
         // O tileset tem de EXISTIR no catálogo: a borda de escrita do sync recusa uma op que
@@ -306,7 +309,8 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
     });
 
     test('cameraPosition3d save (keyed by tilesetId) then clear removes the key', async ({ page }) => {
-        await page.goto('/');
+        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        await page.goto('/atlas.html');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_camera_crud');
 
         // O tileset tem de EXISTIR no catálogo: a borda de escrita do sync recusa uma op que
@@ -367,7 +371,8 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
     });
 
     test('IDOR: marker3d update with a FOREIGN atlas mapId does not mutate the foreign entity', async ({ page }) => {
-        await page.goto('/');
+        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        await page.goto('/atlas.html');
         // Two independent owners, each with their own atlas + map.
         const victim = await seed(page, state.baseUrl, 'c3d_idor_victim');
         const attacker = await createVerifiedUser({ prefix: 'c3d_idor_attacker', nome: 'Attacker' });

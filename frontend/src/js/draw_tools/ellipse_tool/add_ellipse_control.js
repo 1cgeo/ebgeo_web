@@ -1,6 +1,7 @@
 // Path: js/draw_tools/ellipse_tool/add_ellipse_control.js
+import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
-import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
+import { updateFeature, removeFeature } from '../../store';
 import { IDUtils, showWarning } from '../../utilities';
 import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addEllipseAttributesToPanel } from './ellipse_attributes_panel.js';
@@ -259,6 +260,7 @@ class AddEllipseControl extends BaseControl {
     // ===== TOOL ACTIVATION/DEACTIVATION =====
 
     activate = () => {
+        this._activationId = (this._activationId ?? 0) + 1;
         this.isActive = true;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
@@ -304,7 +306,6 @@ class AddEllipseControl extends BaseControl {
         if (this.drawPoints.length === 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
             await this.createFeature();
-            this.toolManager.deactivateCurrentTool();
         }
     }
 
@@ -402,7 +403,6 @@ class AddEllipseControl extends BaseControl {
         } else if (this.drawPoints.length === 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
             await this.createFeature();
-            this.toolManager.deactivateCurrentTool();
         }
     }
 
@@ -494,6 +494,7 @@ class AddEllipseControl extends BaseControl {
     }
 
     createFeature = async () => {
+        const creation = captureFeatureCreation(this);
         const center = this.drawPoints[0];
         const endPoint = this.drawPoints[1];
 
@@ -513,20 +514,21 @@ class AddEllipseControl extends BaseControl {
             id: geoJsonId,
             properties: {
                 ...AddEllipseControl.DEFAULT_PROPERTIES,
-                layerId: getActiveLayerIdSync(),
+                layerId: creation.layerId,
                 center: center,
                 majorRadius: majorRadius,
                 minorRadius: minorRadius,
                 bearing: bearing,
                 id: featureId,
                 nome: featureName,
-                labelCreatedAtZoom: this.map.getZoom(),
+                labelCreatedAtZoom: creation.zoom,
             },
             geometry: this.geometry.generate(center, majorRadius, minorRadius, bearing)
         };
 
         try {
-            await addFeature('ellipses', feature);
+            if (!(await creation.save('ellipses', feature))) return;
+            if (!creation.isCurrent()) return;
 
             // Only the new feature needs a pattern registered: every ellipse already in the source
             // registered its own when it was drawn, edited or loaded, and the id is a pure function
@@ -545,10 +547,7 @@ class AddEllipseControl extends BaseControl {
                 syncLabelSource(this.map, 'ellipse-labels', await this.map.getSource('ellipses').getData());
             }
 
-            this.drawPoints = [];
-            this.toolManager.deactivateCurrentTool();
-            await this.selectionManager.toggleFeatureSelection('ellipse', featureId, feature);
-            this.selectionManager.updateUI();
+            await creation.finish('ellipse', feature);
         } catch (error) {
             console.error('Error creating ellipse:', error);
         }

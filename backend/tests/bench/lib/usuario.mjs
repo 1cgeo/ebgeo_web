@@ -290,6 +290,7 @@ export function criarUsuario({
       const opId = randomUUID();
       ops.push({
         id: opId,
+        protocolVersion: 2,
         entityType: 'feature',
         operationType: 'create',
         entityId,

@@ -95,17 +95,19 @@ describeOrSkip('MapLibre tool cursors', () => {
 
     test('hovering and leaving a 3D catalog pin preserves an active drawing tool', async ({ page }) => {
         await page.goto('/');
+        await expect(page.locator('[data-testid="account-control"]')).toBeAttached();
         await page.waitForFunction(() => globalThis.__ebgeoMap?.isStyleLoaded());
         const position = await page.evaluate(async () => {
             const { getControl } = await import('/src/js/store/control.registry.js');
+            const { default: config } = await import('/src/js/config.js');
             const viewer = getControl('modelsViewer');
-            await viewer.activate();
             const map = globalThis.__ebgeoMap;
             const center = map.getCenter();
-            map.getSource(viewer.sourceId).setData({ type: 'FeatureCollection', features: [{
-                type: 'Feature', geometry: { type: 'Point', coordinates: [center.lng, center.lat] },
-                properties: { markerId: 'cursor-test-pin', name: 'Cursor test', kind: 'tileset' },
-            }] });
+            // Seed the catalog consumed by the real builder. A direct source.setData was
+            // overwritten by a late badge/base-layer refresh, removing this test's pin.
+            config.tilesets = [{ id: 'cursor-test-pin', name: 'Cursor test',
+                locate: { lon: center.lng, lat: center.lat }, url: '/cursor-test/tileset.json' }];
+            await viewer.activate();
             const p = map.project(center);
             return { x: p.x, y: p.y - 35 };
         });

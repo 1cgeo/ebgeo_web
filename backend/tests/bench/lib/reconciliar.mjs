@@ -65,6 +65,15 @@ export async function reconciliar({ dsn, atlasIds, registro, leitura = null }) {
 
   const provas = [];
 
+  // All rejected requests also satisfy P1-P4 vacuously. They measure the refusal
+  // path, not writes; reject that experiment before anyone adopts its latency.
+  provas.push(prova(
+    'P0 escrita exercitada',
+    registro.enviados.size > 0 && registro.acked.size > 0,
+    `${registro.enviados.size} ops enviadas, ${registro.acked.size} confirmadas`,
+    []
+  ));
+
   // P1
   const ackedAusentes = [...registro.acked].filter((id) => !noLedger.has(id));
   provas.push(prova(
@@ -115,6 +124,7 @@ export async function reconciliar({ dsn, atlasIds, registro, leitura = null }) {
       acked: registro.acked.size,
       idempotentes: registro.idempotentes.size,
       recusados: registro.recusados.size,
+      conflitos: registro.conflitos?.size ?? 0,
       semVeredito: registro.semVeredito.size,
       linhasNoLedger: linhas,
       // Sent minus what the ledger holds. Under a clean run with 503s this equals the number of

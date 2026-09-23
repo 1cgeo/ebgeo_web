@@ -423,7 +423,9 @@ class UIManager {
         // Handle sidebar feature panel - save before closing.
         // Use _saveOnly to avoid triggering deselectAllFeatures() from the button handler
         // (we're already deselecting from the caller).
-        const sidebarSaveButton = document.querySelector('.feature-panel .attr-modern-btn-save');
+        // A closing panel keeps its DOM for the 300 ms animation. Saving it again from
+        // updatePanels() can race Undo and reapply a stale edit after the undo committed.
+        const sidebarSaveButton = document.querySelector('.feature-panel[data-expanded="true"] .attr-modern-btn-save');
         if (sidebarSaveButton?._saveOnly) {
             sidebarSaveButton._saveOnly();
         } else if (sidebarSaveButton) {

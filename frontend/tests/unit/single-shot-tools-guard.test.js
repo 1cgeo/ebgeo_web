@@ -15,6 +15,11 @@ import { describe, it, expect, beforeAll } from 'vitest';
 
 const TOOLS = [
     {
+        nome: 'declination',
+        modulo: '../../src/js/military_tools/declination_tool/add_declination_control.js',
+        criacao: 'createDeclinationFeature',
+    },
+    {
         nome: 'point',
         modulo: '../../src/js/draw_tools/point_tool/add_point_control.js',
         criacao: 'createPointAtCoordinates',

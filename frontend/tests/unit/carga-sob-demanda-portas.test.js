@@ -46,6 +46,7 @@ const contar = (texto, re) => (texto.match(re) ?? []).length;
 
 /** As portas cujo `import()` inteiro passa pela proteção. */
 const PORTAS = Object.freeze([
+    'src/js/admin/index.js',
     'src/js/utilities/turf-loader.js',
     'src/js/military_tools/military_symbol_tool/milsymbol-loader.js',
     'src/js/vendor/gdal.js',

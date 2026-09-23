@@ -792,7 +792,12 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // `presence/viewer-label.js`. Quase todas são folhas puras, que existem para a regra ser
         // testável em node; juntá-las para caber no teto antigo trocaria teste por número.
         // Engineering adds nine lazy modules; the eager military budget stays zero.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(773);
+        // One shared finalization context replaces repeated drawing race guards.
+        // Brush is already eager, so this small helper joins its existing graph; byte budgets stay unchanged.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(774);
+        const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
+        expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
+        expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);

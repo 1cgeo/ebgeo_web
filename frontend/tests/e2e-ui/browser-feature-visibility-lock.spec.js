@@ -57,7 +57,8 @@ describeOrSkip('Feature visibility/lock (real Chromium + real backend, transport
     test('toggle visivel/bloqueado on a feature → flags persist in pullSync snapshot', async ({
         page,
     }) => {
-        await page.goto('/');
+        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        await page.goto('/atlas.html');
         await instalarBaseConfirmada(page);
 
         const user = await createVerifiedUser({ prefix: 'vislock', nome: 'VisLock User' });
@@ -165,7 +166,8 @@ describeOrSkip('Feature visibility/lock (real Chromium + real backend, transport
     test('§2.13 batch visibility: one push hides three features; update em id inexistente é recusado nomeando o motivo', async ({
         page,
     }) => {
-        await page.goto('/');
+        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        await page.goto('/atlas.html');
         await instalarBaseConfirmada(page);
 
         const user = await createVerifiedUser({ prefix: 'visbatch', nome: 'VisBatch User' });

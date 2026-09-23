@@ -1,6 +1,7 @@
 // Path: js/military_tools/occupied_front_tool/add_occupied_front_control.js
+import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
-import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '@store';
+import { updateFeature, removeFeature } from '@store';
 import { IDUtils, showWarning } from '@utils';
 import { getPointerPosition } from '@utils/pointer-utils';
 import { addOccupiedFrontAttributesToPanel } from './occupied_front_attributes_panel.js';
@@ -234,6 +235,7 @@ class AddOccupiedFrontControl extends BaseControl {
     // ===== TOOL ACTIVATION/DEACTIVATION =====
 
     activate = () => {
+        this._activationId = (this._activationId ?? 0) + 1;
         this.isActive = true;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
@@ -301,7 +303,6 @@ class AddOccupiedFrontControl extends BaseControl {
         } else if (this.drawPoints.length === 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
             await this.createFeature();
-            this.toolManager.deactivateCurrentTool();
         }
     }
 
@@ -380,6 +381,7 @@ class AddOccupiedFrontControl extends BaseControl {
     }
 
     createFeature = async () => {
+        const creation = captureFeatureCreation(this);
         const p1 = this.drawPoints[0];
         const p2 = this.drawPoints[1];
 
@@ -402,7 +404,7 @@ class AddOccupiedFrontControl extends BaseControl {
             id: geoJsonId,
             properties: {
                 ...AddOccupiedFrontControl.DEFAULT_PROPERTIES,
-                layerId: getActiveLayerIdSync(),
+                layerId: creation.layerId,
                 id: featureId,
                 nome: featureName,
                 baseCoordinates: coordinates
@@ -411,16 +413,14 @@ class AddOccupiedFrontControl extends BaseControl {
         };
 
         try {
-            await addFeature('occupied_fronts', feature);
+            if (!(await creation.save('occupied_fronts', feature))) return;
+            if (!creation.isCurrent()) return;
 
             const dispatcher = occupiedFrontsSource(this.map);
             dispatcher.add(feature);
             await dispatcher.flush();
 
-            this.drawPoints = [];
-            this.toolManager.deactivateCurrentTool();
-            await this.selectionManager.toggleFeatureSelection('occupied_front', featureId, feature);
-            this.selectionManager.updateUI();
+            await creation.finish('occupied_front', feature);
         } catch (error) {
             console.error('Error creating occupied front:', error);
         }

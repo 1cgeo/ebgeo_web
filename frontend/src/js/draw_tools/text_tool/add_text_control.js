@@ -1,6 +1,7 @@
 // Path: js/draw_tools/text_tool/add_text_control.js
+import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
-import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
+import { updateFeature, removeFeature } from '../../store';
 import { IDUtils } from '../../utilities';
 import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addTextAttributesToPanel } from './text_attributes_panel.js';
@@ -237,6 +238,7 @@ class AddTextControl extends BaseControl {
     // ===== TOOL ACTIVATION/DEACTIVATION =====
 
     activate = () => {
+        this._activationId = (this._activationId ?? 0) + 1;
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
     }
@@ -388,14 +390,14 @@ class AddTextControl extends BaseControl {
         this.isActive = false;
 
         await this.createTextFeature(e.lngLat);
-        this.toolManager.deactivateCurrentTool();
     }
 
     createTextFeature = async (lngLat) => {
+        const creation = captureFeatureCreation(this);
         const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const featureName = await IDUtils.generateFeatureName('text', this.map);
 
-        const currentZoom = this.map.getZoom();
+        const currentZoom = creation.zoom;
         const coordinates = [lngLat.lng, lngLat.lat];
 
         const selectionBox = this.geometry.calculateSelectionBoxGeometry(
@@ -414,7 +416,7 @@ class AddTextControl extends BaseControl {
             id: geoJsonId,
             properties: {
                 ...AddTextControl.DEFAULT_PROPERTIES,
-                layerId: getActiveLayerIdSync(),
+                layerId: creation.layerId,
                 id: featureId,
                 nome: featureName,
                 createdAtZoom: currentZoom,
@@ -425,14 +427,14 @@ class AddTextControl extends BaseControl {
         };
 
         try {
-            await addFeature('texts', feature);
+            if (!(await creation.save('texts', feature))) return;
+            if (!creation.isCurrent()) return;
 
             const data = await this.map.getSource('texts').getData();
             data.features.push(feature);
             this.map.getSource('texts').setData(data);
 
-            await this.selectionManager.toggleFeatureSelection('text', featureId, feature);
-            this.selectionManager.updateUI();
+            await creation.finish('text', feature);
         } catch (error) {
             console.error('Error creating text feature:', error);
         }

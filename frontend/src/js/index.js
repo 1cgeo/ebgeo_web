@@ -29,8 +29,6 @@ import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-c
 import { pedirPersistencia } from '@store/storage-persistence.js';
 import { syncEngine } from '@store/sync/sync-engine.js';
 import { apiClient } from '@store/sync/api-client.js';
-import { cleanup3DFeatures } from './3d_models_viewer_tool/index.js';
-import { cleanupFirstPersonFeatures } from '@js/first_person_3d_tool/index.js';
 import { initServices, loadStoreOrigin, markStoreRemote, clearAllDataStore, activateAtlasInitialMap, activateRemoteAtlas, getControl, getEventBus } from './store';
 import { reapplyAtlasAppearance } from './store/atlas-appearance.service.js';
 import { installTabLockSyncBrake } from '@store/sync/tab-lock-sync-brake.js';
@@ -919,28 +917,3 @@ document.addEventListener('DOMContentLoaded', () => {
     // faz a medida deixar de existir, e o campo some do lote em silêncio.
     vitais.marcar(MARCA_INICIO);
 });
-
-// ============================================================================
-// GLOBAL CLEANUP
-// ============================================================================
-
-window.addEventListener('beforeunload', () => {
-    try {
-        cleanup3DFeatures();
-    } catch (error) {
-        console.warn('Cesium cleanup error:', error);
-    }
-
-
-    // First-person scene. The barrel wrapper is async (it dynamically imports the
-    // viewer), so a failure surfaces as a rejected promise, not as a throw: the
-    // try/catch alone would let it escape as an unhandled rejection.
-    try {
-        Promise.resolve(cleanupFirstPersonFeatures()).catch(error => {
-            console.warn('First-person cleanup error:', error);
-        });
-    } catch (error) {
-        console.warn('First-person cleanup error:', error);
-    }
-});
-

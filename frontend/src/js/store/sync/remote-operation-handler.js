@@ -58,6 +58,7 @@ import {
 
 /** Key of the schema marker in a scope's settings database (`repository.js` reads it at boot). */
 const SCHEMA_VERSION_KEY = 'schemaVersion';
+const FEATURE_DEFERRED = Symbol('feature-deferred-until-local-ack');
 
 // ============================================================================
 // MODULE STATE
@@ -191,8 +192,8 @@ async function drainPendingFeatureOps(mapId) {
             arr.splice(arr.indexOf(op), 1);
             continue;
         }
-        const applied = await applyRemoteFeatureOp(op.opType, op.featureId, mapId, op.data, op.serverVersion, op.opId, op.traceId);
-        if (applied) {
+        const applied = await applyRemoteFeatureOp(op.opType, op.featureId, mapId, op.data, op.serverVersion, op.opId, op.traceId, op.operation);
+        if (applied === true) {
             // Peer-side IndexedDB-write confirmation for a feature whose map arrived late
             // (buffered then replayed) — the apply.persist that applyRemoteOperation skipped.
             record(TraceStage.APPLY_PERSIST, {
@@ -208,6 +209,9 @@ async function drainPendingFeatureOps(mapId) {
                 markAppliedVersion(op.featureId, op.serverVersion);
                 markRemoteApplied(op.featureId, op.serverVersion);
             }
+            arr.splice(arr.indexOf(op), 1);
+        } else if (applied === null || applied === FEATURE_DEFERRED) {
+            // Superseded, or now owned by the local-edit deferral queue.
             arr.splice(arr.indexOf(op), 1);
         }
     }
@@ -500,6 +504,16 @@ function deferRemoteOp(entityId, operation) {
     arr.push(operation);
 }
 
+/** Recheck after acquiring the document: a local edit may have won the lock first. */
+function featureApplyPermission(operation) {
+    if (!operation) return true; // Snapshot reprojection deliberately bypasses this guard.
+    if ((pendingLocalEditCount.get(operation.entityId) || 0) > 0) {
+        deferRemoteOp(operation.entityId, operation);
+        return FEATURE_DEFERRED;
+    }
+    return shouldApplyVersion(operation.entityId, operation.serverVersion) ? true : null;
+}
+
 /**
  * Resolves a local edit on its push ack: seeds the author's applied serverVersion, REPAIRS the
  * entity when a peer's OLDER op was applied over the local value, decrements the pending count,
@@ -681,7 +695,11 @@ async function applyRemoteOperationInner(operation, guarded) {
         case EntityType.FEATURE:
             // false = the op was BUFFERED (map not present yet), not applied — don't record its
             // version below, or a legitimate later op could be wrongly dropped by shouldApplyVersion.
-            featureApplied = await applyRemoteFeatureOp(operationType, entityId, mapId, data, serverVersion, operation.id, operation.traceId);
+            featureApplied = await applyRemoteFeatureOp(operationType, entityId, mapId, data, serverVersion, operation.id, operation.traceId, guarded ? operation : null);
+            // A newer ACK may have arrived while this operation waited for the document.
+            // A superseded operation neither writes nor claims an apply.persist span.
+            if (featureApplied === null) return;
+            if (featureApplied === FEATURE_DEFERRED) return false;
             break;
         case EntityType.LAYER:
             await applyRemoteLayerOp(operationType, entityId, mapId, data, serverVersion);
@@ -879,14 +897,16 @@ function findFeatureIndex(features, featureId) {
  *
  * @returns {Promise<boolean>} Whether the op was applied (false = buffered)
  */
-async function applyRemoteFeatureOp(opType, featureId, mapId, data, serverVersion, opId, traceId) {
+async function applyRemoteFeatureOp(opType, featureId, mapId, data, serverVersion, opId, traceId, operation = null) {
     // A confirmed move also removes the old projection. This marker comes from the
     // committed server row and is persisted in the replay, not inferred from a CREATE.
     if (data?.previousMapId && data.previousMapId !== mapId) {
-        await withMapDocument(data.previousMapId, 'applyRemoteFeatureMove', async () => {
+        const previousApplied = await withMapDocument(data.previousMapId, 'applyRemoteFeatureMove', async () => {
+            const permission = featureApplyPermission(operation);
+            if (permission !== true) return permission;
             const repo = handlerRepository();
             const previous = await repo.getMap(data.previousMapId);
-            if (!previous) return;
+            if (!previous) return true;
             let removed = false;
             for (const bucket of Object.values(previous.features ?? {})) {
                 if (!Array.isArray(bucket)) continue;
@@ -897,13 +917,19 @@ async function applyRemoteFeatureOp(opType, featureId, mapId, data, serverVersio
                 await repo.saveMap(data.previousMapId, previous);
                 emit(EventTypes.FEATURE_DELETED, { featureId, mapId: data.previousMapId, featureType: data.properties?.source });
             }
+            return true;
         });
+        if (previousApplied !== true) return previousApplied;
     }
     // Inbound writes race with the LOCAL ones (a peer's op lands while the user is drawing),
     // and both are read-modify-writes of the same map document. Same lock key as the local
     // side, resolved through the map id (document-lock.js).
-    return withMapDocument(mapId, 'applyRemoteFeatureOp', () =>
-        applyRemoteFeatureOpLocked(opType, featureId, mapId, data, serverVersion, opId, traceId));
+    return withMapDocument(mapId, 'applyRemoteFeatureOp', () => {
+        const permission = featureApplyPermission(operation);
+        return permission === true
+            ? applyRemoteFeatureOpLocked(opType, featureId, mapId, data, serverVersion, opId, traceId, operation)
+            : permission;
+    });
 }
 
 /**
@@ -918,7 +944,7 @@ async function applyRemoteFeatureOp(opType, featureId, mapId, data, serverVersio
  * @param {string} [traceId] - Trace id, minted per user gesture
  * @returns {Promise<boolean>} Whether the op was applied (false = buffered)
  */
-async function applyRemoteFeatureOpLocked(opType, featureId, mapId, data, serverVersion, opId, traceId) {
+async function applyRemoteFeatureOpLocked(opType, featureId, mapId, data, serverVersion, opId, traceId, operation) {
     const repo = handlerRepository();
     const mapData = await repo.getMap(mapId);
     if (!mapData) {
@@ -929,7 +955,7 @@ async function applyRemoteFeatureOpLocked(opType, featureId, mapId, data, server
         // `opId` e `traceId` viajam no buffer: sem eles o span `apply.persist` do replay sai
         // com a chave de junção indefinida e o SyncLedger perde o elo justamente no caminho
         // bufferizado, que é o mais difícil de diagnosticar sem ele.
-        bufferPendingFeatureOp(mapId, { opType, featureId, data, serverVersion, opId, traceId });
+        bufferPendingFeatureOp(mapId, { opType, featureId, data, serverVersion, opId, traceId, operation });
         return false;
     }
 
@@ -2280,7 +2306,7 @@ export function applyRemoteSnapshot(snapshot, options = {}) {
             // `isInitialized` e nada a repunha, o que deixava o indice cheio e a marca falsa pelo
             // resto da sessao remota. Ver o cabeçalho de `MapResolverService.replaceAll`.
             mapResolver.replaceAll([...maps].map(([id, map]) => [map?.name, id]));
-            memoryStore.groups = {};
+            memoryStore.groups = Object.create(null);
             memoryStore.lockedMaps.clear();
             memoryStore.temporalConfigs.clear();
             mapaCorrenteDesatualizado = anuncioDeMapaCorrente(correnteAntes, idDoCorrente, maps);

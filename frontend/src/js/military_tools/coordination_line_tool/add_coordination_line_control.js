@@ -1,10 +1,9 @@
 // Path: js/military_tools/coordination_line_tool/add_coordination_line_control.js
+import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
 import {
-    addFeature,
     updateFeature,
     removeFeature,
-    getActiveLayerIdSync,
     getFeatureById,
     getStateManager,
 } from '@store';
@@ -407,6 +406,7 @@ class AddCoordinationLineControl extends BaseControl {
     // ========================================================================
 
     activate = () => {
+        this._activationId = (this._activationId ?? 0) + 1;
         this.isActive = true;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
@@ -701,56 +701,64 @@ class AddCoordinationLineControl extends BaseControl {
     }
 
     createFeature = async () => {
-        if (this.drawPoints.length < 2) return;
-
-        if (!this.geometry.validate(this.drawPoints)) {
-            console.warn('Insufficient valid points for coordination line creation');
-            return;
-        }
-
-        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
-        const featureName = await IDUtils.generateFeatureName('coordination_line', this.map);
-
-        const currentZoom = this.map.getZoom();
-        const adaptiveSize = this.calculateSymbolSizeForZoom(currentZoom);
-
-        const properties = {
-            ...AddCoordinationLineControl.DEFAULT_PROPERTIES,
-            symbol_size: adaptiveSize,
-            symbol_spacing: this.calculateSpacingForSize(adaptiveSize),
-            baseCoordinates: [...this.drawPoints],
-            createdAtZoom: Math.round(currentZoom * 10) / 10,
-            id: featureId,
-            nome: featureName,
-            layerId: getActiveLayerIdSync(),
-        };
-
-        // At creation the factor is 1 by construction; computing it anyway keeps the derived
-        // properties written in one place only.
-        Object.assign(properties, computeCoordinationLineZoomSizes(properties, currentZoom));
-
-        const geometry = this.geometry.generate(properties, currentZoom);
-
-        if (!geometry || !geometry.coordinates) {
-            console.error('Failed to generate valid geometry for coordination line');
-            return;
-        }
-
-        const feature = { type: 'Feature', id: geoJsonId, properties, geometry };
-
+        const activation = this._activationId;
+        this._pendingCreations ??= new Set();
+        if (this._pendingCreations.has(activation)) return;
+        this._pendingCreations.add(activation);
         try {
-            await addFeature('coordination_lines', feature);
+            const creation = captureFeatureCreation(this);
+            if (this.drawPoints.length < 2) return;
 
-            const dispatcher = coordinationLinesSource(this.map);
-            dispatcher.add(feature);
-            await dispatcher.flush();
+            if (!this.geometry.validate(this.drawPoints)) {
+                console.warn('Insufficient valid points for coordination line creation');
+                return;
+            }
 
-            this.drawPoints = [];
-            this.toolManager.deactivateCurrentTool();
-            await this.selectionManager.toggleFeatureSelection('coordination_line', featureId, feature);
-            this.selectionManager.updateUI();
-        } catch (error) {
-            console.error('Error creating coordination line:', error);
+            const drawPoints = [...this.drawPoints];
+            const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
+            const featureName = await IDUtils.generateFeatureName('coordination_line', this.map);
+
+            const currentZoom = creation.zoom;
+            const adaptiveSize = this.calculateSymbolSizeForZoom(currentZoom);
+
+            const properties = {
+                ...AddCoordinationLineControl.DEFAULT_PROPERTIES,
+                symbol_size: adaptiveSize,
+                symbol_spacing: this.calculateSpacingForSize(adaptiveSize),
+                baseCoordinates: [...drawPoints],
+                createdAtZoom: Math.round(currentZoom * 10) / 10,
+                id: featureId,
+                nome: featureName,
+                layerId: creation.layerId,
+            };
+
+            // At creation the factor is 1 by construction; computing it anyway keeps the derived
+            // properties written in one place only.
+            Object.assign(properties, computeCoordinationLineZoomSizes(properties, currentZoom));
+
+            const geometry = this.geometry.generate(properties, currentZoom);
+
+            if (!geometry || !geometry.coordinates) {
+                console.error('Failed to generate valid geometry for coordination line');
+                return;
+            }
+
+            const feature = { type: 'Feature', id: geoJsonId, properties, geometry };
+
+            try {
+                if (!(await creation.save('coordination_lines', feature))) return;
+                if (!creation.isCurrent()) return;
+
+                const dispatcher = coordinationLinesSource(this.map);
+                dispatcher.add(feature);
+                await dispatcher.flush();
+
+                await creation.finish('coordination_line', feature);
+            } catch (error) {
+                console.error('Error creating coordination line:', error);
+            }
+        } finally {
+            this._pendingCreations.delete(activation);
         }
     }
 

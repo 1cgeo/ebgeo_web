@@ -1117,13 +1117,13 @@ export async function buildLayerMappingForMove(features, sourceMapName, targetMa
 async function batchUpdateAnalysisFeatures(mainType, mainFeature, processedFeatures, mapName) {
     const operationName = `batchUpdate${mainType.charAt(0).toUpperCase() + mainType.slice(1)}Features`;
     const targetMap = resolveMap(mapName);
-    if (guardWrite(GuardAction.UPDATE_FEATURE, operationName, targetMap).blocked) return;
+    if (guardWrite(GuardAction.UPDATE_FEATURE, operationName, targetMap).blocked) return false;
 
     const processedType = getProcessedType(mainType);
 
     return withMapDocument(targetMap, operationName, async () => {
         const currentMapData = await mapDocumentForGesture(targetMap, operationName);
-        if (!currentMapData) return;
+        if (!currentMapData) return false;
 
         // Defensive init: older/imported maps may predate these arrays.
         if (!currentMapData.features[mainType]) currentMapData.features[mainType] = [];
@@ -1132,7 +1132,7 @@ async function batchUpdateAnalysisFeatures(mainType, mainFeature, processedFeatu
         const mainIndex = currentMapData.features[mainType].findIndex(
             f => f.properties.id === mainFeature.properties.id
         );
-        if (mainIndex === -1) return;
+        if (mainIndex === -1) return false;
 
         const oldFeature = currentMapData.features[mainType][mainIndex];
         const cleanedMain = cleanFeature(mainFeature);
@@ -1173,6 +1173,7 @@ async function batchUpdateAnalysisFeatures(mainType, mainFeature, processedFeatu
 
             return () => updateMapDataCompat(targetMap, currentMapData);
         });
+        return true;
     });
 }
 

@@ -138,9 +138,10 @@ async function waitForHealth(origin, filhoMorreu) {
  * @param {string} opts.corsOrigin - The browser app origin to allow (Vite).
  * @param {number} opts.port - Backend listen port.
  * @param {string} [opts.dbName='ebgeo_ui_e2e']
+ * @param {boolean} [opts.preserveDatabase=false] Restart an existing disposable database after a backup rehearsal.
  * @returns {Promise<{ baseUrl: string, pid: number, dbName: string }>}
  */
-export async function startBackend({ corsOrigin, port, dbName = 'ebgeo_ui_e2e' }) {
+export async function startBackend({ corsOrigin, port, dbName = 'ebgeo_ui_e2e', preserveDatabase = false }) {
     const origin = `http://127.0.0.1:${port}`;
 
     // PORTA JA OCUPADA E ERRO, NUNCA "ja esta pronto", e esta guarda existe porque uma rodada
@@ -171,10 +172,12 @@ export async function startBackend({ corsOrigin, port, dbName = 'ebgeo_ui_e2e' }
         throw erro;
     }
 
-    await createDatabase(dbName);
-    await ensureExtensions(dbName);
-    const { runMigrations } = await import(MIGRATE_URL);
-    await runMigrations(appDbUrl(dbName));
+    if (!preserveDatabase) {
+        await createDatabase(dbName);
+        await ensureExtensions(dbName);
+        const { runMigrations } = await import(MIGRATE_URL);
+        await runMigrations(appDbUrl(dbName));
+    }
     const child = spawn('node', ['src/index.js'], {
         cwd: BACKEND_DIR,
         env: {
@@ -218,7 +221,7 @@ export async function startBackend({ corsOrigin, port, dbName = 'ebgeo_ui_e2e' }
     const healthy = await waitForHealth(origin, () => saidaDoFilho !== null);
     if (!healthy) {
         killPid(child.pid);
-        await dropDatabase(dbName).catch(() => {});
+        if (!preserveDatabase) await dropDatabase(dbName).catch(() => {});
         if (saidaDoFilho) {
             const erro = new Error(
                 `o backend do e2e morreu antes de ficar saudavel (code=${saidaDoFilho.code}, `

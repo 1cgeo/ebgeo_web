@@ -190,8 +190,9 @@ class SelectionManager {
      * @param {string} featureId - Feature ID
      * @param {Object} feature - GeoJSON feature (may be incomplete from render)
      * @param {boolean} [forceDeselect=false] - If true, deselect even if not selected
+     * @param {Function|null} [shouldApply=null] - Cancel an automatic selection superseded by another interaction.
      */
-    async toggleFeatureSelection(type, featureId, feature, forceDeselect = false) {
+    async toggleFeatureSelection(type, featureId, feature, forceDeselect = false, shouldApply = null) {
         const featureIdStr = String(featureId);
 
         let stateManager;
@@ -203,6 +204,7 @@ class SelectionManager {
         }
 
         const control = await this.ensureControlFor(type);
+        if (shouldApply && !shouldApply()) return;
         const isSelected = stateManager.isFeatureSelected(type, featureIdStr);
 
         if (isSelected && forceDeselect) {
@@ -214,6 +216,7 @@ class SelectionManager {
         } else if (!isSelected) {
             // Select - get complete feature from source for full geometry
             const completeFeature = await this.getCompleteFeatureFromSource(type, featureId);
+            if (shouldApply && !shouldApply()) return;
             const featureToStore = completeFeature || feature;
 
             stateManager.addToSelection(type, featureIdStr, featureToStore);

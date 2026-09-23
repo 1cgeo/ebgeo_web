@@ -107,3 +107,26 @@ export function optionalSectionTasks(mapName) {
         { key: 'comments', fn: () => getComments(mapName), check: (v) => v && Object.keys(v).length > 0 },
     ];
 }
+
+// A partial recovery file is useful only when the person knows what could not be read.
+const LABELS = Object.freeze({
+    maps: 'mapa e feições', colorUsage: 'cores utilizadas', mapNotes: 'anotações',
+    groups: 'grupos', layers: 'camadas', cesium3d: 'conteúdo 3D', streetview360: 'conteúdo 360°',
+    temporal: 'configuração temporal', gridStyle: 'grade de coordenadas', comments: 'comentários',
+    briefings: 'briefings',
+});
+
+export function readFailuresConfirm(failures) {
+    if (!failures?.length) return null;
+    const missing = [...new Set(failures.map(({ section, mapName }) => {
+        const label = Object.hasOwn(LABELS, section) ? LABELS[section] : 'dados adicionais';
+        return mapName == null ? label : `${label} no mapa "${mapName}"`;
+    }))];
+    return {
+        title: 'Não foi possível ler parte do atlas',
+        message: `Não foi possível ler: ${missing.join('; ')}. Esses dados não estarão neste arquivo. `
+            + 'Você pode cancelar e tentar novamente ou exportar uma cópia parcial. A exportação não altera o atlas de origem.',
+        confirmText: 'Exportar cópia parcial',
+        cancelText: 'Cancelar',
+    };
+}

@@ -1,5 +1,6 @@
 // Path: js/draw_tools/circle_tool/add_circle_control.js
-import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
+import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
+import { updateFeature, removeFeature } from '../../store';
 import { IDUtils, showWarning } from '../../utilities';
 import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addCircleAttributesToPanel } from './circle_attributes_panel.js';
@@ -220,6 +221,7 @@ class AddCircleControl extends BaseControl {
     }
     // ===== TOOL ACTIVATION/DEACTIVATION =====
     activate = () => {
+        this._activationId = (this._activationId ?? 0) + 1;
         this.isActive = true;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
@@ -260,7 +262,6 @@ class AddCircleControl extends BaseControl {
         if (this.drawPoints.length === 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
             await this.createFeature();
-            this.toolManager.deactivateCurrentTool();
         }
     }
     // ===== SELECTION SYSTEM INTEGRATION =====
@@ -338,7 +339,6 @@ class AddCircleControl extends BaseControl {
         } else if (this.drawPoints.length === 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
             await this.createFeature();
-            this.toolManager.deactivateCurrentTool();
         }
     }
     /**
@@ -415,6 +415,7 @@ class AddCircleControl extends BaseControl {
         });
     }
     createFeature = async () => {
+        const creation = captureFeatureCreation(this);
         const center = this.drawPoints[0];
         const endPoint = this.drawPoints[1];
         const radius = this.geometry.calculateDistance(center, endPoint);
@@ -430,17 +431,18 @@ class AddCircleControl extends BaseControl {
             id: geoJsonId,
             properties: {
                 ...AddCircleControl.DEFAULT_PROPERTIES,
-                layerId: getActiveLayerIdSync(),
+                layerId: creation.layerId,
                 center: center,
                 radius: radius,
                 id: featureId,
                 nome: featureName,
-                labelCreatedAtZoom: this.map.getZoom(),
+                labelCreatedAtZoom: creation.zoom,
             },
             geometry: this.geometry.generate(center, radius)
         };
         try {
-            await addFeature('circles', feature);
+            if (!(await creation.save('circles', feature))) return;
+            if (!creation.isCurrent()) return;
 
             // Only the new feature needs a pattern registered: every circle already in the source
             // registered its own when it was drawn, edited or loaded, and the id is a pure function
@@ -459,10 +461,7 @@ class AddCircleControl extends BaseControl {
                 syncLabelSource(this.map, 'circle-labels', await this.map.getSource('circles').getData());
             }
 
-            this.drawPoints = [];
-            this.toolManager.deactivateCurrentTool();
-            await this.selectionManager.toggleFeatureSelection('circle', featureId, feature);
-            this.selectionManager.updateUI();
+            await creation.finish('circle', feature);
         } catch (error) {
             console.error('Error creating circle:', error);
         }

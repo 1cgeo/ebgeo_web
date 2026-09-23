@@ -1,6 +1,7 @@
 // Path: js/draw_tools/rectangle_tool/add_rectangle_control.js
+import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
-import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
+import { updateFeature, removeFeature } from '../../store';
 import { IDUtils, showWarning } from '../../utilities';
 import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addRectangleAttributesToPanel } from './rectangle_attributes_panel.js';
@@ -347,6 +348,7 @@ class AddRectangleControl extends BaseControl {
     // ===== TOOL ACTIVATION/DEACTIVATION =====
 
     activate = () => {
+        this._activationId = (this._activationId ?? 0) + 1;
         this.isActive = true;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
@@ -392,7 +394,6 @@ class AddRectangleControl extends BaseControl {
         if (this.drawPoints.length === 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
             await this.createFeature();
-            this.toolManager.deactivateCurrentTool();
         }
     }
 
@@ -482,7 +483,6 @@ class AddRectangleControl extends BaseControl {
         } else if (this.drawPoints.length === 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
             await this.createFeature();
-            this.toolManager.deactivateCurrentTool();
         }
     }
 
@@ -578,6 +578,7 @@ class AddRectangleControl extends BaseControl {
     }
 
     createFeature = async () => {
+        const creation = captureFeatureCreation(this);
         const corner1 = this.drawPoints[0];
         const corner2 = this.drawPoints[1];
 
@@ -635,7 +636,7 @@ class AddRectangleControl extends BaseControl {
             id: geoJsonId,
             properties: {
                 ...AddRectangleControl.DEFAULT_PROPERTIES,
-                layerId: getActiveLayerIdSync(),
+                layerId: creation.layerId,
                 corner1: finalCorner1,
                 corner2: finalCorner2,
                 center: finalDimensions.center,
@@ -643,13 +644,14 @@ class AddRectangleControl extends BaseControl {
                 height: finalHeight,
                 id: featureId,
                 nome: featureName,
-                labelCreatedAtZoom: this.map.getZoom(),
+                labelCreatedAtZoom: creation.zoom,
             },
             geometry: geometry
         };
 
         try {
-            await addFeature('rectangles', feature);
+            if (!(await creation.save('rectangles', feature))) return;
+            if (!creation.isCurrent()) return;
 
             // Only the new feature needs a pattern registered: every rectangle already in the
             // source registered its own when it was drawn, edited or loaded, and the id is a pure
@@ -668,10 +670,7 @@ class AddRectangleControl extends BaseControl {
                 syncLabelSource(this.map, 'rectangle-labels', await this.map.getSource('rectangles').getData());
             }
 
-            this.drawPoints = [];
-            this.toolManager.deactivateCurrentTool();
-            await this.selectionManager.toggleFeatureSelection('rectangle', featureId, feature);
-            this.selectionManager.updateUI();
+            await creation.finish('rectangle', feature);
         } catch (error) {
             console.error('Erro ao criar retângulo:', error);
         }

@@ -782,7 +782,7 @@ export class Viewshed3D {
         const handler = new Cesium.ScreenSpaceEventHandler(scene.canvas);
 
         handler.setInputAction((click) => {
-            const picked = pickScenePosition(scene, click.position);
+            const picked = pickScenePosition(scene, click.position, this._preview);
             if (!picked) return;
             if (!this.cameraPosition) {
                 this.cameraPosition = picked;
@@ -843,7 +843,7 @@ export class Viewshed3D {
         if (this._destroyed || !this._handler || !this.cameraPosition || this.viewPosition) return;
         if (!this._hoverPosition) return;
 
-        const hovered = pickScenePosition(this.viewer.scene, this._hoverPosition);
+        const hovered = pickScenePosition(this.viewer.scene, this._hoverPosition, this._preview);
         // Nothing under the pointer (sky, off the model): the last preview stays, like the range.
         if (!hovered) return;
 
@@ -862,10 +862,9 @@ export class Viewshed3D {
      *
      * TRANSLUCENT, ALL THREE, for the reason `_rebuildOutline` gives about its alpha: something
      * that writes depth is tinted by the post-process of every viewshed ALREADY in the scene, and an
-     * annotation would start lying about what some other observer sees. It also keeps the preview
-     * out of `pickPosition`, which reads opaque depth only (`scene.pickTranslucentDepth` is false by
-     * default and nothing here turns it on): `scene.pick` may well hit a preview line, but the
-     * position the next move takes is the ground under the wireframe, never a point on it.
+     * annotation would start lying about what some other observer sees. The picking pass needs
+     * an explicit exclusion too: in Firefox its depth can contain a translucent preview line.
+     * `pickScenePosition` hides these collections only while that synchronous pass runs.
      * @private
      * @param {object|null} pointer - Cesium.Cartesian3 under the cursor, or null.
      */
@@ -996,19 +995,30 @@ function liftAlongVertical(position, height) {
  * because writing onto the library's namespace is how that file made itself hard to remove.
  * @param {object} scene - Cesium scene.
  * @param {object} windowPosition - Cartesian2 in window coordinates.
+ * @param {object|null} [preview] - Our overlays, excluded from the pick pass.
  * @returns {object|null} Cartesian3, or null.
  */
-function pickScenePosition(scene, windowPosition) {
-    if (scene.pickPositionSupported && Cesium.defined(scene.pick(windowPosition))) {
-        const picked = scene.pickPosition(windowPosition);
-        if (Cesium.defined(picked)) {
-            const carto = Cesium.Cartographic.fromCartesian(picked);
-            if (carto && carto.height >= -500) return picked;
+function pickScenePosition(scene, windowPosition, preview) {
+    const overlays = preview ? [preview.lines, preview.marks, preview.labels] : [];
+    const visibility = overlays.map(collection => collection.show);
+    // The pick pass can write translucent preview lines into its depth buffer.
+    // Exclude our own overlays during this synchronous pass, then restore them
+    // before the next displayed frame.
+    for (const collection of overlays) collection.show = false;
+    try {
+        if (scene.pickPositionSupported && Cesium.defined(scene.pick(windowPosition))) {
+            const picked = scene.pickPosition(windowPosition);
+            if (Cesium.defined(picked)) {
+                const carto = Cesium.Cartographic.fromCartesian(picked);
+                if (carto && carto.height >= -500) return picked;
+            }
         }
+        if (scene.mode === Cesium.SceneMode.SCENE3D) {
+            const ray = scene.camera.getPickRay(windowPosition);
+            return scene.globe.pick(ray, scene) ?? null;
+        }
+        return scene.camera.pickEllipsoid(windowPosition, scene.ellipsoid) ?? null;
+    } finally {
+        overlays.forEach((collection, index) => { collection.show = visibility[index]; });
     }
-    if (scene.mode === Cesium.SceneMode.SCENE3D) {
-        const ray = scene.camera.getPickRay(windowPosition);
-        return scene.globe.pick(ray, scene) ?? null;
-    }
-    return scene.camera.pickEllipsoid(windowPosition, scene.ellipsoid) ?? null;
 }

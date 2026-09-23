@@ -270,6 +270,13 @@ async function quedaEVoltaDaConexao(page) {
     });
 
     await page.context().setOffline(true);
+    // Firefox bloqueia novos sockets em offline, mas continua entregando frames no socket
+    // existente. Fechar o transporte garante uma queda real nos dois navegadores; o cliente
+    // continua responsavel por detectar a queda, reconectar e retomar a fila de blobs.
+    await page.evaluate(async () => {
+        const { wsClient } = await import('/src/js/store/sync/ws-client.js');
+        wsClient._socket?.close(4000, 'network fault injection');
+    });
     await page.waitForTimeout(JANELA_OFFLINE_MS);
     await page.context().setOffline(false);
 

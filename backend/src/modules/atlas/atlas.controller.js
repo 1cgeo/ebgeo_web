@@ -223,7 +223,7 @@ export const updateSettings = asyncHandler(async (req, res) => {
 });
 
 export const cloneAtlas = asyncHandler(async (req, res) => {
-  const atlas = await atlasService.cloneAtlas(req.atlasId, req.user.id, req.body);
+  const atlas = await atlasService.cloneAtlas(req.atlasId, req.user.id, req.body, req.atlasPermission);
   await createAudit(req, {
     action: 'ATLAS_CREATE',
     actorId: req.user.id,

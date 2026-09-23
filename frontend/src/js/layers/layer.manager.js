@@ -553,7 +553,7 @@ class LayerManager {
      */
     clearLayersCache() {
         this._activeLayerPersist.cancelAll();
-        this.memoryStore.layers = {};
+        this.memoryStore.layers = Object.create(null);
         this.memoryStore.activeLayerId = 'default';
     }
 
@@ -796,7 +796,7 @@ class LayerManager {
     /** @private */
     _ensureMapLayersExist(mapName) {
         if (!this.memoryStore.layers) {
-            this.memoryStore.layers = {};
+            this.memoryStore.layers = Object.create(null);
         }
         if (!this.memoryStore.layers[mapName]) {
             this.memoryStore.layers[mapName] = getActiveScope()?.kind === 'remote'

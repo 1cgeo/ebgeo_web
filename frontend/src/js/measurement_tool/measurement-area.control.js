@@ -1,4 +1,5 @@
 // Path: js/measurement_tool/measurement-area.control.js
+import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
 /**
  * @module measurement_tool/measurement-area.control
@@ -25,7 +26,7 @@ import {
     clearAllSources,
 } from './measurement-labels.js';
 import { createAreaResultsPanel } from './measurement-results-panel.js';
-import { addFeature, getActiveLayerIdSync, getControl, isCurrentMapLockedSync } from '@store';
+import { getControl, isCurrentMapLockedSync } from '@store';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { IDUtils, showToast } from '@utils';
 // Por ARQUIVO, de dois modulos folha: a contagem nao pode participar da ativacao.
@@ -90,6 +91,7 @@ export class MeasurementAreaControl {
     }
 
     activate() {
+        this._activationId = (this._activationId ?? 0) + 1;
         if (!this.map || this.isActive) return;
         this.isActive = true;
         // A GUARDA ACIMA E O QUE TORNA ISTO UMA CONTAGEM DE ABERTURA: `isActive` ja saiu com
@@ -361,45 +363,56 @@ export class MeasurementAreaControl {
             return;
         }
 
-        const layerId = getActiveLayerIdSync();
-        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
-        const { area } = calculatePolygonMetrics(coordinates);
-        const ring = [...coordinates, coordinates[0]];
+        const activation = this._activationId;
+        this._pendingSaves ??= new Set();
+        if (this._pendingSaves.has(activation)) return;
+        this._pendingSaves.add(activation);
+        try {
+            const creation = captureFeatureCreation(this);
+            const layerId = creation.layerId;
+            const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
+            const { area } = calculatePolygonMetrics(coordinates);
+            const ring = [...coordinates, coordinates[0]];
 
-        const feature = {
-            type: 'Feature',
-            id: geoJsonId,
-            properties: {
-                id: featureId,
-                source: 'polygon',
-                layerId,
-                nome: `Medição ${formatAreaAuto(area)}`,
-                descricao: '',
-                fillColor: '#ff6600',
-                lineColor: '#ff6600',
-                lineWidth: 2.5,
-                opacity: 0.12,
-                lineStyle: 'solid',
-                measure: true,
-                visivel: true,
-                bloqueado: false,
-                baseCoordinates: coordinates,
-            },
-            geometry: {
-                type: 'Polygon',
-                coordinates: [ring],
-            },
-        };
+            const feature = {
+                type: 'Feature',
+                id: geoJsonId,
+                properties: {
+                    id: featureId,
+                    source: 'polygon',
+                    layerId,
+                    nome: `Medição ${formatAreaAuto(area)}`,
+                    descricao: '',
+                    fillColor: '#ff6600',
+                    lineColor: '#ff6600',
+                    lineWidth: 2.5,
+                    opacity: 0.12,
+                    lineStyle: 'solid',
+                    measure: true,
+                    visivel: true,
+                    bloqueado: false,
+                    baseCoordinates: coordinates,
+                },
+                geometry: {
+                    type: 'Polygon',
+                    coordinates: [ring],
+                },
+            };
 
-        await addFeature('polygons', feature);
+            if (!(await creation.save('polygons', feature))) return;
+            if (!creation.isCurrent()) return;
 
-        // Through the dispatcher, not a read-modify-write on `polygons`: the source is
-        // dispatcher-owned, so a raw `setData` would replace MapLibre's pending-update slot and
-        // silently drop whatever the polygon or azimuth tool had queued. A single append also has
-        // nothing to read back for.
-        getGeoJsonDispatcher(this.map, 'polygons').add(feature);
+            // Through the dispatcher, not a read-modify-write on `polygons`: the source is
+            // dispatcher-owned, so a raw `setData` would replace MapLibre's pending-update slot and
+            // silently drop whatever the polygon or azimuth tool had queued. A single append also has
+            // nothing to read back for.
+            const dispatcher = getGeoJsonDispatcher(this.map, 'polygons');
+            dispatcher.add(feature);
+            await dispatcher.flush();
 
-        this.deactivate();
-        this.toolManager.deactivateCurrentTool();
+            if (creation.isActiveTool()) this.toolManager.deactivateCurrentTool();
+        } finally {
+            this._pendingSaves.delete(activation);
+        }
     }
 }

@@ -6,30 +6,16 @@
 //   node tests/bench/escrita-conflito.bench.mjs
 //   node tests/bench/escrita-conflito.bench.mjs --escritores 8 --alvos 20 --lotes 20 --ops 20
 //
-// DOIS DEGRAUS, UMA DIFERENCA SO. Nos dois, os mesmos escritores empurram o mesmo numero de ops
-// de UPDATE contra feicoes que ja existem. No degrau "disjuntos" cada escritor tem as suas; no
-// degrau "comuns" todos miram o mesmo punhado. A carga de rede, o numero de transacoes e o
-// tamanho dos lotes sao identicos, entao a diferenca de latencia e o custo do UPDATE contendido
-// dentro da transacao, e nada mais.
+// Both stages submit protocol-v2 patches to existing features. Each writer observes its
+// initial entity versions through the real snapshot and advances them only from server receipts.
+// Shared targets therefore exercise both accepted edits and explicit field conflicts; the
+// refusal rate is a result, not lost data and not an invisible last-writer-wins overwrite.
 //
-// A EXPECTATIVA, QUE E O QUE TORNA A MEDIDA UTIL. O advisory lock JA serializa os pushes deste
-// atlas, entao duas transacoes nunca disputam a mesma linha ao mesmo tempo: o lock de linha do
-// Postgres deveria ser gratuito aqui. Se os dois degraus derem numeros parecidos, isso confirma
-// que o gargalo e o advisory lock e nao a contenda de dado. Se o degrau "comuns" for pior, existe
-// disputa que o advisory lock nao cobre, e ela precisa de nome.
+// The database check compares each target with its last APPLIED operation. Conflicted edits
+// have durable receipts but do not enter `operations` or overwrite the feature. The two stages
+// have the same attempted push count, while snapshots and accepted/refused work can differ.
+// This is a contention/consistency experiment, not a pure row-lock microbenchmark.
 //
-// A PROVA DE CONVERGENCIA E O QUE ESTE ARQUIVO TEM DE PROPRIO. Feicao e LWW por ORDEM DE CHEGADA:
-// o `buildDynamicUpdate` de `features` grava a coluna `properties` INTEIRA, entao o ultimo update
-// aplicado apaga o anterior. Logo, para cada alvo, o estado final tem de ser exatamente o da op
-// com o MAIOR `server_version` que mirou aquele alvo. Cada op carrega o clientId do seu autor
-// dentro de `properties.descricao`, e a checagem final compara o que a tabela `features` guarda
-// com o que o ledger diz que chegou por ultimo. Divergencia aqui significa que o estado
-// convergido nao corresponde a nenhuma ordem de chegada, que e o defeito que um modelo LWW nao
-// pode ter.
-//
-// ALVOS SAO SEMEADOS ANTES, E ISSO IMPORTA. Um update contra feicao inexistente cai na guarda
-// EXISTS, afeta zero linhas e e acked assim mesmo. Mediria o caminho vazio, nao a contenda.
-
 import { comBancada, medir, fechar, arg, aquecer } from './lib/bancada.mjs';
 import {
   semearCenario, autenticar, novoAtlas, semearFeicoes, DSN_PADRAO,
@@ -152,10 +138,10 @@ await comBancada(
       r.linha.convDivergentes = conv.divergentes.length;
       // A convergencia entra na conta do codigo de saida: um estado final que nao corresponde a
       // nenhuma ordem de chegada e um defeito, nao um numero.
-      if (conv.divergentes.length > 0) {
+      if (conv.conferidos === 0 || conv.divergentes.length > 0) {
         r.reconciliacao.ok = false;
         r.reconciliacao.provas.push({
-          nome: 'P5 convergencia LWW',
+          nome: 'P5 estado aplicado conferido',
           ok: false,
           mensagem: `${conv.divergentes.length} de ${conv.conferidos} alvos nao batem com a ultima op do ledger`,
           amostra: conv.divergentes.slice(0, 5).map((d) => d.entity_id),
@@ -177,10 +163,10 @@ await comBancada(
     ];
 
     return fechar(resultados, [
-      'Os dois degraus movem a mesma carga. So o alvo muda.',
-      'Numeros parecidos confirmam que o advisory lock ja serializa antes de a linha ser disputada.',
-      'O degrau "comuns" pior indica disputa que o advisory lock nao cobre, e ela precisa de nome.',
-      'convDivergentes tem de ser zero: o estado final e o da op de maior server_version.',
+      'Os dois degraus tentam a mesma quantidade de patches v2, a partir de versoes realmente observadas.',
+      'conflitos e o subconjunto de recusados que o protocolo preservou sem sobrescrever trabalho concorrente.',
+      'Leituras iniciais e a proporcao de recusas mudam o trabalho efetivo: comparar latencias exige essas contagens.',
+      'convConferidos deve ser positivo e convDivergentes zero: estado final igual a ultima op APLICADA.',
       ...notasExtra,
     ], COLUNAS_E7);
   }

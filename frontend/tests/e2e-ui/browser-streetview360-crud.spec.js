@@ -85,7 +85,8 @@ describeOrSkip('Street View 360 annotation transport (real Chromium + real backe
     test('§21.3-5 marker360 create → update (LWW) → delete reflected in map.streetview360.markers', async ({
         page,
     }) => {
-        await page.goto('/');
+        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        await page.goto('/atlas.html');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'sv360_marker');
 
         // A foto tem de EXISTIR num projeto 360 visível: `photo_name` resolve para um
@@ -195,7 +196,8 @@ describeOrSkip('Street View 360 annotation transport (real Chromium + real backe
     });
 
     test('§21.6-7 orientation360 save (keyed by photoName) then clear removes the key', async ({ page }) => {
-        await page.goto('/');
+        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        await page.goto('/atlas.html');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'sv360_orient');
 
         // A foto tem de EXISTIR num projeto 360 visível: `photo_name` resolve para um
@@ -276,7 +278,8 @@ describeOrSkip('Street View 360 annotation transport (real Chromium + real backe
     test('§21.15 marker360 temporal validity window round-trips; empty fields = permanent marker', async ({
         page,
     }) => {
-        await page.goto('/');
+        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        await page.goto('/atlas.html');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'sv360_temporal');
 
         // A foto tem de EXISTIR num projeto 360 visível: `photo_name` resolve para um

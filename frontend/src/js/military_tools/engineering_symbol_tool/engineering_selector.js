@@ -132,7 +132,9 @@ export class EngineeringSelectorModal extends ModalBase {
             await control.updateSymbolImage(feature);
             await control.saveFeatures(selectedFeatures, initialPropertiesMap);
             this.hide();
-            selectionManager.deselectAllFeatures();
+            // Already persisted above. A second asynchronous panel save can land after Undo
+            // and silently reapply the edit the person just undid.
+            selectionManager.deselectAllFeatures({ skipSave: true });
         } catch (error) {
             console.error('Could not apply engineering symbol', error);
             this.error.textContent = 'Não foi possível salvar o símbolo. Tente novamente.';

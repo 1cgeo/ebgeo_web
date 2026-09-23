@@ -68,6 +68,23 @@ describe('one version/structure gate for every file import', () => {
 });
 
 describe('server migration preserves image references', () => {
+    it('a file containing comments requires consent even when every image is present', async () => {
+        const data = document();
+        data.comments = { Principal: { root: { id: 'root', text: 'Original discussion' },
+            reply: { id: 'reply', parentId: 'root', text: 'Original reply' } } };
+        const file = await archive(data);
+        const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
+        await expect(importEbgeoAsAtlas(file, { apiClient: api })).rejects.toMatchObject({ cancelled: true });
+        expect(api.importAtlas).not.toHaveBeenCalled();
+        const confirmMissingImages = vi.fn(async () => true);
+        await importEbgeoAsAtlas(file, { apiClient: api, confirmMissingImages });
+        expect(confirmMissingImages.mock.calls[0][0].message).toMatch(/2 comentários/);
+        expect(confirmMissingImages.mock.calls[0][0].message).toContain('arquivo .ebgeo original');
+        expect(api.importAtlas).toHaveBeenCalledTimes(1);
+        const after = Array.from(new Uint8Array(await file.arrayBuffer()));
+        expect(after).toEqual(bytes);
+    });
+
     it('refuses a lossy feature conversion before creating an incomplete atlas', async () => {
         const data = document();
         data.maps.Principal.features.unknown_tool = [feature('unknown', 'unknown')];

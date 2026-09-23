@@ -52,7 +52,7 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
         // A conta nasce no NODE (o token de confirmação só existe como linha no Postgres, fora do
         // alcance do `page.evaluate`); o browser recebe credenciais prontas e só faz o login.
         const user = await createVerifiedUser({ prefix: 'attr', nome: 'Attr User' });
-        await page.goto('/');
+        await page.goto('/atlas.html');
         await instalarBaseConfirmada(page);
 
         const result = await page.evaluate(async ({ baseUrl, u }) => {
@@ -140,7 +140,7 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
     }) => {
         // Conta pronta vinda do Node, como no teste acima.
         const user = await createVerifiedUser({ prefix: 'col', nome: 'Column User' });
-        await page.goto('/');
+        await page.goto('/atlas.html');
         await instalarBaseConfirmada(page);
 
         const result = await page.evaluate(async ({ baseUrl, u }) => {
@@ -243,7 +243,7 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
         // ---- Owner (user A) seeds an atlas + map + feature ------------------
         const ctxA = await browser.newContext();
         const pageA = await ctxA.newPage();
-        await pageA.goto('/');
+        await pageA.goto('/atlas.html');
         const owner = await pageA.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
@@ -271,7 +271,7 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
         // ---- Attacker (user B) tries to edit A's feature attribute ----------
         const ctxB = await browser.newContext();
         const pageB = await ctxB.newPage();
-        await pageB.goto('/');
+        await pageB.goto('/atlas.html');
         const attack = await pageB.evaluate(
             async ({ baseUrl, atlasId, mapId, featureId, u }) => {
                 const { ApiClient } = await import('/src/js/store/sync/api-client.js');

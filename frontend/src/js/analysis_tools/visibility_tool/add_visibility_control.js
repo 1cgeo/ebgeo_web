@@ -1,7 +1,8 @@
 // Path: js/analysis_tools/visibility_tool/add_visibility_control.js
+import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
 import { queryFeaturesAtPoint, handleHitBox } from '@tools/helpers/feature-hit-test.helpers.js';
-import { addFeature, removeFeature, getCurrentMapFeatures, batchUpdateVisibilityFeatures, getActiveLayerIdSync } from '@store';
+import { removeFeature, getCurrentMapFeatures, batchUpdateVisibilityFeatures } from '@store';
 import { IDUtils } from '@utils';
 import { getPointerPosition } from '@utils/pointer-utils';
 import { addVisibilityAttributesToPanel, addVisibilityParametersToPanel } from './visibility_attributes_panel.js';
@@ -271,6 +272,7 @@ class AddVisibilityControl extends BaseControl {
 
 
     activate = () => {
+        this._activationId = (this._activationId ?? 0) + 1;
         if (!this.geometry.isTerrainAvailable(this.map)) {
             return false;
         }
@@ -632,7 +634,6 @@ class AddVisibilityControl extends BaseControl {
             snapping?.hideIndicator(this.map);
             this.map.off('mousemove', this.handleMouseMove);
             await this.createFeature(this.startPoint, endPoint);
-            this.toolManager.deactivateCurrentTool();
         }
     }
 
@@ -711,6 +712,8 @@ class AddVisibilityControl extends BaseControl {
     }
 
     createFeature = async (startPoint, endPoint) => {
+        const creation = captureFeatureCreation(this);
+        const activationId = this._activationId;
         try {
             this.showProgressModal();
 
@@ -721,7 +724,7 @@ class AddVisibilityControl extends BaseControl {
                 ...AddVisibilityControl.DEFAULT_PROPERTIES,
                 id: featureId,
                 nome: featureName,
-                layerId: getActiveLayerIdSync(),
+                layerId: creation.layerId,
             };
 
             const visibilityFeature = await this.geometry.createVisibilityFeature(
@@ -735,17 +738,22 @@ class AddVisibilityControl extends BaseControl {
             this.updateProgress(85, 'Preparando features processadas...');
             await this.geometry.nextPaint();
 
-            const processedFeatures = this.geometry.generateProcessedFeatures(visibilityFeature);
-
             this.updateProgress(88, 'Salvando no banco de dados...');
             await this.geometry.nextPaint();
 
-            await addFeature('visibility', visibilityFeature);
-            await batchUpdateVisibilityFeatures(visibilityFeature, processedFeatures);
+            if (!(await creation.save('visibility', visibilityFeature))) {
+                this.hideProgressModal();
+                return;
+            }
+            if (!creation.canSave()) return;
+            // Saving can recover a removed layer; derived features must inherit its final layer.
+            const processedFeatures = this.geometry.generateProcessedFeatures(visibilityFeature);
+            if (!(await batchUpdateVisibilityFeatures(visibilityFeature, processedFeatures, creation.mapName))) return;
 
             this.updateProgress(92, 'Atualizando mapa...');
             await this.geometry.nextPaint();
 
+            if (!creation.isCurrent()) return;
             const dispatcher = visibilitySource(this.map);
             const processedDispatcher = processedVisibilitySource(this.map);
             dispatcher.add(visibilityFeature);
@@ -756,15 +764,17 @@ class AddVisibilityControl extends BaseControl {
             this.updateProgress(100, 'Concluído!');
             await this.geometry.delay(150);
 
-            await this.selectionManager.toggleFeatureSelection('visibility', visibilityFeature.properties.id, visibilityFeature);
-            this.selectionManager.updateUI();
+            await creation.finish('visibility', visibilityFeature);
 
             this.hideProgressModal();
         } catch (error) {
             console.error('Error creating visibility feature:', error);
             this.hideProgressModal();
         } finally {
-            this.startPoint = null;
+            if (this._activationId === activationId) {
+                this.startPoint = null;
+                this.hideProgressModal();
+            }
         }
     }
 

@@ -35,7 +35,7 @@
  *    the very thing the person asked for;
  *  - a PEER's resolution never closes it. The surfaces redraw the open card in the resolved,
  *    read-only state instead (title, note, and "Reabrir" for whoever may modify), because a card
- *    that vanishes under the reader's eyes explains nothing. The first-person surface also keeps
+ *    that vanishes under the reader's eyes explains nothing. Each surface also keeps
  *    the card untouched while it holds unsent text (`escrevendoNoCartao`), and if that text is
  *    sent to a thread resolved in the meantime, the refused reply keeps the draft and says why.
  *
@@ -235,7 +235,15 @@ export function montarCompositor(opcoes) {
         submit.disabled = true;
         try {
             const result = await opcoes.onSubmit(texto);
-            if (result !== false) textarea.value = '';
+            if (result !== false) {
+                textarea.value = '';
+                try {
+                    await opcoes.onSaved?.();
+                } catch (error) {
+                    console.error('Could not refresh the saved comment:', error);
+                    showWarning('Comentário salvo. Feche e abra a conversa para atualizar a visualização.');
+                }
+            }
         } catch (error) {
             console.error('Could not save comment:', error);
             showError('Não foi possível salvar o comentário. Seu texto foi mantido; tente novamente.');
@@ -258,12 +266,13 @@ export function montarCompositor(opcoes) {
  * corrigir: quem clica em "Editar" quer o que escreveu na tela, nao uma caixa vazia.
  * @private
  */
-function editarNoLugar(corpo, paragrafo, entrada) {
+function editarNoLugar(corpo, paragrafo, entrada, aoAtualizar) {
     const editor = montarCompositor({
         placeholder: 'Edite o comentário…',
         submitLabel: 'Salvar',
         testid: 'comment-edit',
         compact: true,
+        onSaved: aoAtualizar,
         onCancel: () => { editor.replaceWith(paragrafo); },
         onSubmit: async (texto) => {
             if (!podeEditar(entrada)) return false;
@@ -287,7 +296,7 @@ function editarNoLugar(corpo, paragrafo, entrada) {
 }
 
 /** Uma linha de comentário ou resposta: avatar, tempo e texto. */
-export function montarEntrada(entrada, ehRaiz) {
+export function montarEntrada(entrada, ehRaiz, aoAtualizar) {
     const row = document.createElement('div');
     row.className = ehRaiz ? 'comment-entry comment-entry--root' : 'comment-entry';
 
@@ -320,7 +329,7 @@ export function montarEntrada(entrada, ehRaiz) {
         editar.className = 'comment-entry__edit';
         editar.dataset.testid = 'comment-edit-open';
         editar.textContent = 'Editar';
-        editar.addEventListener('click', () => editarNoLugar(body, text, entrada));
+        editar.addEventListener('click', () => editarNoLugar(body, text, entrada, aoAtualizar));
         meta.appendChild(editar);
     }
 
@@ -403,19 +412,19 @@ function montarCabecalho(raiz, aoFechar) {
  * @param {{raiz:Object, respostas:Object[], aoFechar:()=>void}} opcoes
  * @returns {HTMLElement}
  */
-export function montarCartaoDeThread({ raiz, respostas = [], aoFechar }) {
+export function montarCartaoDeThread({ raiz, respostas = [], aoFechar, aoAtualizar }) {
     const card = document.createElement('div');
     card.className = 'comment-card comment-card--thread';
     card.dataset.testid = 'comment-thread';
     card.dataset.resolved = raiz.status === 'resolved' ? 'true' : 'false';
 
     card.appendChild(montarCabecalho(raiz, aoFechar));
-    card.appendChild(montarEntrada(raiz, true));
+    card.appendChild(montarEntrada(raiz, true, aoAtualizar));
 
     if (respostas.length) {
         const list = document.createElement('div');
         list.className = 'comment-card__replies';
-        for (const r of respostas) list.appendChild(montarEntrada(r, false));
+        for (const r of respostas) list.appendChild(montarEntrada(r, false, aoAtualizar));
         card.appendChild(list);
     }
 
@@ -432,6 +441,7 @@ export function montarCartaoDeThread({ raiz, respostas = [], aoFechar }) {
             placeholder: 'Responder…',
             submitLabel: 'Responder',
             testid: 'comment-reply',
+            onSaved: aoAtualizar,
             compact: true,
             onSubmit: async (texto) => {
                 const resposta = await addReply(raiz.id, { text: texto, ...autoriaAtual() });

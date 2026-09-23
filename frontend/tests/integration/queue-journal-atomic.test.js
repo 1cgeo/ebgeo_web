@@ -5,8 +5,28 @@ import { describe, it, expect, vi } from 'vitest';
 import { appendJournal, JournalKey } from '../../src/js/store/sync/queue-journal.js';
 import { getStoreFor, remoteScope, StoreName } from '../../src/js/store/atlas-namespace.js';
 import { OperationQueue } from '../../src/js/store/sync/operation-queue.js';
+import { fenceStore } from '../../src/js/store/fenced-store.js';
 
 describe('Queue journal IndexedDB transaction', () => {
+    it('reuses the connection across fresh per-call fences without bypassing their guards', async () => {
+        const store = localforage.createInstance({ name: 'journal-fresh-fences', driver: localforage.INDEXEDDB });
+        await store.clear();
+        const open = vi.spyOn(indexedDB, 'open');
+        try {
+            for (let index = 0; index < 20; index++) {
+                await appendJournal(fenceStore(store, () => {}), [{ id: `op-${index}` }]);
+            }
+            expect(open).toHaveBeenCalledTimes(1);
+            const denied = () => { throw new DOMException('discarded', 'AbortError'); };
+            await expect(appendJournal(fenceStore(store, denied), [{ id: 'denied' }], { assertWritable: denied }))
+                .rejects.toMatchObject({ name: 'AbortError' });
+            expect((await store.keys()).filter(key => key.startsWith('op_'))).toHaveLength(20);
+        } finally {
+            open.mockRestore();
+            await store.dropInstance();
+        }
+    });
+
     it('takes ownership of the envelope before awaiting storage readiness', async () => {
         const store = localforage.createInstance({ name: 'journal-owned-envelope', driver: localforage.INDEXEDDB });
         await store.clear();

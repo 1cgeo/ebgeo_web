@@ -70,6 +70,7 @@ import {
     TransferMode,
 } from '@store';
 import { assinarEdicaoIndisponivel, semEdicaoSync } from '@store/edicao-indisponivel.js';
+import { getActiveScope } from '@store/atlas-namespace.js';
 import { EventTypes } from '@events';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { showConfirm, showLayerTransferModal } from '@modals';
@@ -123,6 +124,7 @@ export class FeaturesTab {
         this._groupsChangedHandler = null;
         this._layersChangedHandler = null;
         this._debounceTimer = null;
+        this._featuresLoadVersion = 0;
         this._isVisible = false;
 
         this._suppressRefresh = false;
@@ -263,6 +265,7 @@ export class FeaturesTab {
      * Hides the features tab.
      */
     hide() {
+        this._featuresLoadVersion = (this._featuresLoadVersion ?? 0) + 1;
         if (this.container) {
             this._isVisible = false;
             this.container.style.display = 'none';
@@ -274,6 +277,7 @@ export class FeaturesTab {
      * Destroys the features tab and cleans up resources.
      */
     destroy() {
+        this._featuresLoadVersion = (this._featuresLoadVersion ?? 0) + 1;
         this._removeEventListeners();
         clearTimeout(this._debounceTimer);
         destroySortable(this._sortableInstance);
@@ -306,6 +310,16 @@ export class FeaturesTab {
     async loadFeatures() {
         if (!this.container) return;
 
+        // Worker reads and layer lookups can finish out of order. An obsolete
+        // refresh must not replace newer rows, or paint a previous atlas/map.
+        const version = this._featuresLoadVersion = (this._featuresLoadVersion ?? 0) + 1;
+        const container = this.container;
+        const scope = getActiveScope();
+        const mapName = getCurrentMapNameSync();
+        const isCurrent = () => this._featuresLoadVersion === version
+            && this.container === container && getActiveScope() === scope
+            && getCurrentMapNameSync() === mapName;
+
         const featuresList = this.container.querySelector('.features-list');
         const isInitialLoad =
             !featuresList ||
@@ -319,9 +333,12 @@ export class FeaturesTab {
 
         try {
             const features = await getFeaturesFromMapSources(this.map, this.FEATURE_SOURCES);
+            if (!isCurrent()) return;
             const organizedData = await organizeFeaturesByLayers(features);
+            if (!isCurrent()) return;
             this._renderOrganizedFeatures(organizedData);
         } catch (error) {
+            if (!isCurrent()) return;
             console.error('Error loading features:', error);
             this._renderErrorMessage();
         }

@@ -188,8 +188,8 @@ describe('WsClient — inbound routing', () => {
             { id: 'b', clientId: 'other' },
             { id: 'c', clientId: 'other' },
         ] });
-        await new Promise((r) => setTimeout(r, 60));
-        expect(order).toEqual(['a', 'b', 'c']);
+        // Wait for observable completion; a loaded runner can delay the three timers past 60 ms.
+        await vi.waitFor(() => expect(order).toEqual(['a', 'b', 'c']));
         expect(maxActive).toBe(1);
     });
 

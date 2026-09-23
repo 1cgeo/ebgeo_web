@@ -6,7 +6,6 @@
 
 import {
     getMapGroups,
-    getFeatureGroup,
     getCurrentMapNameSync,
     getAllStorageTypes,
     getLayers,
@@ -14,6 +13,7 @@ import {
     getSourceTypeFromStorage,
 } from '@store';
 import { FEATURE_SOURCES, getFeatureDisplayName } from './features_tab.constants.js';
+import { isActive } from '../store/sync/sync-metadata.js';
 
 /**
  * @typedef {Object} FlatFeature
@@ -137,8 +137,17 @@ export async function organizeFeaturesByLayers(features) {
     // Pre-calculate group totals. `getMapGroups` returns a PLAIN OBJECT, so the old
     // `groups instanceof Map` branch never ran and every total fell back to 0.
     const groupTotals = new Map();
+    // One scan per refresh, rather than scanning every membership for every feature.
+    // Keep GroupManager's first-active-group and exact (source type, id) semantics.
+    const featureGroups = new Map();
     for (const [groupId, group] of Object.entries(groups || {})) {
         groupTotals.set(groupId, group?.features?.length || 0);
+        if (!isActive(group?.sync)) continue;
+        for (const member of group.features) {
+            let byId = featureGroups.get(member.type);
+            if (!byId) featureGroups.set(member.type, byId = new Map());
+            if (!byId.has(member.id)) byId.set(member.id, group);
+        }
     }
 
     // Distribute features to layers and groups
@@ -148,7 +157,7 @@ export async function organizeFeaturesByLayers(features) {
         // 'brushes' and 'los' would become 'setore', 'brushe' and 'lo', which never
         // match the `type` groups store (`properties.source`, already singular).
         const sourceType = getSourceTypeFromStorage(feature.storageType);
-        const group = getFeatureGroup(sourceType, feature.id, currentMapName);
+        const group = featureGroups.get(sourceType)?.get(feature.id);
 
         // Handle missing layer (use first layer as fallback)
         let targetLayerId = layerId;

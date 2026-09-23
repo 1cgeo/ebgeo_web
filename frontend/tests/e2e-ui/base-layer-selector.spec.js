@@ -23,6 +23,7 @@ async function bootSelector(page) {
         null,
         { timeout: 20000 },
     );
+    await expect(page.locator('[data-testid="account-control"]')).toBeAttached({ timeout: 30000 });
 }
 
 describeOrSkip('§13 Base layer selector (real browser, local panel + selection)', () => {

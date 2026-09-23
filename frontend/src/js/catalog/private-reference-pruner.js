@@ -303,7 +303,7 @@ function comentarioSobrevive(c, resolver, relatorio) {
         grupo = RESOURCE_REF_GROUP.VIEWS_360;
         id = c.photoName;
         nome = 'comments.foto360';
-    } else if (superficie === '3d') {
+    } else if (superficie === '3d' || superficie === 'fp') {
         grupo = RESOURCE_REF_GROUP.TILESETS;
         id = c.tilesetId;
         nome = 'comments.modelo3d';
@@ -387,7 +387,7 @@ export function podarDocumentoDeExportacao(data, resolver) {
     const porMapa = (chave, podar) => {
         const origem = documento[chave];
         if (!origem || typeof origem !== 'object') return;
-        const saida = {};
+        const saida = Object.create(null);
         for (const [mapa, doc] of Object.entries(origem)) {
             const r = podar(doc, resolver);
             saida[mapa] = r.documento;

@@ -109,6 +109,33 @@ const escopoVizinho = () => ns.localScope('atlas-vizinho', 'vizinho');
 const gravar = (banco, scope, key, value) =>
     ns.getStoreFor(ns.StoreName[banco], scope).setItem(key, value);
 
+it('slot comments are read and their omission requires consent, leaving the source intact', async () => {
+    const scope = escopoAlvo();
+    await semearAtlas(scope);
+    const comments = { root: { id: 'root', text: 'Preserve discussion' } };
+    await gravar('COMMENTS', scope, `comments_${UUID_ALFA}`, comments);
+    const data = await servico.buildLocalAtlasExportData(scope);
+    expect(data.comments['Mapa Alfa']).toEqual(comments);
+    const apiClient = { importAtlas: vi.fn(async () => ({ id: 'server-copy' })) };
+    const confirmMissingImages = vi.fn(async () => false);
+    await expect(enviar(scope, { apiClient, confirmMissingImages })).rejects.toMatchObject({ cancelled: true });
+    expect(apiClient.importAtlas).not.toHaveBeenCalled();
+    expect(confirmMissingImages.mock.calls[0][0].message).toMatch(/1 comentário/);
+    expect(await ns.getStoreFor(ns.StoreName.COMMENTS, scope).getItem(`comments_${UUID_ALFA}`)).toEqual(comments);
+});
+
+it.each(['__proto__', 'constructor', 'toString'])('slot map name %s remains an own entry during upload', async (name) => {
+    const scope = escopoAlvo();
+    await gravar('MAPS', scope, name, { name, features: {} });
+    const data = await servico.buildLocalAtlasExportData(scope);
+    expect(Object.keys(data.maps)).toEqual([name]);
+    expect(Object.hasOwn(data.layers, name)).toBe(true);
+    const apiClient = { importAtlas: vi.fn(async () => ({ id: 'server-copy' })) };
+    await enviar(scope, { apiClient });
+    expect(apiClient.importAtlas.mock.calls[0][0].maps.map(map => map.name)).toEqual([name]);
+    expect(await ns.getStoreFor(ns.StoreName.MAPS, scope).getItem(name)).toEqual({ name, features: {} });
+});
+
 /**
  * Semeia um atlas local completo: dois mapas (um keyed por UUID, outro pelo NOME) e uma seção de
  * cada tipo. Devolve o que foi semeado, para que as asserções não repitam os literais.

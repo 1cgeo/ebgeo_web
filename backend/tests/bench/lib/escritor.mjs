@@ -31,6 +31,7 @@ export function criarRegistro() {
     acked: new Set(),
     idempotentes: new Set(),
     recusados: new Map(),
+    conflitos: new Set(),
     // Ops whose batch got no per-op verdict: 503 from the lock timeout, a socket error, a
     // transport failure. The ledger decides what really happened to these.
     semVeredito: new Set(),
@@ -48,34 +49,39 @@ export function criarRegistro() {
  *   for the same rows (E7); when null, every op creates a fresh feature.
  * @param {number} opts.lamport
  */
-export function criarLote({ mapId, clientId, quantidade, alvos = null, lamport }) {
+export function criarLote({ mapId, clientId, quantidade, alvos = null, lamport, observedVersions = new Map() }) {
   const ops = [];
+  const previousByEntity = new Map();
   for (let i = 0; i < quantidade; i += 1) {
     const agora = Date.now();
     if (alvos && alvos.length > 0) {
       const entityId = alvos[(lamport + i) % alvos.length];
+      const baseVersion = observedVersions.get(entityId);
+      if (!Number.isSafeInteger(baseVersion)) throw new Error(`No observed version for benchmark target ${entityId}`);
+      const properties = { nome: `Editado ${lamport}.${i}`, descricao: `escritor ${clientId}`, visivel: true };
+      const id = randomUUID();
       ops.push({
-        id: randomUUID(),
+        id,
+        protocolVersion: 2,
+        baseVersion,
+        ...(previousByEntity.has(entityId) ? { baseOperationId: previousByEntity.get(entityId) } : {}),
+        patch: Object.entries(properties).map(([key, value]) => ({ op: 'set', path: ['properties', key], value })),
         entityType: 'feature',
         operationType: 'update',
         entityId,
         mapId,
-        changes: {
-          properties: {
-            nome: `Editado ${lamport}.${i}`,
-            descricao: `escritor ${clientId}`,
-            visivel: true,
-          },
-        },
+        changes: { properties },
         timestamp: agora,
         lamportTimestamp: lamport + i,
         clientId,
       });
+      previousByEntity.set(entityId, id);
       continue;
     }
     const entityId = randomUUID();
     ops.push({
       id: randomUUID(),
+      protocolVersion: 2,
       entityType: 'feature',
       operationType: 'create',
       entityId,
@@ -100,7 +106,7 @@ export function criarLote({ mapId, clientId, quantidade, alvos = null, lamport }
 }
 
 /** Folds a push response into the registry. Shared by both paths so they cannot drift. */
-function contabilizar(registro, ops, resultados) {
+function contabilizar(registro, ops, resultados, observedVersions) {
   const porId = new Map((resultados ?? []).map((r) => [r.operationId, r]));
   for (const op of ops) {
     const r = porId.get(op.id);
@@ -110,8 +116,31 @@ function contabilizar(registro, ops, resultados) {
     }
     if (r.success === false) registro.recusados.set(op.id, r.reason ?? 'sem motivo');
     else registro.acked.add(op.id);
+    if (r.status === 'conflict') registro.conflitos.add(op.id);
     if (r.idempotent === true) registro.idempotentes.add(op.id);
+    const version = r.entityVersion ?? r.conflict?.entityVersion;
+    if (observedVersions && Number.isSafeInteger(version)) observedVersions.set(op.entityId, version);
   }
+}
+
+/** Observe the same confirmed entity versions a real client receives on its initial pull. */
+async function observeTargets({ base, token, atlasId, mapId, alvos }) {
+  const versions = new Map();
+  if (!alvos?.length) return versions;
+  const response = await fetch(`${base}/api/v1/atlas/${atlasId}/sync/0`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error(`Benchmark initial snapshot failed: HTTP ${response.status}`);
+  const body = await response.json();
+  const map = body.data?.snapshot?.maps?.find(value => value.id === mapId);
+  for (const collection of Object.values(map?.features ?? {})) {
+    for (const feature of collection) {
+      const { id, confirmedVersion } = feature.properties ?? {};
+      if (Number.isSafeInteger(confirmedVersion)) versions.set(id, confirmedVersion);
+    }
+  }
+  for (const id of alvos) if (!versions.has(id)) throw new Error(`Benchmark target absent from snapshot: ${id}`);
+  return versions;
 }
 
 /**
@@ -136,9 +165,10 @@ export async function escritorRest({
 }) {
   const clientId = randomUUID();
   let lamport = 1;
+  const observedVersions = await observeTargets({ base, token, atlasId, mapId, alvos });
 
   for (let n = 0; n < lotes; n += 1) {
-    const ops = criarLote({ mapId, clientId, quantidade: opsPorLote, alvos, lamport });
+    const ops = criarLote({ mapId, clientId, quantidade: opsPorLote, alvos, lamport, observedVersions });
     lamport += opsPorLote;
     for (const op of ops) registro.enviados.add(op.id);
 
@@ -159,7 +189,7 @@ export async function escritorRest({
         });
         const corpo = await r.json().catch(() => null);
         serie.registrar(performance.now() - t0, r.status);
-        if (r.status === 200) contabilizar(registro, ops, corpo?.data?.results);
+        if (r.status === 200) contabilizar(registro, ops, corpo?.data?.results, observedVersions);
         else for (const op of ops) registro.semVeredito.add(op.id);
       } catch (err) {
         serie.registrarErro(err);
@@ -233,12 +263,13 @@ export async function escritorWs({
   base, token, atlasId, mapId, lotes, opsPorLote,
   alvos = null, serie, registro, enviadoEm = null,
 }) {
+  const observedVersions = await observeTargets({ base, token, atlasId, mapId, alvos });
   const sock = await abrirSocket({ base, atlasId, token });
   let lamport = 1;
   try {
     for (let n = 0; n < lotes; n += 1) {
       const ops = criarLote({
-        mapId, clientId: sock.clientId, quantidade: opsPorLote, alvos, lamport,
+        mapId, clientId: sock.clientId, quantidade: opsPorLote, alvos, lamport, observedVersions,
       });
       lamport += opsPorLote;
       for (const op of ops) registro.enviados.add(op.id);
@@ -269,7 +300,7 @@ export async function escritorWs({
         }
       } else {
         serie.registrar(ms, 'WS_ACK');
-        contabilizar(registro, ops, resposta.results);
+        contabilizar(registro, ops, resposta.results, observedVersions);
       }
     }
   } finally {

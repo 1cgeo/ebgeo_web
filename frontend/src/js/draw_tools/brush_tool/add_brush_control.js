@@ -1,6 +1,7 @@
 // Path: js/draw_tools/brush_tool/add_brush_control.js
+import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
-import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
+import { updateFeature, removeFeature } from '../../store';
 import { IDUtils } from '../../utilities';
 import { getPointerPosition, preventDefaultGestures, restoreDefaultGestures } from '../../utilities/pointer-utils';
 import { addBrushAttributesToPanel } from './brush_attributes_panel.js';
@@ -453,17 +454,18 @@ class AddBrushControl extends BaseControl {
     }
 
     createFeature = async (points = this.points) => {
+        const creation = captureFeatureCreation(this);
         if (!this.geometry.validate(points)) {
             console.warn('Line must have at least 2 valid points');
             return;
         }
 
-        const currentZoom = this.map.getZoom();
+        const currentZoom = creation.zoom;
         const calculatedLineWidth = AddBrushControl.DEFAULT_PROPERTIES.lineWidth;
         const activationId = this._activationId;
         const strokeId = this._strokeId;
         const geometry = this.geometry.generate(points);
-        const layerId = getActiveLayerIdSync();
+        const layerId = creation.layerId;
 
         const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const featureName = await IDUtils.generateFeatureName('brush', this.map);
@@ -483,7 +485,8 @@ class AddBrushControl extends BaseControl {
         };
 
         try {
-            await addFeature('brushes', feature);
+            if (!(await creation.save('brushes', feature))) return;
+            if (!creation.isCurrent()) return;
 
             // No collection read: the diff carries the new feature alone. `brushes` has no derived
             // label source and no hatch registry, so nothing here is a function of the whole
@@ -496,9 +499,7 @@ class AddBrushControl extends BaseControl {
             // cancel/select over a different tool or a newly started brush stroke.
             if (this.isActive && this.toolManager.activeTool === this
                 && this._activationId === activationId && this._strokeId === strokeId) {
-                this.toolManager.deactivateCurrentTool();
-                await this.selectionManager.toggleFeatureSelection('brush', featureId, feature);
-                this.selectionManager.updateUI();
+                await creation.finish('brush', feature, () => this._strokeId === strokeId);
             }
         } catch (error) {
             console.error('Erro ao criar pincel:', error);

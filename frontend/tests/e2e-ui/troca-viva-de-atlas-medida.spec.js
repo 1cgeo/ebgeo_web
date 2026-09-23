@@ -85,8 +85,12 @@ const REPETICOES = 3;
 async function esperarAtlasPronto(page, atlasId, mapId) {
     await page.waitForFunction(({ id, mapa }) => {
         const p = new URLSearchParams(location.search);
+        // MapLibre may be loaded while openRemoteAtlas still rebuilds the application's
+        // content. The boot curtain stops blocking only after that work finishes.
+        const curtain = document.querySelector('.loading-background');
         return p.get('atlas') === id
             && p.get('map') === mapa
+            && (!curtain || curtain.style.pointerEvents === 'none')
             && Boolean(globalThis.__ebgeoMap?.loaded?.());
     }, { id: atlasId, mapa: mapId }, { timeout: 60000, polling: 'raf' });
 }

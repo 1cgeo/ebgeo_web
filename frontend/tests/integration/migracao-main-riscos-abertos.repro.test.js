@@ -126,6 +126,10 @@ describe('bloqueadores de preservacao na migracao de usuarios ausentes', () => {
             await new Promise(resolve => setTimeout(resolve, 1550));
             expect(old.active()).toBe(true);
             lock = createTabLock({ overlayHost: null, autoPulse: false, settleMs: 50 });
+            // Este caso mede a compatibilidade do protocolo no canal real. Sob a
+            // suite paralela a entrega pode levar mais que os 50 ms injetados;
+            // aguarde o PONG real antes de afirmar sobre a arbitragem.
+            await expect.poll(() => lock.legacyPeerDetected, { timeout: 5000 }).toBe(true);
             const acquired = await lock.acquire(localAtlasKey('atlas-local-legado'));
             expect(acquired.degraded).toBe(false);
             expect({ antigaEditavel: old.active(), novaEditavel: acquired.granted })

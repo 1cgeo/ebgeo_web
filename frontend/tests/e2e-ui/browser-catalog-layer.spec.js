@@ -82,7 +82,7 @@ function readCatalogLayers(page, ids) {
 
 describeOrSkip('Browser catalogLayer (per-layer) sync (real Chromium + real backend)', () => {
     test('create surfaces a per-layer entry in the snapshot with id + data + sync metadata', async ({ page }) => {
-        await page.goto('/');
+        await page.goto('/atlas.html');
         const ids = await seedAtlasAndMap(page, state.baseUrl, 'catcreate');
 
         // no-UI: backend op-contract test for the per-layer `catalogLayer` sync entity. It
@@ -117,7 +117,7 @@ describeOrSkip('Browser catalogLayer (per-layer) sync (real Chromium + real back
     });
 
     test('update overwrites the per-layer row data (visible/opacity toggled)', async ({ page }) => {
-        await page.goto('/');
+        await page.goto('/atlas.html');
         const ids = await seedAtlasAndMap(page, state.baseUrl, 'catupdate');
 
         // no-UI: backend op-contract test. It asserts a `catalogLayer` `update` op overwrites
@@ -157,7 +157,7 @@ describeOrSkip('Browser catalogLayer (per-layer) sync (real Chromium + real back
     });
 
     test('delete soft-removes the per-layer entry from the snapshot', async ({ page }) => {
-        await page.goto('/');
+        await page.goto('/atlas.html');
         const ids = await seedAtlasAndMap(page, state.baseUrl, 'catdelete');
 
         // no-UI: backend op-contract test for the SOFT-DELETE of a per-layer `catalogLayer`
@@ -192,7 +192,7 @@ describeOrSkip('Browser catalogLayer (per-layer) sync (real Chromium + real back
     });
 
     test('create is idempotent by layer id: re-pushing the same id keeps the FIRST data', async ({ page }) => {
-        await page.goto('/');
+        await page.goto('/atlas.html');
         const ids = await seedAtlasAndMap(page, state.baseUrl, 'catidem');
 
         // no-UI: backend IDEMPOTENCY test. Re-pushing a second `create` with the SAME layer
@@ -221,7 +221,7 @@ describeOrSkip('Browser catalogLayer (per-layer) sync (real Chromium + real back
     test('legacy whole-array form is refused by name, and writes nothing', async ({
         page,
     }) => {
-        await page.goto('/');
+        await page.goto('/atlas.html');
         const ids = await seedAtlasAndMap(page, state.baseUrl, 'catlegacy');
 
         // no-UI: a LEGACY-FORMAT op-contract test. The whole-array `data.catalog_layers`
@@ -255,7 +255,7 @@ describeOrSkip('Browser catalogLayer (per-layer) sync (real Chromium + real back
     test('cross-atlas IDOR guard: a catalogLayer pinned to another atlas’ map is rejected silently', async ({
         page,
     }) => {
-        await page.goto('/');
+        await page.goto('/atlas.html');
         // Victim atlas (will receive the smuggled op against ITS own atlas id but a
         // FOREIGN mapId) and an attacker atlas owning the real map.
         const victim = await seedAtlasAndMap(page, state.baseUrl, 'catidor_v');

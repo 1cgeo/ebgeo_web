@@ -48,6 +48,8 @@ import { AtlasTabState, visibleAtlasActions } from './atlas-actions.js';
 import { atlasLocalNotice } from './atlas-local-notice.js';
 import { MapMenuAction, mapMenuActions } from './map-menu-actions.js';
 import { sessionContext } from '@store/sync/session-context.js';
+import { getActiveScope } from '@store/atlas-namespace.js';
+import { mapResolver } from '@store/services/map-resolver.service.js';
 import { checkPermission } from '@store/sync/permission-guard.js';
 import { denialNotice } from '@store/denial-phrases.js';
 // A ÚNICA implementação da escada por atlas. `_canRenameAtlas` já gateia por capacidade
@@ -145,6 +147,7 @@ export class MapsTab {
         this._mapsList = null;
         this._currentMapCard = null;
         this._currentMapName = null;
+        this._mapNameInputState = null;
         this._sortableInstance = null;
         this._isLoadingMaps = false;
         // Um pedido de refresh que chegou DURANTE um carregamento, honrado depois dele.
@@ -918,7 +921,17 @@ export class MapsTab {
     async _updateCurrentMapCard() {
         const nameInput = this._currentMapCard.querySelector('#current-map-name-input');
         if (nameInput && this._currentMapName) {
-            nameInput.value = this._currentMapName;
+            const scope = getActiveScope();
+            const mapId = mapResolver.resolveToId(this._currentMapName) || this._currentMapName;
+            const previous = this._mapNameInputState;
+            // A peer's map operation refreshes this card while the person types.
+            // Preserve only an edited, focused field belonging to the same map
+            // and atlas scope; a navigation must never carry its draft elsewhere.
+            const editing = previous?.scope === scope && previous.mapId === mapId
+                && nameInput.ownerDocument?.activeElement === nameInput
+                && nameInput.value !== previous.name;
+            if (!editing) nameInput.value = this._currentMapName;
+            this._mapNameInputState = { scope, mapId, name: this._currentMapName };
         }
 
         // Update badge: single uppercase initial + the map's STABLE name-based palette color (kept on

@@ -102,6 +102,7 @@ import {
 import { EntityType, OperationType } from '../../src/js/store/sync/operation-types.js';
 import { installSyncTrace } from '../../src/js/store/sync/diag/bus-tap.js';
 import { setTracing, clearTrace, getTrace } from '../../src/js/store/sync/diag/trace-core.js';
+import * as documentLocks from '../../src/js/store/document-lock.js';
 
 // ============================================================================
 // Cenario
@@ -147,6 +148,81 @@ describe('Convergencia: o autor que VENCE no servidor tem de exibir o proprio va
     beforeEach(() => {
         mapDataStore.clear();
         setRemoteHandlerEventBus({ emit: vi.fn(), on: vi.fn(), off: vi.fn() });
+    });
+
+    it.each([
+        ['recibo proprio antigo', true, 10],
+        ['op de par mais antiga', false, 10],
+        ['op de par vencedora', false, 12],
+    ])('%s esperando o documento preserva a proxima edicao ate seu recibo', async (label, ownAck, version) => {
+        const f = `espera-antes-do-proximo-gesto-${label}`;
+        const events = vi.fn();
+        setRemoteHandlerEventBus({ emit: events, on: vi.fn(), off: vi.fn() });
+        semearMapa(f, '#111111');
+        if (ownAck) markLocalEditPending(f);
+        let release;
+        let entered;
+        const waiting = new Promise(resolve => { entered = resolve; });
+        const gate = new Promise(resolve => { release = resolve; });
+        const original = documentLocks.withMapDocument;
+        const spy = vi.spyOn(documentLocks, 'withMapDocument').mockImplementation((map, label, fn) => {
+            if (label === 'applyRemoteFeatureOp') entered();
+            return original(map, label, fn);
+        });
+        const edit = original(MAP_ID, 'proximo-gesto', async () => {
+            await gate;
+            escritaLocal(f, '#222222');
+            markLocalEditPending(f);
+        });
+        try {
+            const incoming = opDeCor(f, '#111111', version);
+            const ack = ownAck ? resolveLocalEdit(f, version, incoming) : applyRemoteOperation(incoming);
+            await waiting; // The old ACK passed its guard, then queued behind this edit.
+            release();
+            await Promise.all([edit, ack]);
+            expect(corDe(f), 'a proxima acao nao pode ler o valor antigo durante a espera pelo novo recibo').toBe('#222222');
+            expect(events, 'uma operacao adiada nao anuncia uma alteracao que ainda nao aplicou').not.toHaveBeenCalled();
+            await resolveLocalEdit(f, 11, opDeCor(f, '#222222', 11));
+            expect(corDe(f)).toBe(version > 11 ? '#111111' : '#222222');
+        } finally {
+            release();
+            spy.mockRestore();
+        }
+    });
+
+    it('recibo novo durante a espera descarta o reparo antigo sem anunciar valor superado', async () => {
+        const f = 'ack-novo-durante-espera';
+        semearMapa(f, '#111111');
+        markLocalEditPending(f);
+        const events = vi.fn();
+        setRemoteHandlerEventBus({ emit: events, on: vi.fn(), off: vi.fn() });
+        let release, entered, latestAck;
+        const waiting = new Promise(resolve => { entered = resolve; });
+        const gate = new Promise(resolve => { release = resolve; });
+        const original = documentLocks.withMapDocument;
+        const spy = vi.spyOn(documentLocks, 'withMapDocument').mockImplementation((map, label, fn) => {
+            if (label === 'applyRemoteFeatureOp') entered();
+            return original(map, label, fn);
+        });
+        const edit = original(MAP_ID, 'proximo-gesto', async () => {
+            await gate;
+            escritaLocal(f, '#222222');
+            markLocalEditPending(f);
+            latestAck = resolveLocalEdit(f, 11, opDeCor(f, '#222222', 11));
+        });
+        try {
+            const oldAck = resolveLocalEdit(f, 10, opDeCor(f, '#111111', 10));
+            await waiting;
+            release();
+            await Promise.all([edit, oldAck]);
+            await latestAck;
+            expect(corDe(f)).toBe('#222222');
+            expect(events.mock.calls.filter(([, data]) => data?.feature?.properties?.id === f)
+                .map(([, data]) => data.feature.properties.lineColor)).toEqual(['#222222']);
+        } finally {
+            release();
+            spy.mockRestore();
+        }
     });
 
     // A interleaving exata que a fase 3 produziu: C escreve verde, a op de A (mais VELHA) chega

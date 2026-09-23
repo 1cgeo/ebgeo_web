@@ -1,10 +1,12 @@
 // Path: src/modules/atlas/atlas.service.js
 import crypto from 'crypto';
-import { mkdir, copyFile } from 'fs/promises';
+import { mkdir, copyFile, unlink } from 'fs/promises';
+import { constants as fsConstants } from 'fs';
 import { join, extname, dirname } from 'path';
 import jwt from 'jsonwebtoken';
 import { query, tx, pgp } from '../../database/index.js';
-import { NotFoundError, BadRequestError, ConflictError } from '../../utils/errors.js';
+import { AppError, NotFoundError, BadRequestError, ConflictError } from '../../utils/errors.js';
+import { PERMISSION_LEVELS } from '../../middleware/permissions.js';
 import { createAudit } from '../../utils/audit.js';
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
@@ -109,6 +111,10 @@ const CS = {
     ['id', 'map_id', jsonb('data')],
     { table: 'catalog_layers' }
   ),
+  comments: new pgp.helpers.ColumnSet(
+    ['id', 'atlas_id', 'map_id', 'parent_id', 'author_id', 'lng', 'lat', 'status', jsonb('data')],
+    { table: 'comments' }
+  ),
   briefings: new pgp.helpers.ColumnSet(
     ['id', 'atlas_id', 'name', 'description', jsonb('settings'),
       { name: 'slide_order', cast: 'uuid[]' }],
@@ -194,21 +200,25 @@ function rewriteFeatureProperties(properties, newFeatureId, isImageFeature, imag
   return props;
 }
 
+/** Preserve an explicit order while dropping stale ids and appending unlisted live children. */
+function remapCopyOrder(order, pairs) {
+  const mapping = new Map(pairs);
+  const sources = new Set([...(Array.isArray(order) ? order : []), ...mapping.keys()]);
+  return [...sources].filter(id => mapping.has(id)).map(id => mapping.get(id));
+}
+
 /**
  * Plans the copy of `images` rows into another atlas: mints the new ids and per-atlas storage
  * paths and returns both the id mapping and the rows to insert. PURE (no I/O) on purpose — the
  * mapping is needed to rewrite atlas.settings BEFORE the atlas row is written, and the rows
  * cannot be inserted until it exists (images.atlas_id FK).
  *
- * The blob copies are not done here either: they are pushed onto `copyJobs` and run after the
- * transaction commits, so a multi-megabyte file copy never holds the transaction (and its pool
- * connection) open — the very cost L67 is about. A copy that fails leaves the row pointing at a
- * missing file, which is exactly how a blob missing from disk already behaves (getImageFile →
- * 404 'Image file'), and is logged.
+ * The bytes are staged before the publication transaction. Multi-megabyte copies
+ * hold no pool connection, and a failed copy cannot publish broken references.
  *
  * @param {Array<Object>} sourceImages - Rows from `images`
  * @param {string} targetAtlasId
- * @param {Array<{from: string, to: string}>} copyJobs - Mutated; run after commit
+ * @param {Array<{from: string, to: string}>} copyJobs - Mutated; run before publication
  * @returns {{imageIdMap: Object, rows: Array<Object>}}
  */
 function planImageCopies(sourceImages, targetAtlasId, copyJobs) {
@@ -234,18 +244,65 @@ function planImageCopies(sourceImages, targetAtlasId, copyJobs) {
   return { imageIdMap, rows };
 }
 
-/** Runs the deferred blob copies. Best-effort: a missing source must not undo a committed clone. */
-async function runImageCopyJobs(copyJobs) {
+/** Stage private files, tracking ownership so rollback never removes another file. */
+async function runImageCopyJobs(copyJobs, ownedPaths) {
   for (const dir of new Set(copyJobs.map((job) => dirname(job.to)))) {
-    await mkdir(dir, { recursive: true }).catch((err) => {
-      logger.warn({ dir, error: err.message }, 'Failed to create cloned image directory');
-    });
+    await mkdir(dir, { recursive: true });
   }
   for (const job of copyJobs) {
+    ownedPaths.push(job.to);
     try {
-      await copyFile(job.from, job.to);
+      await copyFile(job.from, job.to, fsConstants.COPYFILE_EXCL);
     } catch (err) {
+      if (err.code === 'EEXIST') ownedPaths.pop();
       logger.warn({ from: job.from, to: job.to, error: err.message }, 'Failed to copy cloned image blob');
+      throw err;
+    }
+  }
+}
+
+/** Publish SQL references only after all their files exist, without holding a pool slot during copies. */
+async function withPreparedImageCopies(atlasId, targetAtlasId, mapId, publish) {
+  const sql = mapId
+    ? `SELECT i.* FROM images i WHERE i.atlas_id = $1
+       AND i.id IN (SELECT f.id FROM features f
+         WHERE f.map_id = $2 AND f.feature_type = 'image' AND f.deleted_at IS NULL)`
+    : 'SELECT * FROM images WHERE atlas_id = $1';
+  const params = mapId ? [atlasId, mapId] : [atlasId];
+  const { rows: sourceImages } = await query(sql, params);
+  const copyJobs = [];
+  const prepared = planImageCopies(sourceImages, targetAtlasId, copyJobs);
+  const ownedPaths = [];
+  let committed = false;
+  try {
+    try {
+      await runImageCopyJobs(copyJobs, ownedPaths);
+    } catch {
+      throw new AppError('Não foi possível copiar todas as imagens. Nenhuma cópia foi criada.', 503, 'IMAGE_COPY_FAILED');
+    }
+    const result = await tx(async t => {
+      const published = await publish(t, prepared);
+      // Read again AFTER copying all SQL sub-entities. A concurrently added or
+      // removed image must not leave the copy with an unprepared reference.
+      // Keep READ COMMITTED: quota serialization relies on seeing committed rows
+      // after acquiring its lock. A changed source is safe to retry as a new copy.
+      const currentImages = await t.any(sql, params);
+      const identity = rows => JSON.stringify(rows.map(row => [row.id, row.storage_path,
+        row.size_bytes, row.content_hash]).sort((a, b) => a[0].localeCompare(b[0])));
+      if (identity(currentImages) !== identity(sourceImages)) {
+        throw new ConflictError('As imagens da origem mudaram durante a cópia. Tente novamente.');
+      }
+      return published;
+    });
+    committed = true;
+    return result;
+  } finally {
+    if (!committed) {
+      for (const path of ownedPaths) {
+        await unlink(path).catch(err => {
+          if (err.code !== 'ENOENT') logger.warn({ path, error: err.message }, 'Could not remove unpublished copied image');
+        });
+      }
     }
   }
 }
@@ -778,7 +835,7 @@ export async function getAtlasByPublicLink(publicLink) {
  *   leitura), entao podar ali tiraria do proprio usuario o acervo dele.
  * @returns {Promise<{layerIdMapping: Object, groupIdMapping: Object, featureIdMapping: Object}>}
  */
-async function cloneMapSubEntities(t, mapPairs, imageIdMap = {}, pruner = null) {
+async function cloneMapSubEntities(t, mapPairs, imageIdMap = {}, pruner = null, { copyComments = false, targetAtlasId } = {}) {
   const layerIdMapping = {};
   const groupIdMapping = {};
   const featureIdMapping = {};
@@ -913,6 +970,24 @@ async function cloneMapSubEntities(t, mapPairs, imageIdMap = {}, pruner = null) 
       catalogLayerRows(pair.newId, null, catalogBySourceMap.get(pair.sourceId) || []))
   );
 
+  if (copyComments) {
+    const sourceComments = await t.any(
+      'SELECT * FROM comments WHERE map_id = ANY($1::uuid[]) AND deleted_at IS NULL', [sourceMapIds]);
+    const comments = pruner ? pruner.comentarios(sourceComments) : sourceComments;
+    const ids = new Map(comments.map(comment => [comment.id, crypto.randomUUID()]));
+    await insertMany(t, CS.comments, comments.map(comment => {
+      const id = ids.get(comment.id);
+      const parentId = ids.get(comment.parent_id) ?? null;
+      const mapId = newMapIdOf[comment.map_id];
+      return { id, atlas_id: targetAtlasId, map_id: mapId, parent_id: parentId,
+        author_id: comment.author_id, lng: comment.lng, lat: comment.lat, status: comment.status,
+        // The JSON payload also carries ids. It must not resurrect source ids or
+        // claim that the new owner authored another person's words.
+        data: JSON.stringify({ ...comment.data, id, mapId, parentId,
+          authorId: comment.author_id, status: comment.status }) };
+    }));
+  }
+
   return { layerIdMapping, groupIdMapping, featureIdMapping };
 }
 
@@ -961,14 +1036,13 @@ function mapRow(id, atlasId, name, map, pruner = null) {
  * @returns {Promise<Object>} O atlas criado, com `pruneReport` (contagem POR SUPERFICIE, nunca
  *   ids nem nomes) quando alguma referencia caiu.
  */
-export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
+export async function cloneAtlas(atlasId, newOwnerId, options = {}, sourcePermission = 'read') {
   // The atlas id is minted here (not read back) so the copied `images` rows — and the
   // rewritten references to them in atlas.settings — can be built before the first write.
   const newAtlasId = crypto.randomUUID();
-  const copyJobs = [];
   let pruner = null;
 
-  await tx(async (t) => {
+  await withPreparedImageCopies(atlasId, newAtlasId, null, async (t, { imageIdMap, rows: imageRows }) => {
     const source = await t.oneOrNone(Q.FIND_ATLAS_BY_ID, [atlasId]);
     if (!source) {
       throw new NotFoundError('Atlas');
@@ -985,10 +1059,6 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
     pruner = new ResourcePruner(await classifyResourceRefs({
       userId: newOwnerId, refs: refsFromCollectedRows(refRows), t,
     }));
-
-    // Images are atlas-scoped and their ids are global: the clone needs its own rows (L32).
-    const sourceImages = await t.any(`SELECT * FROM images WHERE atlas_id = $1`, [atlasId]);
-    const { imageIdMap, rows: imageRows } = planImageCopies(sourceImages, newAtlasId, copyJobs);
 
     await t.none(
       `INSERT INTO atlas (id, name, description, owner_id, settings)
@@ -1023,12 +1093,17 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
 
     await insertMany(t, CS.maps,
       mapPairs.map((p) => mapRow(p.newId, newAtlasId, p.source.name, p.source, pruner)));
-    await cloneMapSubEntities(t, mapPairs, imageIdMap, pruner);
+    await cloneMapSubEntities(t, mapPairs, imageIdMap, pruner, {
+      targetAtlasId: newAtlasId,
+      // Resolved by the route's middleware, never taken from the request body.
+      // A reader's clone must not reveal comments absent from their snapshot.
+      copyComments: PERMISSION_LEVELS[sourcePermission] >= PERMISSION_LEVELS.comment,
+    });
     await ensureMapLayers(t, newAtlasId);
 
     await t.none(
       `UPDATE atlas SET map_order = $2::uuid[] WHERE id = $1`,
-      [newAtlasId, mapPairs.map((p) => p.newId)]
+      [newAtlasId, remapCopyOrder(source.map_order, mapPairs.map(p => [p.sourceId, p.newId]))]
     );
 
     // Briefings + slides: ids are minted up front, so slide_order travels in the briefing
@@ -1060,6 +1135,7 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
       // Not a column: the ColumnSet only reads the columns it declares. Kept on the row so
       // slide_order can be grouped per briefing below without a second lookup.
       sourceBriefingId: slide.briefing_id,
+      sourceSlideId: slide.id,
     }));
 
     await insertMany(t, CS.briefings, briefings.map((briefing) => ({
@@ -1068,7 +1144,8 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
       name: briefing.name,
       description: briefing.description,
       settings: JSON.stringify(briefing.settings || {}),
-      slide_order: slideRows.filter((s) => s.sourceBriefingId === briefing.id).map((s) => s.id),
+      slide_order: remapCopyOrder(briefing.slide_order, slideRows
+        .filter(s => s.sourceBriefingId === briefing.id).map(s => [s.sourceSlideId, s.id])),
     })));
     await insertMany(t, CS.slides, slideRows);
 
@@ -1091,8 +1168,6 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
     });
   });
 
-  await runImageCopyJobs(copyJobs);
-
   // Return cloned atlas with maps (outside transaction)
   const clonado = await getAtlasById(newAtlasId);
   return pruner && !pruner.vazio ? { ...clonado, pruneReport: pruner.report } : clonado;
@@ -1105,9 +1180,8 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
  */
 export async function duplicateMap(atlasId, mapId, actingUserId = null) {
   let newMapResult;
-  const copyJobs = [];
 
-  await tx(async (t) => {
+  await withPreparedImageCopies(atlasId, atlasId, mapId, async (t, { imageIdMap, rows: imageRows }) => {
     const map = await t.oneOrNone(
       `SELECT * FROM maps WHERE id = $1 AND atlas_id = $2 AND deleted_at IS NULL`,
       [mapId, atlasId]
@@ -1120,14 +1194,6 @@ export async function duplicateMap(atlasId, mapId, actingUserId = null) {
     // blobs of THIS map's image features need copies too, even though the atlas is the same
     // (L32). Custom icons and 3D/360 attachments are untouched: they stay valid because the
     // atlas (and therefore the images scope) does not change.
-    const sourceImages = await t.any(
-      `SELECT i.* FROM images i
-       WHERE i.atlas_id = $1
-         AND i.id IN (SELECT f.id FROM features f
-                      WHERE f.map_id = $2 AND f.feature_type = 'image' AND f.deleted_at IS NULL)`,
-      [atlasId, mapId]
-    );
-    const { imageIdMap, rows: imageRows } = planImageCopies(sourceImages, atlasId, copyJobs);
     await insertMany(t, CS.images, imageRows);
 
     const newMapId = crypto.randomUUID();
@@ -1136,7 +1202,9 @@ export async function duplicateMap(atlasId, mapId, actingUserId = null) {
     await cloneMapSubEntities(
       t,
       [{ sourceId: mapId, newId: newMapId }],
-      imageIdMap
+      imageIdMap,
+      null,
+      { targetAtlasId: atlasId, copyComments: true }
     );
     await ensureMapLayers(t, atlasId, [newMapId]);
 
@@ -1174,8 +1242,6 @@ export async function duplicateMap(atlasId, mapId, actingUserId = null) {
     // read routes in `maps.queries.js`, whose list this reuses.
     newMapResult = await t.one(`SELECT ${MAP_COLUMNS} FROM maps WHERE id = $1`, [newMapId]);
   });
-
-  await runImageCopyJobs(copyJobs);
 
   return newMapResult;
 }

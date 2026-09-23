@@ -2,7 +2,7 @@
 
 `POST /atlas/:atlasId/clone` duplica o conteúdo de um atlas sob nova posse, copiando **estado** e deliberadamente descartando **história** e permissões.
 
-O mesmo rótulo, "Fazer uma cópia", aparece nos dois tipos de cartão da tela de atlas e chama DUAS máquinas sem nada em comum: no atlas de servidor é esta rota; no atlas local é uma cópia banco a banco entre dois namespaces de IndexedDB (`copyAtlasDatabases`, [[namespace-por-atlas]]), que não descarta nada, preserva os ids e nem toca na rede. As perdas descritas nesta página (comentários, ordem de mapas) são do clone de SERVIDOR e não valem para a cópia local.
+O mesmo rótulo, "Fazer uma cópia", aparece nos dois tipos de cartão da tela de atlas e chama duas implementações: no atlas de servidor é esta rota; no atlas local é uma cópia banco a banco entre dois namespaces de IndexedDB (`copyAtlasDatabases`, [[namespace-por-atlas]]), que preserva os ids e nem toca na rede. As regras de posse, visibilidade e remapeamento descritas nesta página são do clone de servidor.
 
 ## A decisão que define a operação: gate `read`
 
@@ -20,13 +20,17 @@ Desde 2026-08-21 o clone é **podado por destinatário**: toda referência a rec
 
 O que importa saber aqui é a assimetria: **um recurso privado a que o clonador tem concessão própria SOBREVIVE**, e é isso que separa esta poda da do `.ebgeo`, onde todo privado sai. O clone fica no servidor, onde o predicado continua valendo a cada leitura.
 
+Comentários sobre modelo 3D, primeira pessoa e foto 360 seguem a mesma regra. A raiz e suas respostas saem juntas quando o destinatário não vê o recurso fora do atlas de origem; a contagem em `pruneReport` considera as raízes removidas. Duplicar um mapa dentro do mesmo atlas mantém essas conversas. Prova: `backend/tests/integration/atlas-clone-comentarios-recursos.repro.test.js`.
+
 ## Estado, não história
 
 Nada de `operations`, `version`, `created_at`/`updated_at` atravessa. Idempotência por `op_id` e ordem de chegada ([[modelo-conflito-lww]], [[idempotencia-e-convergence-guard]]) são propriedades do atlas de origem e não fazem sentido transplantadas: o clone é um atlas novo para efeito de sync, e o primeiro peer que conectar recebe um [[snapshot-e-pull-incremental]] limpo. Ver [[tabela-operations]].
 
 Efeito colateral desejável: como toda leitura filtra `deleted_at IS NULL`, o clone é também uma **compactação**: tombstones do soft-delete não passam ([[atlas-modelo-de-dados]]).
 
-Também ficam de fora, por omissão e não por decisão explícita: `is_public`/`public_link` (o clone de um atlas público nasce privado, o que é o comportamento seguro) e `comments`. **As threads de comentário espacial somem sem aviso**, e nem a documentação de origem listava essa exclusão. Quem clona um atlas de revisão encontra os pins vazios ([[comentario-espacial]]).
+`is_public`/`public_link` ficam de fora: o clone de um atlas público nasce privado. **Comentários visíveis ao solicitante são preservados**, incluindo respostas, texto, autor e estado de resolução. Os ids, mapas e vínculos entre respostas são remapeados, e a versão de sincronização recomeça em 1. O autor não muda para o novo dono: as regras de autoria continuam valendo ([[comentario-espacial]]).
+
+A visibilidade é a mesma do snapshot: `read` não recebe comentários; `comment` ou superior recebe as threads ativas. O controlador passa a permissão resolvida pelo middleware separadamente do corpo da requisição. A duplicação de mapa exige `write` e preserva seus comentários. Regressão de todos os níveis, incluindo administrador: `backend/tests/integration/atlas-clone-comentarios.repro.test.js`.
 
 ## Armadilhas
 
@@ -34,11 +38,11 @@ Também ficam de fora, por omissão e não por decisão explícita: `is_public`/
 
 **A feição de imagem ADOTA o id da cópia do blob**, porque o cliente e o snapshot dependem de `feature.id === image.id`; todas as outras feições recebem id fresco. Quem raciocinar sobre o remapeamento assumindo "toda feição ganha id novo" erra exatamente nesse tipo.
 
-**A cópia do blob acontece DEPOIS do commit**, e é best-effort (`runImageCopyJobs`, `backend/src/modules/atlas/atlas.service.js`): copiar megabytes dentro da transação seguraria a conexão pelo tempo do disco. O preço declarado é que uma cópia que falha deixa a linha apontando para arquivo inexistente, que é o mesmo estado de um blob sumido do disco (404 no `getImageFile`), registrado em log e não desfeito.
+**Os blobs são preparados ANTES da publicação**, sem segurar conexão do banco durante a cópia (`withPreparedImageCopies`, `backend/src/modules/atlas/atlas.service.js`). Uma falha de disco recusa a operação sem publicar atlas ou mapa incompleto. Se a transação falhar, os arquivos privados preparados são removidos; a origem permanece intacta. Antes do commit, a lista de imagens da origem é conferida novamente: uma alteração concorrente recusa aquela tentativa para evitar referências sem arquivo preparado. A regressão de disco cheio cobre clone e duplicação em `backend/tests/integration/copia-imagens-publicacao.repro.test.js`. Uma morte abrupta ainda pode deixar arquivos sem referência, mas não imagens publicadas sem bytes.
 
 **Referências órfãs degradam para `NULL` em silêncio.** Feature cujo `layer_id` não esteja no mapeamento sai do clone **sem layer** (`backend/src/modules/atlas/atlas.service.js`); slide cujo `map_id` não esteja no mapeamento sai **sem mapa** (`backend/src/modules/atlas/atlas.service.js`). Em vez de violar a FK, o clone perde o vínculo sem erro nem log. Se o clone "perdeu" organização de layers, é aqui.
 
-**Ordem de mapas e slides não é preservada.** Os `SELECT` de `maps` (`backend/src/modules/atlas/atlas.service.js`) e de `slides` (`backend/src/modules/atlas/atlas.service.js`) não têm `ORDER BY`. O `map_order`/`slide_order` do clone é remontado na ordem de retorno do Postgres, que não é garantida e **ignora o `map_order`/`slide_order` da origem**. Um atlas reordenado manualmente pode sair embaralhado. Correção: ordenar pela posição no array de ordem da origem antes de inserir, não adicionar `ORDER BY created_at`.
+**A ordem explícita de mapas e slides é preservada.** `remapCopyOrder` (`backend/src/modules/atlas/atlas.service.js`) traduz `map_order` e cada `slide_order` para os novos ids, remove referências obsoletas ou repetidas e acrescenta os filhos existentes que não estavam no array. A ordem física das linhas retornadas pelo Postgres não substitui a sequência escolhida pela pessoa. Regressão: `backend/tests/integration/atlas-clone-ordem.repro.test.js`.
 
 **Ninguém é notificado.** `duplicateMap` faz broadcast de `map_duplicated` (`backend/src/modules/atlas/atlas.controller.js`); o clone não emite nada, porque o atlas destino ainda não existia e portanto não tem sala em [[canal-collab-websocket]]. Clientes só veem o clone ao recarregar a lista.
 
@@ -58,5 +62,6 @@ Erros seguem [[erros-api]]. Ver também [[atlas-settings]] (o JSONB de settings 
 
 ## Histórico
 
-- 2026-08-23: esta página afirmava que o clone descartava IMAGENS, com uma armadilha inteira sobre a referência irresolvível e o 404 permanente do download. Deixou de valer: o clone copia as linhas de `images` e os blobs, e reescreve toda referência de id (ver a armadilha correspondente acima). O que continua descartado é `comments`, `atlas_shares`, `is_public`/`public_link` e o histórico de operações.
+- 2026-09-22: corrigidas a perda da ordem explícita e a omissão de comentários que o solicitante já pode ver. A publicação também passou a depender da preparação bem-sucedida de todos os blobs.
+- 2026-08-23: esta página afirmava que o clone descartava IMAGENS, com uma armadilha inteira sobre a referência irresolvível e o 404 permanente do download. Deixou de valer: o clone copia as linhas de `images` e os blobs, e reescreve toda referência de id (ver a armadilha correspondente acima). Continuam descartados `atlas_shares`, `is_public`/`public_link` e o histórico de operações.
 - 2026-08-23: a página descrevia dois mecanismos que já não existem, "INSERT linha a linha" (hoje um multi-linha por coleção, via `insertMany`) e "as duas passadas de `parent_id` de grupos" (hoje resolvido no mesmo statement).

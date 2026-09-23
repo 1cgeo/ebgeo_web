@@ -1,22 +1,37 @@
 // No browser-side source imports: every app action runs from the built production bundle.
 import { test, expect } from '@playwright/test';
 import { join } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { loadEbgeoFixture, buildLegacyEntries } from '../helpers/ebgeo-fixture.js';
 import { createVerifiedUser } from './helpers/accounts.js';
 import { ApiClient } from '../../src/js/store/sync/api-client.js';
 import { verifyServerBackup } from '../helpers/release-backup.js';
 import { readState } from './state.js';
+import { startBackend } from './backend.js';
+import { STATE_FILE } from './constants.js';
 
 const directory = process.env.EBGEO_MIGRATION_DATA_DIR;
 if (!directory) throw new Error('Informe EBGEO_MIGRATION_DATA_DIR.');
 const archive = join(directory, '03-completo-2.4.ebgeo');
 const hash = () => createHash('sha256').update(readFileSync(archive)).digest('hex');
 
+test.beforeEach(async () => {
+    const state = readState();
+    // A consistent backup intentionally stops the source. Restart from the NEXT
+    // worker: Playwright terminates descendants of the previous worker on Windows.
+    // Only this explicit marker permits recovery; an unexpected server crash fails.
+    if (state.stoppedForBackup) {
+        const resumed = await startBackend({ corsOrigin: 'https://127.0.0.1:44431',
+            port: Number(new URL(state.baseUrl).port), dbName: state.dbName, preserveDatabase: true });
+        writeFileSync(STATE_FILE, JSON.stringify({ ...state, ...resumed, stoppedForBackup: false }));
+    }
+    expect((await fetch(state.baseUrl + '/api/v1/health')).status).toBe(200);
+});
+
 async function disk(page) {
     return page.evaluate(async () => {
-        async function rows(name) {
+        async function rows(name, pairs = false) {
             const db = await new Promise((resolve, reject) => {
                 const req = indexedDB.open(name);
                 req.onupgradeneeded = () => req.transaction.abort();
@@ -24,8 +39,17 @@ async function disk(page) {
             });
             try {
                 return await new Promise((resolve, reject) => {
-                    const req = db.transaction('keyvaluepairs').objectStore('keyvaluepairs').getAll();
-                    req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error);
+                    const store = db.transaction('keyvaluepairs').objectStore('keyvaluepairs');
+                    const req = pairs ? store.openCursor() : store.getAll();
+                    const values = [];
+                    req.onsuccess = () => {
+                        if (!pairs) { resolve(req.result); return; }
+                        const cursor = req.result;
+                        if (!cursor) { resolve(values); return; }
+                        values.push([cursor.key, cursor.value]);
+                        cursor.continue();
+                    };
+                    req.onerror = () => reject(req.error);
                 });
             } finally { db.close(); }
         }
@@ -36,7 +60,10 @@ async function disk(page) {
             const features = maps.flatMap(map => Object.values(map.features || {}).flatMap(list => Array.isArray(list) ? list : []));
             result[name] = { maps: maps.length, features: features.length, ids: features.map(feature => feature.properties?.id).sort() };
         }
-        return { maps: result, names, secure: isSecureContext, locks: Boolean(navigator.locks) };
+        const registry = names.includes('ebgeo_global') ? await rows('ebgeo_global', true) : [];
+        const localDatabases = registry.filter(([key]) => key.startsWith('local_atlas:'))
+            .map(([, entry]) => entry.dbSuffix ? `ebgeo_maps__${entry.dbSuffix}` : 'ebgeo_maps');
+        return { maps: result, names, localDatabases, secure: isSecureContext, locks: Boolean(navigator.locks) };
     });
 }
 
@@ -93,6 +120,8 @@ test('HTTPS: importar, enviar ao servidor, reiniciar, editar sem rede, recuperar
     await expect(page.getByText('14 mapas carregados.', { exact: true })).toBeVisible({ timeout: 90000 });
     const local = await disk(page);
     expect(Object.values(local.maps).some(map => map.features === 805)).toBe(true);
+    expect(local.localDatabases.length).toBeGreaterThan(0);
+    expect(local.localDatabases.some(name => local.maps[name]?.features === 805)).toBe(true);
     const credentials = await createVerifiedUser({ prefix: 'release', nome: 'Ensaio de release' });
     await page.getByTestId('account-login-btn').click();
     await page.getByTestId('login-username').fill(credentials.username);
@@ -138,7 +167,12 @@ test('HTTPS: importar, enviar ao servidor, reiniciar, editar sem rede, recuperar
     expect(sockets.some(url => url.startsWith('wss://'))).toBe(true);
     expect(errors).toEqual([]);
     const finalDisk = await disk(page);
-    for (const [name, original] of Object.entries(local.maps)) expect(finalDisk.maps[name]).toEqual(original);
+    // An atomic import leaves the replaced, empty preparation slot on disk until
+    // its old mount is released. That retired slot may be collected on navigation.
+    // Preserve EVERY published local atlas, including empty ones, by its durable
+    // registry identity; counting every temporary database measured garbage retention.
+    expect(finalDisk.localDatabases).toEqual(expect.arrayContaining(local.localDatabases));
+    for (const name of local.localDatabases) expect(finalDisk.maps[name]).toEqual(local.maps[name]);
     await context.close(); // no writer remains during the backup
     const backup = await verifyServerBackup({ atlasId, credentials, snapshot, outputDir: testInfo.outputPath('backup') });
     await testInfo.attach('release.json', { body: JSON.stringify({ sourceSha256: originalHash, maps: 14, features: 806, https: true, websocketTLS: true, backup }, null, 2), contentType: 'application/json' });

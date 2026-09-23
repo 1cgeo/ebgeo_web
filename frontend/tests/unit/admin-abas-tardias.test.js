@@ -68,8 +68,15 @@ const semComentarios = (texto) => texto
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/(^|[^:])\/\/[^\n]*/g, (m, antes) => antes);
 
-/** As duas abas tardias, com o arquivo de cada uma e a fábrica que ela exporta. */
+/** As abas tardias, com o arquivo de cada uma e a fábrica que ela exporta. */
 const TARDIAS = Object.freeze([
+    {
+        id: 'audit',
+        arquivo: 'audit-tab.js',
+        fabrica: 'createAuditTab',
+        icone: 'ICON_AUDIT',
+        carregador: 'carregarAuditoria',
+    },
     {
         id: 'diagnostico',
         arquivo: 'diag-tab.js',
@@ -190,7 +197,7 @@ describe('as duas abas pesadas entram só por `import()`', () => {
             // O OUTRO LADO DA MESMA AFIRMAÇÃO. Sem ele, renomear os dois arquivos deixaria a
             // varredura acima verde para sempre sobre um alvo que não existe mais.
             const texto = semComentarios(fonte(REGISTRO));
-            expect(texto).toContain(`await import('./${arquivo}')`);
+            expect(texto).toContain(`import('./${arquivo}')`);
             expect(texto).toContain(fabrica);
         });
     }
@@ -228,7 +235,7 @@ describe('o metadado ansioso do trilho é o mesmo que a fábrica real devolve', 
         // trilho e a aba passam a poder divergir num desenho, que é o tipo de diferença que
         // ninguém vê numa revisão.
         const registro = semComentarios(fonte(REGISTRO));
-        expect(registro).toMatch(/import \{ ICON_DIAG, ICON_USO \} from '\.\/admin-dom\.js'/);
+            expect(registro).toMatch(/import \{ ICON_AUDIT, ICON_DIAG, ICON_USO \} from '\.\/admin-dom\.js'/);
         expect(registro, 'há SVG colado no registro de abas').not.toContain('<svg');
     });
 });

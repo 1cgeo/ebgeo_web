@@ -27,16 +27,16 @@ import { createCatalogTab } from './catalog-tab.js';
 import { createPersonnelTab } from './personnel-tab.js';
 import { createGroupsTab } from './groups-tab.js';
 import { createGrantsTab } from './grants-tab.js';
-import { createAuditTab } from './audit-tab.js';
 import { createAccountTab } from './account-tab.js';
-// As DUAS abas tardias entram por metadado + `import()`, nunca por import estático: ver
+import { carregarSobDemanda } from '@utils/carga-sob-demanda.js';
+// As abas tardias entram por metadado + `import()`, nunca por import estático: ver
 // `lazy-tab.js` para a medida e para as três propriedades que o embrulho garante. Os ícones já
 // moravam em `admin-dom.js` (compartilhado com o trilho), então nada foi duplicado para cá.
 import { lazyTab } from './lazy-tab.js';
-import { ICON_DIAG, ICON_USO } from './admin-dom.js';
+import { ICON_AUDIT, ICON_DIAG, ICON_USO } from './admin-dom.js';
 
 /**
- * O metadado ANSIOSO das duas abas tardias: o que o trilho de navegação precisa saber antes de
+ * O metadado ANSIOSO das abas tardias: o que o trilho de navegação precisa saber antes de
  * qualquer clique (`_buildRail`, `admin-panel.js`).
  *
  * ELE É A CÓPIA DO QUE A FÁBRICA REAL DEVOLVE, e essa duplicação é o preço declarado da carga
@@ -62,8 +62,16 @@ const META_USO = Object.freeze({
     icon: ICON_USO,
 });
 
+/** Audit history is downloaded only when its tab opens, like diagnostics and usage. */
+const META_AUDITORIA = Object.freeze({
+    id: 'audit',
+    label: 'Auditoria',
+    testid: 'admin-tab-audit',
+    icon: ICON_AUDIT,
+});
+
 /**
- * As fábricas das duas abas TARDIAS, e a razão de elas serem tardias é de PAYLOAD, não de
+ * As fábricas das abas TARDIAS, e a razão de elas serem tardias é de PAYLOAD, não de
  * audiência: `diagnostico` e `uso` são as duas telas mais caras do painel e só o administrador
  * global as recebe, mas o bundler não lê `adminAudience` — ele empacota o que o grafo de imports
  * alcança, e o import estático que morava no topo deste arquivo mandava as duas para o chunk de
@@ -79,14 +87,19 @@ const META_USO = Object.freeze({
  * @returns {import('./admin-panel.js').AdminTab}
  */
 const carregarDiagnostico = (principal) => lazyTab(META_DIAGNOSTICO, async () => {
-    const { createDiagTab } = await import('./diag-tab.js');
+    const { createDiagTab } = await carregarSobDemanda(() => import('./diag-tab.js'), { avisar: false });
     return createDiagTab(principal);
 });
 
 /** @param {Object} principal @returns {import('./admin-panel.js').AdminTab} Irmã da de cima. */
 const carregarUso = (principal) => lazyTab(META_USO, async () => {
-    const { createUsoTab } = await import('./uso-tab.js');
+    const { createUsoTab } = await carregarSobDemanda(() => import('./uso-tab.js'), { avisar: false });
     return createUsoTab(principal);
+});
+
+const carregarAuditoria = (principal) => lazyTab(META_AUDITORIA, async () => {
+    const { createAuditTab } = await carregarSobDemanda(() => import('./audit-tab.js'), { avisar: false });
+    return createAuditTab(principal);
 });
 
 /**
@@ -100,7 +113,7 @@ const TAB_FACTORIES = Object.freeze({
     config: createConfigTab,
     catalog: createCatalogTab,
     personnel: createPersonnelTab,
-    audit: createAuditTab,
+    audit: carregarAuditoria,
     diagnostico: carregarDiagnostico,
     uso: carregarUso,
     account: createAccountTab,

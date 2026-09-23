@@ -1,12 +1,11 @@
 // Path: js/military_tools/coordination_measure_tool/add_coordination_measure_control.js
+import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 import { beginImageTask } from '../../store/image-context.js';
 
 import {
-  addFeature,
   updateFeature,
   removeFeature,
   storeImage,
-  getActiveLayerIdSync
 } from "../../store";
 import { CoordinationMeasureGenerator } from './coordination_measure_generator.js';
 import { applyGeneratedBitmap, generatedBitmapPatch } from '@layers/bitmap-version.js';
@@ -314,6 +313,7 @@ class AddCoordinationMeasureControl extends BaseControl {
   // ===== TOOL ACTIVATION/DEACTIVATION =====
 
   activate = () => {
+    this._activationId = (this._activationId ?? 0) + 1;
     this.isActive = true;
     this.map.getCanvas().style.cursor = "crosshair";
   };
@@ -434,17 +434,17 @@ class AddCoordinationMeasureControl extends BaseControl {
     this.isActive = false;
 
     await this.createCoordinationMeasureFeature(e.lngLat);
-    this.toolManager.deactivateCurrentTool();
   };
 
   createCoordinationMeasureFeature = async (lngLat) => {
+    const creation = captureFeatureCreation(this);
     const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
     const featureName = await IDUtils.generateFeatureName(
       this.featureType,
       this.map
     );
 
-    const currentZoom = this.map.getZoom();
+    const currentZoom = creation.zoom;
     const coordinates = [lngLat.lng, lngLat.lat];
 
     const pointCode = this.constructor.DEFAULT_PROPERTIES.pointCode;
@@ -465,7 +465,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       id: geoJsonId,
       properties: {
         ...this.constructor.DEFAULT_PROPERTIES,
-        layerId: getActiveLayerIdSync(),
+        layerId: creation.layerId,
         id: featureId,
         nome: featureName,
         pointCode: pointCode,
@@ -511,21 +511,19 @@ class AddCoordinationMeasureControl extends BaseControl {
         result.anchor
       );
 
+      if (!creation.canSave()) return;
       await storeImage(featureId, result.blob);
-      await this.loadSymbolToMap(featureId, result.blob, result.pixelRatio);
 
-      await addFeature(this.storageType, feature);
+      if (!(await creation.save(this.storageType, feature))) return;
+      if (!creation.isCurrent()) return;
+      await this.loadSymbolToMap(featureId, result.blob, result.pixelRatio);
+      if (!creation.isCurrent()) return;
 
       const dispatcher = this.getSourceDispatcher();
       dispatcher.add(feature);
       await dispatcher.flush();
 
-      await this.selectionManager.toggleFeatureSelection(
-        this.featureType,
-        featureId,
-        feature
-      );
-      this.selectionManager.updateUI();
+      await creation.finish(this.featureType, feature);
     } catch (error) {
       console.error("Error creating coordination measure feature:", error);
       this.showError("Não foi possível criar a medida de coordenação. Tente de novo.");

@@ -162,6 +162,12 @@ async function quedaEVoltaDaConexao(page, janelaMs = 55000) {
         });
     });
     await page.context().setOffline(true);
+    // HTTP offline emulation does not reliably close an established loopback
+    // WebSocket in Firefox. Break that stream too, retaining normal reconnection.
+    await page.evaluate(async () => {
+        const { wsClient } = await import('/src/js/store/sync/ws-client.js');
+        wsClient._socket?.close(4000, 'network fault injection');
+    });
     await page.waitForTimeout(janelaMs);
     await page.context().setOffline(false);
     await expect

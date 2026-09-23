@@ -1,6 +1,7 @@
 // Path: js/draw_tools/sector_tool/add_sector_control.js
+import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
-import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
+import { updateFeature, removeFeature } from '../../store';
 import { IDUtils, showWarning } from '../../utilities';
 import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addSectorAttributesToPanel } from './sector_attributes_panel.js';
@@ -258,6 +259,7 @@ class AddSectorControl extends BaseControl {
     // ===== TOOL ACTIVATION/DEACTIVATION =====
 
     activate = () => {
+        this._activationId = (this._activationId ?? 0) + 1;
         this.isActive = true;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
@@ -303,7 +305,6 @@ class AddSectorControl extends BaseControl {
         if (this.drawPoints.length === 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
             await this.createFeature();
-            this.toolManager.deactivateCurrentTool();
         }
     }
 
@@ -363,7 +364,6 @@ class AddSectorControl extends BaseControl {
         } else if (this.drawPoints.length === 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
             await this.createFeature();
-            this.toolManager.deactivateCurrentTool();
         }
     }
 
@@ -479,6 +479,7 @@ class AddSectorControl extends BaseControl {
     }
 
     createFeature = async () => {
+        const creation = captureFeatureCreation(this);
         const center = this.drawPoints[0];
         const endPoint = this.drawPoints[1];
         const radius = this.geometry.calculateDistance(center, endPoint);
@@ -498,20 +499,21 @@ class AddSectorControl extends BaseControl {
             id: geoJsonId,
             properties: {
                 ...AddSectorControl.DEFAULT_PROPERTIES,
-                layerId: getActiveLayerIdSync(),
+                layerId: creation.layerId,
                 center: center,
                 radius: radius,
                 bearing: bearing,
                 aperture: aperture,
                 id: featureId,
                 nome: featureName,
-                labelCreatedAtZoom: this.map.getZoom(),
+                labelCreatedAtZoom: creation.zoom,
             },
             geometry: this.geometry.generate(center, radius, bearing, aperture)
         };
 
         try {
-            await addFeature('setores', feature);
+            if (!(await creation.save('setores', feature))) return;
+            if (!creation.isCurrent()) return;
 
             // Only the new feature needs a pattern registered: every sector already in the source
             // registered its own when it was drawn, edited or loaded, and the id is a pure function
@@ -530,10 +532,7 @@ class AddSectorControl extends BaseControl {
                 syncLabelSource(this.map, 'sector-labels', await this.map.getSource('setores').getData());
             }
 
-            this.drawPoints = [];
-            this.toolManager.deactivateCurrentTool();
-            await this.selectionManager.toggleFeatureSelection('sector', featureId, feature);
-            this.selectionManager.updateUI();
+            await creation.finish('sector', feature);
         } catch (error) {
             console.error('Error creating sector:', error);
         }

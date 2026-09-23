@@ -1026,6 +1026,9 @@ describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
             if (msg.type() !== 'error') return;
             const texto = msg.text();
             if (texto.includes('Failed to load resource')) return;
+            // Firefox reports the same unavailable fixture tile host as a CORS console error.
+            if (texto.includes('Cross-Origin Request Blocked:') &&
+                /http:\/\/localhost\/tiles\/(?:dem\/|municipios[. ]|rodovias[. ])/.test(texto)) return;
             errosDaPagina.push(`console.error: ${texto}`);
         });
 

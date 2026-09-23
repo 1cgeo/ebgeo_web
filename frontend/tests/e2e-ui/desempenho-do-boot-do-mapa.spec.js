@@ -127,12 +127,19 @@ const PROJETOS = '/atlas.html';
  */
 const MEDIDO_EM = '2026-08-25';
 
+// Firefox 151, 2026-09-23, cinco boots frios no MESMO checkout: mediana 9605 ms
+// ate a conta e 15616 ms ate o mapa, contra 2435/4665 ms no Chromium 149.
+// O Vite serve ~600 modulos individuais; estes limites medem esse transporte de
+// desenvolvimento. O fator 3 conserva a margem de cerca de 3x a mediana do Firefox,
+// sem mudar os limites do Chromium nem os pisos que detectam um marco nao medido.
+const tetoTemporal = (valor, navegador) => navegador === 'firefox' ? valor * 3 : valor;
+
 describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
     // Ver o `fileoverview`: repetir uma serie que estourou ate ela passar e reportar isso como
     // "flaky" transforma a medida em decoracao.
     test.describe.configure({ retries: 0 });
 
-    test('boot frio: bytes ansiosos, requisicoes, os dois marcos e o que vem DEPOIS', async ({ browser }, testInfo) => {
+    test('boot frio: bytes ansiosos, requisicoes, os dois marcos e o que vem DEPOIS', async ({ browser, browserName }, testInfo) => {
         test.setTimeout(180000);
 
         const rodadas = await repetir(N, (i) => medirBootFrio(browser, {
@@ -169,7 +176,14 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
 
         // 1 e 2. DETERMINISTICOS: teto justo (~5% de folga) e piso que reprova "o app nao subiu".
         expectDeterministico(rodadas, 'bytesDeScript', {
-            piso: 54_680_000, teto: 60_430_000, medidoEm: '2026-09-21',
+            // O driver do Firefox nao expoe a mesma rede dos workers: cinco rodadas
+            // deram 53590734 bytes e 602 scripts, contra 57510638/605 no Chrome.
+            // Atribuicao por URL e SHA256: scripts comuns identicos; a diferenca
+            // esta no maplibre-gl-shared e nos imports do worker (@vite/client/env).
+            // Nao e economia do produto. Ambos mantem uma faixa de cerca de 5%.
+            piso: browserName === 'firefox' ? 50_900_000 : 54_680_000,
+            teto: browserName === 'firefox' ? 56_300_000 : 60_430_000,
+            medidoEm: browserName === 'firefox' ? '2026-09-23' : '2026-09-21',
             porque: 'REMEDIDO em 2026-09-21: 57 555 344 bytes em 4 de 5 rodadas e 57 551 331 na '
                 + 'primeira, em DUAS baterias no mesmo dia, faixa de +-5%. A subida de 4,44 MB (8,4%) '
                 + 'sobre a faixa de 2026-09-13 foi ATRIBUIDA por caminho independente do navegador, o '
@@ -258,7 +272,7 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
 
         // 3 e 4. TEMPO: mediana e teto folgado. Ver `expectTempoPelaMediana`.
         expectTempoPelaMediana(rodadas, 'msBarraDaConta', {
-            piso: 300, teto: 9000, medidoEm: MEDIDO_EM,
+            piso: 300, teto: tetoTemporal(9000, browserName), medidoEm: browserName === 'firefox' ? '2026-09-23' : MEDIDO_EM,
             porque: 'medianas de 1434 e 1403 ms com a maquina ociosa, e de 1951 e 2480 ms com ela '
                 + 'CARREGADA (serie completa de 849 a 4232). O teto e ~3,6x a mediana carregada e '
                 + 'nao ~1,2x o maximo, e foi AFROUXADO de 5000 depois que a bateria sob carga '
@@ -267,7 +281,7 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
                 + 'parar de doer. Em 9000 ele ainda reprova um boot que dobre.',
         });
         expectTempoPelaMediana(rodadas, 'msMapaVivo', {
-            piso: 1000, teto: 15000, medidoEm: MEDIDO_EM,
+            piso: 1000, teto: tetoTemporal(15000, browserName), medidoEm: browserName === 'firefox' ? '2026-09-23' : MEDIDO_EM,
             porque: 'medianas de 3975 e 4031 ms com a maquina ociosa, e de 4448 e 4980 ms com ela '
                 + 'CARREGADA (serie completa de 3546 a 6553). Teto ~3x a mediana carregada, pela '
                 + 'mesma razao do marco anterior, mais o estilo do mapa, que depende de rede '
@@ -286,7 +300,7 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
         });
     });
 
-    test('transicoes: abrir atlas remoto, remoto para local, local para remoto e sair da conta', async ({ browser }, testInfo) => {
+    test('transicoes: abrir atlas remoto, remoto para local, local para remoto e sair da conta', async ({ browser, browserName }, testInfo) => {
         test.setTimeout(600000);
 
         const creds = await createVerifiedUser({ prefix: 'peso', nome: 'Peso de Boot' });
@@ -394,22 +408,22 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
         // ele reprova a transicao instantanea FALSA, que e o modo de falha proprio desta medida
         // (um marco ja satisfeito antes do gesto mede quase zero e le-se como otimizacao).
         expectTempoPelaMediana(series[abrirRemoto], 'msMapaDoAtlasAtivo', {
-            piso: 500, teto: 12000, medidoEm: MEDIDO_EM,
+            piso: 500, teto: tetoTemporal(12000, browserName), medidoEm: browserName === 'firefox' ? '2026-09-23' : MEDIDO_EM,
             porque: 'medianas de 3514 e 3855 ms em dev (producao: ~2,95 s). Abre socket, sincroniza '
                 + 'e ativa o mapa do atlas. Teto ~3x a mediana.',
         });
         expectTempoPelaMediana(series[paraLocal], 'msMapaVivo', {
-            piso: 500, teto: 11000, medidoEm: MEDIDO_EM,
+            piso: 500, teto: tetoTemporal(11000, browserName), medidoEm: browserName === 'firefox' ? '2026-09-23' : MEDIDO_EM,
             porque: 'medianas de 3339 e 3664 ms em dev (producao: ~1,83 s). E a mais barata das '
                 + 'quatro, e a unica sem servidor no caminho.',
         });
         expectTempoPelaMediana(series[voltarRemoto], 'msMapaDoAtlasAtivo', {
-            piso: 500, teto: 12000, medidoEm: MEDIDO_EM,
+            piso: 500, teto: tetoTemporal(12000, browserName), medidoEm: browserName === 'firefox' ? '2026-09-23' : MEDIDO_EM,
             porque: 'medianas de 3525 e 3948 ms em dev (producao: ~3,05 s). Irma de abrir-remoto, e '
                 + 'medida a parte porque sair de um atlas LOCAL passa pelo wipe de escopo.',
         });
         expectTempoPelaMediana(series[sair], 'msMapaVivo', {
-            piso: 500, teto: 11000, medidoEm: MEDIDO_EM,
+            piso: 500, teto: tetoTemporal(11000, browserName), medidoEm: browserName === 'firefox' ? '2026-09-23' : MEDIDO_EM,
             porque: 'medianas de 3363 e 3594 ms em dev (producao: ~2,55 s), do clique ate o mapa '
                 + 'local assentar.',
         });
@@ -418,7 +432,7 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
         // a parte: sincronia rapida com mapa lento e defeito de render, o inverso e defeito de
         // rede, e uma coluna so nao separa os dois.
         expectTempoPelaMediana(series[abrirRemoto], 'msSincroniaOnline', {
-            piso: 300, teto: 10000, medidoEm: MEDIDO_EM,
+            piso: 300, teto: tetoTemporal(10000, browserName), medidoEm: browserName === 'firefox' ? '2026-09-23' : MEDIDO_EM,
             porque: 'medianas de 2863 e 3151 ms em dev, contra 3514 e 3855 ate o mapa do atlas: a '
                 + 'sincronia chega de 650 a 700 ms antes do mapa.',
         });

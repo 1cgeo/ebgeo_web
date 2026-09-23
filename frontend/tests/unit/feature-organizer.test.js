@@ -27,6 +27,7 @@ const state = {
 
 vi.mock('@store', async () => {
     const constants = await import('../../src/js/store/store.constants.js');
+    const { isActive } = await import('../../src/js/store/sync/sync-metadata.js');
     return {
         // Real implementations: the reverse lookup is the subject under test.
         getSourceTypeFromStorage: constants.getSourceTypeFromStorage,
@@ -39,6 +40,7 @@ vi.mock('@store', async () => {
         // on the canonical singular type.
         getFeatureGroup: (type, featureId) => {
             for (const group of Object.values(state.groups)) {
+                if (!isActive(group.sync)) continue;
                 if (group.features.some((f) => f.type === type && f.id === featureId)) {
                     return group;
                 }
@@ -67,10 +69,35 @@ beforeEach(() => {
 });
 
 describe('organizeFeaturesByLayers — resolução do tipo de origem', () => {
+    it('visits each group membership once when organizing a large group', async () => {
+        const count = 2000;
+        let membershipReads = 0;
+        state.groups = { G1: { id: 'G1', sync: { deleted: false }, name: 'Large group', features: Array.from({ length: count }, (_, i) => ({
+            id: `p${i}`, get type() { membershipReads++; return 'point'; },
+        })) } };
+        const [layer] = await organizeFeaturesByLayers({ points: Array.from({ length: count }, (_, i) => feat(`p${i}`, 'point')) });
+        expect(layer.groups.get('G1').features).toHaveLength(count);
+        expect(layer.groups.get('G1').totalInGroup).toBe(count);
+        expect(layer.ungrouped).toEqual([]);
+        expect(membershipReads).toBeLessThanOrEqual(count * 2);
+    });
+
+    it('keeps type-sensitive first-active-group membership when references overlap', async () => {
+        state.groups = {
+            deleted: { id: 'deleted', name: 'Deleted', sync: { deleted: true }, features: [{ type: 'point', id: 'same' }] },
+            G1: { id: 'G1', sync: { deleted: false }, name: 'First', features: [{ type: 'point', id: 'same' }] },
+            G2: { id: 'G2', sync: { deleted: false }, name: 'Second', features: [{ type: 'point', id: 'same' }, { type: 'line', id: 'same' }] },
+        };
+        const [layer] = await organizeFeaturesByLayers({ points: [feat('same', 'point')], lines: [feat('same', 'line')] });
+        expect([...layer.groups.keys()].sort()).toEqual(['G1', 'G2']);
+        expect(layer.groups.get('G1').features.map(feature => feature.storageType)).toEqual(['points']);
+        expect(layer.groups.get('G2').features.map(feature => feature.storageType)).toEqual(['lines']);
+    });
+
     it('agrupa setor, pincel e LOS, cujos buckets não são "source + s"', async () => {
         state.groups = {
             G1: {
-                id: 'G1',
+                id: 'G1', sync: { deleted: false },
                 name: 'Grupo 1',
                 features: [
                     { type: 'sector', id: 's1' },
@@ -96,7 +123,7 @@ describe('organizeFeaturesByLayers — resolução do tipo de origem', () => {
 
     it('mantém o caminho regular (points → point) e deixa fora do grupo quem não está nele', async () => {
         state.groups = {
-            G1: { id: 'G1', name: 'Grupo 1', features: [{ type: 'point', id: 'p1' }] },
+            G1: { id: 'G1', sync: { deleted: false }, name: 'Grupo 1', features: [{ type: 'point', id: 'p1' }] },
         };
 
         const layers = await organizeFeaturesByLayers({
@@ -110,7 +137,7 @@ describe('organizeFeaturesByLayers — resolução do tipo de origem', () => {
 
     it('borda: bucket sem plural nenhum ("visibility") e feição de camada inexistente caem na primeira camada, sem grupo', async () => {
         state.groups = {
-            G1: { id: 'G1', name: 'Grupo 1', features: [{ type: 'visibility', id: 'z1' }] },
+            G1: { id: 'G1', sync: { deleted: false }, name: 'Grupo 1', features: [{ type: 'visibility', id: 'z1' }] },
         };
 
         const layers = await organizeFeaturesByLayers({

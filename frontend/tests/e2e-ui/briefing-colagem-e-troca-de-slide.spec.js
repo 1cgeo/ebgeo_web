@@ -125,9 +125,11 @@ describeOrSkip('briefing: colar figura e trocar de slide no meio (editor real)',
             const dt = new DataTransfer();
             dt.setData('text/html', conteudo);
             dt.setData('text/plain', 'x');
-            editor.dispatchEvent(new ClipboardEvent('paste', {
-                clipboardData: dt, bubbles: true, cancelable: true,
-            }));
+            const paste = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+            // Firefox ignores the constructor's clipboardData; make the test payload explicit.
+            Object.defineProperty(paste, 'clipboardData', { value: dt });
+            if (paste.clipboardData.getData('text/html') !== conteudo) throw new Error('Paste fixture lost its HTML');
+            editor.dispatchEvent(paste);
             document.querySelector(`[data-slide-id="${alvoB}"]`).click();
         }, { seletor: EDITOR, conteudo: `<p>COLADO-EM-A</p><img src="${src}">`, alvoB: idB });
 

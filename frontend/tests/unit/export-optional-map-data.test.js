@@ -116,7 +116,7 @@ describe('o exportador REAL usa a tabela que este arquivo exercita', () => {
     });
 
     it('o serviço importa a tabela do módulo, e não redeclara os getters de seção', () => {
-        expect(servico).toMatch(/import \{ optionalSectionTasks \} from '\.\/export-optional-sections\.js'/);
+        expect(servico).toMatch(/import\s*\{[^}]*\boptionalSectionTasks\b[^}]*\}\s*from '\.\/export-optional-sections\.js'/);
     });
 });
 

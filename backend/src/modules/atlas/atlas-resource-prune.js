@@ -88,6 +88,8 @@ const LISTAS_DE_SETTINGS = Object.freeze([
 const TIPO_POR_ORIGEM = Object.freeze({
   'mapa.baseLayer': 'basemap',
   cesium3d: 'tileset',
+  'comments.modelo3d': 'tileset',
+  'comments.foto360': 'sv360_project',
   'briefing.slide.modelId': 'tileset',
   sv360: 'sv360_project',
   'briefing.slide.photoId': 'sv360_project',
@@ -242,6 +244,22 @@ export class ResourcePruner {
   /** @private O veredito cru de um par. Ausente = NÃO visível (fecha fechado). */
   _ve(type, resourceId) {
     return this._visiveis.get(resourceRefKey(type, resourceId)) === true;
+  }
+
+  /** Keep or remove a whole discussion by its root's resource, counting lost roots once. */
+  comentarios(rows) {
+    const roots = new Set();
+    for (const row of rows) {
+      if (row.parent_id) continue;
+      const data = row.data ?? {};
+      const model = data.surface === '3d' || data.surface === 'fp';
+      const photo = data.surface === '360';
+      const ref = model ? data.tilesetId : photo ? data.photoName : null;
+      if (ref && !this._ve(model ? 'tileset' : 'sv360_project', String(ref))) {
+        this._perdeu(model ? 'comments.modelo3d' : 'comments.foto360');
+      } else roots.add(row.id);
+    }
+    return rows.filter(row => roots.has(row.parent_id ?? row.id));
   }
 
   /** Nada foi podado? @returns {boolean} */

@@ -12,6 +12,7 @@ export function engineeringItem(code) {
 }
 
 export function engineeringDraft(code, data = {}) {
+    data ??= {};
     const item = engineeringItem(code);
     const values = Object.fromEntries(engineeringFields[item.number].fields.map(f => [f.key, f.value]));
     // Whitelist fields and cap text before measuring imported or synced properties.

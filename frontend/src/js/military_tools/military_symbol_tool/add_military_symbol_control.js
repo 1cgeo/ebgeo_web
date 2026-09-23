@@ -1,13 +1,12 @@
 // Path: js/military_tools/military_symbol_tool/add_military_symbol_control.js
+import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 import { beginImageTask } from '../../store/image-context.js';
 
 import { normalizeSIDC } from './brazilian_sidc_extension.js';
 import {
-  addFeature,
   updateFeature,
   removeFeature,
   storeImage,
-  getActiveLayerIdSync
 } from '@store';
 import { MilitarySymbolGenerator } from './military_symbol_generator.js';
 import { applyGeneratedBitmap, generatedBitmapPatch } from '@layers/bitmap-version.js';
@@ -406,6 +405,7 @@ class AddMilitarySymbolControl extends BaseControl {
   }
 
   activate = () => {
+    this._activationId = (this._activationId ?? 0) + 1;
     this.isActive = true;
     this.map.getCanvas().style.cursor = "crosshair";
   };
@@ -519,17 +519,17 @@ class AddMilitarySymbolControl extends BaseControl {
     this.isActive = false;
 
     await this.createMilitarySymbolFeature(e.lngLat);
-    this.toolManager.deactivateCurrentTool();
   };
 
   createMilitarySymbolFeature = async (lngLat) => {
+    const creation = captureFeatureCreation(this);
     const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
     const featureName = await IDUtils.generateFeatureName(
       "military_symbol",
       this.map
     );
 
-    const currentZoom = this.map.getZoom();
+    const currentZoom = creation.zoom;
     const coordinates = [lngLat.lng, lngLat.lat];
 
     const sidc30 = this.symbolGenerator.buildSIDC(
@@ -551,7 +551,7 @@ class AddMilitarySymbolControl extends BaseControl {
       id: geoJsonId,
       properties: {
         ...AddMilitarySymbolControl.DEFAULT_PROPERTIES,
-        layerId: getActiveLayerIdSync(),
+        layerId: creation.layerId,
         id: featureId,
         nome: featureName,
         sidc: sidc30,
@@ -594,21 +594,19 @@ class AddMilitarySymbolControl extends BaseControl {
         this.selectionManager.uiManager
       );
 
+      if (!creation.canSave()) return;
       await storeImage(featureId, result.blob);
-      await this.loadSymbolToMap(featureId, result.blob);
 
-      await addFeature("military_symbols", feature);
+      if (!(await creation.save("military_symbols", feature))) return;
+      if (!creation.isCurrent()) return;
+      await this.loadSymbolToMap(featureId, result.blob);
+      if (!creation.isCurrent()) return;
 
       const dispatcher = militarySymbolsSource(this.map);
       dispatcher.add(feature);
       await dispatcher.flush();
 
-      await this.selectionManager.toggleFeatureSelection(
-        "military_symbol",
-        featureId,
-        feature
-      );
-      this.selectionManager.updateUI();
+      await creation.finish('military_symbol', feature);
     } catch (error) {
       console.error("Error creating military symbol feature:", error);
       showError("Erro ao criar símbolo militar");

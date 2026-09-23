@@ -41,6 +41,22 @@ async function run(document = data()) {
 }
 
 describe('complete isolated import', () => {
+    it.each(['__proto__', 'constructor', 'toString'])('does not import inherited side records for map %s', async name => {
+        const document = {
+            maps: Object.fromEntries([[name, { features: {} }]]),
+            groups: {}, layers: {}, comments: {}, cesium3d: {}, streetview360: {},
+            temporal: {}, mapNotes: {}, gridStyle: {}, colorUsage: {},
+        };
+        const result = await run(document);
+        expect(result.importedMapsCount).toBe(1);
+        const maps = [...disk.stores.get(StoreName.MAPS).values()];
+        expect(maps).toHaveLength(1);
+        expect(maps[0].name).toBe(name);
+        for (const store of [StoreName.GROUPS, StoreName.LAYERS, StoreName.COMMENTS, StoreName.CESIUM3D, StoreName.STREETVIEW360]) {
+            expect(disk.stores.get(store)?.size ?? 0).toBe(0);
+        }
+        expect(disk.stores.get(StoreName.SETTINGS).has(`temporal_${name}`)).toBe(false);
+    });
     it('preserves all sections, image bytes/MIME, map order, current map and separate identities', async () => {
         const result = await run();
         expect(result.importedMapsCount).toBe(2);

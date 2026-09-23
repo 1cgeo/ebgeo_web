@@ -5,6 +5,19 @@
  * Re-exported from repository.js for backward compatibility.
  */
 
+import { isValidId } from '../utilities/uuid.js';
+
+/**
+ * Name-keyed legacy stores own the map name; their document may still say "Novo Mapa".
+ * Generated ID keys instead use the document name. Shared by upload and recovery export.
+ * @param {string} key
+ * @param {Object} [document]
+ * @returns {string}
+ */
+export function storedMapName(key, document) {
+    return isValidId(key) ? String(document?.name || key) : String(key);
+}
+
 /** Legacy schema version (pre-Atlas, v1.3-v1.7). */
 export const SCHEMA_VERSION = '1.7';
 

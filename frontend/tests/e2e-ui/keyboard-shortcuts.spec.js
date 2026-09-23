@@ -89,8 +89,8 @@ async function seedSelectedPoint(page) {
 }
 
 describeOrSkip('§16.3,6 + §23 Keyboard shortcuts (real browser, local UI)', () => {
-    // Copy/paste shortcuts touch the clipboard permission surface in the real browser.
-    test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
+    // Feature copy/paste uses the application's own clipboard. OS clipboard
+    // permissions are unnecessary and are unsupported by Firefox's test driver.
 
     test('§16.3 Ctrl+C copies the selected feature (Ctrl+V then pastes it)', async ({ page }) => {
         await bootApp(page);

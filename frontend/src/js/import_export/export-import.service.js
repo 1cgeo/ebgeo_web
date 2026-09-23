@@ -23,7 +23,7 @@ import {
     getCustomIconsForExport,
     getGroupManager,
 } from '@store';
-import { optionalSectionTasks } from './export-optional-sections.js';
+import { optionalSectionTasks, readFailuresConfirm } from './export-optional-sections.js';
 
 import { IDUtils } from '@utils/id_utils.js';
 import { showToast, showSuccess, showError, showWarning } from '@utils/toast_service.js';
@@ -292,7 +292,7 @@ export class ExportImportService {
      * @param {string[]} mapsToExport - Map names to include.
      * @returns {Promise<Object>} The export data object.
      */
-    async buildExportDataObject(mapsToExport, { strict = false } = {}) {
+    async buildExportDataObject(mapsToExport, { strict = false, readFailures = [] } = {}) {
         // ANTES DE QUALQUER LEITURA, e uma vez so para o documento inteiro. As secoes de camada
         // e de grupo leem o REPOSITORIO (ver o cabecalho de `export-optional-sections.js`: ler
         // memoria entregava as camadas de todo mapa nao visitado como uma `default` inventada,
@@ -311,8 +311,11 @@ export class ExportImportService {
             version: ATLAS_SCHEMA_VERSION,
             currentMap: exportCurrentMap,
             mapOrder: filteredMapOrder,
-            maps: {}, colorUsage: {}, mapNotes: {}, groups: {}, layers: {},
-            cesium3d: {}, streetview360: {}, temporal: {}, gridStyle: {}, comments: {}, briefings: [],
+            // Names are arbitrary user data, including the Object prototype keys.
+            ...Object.fromEntries(['maps', 'colorUsage', 'mapNotes', 'groups', 'layers',
+                'cesium3d', 'streetview360', 'temporal', 'gridStyle', 'comments']
+                .map(key => [key, Object.create(null)])),
+            briefings: [],
         };
 
         for (const mapName of mapsToExport) {
@@ -337,7 +340,8 @@ export class ExportImportService {
                 data.maps[mapName] = this.optimizeMapData(fullMapData);
             }
             if (strict && !mapData) throw new Error('Um mapa não pôde ser lido. Nenhum atlas foi publicado.');
-            await this._exportOptionalMapData(data, mapName, strict);
+            if (!mapData) readFailures.push({ section: 'maps', mapName });
+            await this._exportOptionalMapData(data, mapName, strict, readFailures);
         }
 
         try {
@@ -345,6 +349,7 @@ export class ExportImportService {
             if (briefings?.length > 0) data.briefings = briefings;
         } catch (error) {
             if (strict) throw error;
+            readFailures.push({ section: 'briefings', mapName: null });
             console.warn('Could not export briefings:', error);
         }
 
@@ -370,9 +375,10 @@ export class ExportImportService {
      */
     async buildPrunedExportData(mapsToExport) {
         const resolver = await construirResolverDeSaida();
-        const bruto = await this.buildExportDataObject(mapsToExport);
+        const readFailures = [];
+        const bruto = await this.buildExportDataObject(mapsToExport, { readFailures });
         const { documento, relatorio } = podarDocumentoDeExportacao(bruto, resolver);
-        return { data: documento, relatorio };
+        return { data: documento, relatorio, readFailures };
     }
 
     /**
@@ -419,8 +425,9 @@ export class ExportImportService {
 
             let data;
             let relatorio;
+            let readFailures;
             try {
-                ({ data, relatorio } = await this.buildPrunedExportData(mapsToExport));
+                ({ data, relatorio, readFailures } = await this.buildPrunedExportData(mapsToExport));
             } catch (error) {
                 if (error?.name === 'ResourceSumMissingError') {
                     showError(error.message);
@@ -429,7 +436,18 @@ export class ExportImportService {
                 throw error;
             }
 
+            const mapNames = Object.keys(data.maps);
+            if (mapNames.length === 0) throw new Error('Nenhum mapa pôde ser lido. Nenhum arquivo foi exportado.');
             const perdas = descreverPerdas(relatorio);
+            const readWarning = readFailuresConfirm(readFailures);
+            if (readWarning) {
+                const proceed = await showConfirm(readWarning.title, readWarning);
+                if (!proceed) return;
+                if (!isCurrent()) throw new Error('O atlas mudou durante a exportação. Tente novamente.');
+                data.mapOrder = data.mapOrder.filter(name => Object.hasOwn(data.maps, name));
+                if (!Object.hasOwn(data.maps, data.currentMap)) data.currentMap = mapNames[0];
+            }
+
             if (perdas) {
                 // O TÍTULO NÃO AFIRMA "RESTRITO", e a mudança é por um perfil inteiro. Sem
                 // sessão nada é privado para este cliente, então o visitante ANÔNIMO perdia só
@@ -529,7 +547,8 @@ export class ExportImportService {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
 
-            this.showSaveSuccess(mapsToExport.length);
+            if (readWarning) showWarning('Cópia parcial exportada. Alguns dados não puderam ser lidos.');
+            else this.showSaveSuccess(mapNames.length);
             registrarUso(EventoDeUso.EBGEO_EXPORTADO);
 
         } catch (error) {
@@ -1024,7 +1043,7 @@ export class ExportImportService {
      * @param {string} mapName - Map name to export
      * @private
      */
-    async _exportOptionalMapData(data, mapName, strict = false) {
+    async _exportOptionalMapData(data, mapName, strict = false, readFailures = []) {
         const tasks = optionalSectionTasks(mapName);
 
         for (const { key, fn, check, transform } of tasks) {
@@ -1035,6 +1054,7 @@ export class ExportImportService {
                 }
             } catch (error) {
                 if (strict) throw error;
+                readFailures.push({ section: key, mapName });
                 console.warn(`Could not export ${key} from map ${mapName}:`, error);
             }
         }

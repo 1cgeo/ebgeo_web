@@ -30,7 +30,11 @@ const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
 // Clipboard read/write needed to verify "Copiar Coordenadas".
-test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
+test.use({ permissions: async ({ browserName }, use) => {
+    // Firefox does not expose these Chromium permission names to Playwright.
+    // Keep its native clipboard and exercise the real user-activated copy below.
+    await use(browserName === 'chromium' ? ['clipboard-read', 'clipboard-write'] : []);
+} });
 
 /** Boots the app and waits for the 2D MapLibre map + its canvas to be ready. */
 async function bootMap(page) {

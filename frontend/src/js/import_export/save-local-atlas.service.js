@@ -61,7 +61,7 @@ export async function saveLocalAtlasToServer(apiClient, exportService, { name, d
     const { uploads, skipped, missing } = await collectImageUploads(built.imageIds, imageIdMap);
     if (skipped.length || built.stats.droppedFeatures) throw new Error('Há imagens ou feições que não podem ser convertidas. Nenhum atlas foi publicado.');
     // ASKED BEFORE ANY NETWORK WRITE, and the answer decides: see `missingImagesUploadConfirm`.
-    const question = missingImagesUploadConfirm(classifyMissingImages(missing, exportData), { from: 'disco' });
+    const question = missingImagesUploadConfirm(classifyMissingImages(missing, exportData), { from: 'disco', exportData });
     if (question && !(await confirmMissingImages?.(question))) throw uploadCancelledError();
     const atlas = await apiClient.importAtlas(built.payload, {
         images: uploads,

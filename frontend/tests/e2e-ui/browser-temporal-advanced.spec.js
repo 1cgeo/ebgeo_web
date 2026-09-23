@@ -276,7 +276,8 @@ describeOrSkip('Temporal: transporte das chaves (Chromium real + backend real)',
     test('§29.13 edit temporal validity: set → shift → blank-clears; sibling stays untouched', async ({
         page,
     }) => {
-        await page.goto('/');
+        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        await page.goto('/atlas.html');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'tmp_validity');
 
         const result = await page.evaluate(
@@ -406,7 +407,8 @@ describeOrSkip('Temporal: transporte das chaves (Chromium real + backend real)',
     test('§29.15/17 o array de trajetória VIAJA como uma unidade só, e a omissão o derruba', async ({
         page,
     }) => {
-        await page.goto('/');
+        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        await page.goto('/atlas.html');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'tmp_traj');
 
         const result = await page.evaluate(
@@ -509,7 +511,8 @@ describeOrSkip('Temporal: transporte das chaves (Chromium real + backend real)',
     test('§29.18/19/20 as bandeiras automáticas persistem, e o GDH derivado viaja verbatim', async ({
         page,
     }) => {
-        await page.goto('/');
+        // Transport-only: avoid the map boot redirect racing ApiClient.login's stored tokens.
+        await page.goto('/atlas.html');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'tmp_auto');
 
         // OS GDH SÃO CALCULADOS AQUI, pelo formatador independente do topo do arquivo, e não

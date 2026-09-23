@@ -154,9 +154,9 @@ describe('o transporte DECLARA as ausentes ao servidor, e só quando há o que d
 
 describe('as TRÊS portas perguntam antes da rede, e nenhuma recusa mais por figura ausente', () => {
     const PORTAS = [
-        ['src/js/import_export/save-local-atlas.service.js', "{ from: 'disco' }", 'missing.map((id) => imageIdMap[id] || id)'],
-        ['src/js/projects/send-local-to-server.service.js', "{ from: 'disco' }", 'missing.map((id) => imageIdMap[id])'],
-        ['src/js/projects/import-ebgeo.service.js', "{ from: 'arquivo' }", 'missing.map(id => imageIdMap[id])'],
+        ['src/js/import_export/save-local-atlas.service.js', "{ from: 'disco', exportData }", 'missing.map((id) => imageIdMap[id] || id)'],
+        ['src/js/projects/send-local-to-server.service.js', "{ from: 'disco', exportData }", 'missing.map((id) => imageIdMap[id])'],
+        ['src/js/projects/import-ebgeo.service.js', "{ from: 'arquivo', exportData }", 'missing.map(id => imageIdMap[id])'],
     ];
 
     it('PISO: são três portas, e as três ainda publicam por `importAtlas`', () => {

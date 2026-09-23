@@ -7,7 +7,10 @@
  * @module draw_tools/line_tool/add_line_control
  */
 
-import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync, getFeatureById } from '../../store';
+import { updateFeature, removeFeature, getActiveLayerIdSync, getFeatureById, getStateManager, getCurrentMapNameSync } from '../../store';
+import { saveCreatedFeature } from '@tools/helpers/feature-creation-context.js';
+import { getActiveScope } from '@store/atlas-namespace.js';
+import { mapResolver } from '@store/services/map-resolver.service.js';
 import { IDUtils, showWarning, showToast, deepClone } from '../../utilities';
 import { isTouchDevice, getPointerPosition } from '../../utilities/pointer-utils';
 import { DrawingFinishButton, setupVertexRemoveLongPress } from '../drawing-touch-helpers';
@@ -265,6 +268,7 @@ class AddLineControl extends BaseControl {
     // ===== TOOL ACTIVATION/DEACTIVATION =====
 
     activate = () => {
+        this._activationId = (this._activationId ?? 0) + 1;
         this.isActive = true;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
@@ -538,7 +542,6 @@ class AddLineControl extends BaseControl {
         if (this.drawPoints.length >= 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
             await this.createFeature();
-            this.toolManager.deactivateCurrentTool();
         }
     }
 
@@ -557,7 +560,6 @@ class AddLineControl extends BaseControl {
         }
 
         await this.createFeature();
-        this.toolManager.deactivateCurrentTool();
     }
 
     /**
@@ -682,63 +684,96 @@ class AddLineControl extends BaseControl {
     }
 
     createFeature = async () => {
-        if (!this.geometry.validate(this.drawPoints)) {
-            showWarning('Linha deve ter pelo menos 2 pontos válidos');
-            this.drawPoints = [];
-            return;
-        }
-
-        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
-        const featureName = await IDUtils.generateFeatureName('line', this.map);
-        const coordinates = [...this.drawPoints];
-
-        const properties = {
-            ...AddLineControl.DEFAULT_PROPERTIES,
-            layerId: getActiveLayerIdSync(),
-            id: featureId,
-            nome: featureName,
-            baseCoordinates: coordinates
-        };
-
-        // Only when the profile is ON, which is this file's convention everywhere else, and the
-        // last site that did not follow it. `DEFAULT_PROPERTIES` is born `profile: false` and
-        // nothing above overrides it, so the profile computed here could not be read: the panel
-        // needs `profileData` AND `profile`, and the switch that turns `profile` on
-        // (`line_attributes_panel.js`) goes through `updateFeaturesProperty`, which recalculates
-        // from `baseCoordinates` at that moment. `profileData` stays the `null` of the defaults.
-        //
-        // Same reasoning as `shouldComputeProfileOnImport` in `import_export/import.control.js`,
-        // and the predicate is NOT imported from there: the name is about the import, and this
-        // file would drag the whole importer graph (JSZip, shpjs, togeojson) into the line tool
-        // to reuse one comparison.
-        if (properties.profile) {
-            properties.profileData = JSON.stringify(await this.calculateProfile(coordinates));
-        }
-
-        const feature = {
-            type: 'Feature',
-            id: geoJsonId,
-            properties,
-            geometry: this.geometry.generate(coordinates)
-        };
-
+        // Repeated finish events belong to one drawing. A later activation may
+        // finish a different drawing while this one's name or storage is pending.
+        const activation = this._activationId;
+        this._pendingCreations ??= new Set();
+        if (this._pendingCreations.has(activation)) return;
+        this._pendingCreations.add(activation);
         try {
-            await addFeature('lines', feature);
+            if (!this.geometry.validate(this.drawPoints)) {
+                showWarning('Linha deve ter pelo menos 2 pontos válidos');
+                this.drawPoints = [];
+                return;
+            }
 
-            // No collection read: the diff carries the new feature alone. `lines` has no derived
-            // label source, so nothing here is a function of the whole collection.
-            const dispatcher = linesSource(this.map);
-            dispatcher.add(feature);
-            await dispatcher.flush();
+            const coordinates = [...this.drawPoints];
+            const layerId = getActiveLayerIdSync();
+            const scope = getActiveScope();
+            const mapId = mapResolver.resolveToId(getCurrentMapNameSync());
+            const activationId = this._activationId;
+            const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
+            const featureName = await IDUtils.generateFeatureName('line', this.map);
 
-            this.drawPoints = [];
-            this.toolManager.deactivateCurrentTool();
-            await this.selectionManager.toggleFeatureSelection('line', featureId, feature);
-            this.selectionManager.updateUI();
+            const properties = {
+                ...AddLineControl.DEFAULT_PROPERTIES,
+                layerId,
+                id: featureId,
+                nome: featureName,
+                baseCoordinates: coordinates
+            };
 
-            this.updateFeatureMeasurement(feature);
-        } catch (error) {
-            console.error('Error creating line:', error);
+            // Only when the profile is ON, which is this file's convention everywhere else, and the
+            // last site that did not follow it. `DEFAULT_PROPERTIES` is born `profile: false` and
+            // nothing above overrides it, so the profile computed here could not be read: the panel
+            // needs `profileData` AND `profile`, and the switch that turns `profile` on
+            // (`line_attributes_panel.js`) goes through `updateFeaturesProperty`, which recalculates
+            // from `baseCoordinates` at that moment. `profileData` stays the `null` of the defaults.
+            //
+            // Same reasoning as `shouldComputeProfileOnImport` in `import_export/import.control.js`,
+            // and the predicate is NOT imported from there: the name is about the import, and this
+            // file would drag the whole importer graph (JSZip, shpjs, togeojson) into the line tool
+            // to reuse one comparison.
+            if (properties.profile) {
+                properties.profileData = JSON.stringify(await this.calculateProfile(coordinates));
+            }
+
+            const feature = {
+                type: 'Feature',
+                id: geoJsonId,
+                properties,
+                geometry: this.geometry.generate(coordinates)
+            };
+
+            try {
+                if (getActiveScope() !== scope || !mapResolver.isKnown(mapId)) {
+                    showWarning('O mapa de origem não está mais aberto. O desenho não foi salvo em outro atlas.');
+                    return;
+                }
+                const targetMap = mapResolver.resolveToName(mapId);
+                if (!(await saveCreatedFeature('lines', feature, targetMap))) return;
+                // Persistence belongs to the captured map; painting belongs only to
+                // the map currently on screen after that asynchronous write.
+                if (getActiveScope() !== scope || getCurrentMapNameSync() !== targetMap) return;
+
+                // No collection read: the diff carries the new feature alone. `lines` has no derived
+                // label source, so nothing here is a function of the whole collection.
+                const dispatcher = linesSource(this.map);
+                dispatcher.add(feature);
+                await dispatcher.flush();
+
+                if (this.isActive && this.toolManager.activeTool === this && this._activationId === activationId) {
+                    this.drawPoints = [];
+                    this.toolManager.deactivateCurrentTool();
+                    // A person may already be choosing the next tool while storage
+                    // finishes. Auto-selection must not close that open palette.
+                    const stillCurrent = () => this._activationId === activationId
+                        && !this.toolManager.activeTool
+                        && getActiveScope() === scope
+                        && getCurrentMapNameSync() === targetMap
+                        && !getStateManager()?.getUnsafe('ui.activeToolbarGroup');
+                    if (stillCurrent()) {
+                        await this.selectionManager.toggleFeatureSelection('line', featureId, feature, false, stillCurrent);
+                        if (stillCurrent()) this.selectionManager.updateUI();
+                    }
+                }
+
+                this.updateFeatureMeasurement(feature);
+            } catch (error) {
+                console.error('Error creating line:', error);
+            }
+        } finally {
+            this._pendingCreations.delete(activation);
         }
     }
 

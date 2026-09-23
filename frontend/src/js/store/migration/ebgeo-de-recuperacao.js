@@ -55,9 +55,10 @@ import {
 } from '../atlas-namespace.js';
 import { legacyScope } from './migration-scope.js';
 import { ATLAS_SCHEMA_VERSION } from '../atlas/atlas.entity.js';
-import { legacyHasChanged } from './legacy-transition.js';
+import { inventoryScope, legacyHasChanged } from './legacy-transition.js';
 import { MigrationRecoveryError, readLegacyTransition, transitionIsSettled } from './transition-state.js';
 import { xorMask } from '../../import_export/ebgeo-file-gate.js';
+import { storedMapName } from '../repository.utils.js';
 
 /** Magic prefix the ordinary exporter writes in front of the masked ZIP. */
 const MASK_HEADER = 'EBGXOR';
@@ -195,12 +196,20 @@ export async function montarDocumentoEbgeo(scope) {
         version: ATLAS_SCHEMA_VERSION,
         currentMap: null,
         mapOrder: [],
-        maps: {}, colorUsage: {}, mapNotes: {}, groups: {}, layers: {},
-        cesium3d: {}, streetview360: {}, temporal: {}, gridStyle: {}, comments: {}, briefings: []
+        maps: Object.create(null), colorUsage: Object.create(null), mapNotes: Object.create(null),
+        groups: Object.create(null), layers: Object.create(null), cesium3d: Object.create(null),
+        streetview360: Object.create(null), temporal: Object.create(null), gridStyle: Object.create(null),
+        comments: Object.create(null), briefings: []
     };
 
+    const nomePorEndereco = new Map();
     for (const [chave, doc] of mapas) {
-        const nome = typeof doc.name === 'string' && doc.name ? doc.name : chave;
+        const nome = storedMapName(chave, doc);
+        if (Object.hasOwn(data.maps, nome)) {
+            throw new MigrationRecoveryError('mapas_ambiguos', 'Há mapas diferentes com o mesmo nome.');
+        }
+        nomePorEndereco.set(chave, nome);
+        if (typeof doc.id === 'string') nomePorEndereco.set(doc.id, nome);
         const enderecos = enderecosDoMapa(chave, doc);
         // The map document IS the per-map block of the file, minus the bookkeeping the importer
         // mints again on the way in (`id`, `name`, `sync`).
@@ -220,10 +229,13 @@ export async function montarDocumentoEbgeo(scope) {
         }
     }
 
-    const ordem = Array.isArray(atlas?.mapOrder) ? atlas.mapOrder.filter(nome => data.maps[nome]) : [];
+    const traduzir = endereco => nomePorEndereco.get(endereco) ?? endereco;
+    const ordem = Array.isArray(atlas?.mapOrder)
+        ? [...new Set(atlas.mapOrder.filter(item => typeof item === 'string').map(traduzir)
+            .filter(nome => Object.hasOwn(data.maps, nome)))] : [];
     const nomes = Object.keys(data.maps);
     data.mapOrder = [...ordem, ...nomes.filter(nome => !ordem.includes(nome))];
-    const apontado = atlas?.lastActiveMapId ?? await settings.getItem('lastActiveMap');
+    const apontado = traduzir(atlas?.lastActiveMapId ?? await settings.getItem('lastActiveMap'));
     data.currentMap = data.maps[apontado] ? apontado : (data.mapOrder[0] ?? null);
 
     const briefings = [];
@@ -311,9 +323,14 @@ export async function construirEbgeoDeRecuperacao() {
         throw new MigrationRecoveryError('varios_acervos', 'Há mais de um acervo neste computador.');
     }
     const [acervo] = acervos;
+    const antes = await inventoryScope(acervo.scope);
     const { data, imagens } = await montarDocumentoEbgeo(acervo.scope);
+    const blob = await escreverArquivoEbgeo(data, imagens);
+    if (JSON.stringify(antes) !== JSON.stringify(await inventoryScope(acervo.scope))) {
+        throw new MigrationRecoveryError('source_changed', 'Os dados mudaram durante a cópia. Feche as outras janelas e tente novamente.');
+    }
     return {
-        blob: await escreverArquivoEbgeo(data, imagens),
+        blob,
         nome: `ebgeo-${new Date().toISOString().slice(0, 10)}.ebgeo`,
         acervo: acervo.label,
         registros: acervo.registros

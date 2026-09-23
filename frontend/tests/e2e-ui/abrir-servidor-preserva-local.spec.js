@@ -30,7 +30,7 @@ const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
 describeOrSkip('abrir projeto do servidor', () => {
-    test('preserva o atlas local, e não pergunta nada sobre ele', async ({ browser }) => {
+    test('preserva o atlas local, e não pergunta nada sobre ele', async ({ browser, request }) => {
         test.setTimeout(180000);
         const ctx = await browser.newContext();
         const page = await ctx.newPage();
@@ -40,13 +40,19 @@ describeOrSkip('abrir projeto do servidor', () => {
         // A CONTA nasce no lado Node (`helpers/accounts.js`), porque confirmar o e-mail exige ler
         // `email_verification_tokens` no Postgres, que o contexto do browser não alcança.
         const creds = await createVerifiedUser({ prefix: 'preserva', nome: 'Preserva' });
+        // Seed outside the browser: ApiClient.login persists tokens, so using it
+        // during map boot races the authenticated redirect to the atlas chooser.
+        const login = await request.post(`${state.baseUrl}/api/v1/auth/login`, {
+            data: { username: creds.username, password: creds.password },
+        });
+        expect(login.ok()).toBe(true);
+        const { data: auth } = await login.json();
+        const created = await request.post(`${state.baseUrl}/api/v1/atlas`, {
+            headers: { Authorization: `Bearer ${auth.accessToken}` },
+            data: { name: 'Projeto do servidor' },
+        });
+        expect(created.status()).toBe(201);
         await page.goto('/');
-        await page.evaluate(async ({ base, u }) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-            const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-            await api.login(u.username, u.password);
-            await api.createAtlas({ name: 'Projeto do servidor' });
-        }, { base: state.baseUrl, u: creds });
 
         // Trabalho local, pela ferramenta de verdade: é ele que o diálogo dizia que seria substituído.
         await page.waitForFunction(() => globalThis.__ebgeoMap?.loaded?.(), null, { timeout: 30000 });

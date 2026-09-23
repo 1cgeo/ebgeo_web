@@ -1,4 +1,5 @@
 // Path: js/military_tools/declination_tool/add_declination_control.js
+import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 import { beginImageTask } from '../../store/image-context.js';
 
 /**
@@ -7,11 +8,9 @@ import { beginImageTask } from '../../store/image-context.js';
  */
 
 import {
-    addFeature,
     updateFeature,
     removeFeature,
     storeImage,
-    getActiveLayerIdSync
 } from '@store';
 import { IDUtils, showError, loadImageToMap } from '@utils';
 import { calculateMagneticDeclination } from '@utils/geomagnetic/wmm_calculator.js';
@@ -174,6 +173,7 @@ class AddDeclinationControl extends BaseControl {
     }
 
     activate() {
+        this._activationId = (this._activationId ?? 0) + 1;
         super.activate();
         this.map.getCanvas().style.cursor = 'crosshair';
     }
@@ -193,8 +193,8 @@ class AddDeclinationControl extends BaseControl {
             return;
         }
 
+        this.isActive = false;
         await this.createDeclinationFeature(e.lngLat);
-        this.toolManager.deactivateCurrentTool();
     };
 
     /**
@@ -202,13 +202,14 @@ class AddDeclinationControl extends BaseControl {
      * @param {Object} lngLat - MapLibre LngLat object
      */
     createDeclinationFeature = async (lngLat) => {
+        const creation = captureFeatureCreation(this);
         const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const featureName = await IDUtils.generateFeatureName(
             'magnetic_declination',
             this.map
         );
 
-        const currentZoom = this.map.getZoom();
+        const currentZoom = creation.zoom;
         const coordinates = [lngLat.lng, lngLat.lat];
 
         // Calculate magnetic declination at this point
@@ -248,7 +249,7 @@ class AddDeclinationControl extends BaseControl {
             id: geoJsonId,
             properties: {
                 ...AddDeclinationControl.DEFAULT_PROPERTIES,
-                layerId: getActiveLayerIdSync(),
+                layerId: creation.layerId,
                 id: featureId,
                 nome: featureName,
                 createdAtZoom: currentZoom,
@@ -269,21 +270,19 @@ class AddDeclinationControl extends BaseControl {
         applyGeneratedBitmap(feature.properties, bitmap);
 
         try {
+            if (!creation.canSave()) return;
             await storeImage(featureId, bitmap.blob);
-            await this.loadIconToMap(featureId, bitmap.blob, bitmap.pixelRatio);
 
-            await addFeature('magnetic_declinations', feature);
+            if (!(await creation.save('magnetic_declinations', feature))) return;
+            if (!creation.isCurrent()) return;
+            await this.loadIconToMap(featureId, bitmap.blob, bitmap.pixelRatio);
+            if (!creation.isCurrent()) return;
 
             const dispatcher = declinationsSource(this.map);
             dispatcher.add(feature);
             await dispatcher.flush();
 
-            await this.selectionManager.toggleFeatureSelection(
-                'magnetic_declination',
-                featureId,
-                feature
-            );
-            this.selectionManager.updateUI();
+            await creation.finish('magnetic_declination', feature);
         } catch (error) {
             console.error('Error creating declination feature:', error);
             showError('Erro ao criar diagrama de declinação');

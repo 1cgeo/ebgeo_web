@@ -1,6 +1,7 @@
 // Path: js/military_tools/arrow_tool/add_arrow_control.js
+import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
-import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync, getFeatureById } from '../../store';
+import { updateFeature, removeFeature, getFeatureById } from '../../store';
 import { IDUtils, showWarning, showToast, deepClone } from '../../utilities';
 import { getPointerPosition, isTouchDevice, createLongPressHandler } from '../../utilities/pointer-utils';
 import { addArrowAttributesToPanel } from './arrow_attributes_panel.js';
@@ -309,6 +310,7 @@ class AddArrowControl extends BaseControl {
     // ===== TOOL ACTIVATION/DEACTIVATION =====
 
     activate = () => {
+        this._activationId = (this._activationId ?? 0) + 1;
         this.isActive = true;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
@@ -436,7 +438,6 @@ class AddArrowControl extends BaseControl {
         if (this.drawPoints.length >= 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
             await this.createFeature();
-            this.toolManager.deactivateCurrentTool();
         } else {
             this.stopDrawing();
         }
@@ -529,54 +530,62 @@ class AddArrowControl extends BaseControl {
     }
 
     createFeature = async () => {
-        if (this.drawPoints.length < 2) {
-            showWarning('Seta deve ter pelo menos 2 pontos');
-            this.drawPoints = [];
-            return;
-        }
-
-        if (!this.geometry.validate(this.drawPoints, AddArrowControl.DEFAULT_PROPERTIES)) {
-            showWarning('Pontos muito próximos. Distância mínima: 10 metros');
-            this.drawPoints = [];
-            return;
-        }
-
-        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
-        const featureName = await IDUtils.generateFeatureName('arrow', this.map);
-
-        const currentZoom = this.map.getZoom();
-        const adaptiveWidth = this.calculateWidthForZoom(currentZoom);
-
-        const feature = {
-            type: 'Feature',
-            id: geoJsonId,
-            properties: {
-                ...AddArrowControl.DEFAULT_PROPERTIES,
-                layerId: getActiveLayerIdSync(),
-                width: adaptiveWidth,
-                baseCoordinates: [...this.drawPoints],
-                id: featureId,
-                nome: featureName
-            },
-            geometry: this.geometry.generate(this.drawPoints, {
-                ...AddArrowControl.DEFAULT_PROPERTIES,
-                width: adaptiveWidth
-            })
-        };
-
+        const activation = this._activationId;
+        this._pendingCreations ??= new Set();
+        if (this._pendingCreations.has(activation)) return;
+        this._pendingCreations.add(activation);
         try {
-            await addFeature('arrows', feature);
+            const creation = captureFeatureCreation(this);
+            if (this.drawPoints.length < 2) {
+                showWarning('Seta deve ter pelo menos 2 pontos');
+                this.drawPoints = [];
+                return;
+            }
 
-            const dispatcher = arrowsSource(this.map);
-            dispatcher.add(feature);
-            await dispatcher.flush();
+            if (!this.geometry.validate(this.drawPoints, AddArrowControl.DEFAULT_PROPERTIES)) {
+                showWarning('Pontos muito próximos. Distância mínima: 10 metros');
+                this.drawPoints = [];
+                return;
+            }
 
-            this.drawPoints = [];
-            this.toolManager.deactivateCurrentTool();
-            await this.selectionManager.toggleFeatureSelection('arrow', featureId, feature);
-            this.selectionManager.updateUI();
-        } catch (error) {
-            console.error('Error creating arrow:', error);
+            const drawPoints = [...this.drawPoints];
+            const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
+            const featureName = await IDUtils.generateFeatureName('arrow', this.map);
+
+            const currentZoom = creation.zoom;
+            const adaptiveWidth = this.calculateWidthForZoom(currentZoom);
+
+            const feature = {
+                type: 'Feature',
+                id: geoJsonId,
+                properties: {
+                    ...AddArrowControl.DEFAULT_PROPERTIES,
+                    layerId: creation.layerId,
+                    width: adaptiveWidth,
+                    baseCoordinates: [...drawPoints],
+                    id: featureId,
+                    nome: featureName
+                },
+                geometry: this.geometry.generate(drawPoints, {
+                    ...AddArrowControl.DEFAULT_PROPERTIES,
+                    width: adaptiveWidth
+                })
+            };
+
+            try {
+                if (!(await creation.save('arrows', feature))) return;
+                if (!creation.isCurrent()) return;
+
+                const dispatcher = arrowsSource(this.map);
+                dispatcher.add(feature);
+                await dispatcher.flush();
+
+                await creation.finish('arrow', feature);
+            } catch (error) {
+                console.error('Error creating arrow:', error);
+            }
+        } finally {
+            this._pendingCreations.delete(activation);
         }
     }
 
@@ -1452,7 +1461,6 @@ class AddArrowControl extends BaseControl {
         }
 
         await this.createFeature();
-        this.toolManager.deactivateCurrentTool();
     }
 
     /**

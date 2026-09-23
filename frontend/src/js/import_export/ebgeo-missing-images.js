@@ -166,12 +166,18 @@ export function classifyMissingImages(missingIds, data) {
  * there may be a more complete copy of the `.ebgeo`.
  *
  * @param {RequiredImage[]} missing - From `classifyMissingImages`
- * @param {{ from?: 'disco'|'arquivo' }} [options]
+ * @param {{ from?: 'disco'|'arquivo', exportData?: Object }} [options]
  * @returns {{ title: string, message: string, confirmText: string, cancelText: string }|null}
  */
-export function missingImagesUploadConfirm(missing, { from = 'disco' } = {}) {
+export function missingImagesUploadConfirm(missing, { from = 'disco', exportData } = {}) {
     const list = Array.isArray(missing) ? missing : [];
-    if (list.length === 0) return null;
+    // Bulk import cannot preserve comment authorship. Its omission belongs in the same
+    // pre-publication decision as missing images, including when every image is present.
+    const comments = Object.keys(exportData?.maps ?? {}).reduce((total, name) => {
+        const collection = Object.hasOwn(exportData?.comments ?? {}, name) ? exportData.comments[name] : null;
+        return total + Object.values(collection ?? {}).filter(value => value && typeof value === 'object').length;
+    }, 0);
+    if (list.length === 0 && comments === 0) return null;
     const fromFile = from === 'arquivo';
     const total = list.length;
     const why = fromFile
@@ -180,13 +186,18 @@ export function missingImagesUploadConfirm(missing, { from = 'disco' } = {}) {
     const wayOut = fromFile
         ? 'Se existir uma cópia mais completa do arquivo, cancele e importe a partir dela. Se continuar, '
         : 'Não há de onde recuperá-lo. Se continuar, ';
-    return {
-        title: `Este atlas sobe sem ${count(total, 'figura', 'figuras')}`,
-        message: `${why}${describeMissing(list)}.\n\n${wayOut}`
+    const imageMessage = total ? `${why}${describeMissing(list)}.\n\n${wayOut}`
             + (total === 1
                 ? 'o que usa essa figura vai para o servidor sem ela, e quem abrir o atlas verá um marcador de erro no lugar.'
-                : 'o que usa essas figuras vai para o servidor sem elas, e quem abrir o atlas verá um marcador de erro no lugar.')
-            + ' Todo o resto sobe inteiro.',
+                : 'o que usa essas figuras vai para o servidor sem elas, e quem abrir o atlas verá um marcador de erro no lugar.') : '';
+    const commentMessage = comments
+        ? `${count(comments, 'comentário', 'comentários')} (incluindo respostas) não ${comments === 1 ? 'será enviado' : 'serão enviados'} ao servidor por esta importação. `
+            + `O texto continua ${fromFile ? 'no arquivo .ebgeo original' : 'no atlas local deste computador'}. `
+            + 'Cancele para manter o trabalho local ou continue para publicar uma cópia sem esses comentários.'
+        : 'Todo o resto sobe inteiro.';
+    return {
+        title: comments ? 'Esta cópia será publicada com conteúdo faltando' : `Este atlas sobe sem ${count(total, 'figura', 'figuras')}`,
+        message: [imageMessage, commentMessage].filter(Boolean).join('\n\n'),
         confirmText: fromFile ? 'Importar assim' : 'Enviar assim',
         cancelText: 'Cancelar',
     };

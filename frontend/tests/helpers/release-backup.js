@@ -8,7 +8,7 @@ import { Buffer } from 'node:buffer';
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import { readState } from '../e2e-ui/state.js';
 import { pgPromise, appDbUrl, dropDatabase, killPid } from '../e2e-ui/backend.js';
-import { BACKEND_DIR, OBITO_FILE } from '../e2e-ui/constants.js';
+import { BACKEND_DIR, OBITO_FILE, STATE_FILE } from '../e2e-ui/constants.js';
 
 const run = promisify(execFile);
 
@@ -47,6 +47,7 @@ export async function verifyServerBackup({ atlasId, credentials, snapshot, outpu
         // No writer remains while the relational and file parts are copied.
         assert.equal((await fetch(state.baseUrl + '/api/v1/health')).status, 200);
         killPid(state.pid);
+        await writeFile(STATE_FILE, JSON.stringify({ ...state, stoppedForBackup: true }));
         for (let i = 0; i < 40; i++) {
             try { await fetch(state.baseUrl + '/api/v1/health'); } catch { break; }
             await new Promise(resolve => setTimeout(resolve, 100));
@@ -99,11 +100,17 @@ export async function verifyServerBackup({ atlasId, credentials, snapshot, outpu
         const pull = await fetch(base + `/atlas/${atlasId}/sync/0`, { headers });
         assert.equal(pull.status, 200);
         const after = (await pull.json()).data.snapshot;
-        // Maps tied on created_at, groups and group-feature joins have no transport order.
+        // Maps/briefings tied on created_at, groups, group-feature joins and features
+        // (GET_ATLAS_FEATURES has no ORDER BY) have no transport order.
         // Compare those collections by identity. atlas.mapOrder, layer ordering,
-        // geometry coordinates, feature arrays and group membership remain exact.
-        const byMapId = value => ({ ...value, maps: Object.fromEntries(value.maps.map(map => [map.id,
-            { ...map, groups: [...map.groups].sort((a, b) => a.id.localeCompare(b.id)),
+        // geometry coordinates, every feature property and group membership remain exact.
+        const byMapId = value => ({ ...value,
+            briefings: [...value.briefings].sort((a, b) => a.id.localeCompare(b.id)),
+            maps: Object.fromEntries(value.maps.map(map => [map.id,
+            { ...map,
+                features: Object.fromEntries(Object.entries(map.features).map(([type, features]) =>
+                    [type, [...features].sort((a, b) => a.properties.id.localeCompare(b.properties.id))])),
+                groups: [...map.groups].sort((a, b) => a.id.localeCompare(b.id)),
                 groupFeatures: [...map.groupFeatures].sort((a, b) =>
                     a.group_id.localeCompare(b.group_id) || a.feature_id.localeCompare(b.feature_id)) }
         ])) });
@@ -134,7 +141,7 @@ export async function verifyServerBackup({ atlasId, credentials, snapshot, outpu
         const report = { tablesCompared: Object.keys(before).length,
             rowsCompared: Object.values(before).reduce((n, table) => n + table.rows, 0),
             binaryFilesCompared: Object.keys(imageHashes).length, rebasedImagePaths: storedImages.length, restoredImagesServed: imageRows.length,
-            snapshotIdenticalByIdentity: true, unorderedTransportCollections: ['maps', 'groups', 'groupFeatures'],
+            snapshotIdenticalByIdentity: true, unorderedTransportCollections: ['maps', 'briefings', 'groups', 'groupFeatures', 'featuresByType'],
             postgresMajor: Math.floor(Number(version) / 10000), databaseDumpBytes: (await readFile(dump)).byteLength };
         await writeFile(join(outputDir, 'backup-report.json'), JSON.stringify(report, null, 2));
         return report;

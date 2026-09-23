@@ -1,6 +1,9 @@
 // Path: js/draw_tools/polygon_tool/add_polygon_control.js
 
-import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
+import { updateFeature, removeFeature, getActiveLayerIdSync, getStateManager, getCurrentMapNameSync } from '../../store';
+import { saveCreatedFeature } from '@tools/helpers/feature-creation-context.js';
+import { getActiveScope } from '@store/atlas-namespace.js';
+import { mapResolver } from '@store/services/map-resolver.service.js';
 import { IDUtils, showWarning } from '../../utilities';
 import { isTouchDevice, getPointerPosition } from '../../utilities/pointer-utils';
 import { DrawingFinishButton, setupVertexRemoveLongPress } from '../drawing-touch-helpers';
@@ -259,6 +262,7 @@ class AddPolygonControl extends BaseControl {
     // ===== TOOL ACTIVATION/DEACTIVATION =====
 
     activate = () => {
+        this._activationId = (this._activationId ?? 0) + 1;
         this.isActive = true;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
@@ -423,7 +427,6 @@ class AddPolygonControl extends BaseControl {
         if (this.drawPoints.length >= 3) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
             await this.createFeature();
-            this.toolManager.deactivateCurrentTool();
         } else {
             showWarning('Polígono deve ter pelo menos 3 pontos');
             this.drawPoints = [];
@@ -440,7 +443,6 @@ class AddPolygonControl extends BaseControl {
 
         this.map.off('mousemove', this.handlePreviewMouseMove);
         await this.createFeature();
-        this.toolManager.deactivateCurrentTool();
     }
 
     /**
@@ -570,57 +572,87 @@ class AddPolygonControl extends BaseControl {
     }
 
     createFeature = async () => {
-        if (!this.geometry.validate(this.drawPoints)) {
-            showWarning('Polígono deve ter pelo menos 3 pontos válidos');
-            this.drawPoints = [];
-            return;
-        }
-
-        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
-        const featureName = await IDUtils.generateFeatureName('polygon', this.map);
-        const coordinates = [...this.drawPoints];
-
-        const feature = {
-            type: 'Feature',
-            id: geoJsonId,
-            properties: {
-                ...AddPolygonControl.DEFAULT_PROPERTIES,
-                layerId: getActiveLayerIdSync(),
-                id: featureId,
-                nome: featureName,
-                baseCoordinates: coordinates,
-                labelCreatedAtZoom: this.map.getZoom(),
-            },
-            geometry: this.geometry.generate(coordinates)
-        };
-
+        // Repeated finish events belong to one drawing. A later activation may
+        // finish a different drawing while this one's name or storage is pending.
+        const activation = this._activationId;
+        this._pendingCreations ??= new Set();
+        if (this._pendingCreations.has(activation)) return;
+        this._pendingCreations.add(activation);
         try {
-            await addFeature('polygons', feature);
-
-            // Only the new feature needs a pattern registered: every polygon already in the source
-            // registered its own when it was drawn, edited or loaded, and the id is a pure function
-            // of the feature's own hatch properties.
-            if (feature.properties.hatchEnabled) {
-                this.updateHatchPatterns({ features: [feature] });
+            if (!this.geometry.validate(this.drawPoints)) {
+                showWarning('Polígono deve ter pelo menos 3 pontos válidos');
+                this.drawPoints = [];
+                return;
             }
 
-            const dispatcher = polygonsSource(this.map);
-            dispatcher.add(feature);
-            await dispatcher.flush();
+            const coordinates = [...this.drawPoints];
+            const layerId = getActiveLayerIdSync();
+            const scope = getActiveScope();
+            const mapId = mapResolver.resolveToId(getCurrentMapNameSync());
+            const zoom = this.map.getZoom();
+            const activationId = this._activationId;
+            const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
+            const featureName = await IDUtils.generateFeatureName('polygon', this.map);
 
-            // The label source is a pure function of the collection, so a polygon that carries no
-            // label leaves it identical and the whole-collection read is skipped with it.
-            if (affectsLabelSource(feature)) {
-                syncLabelSource(this.map, 'polygon-labels', await this.map.getSource('polygons').getData());
+            const feature = {
+                type: 'Feature',
+                id: geoJsonId,
+                properties: {
+                    ...AddPolygonControl.DEFAULT_PROPERTIES,
+                    layerId,
+                    id: featureId,
+                    nome: featureName,
+                    baseCoordinates: coordinates,
+                    labelCreatedAtZoom: zoom,
+                },
+                geometry: this.geometry.generate(coordinates)
+            };
+
+            try {
+                if (getActiveScope() !== scope || !mapResolver.isKnown(mapId)) {
+                    showWarning('O mapa de origem não está mais aberto. O desenho não foi salvo em outro atlas.');
+                    return;
+                }
+                const targetMap = mapResolver.resolveToName(mapId);
+                if (!(await saveCreatedFeature('polygons', feature, targetMap))) return;
+                if (getActiveScope() !== scope || getCurrentMapNameSync() !== targetMap) return;
+
+                // Only the new feature needs a pattern registered: every polygon already in the source
+                // registered its own when it was drawn, edited or loaded, and the id is a pure function
+                // of the feature's own hatch properties.
+                if (feature.properties.hatchEnabled) {
+                    this.updateHatchPatterns({ features: [feature] });
+                }
+
+                const dispatcher = polygonsSource(this.map);
+                dispatcher.add(feature);
+                await dispatcher.flush();
+
+                // The label source is a pure function of the collection, so a polygon that carries no
+                // label leaves it identical and the whole-collection read is skipped with it.
+                if (affectsLabelSource(feature)) {
+                    syncLabelSource(this.map, 'polygon-labels', await this.map.getSource('polygons').getData());
+                }
+
+                if (this.isActive && this.toolManager.activeTool === this && this._activationId === activationId) {
+                    this.drawPoints = [];
+                    this.toolManager.deactivateCurrentTool();
+                    const stillCurrent = () => this._activationId === activationId
+                        && !this.toolManager.activeTool
+                        && getActiveScope() === scope
+                        && getCurrentMapNameSync() === targetMap
+                        && !getStateManager()?.getUnsafe('ui.activeToolbarGroup');
+                    if (stillCurrent()) {
+                        await this.selectionManager.toggleFeatureSelection('polygon', featureId, feature, false, stillCurrent);
+                        if (stillCurrent()) this.selectionManager.updateUI();
+                    }
+                }
+
+            } catch (error) {
+                console.error('Error creating polygon:', error);
             }
-
-            this.drawPoints = [];
-            this.toolManager.deactivateCurrentTool();
-            await this.selectionManager.toggleFeatureSelection('polygon', featureId, feature);
-            this.selectionManager.updateUI();
-
-        } catch (error) {
-            console.error('Error creating polygon:', error);
+        } finally {
+            this._pendingCreations.delete(activation);
         }
     }
 

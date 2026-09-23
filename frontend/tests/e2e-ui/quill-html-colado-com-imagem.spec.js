@@ -98,9 +98,11 @@ function colarHtml(page, html) {
         const dt = new DataTransfer();
         dt.setData('text/html', conteudo);
         dt.setData('text/plain', 'texto');
-        alvo.dispatchEvent(new ClipboardEvent('paste', {
-            clipboardData: dt, bubbles: true, cancelable: true,
-        }));
+        const paste = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+        // Firefox ignores the constructor's clipboardData; make the test payload explicit.
+        Object.defineProperty(paste, 'clipboardData', { value: dt });
+        if (paste.clipboardData.getData('text/html') !== conteudo) throw new Error('Paste fixture lost its HTML');
+        alvo.dispatchEvent(paste);
     }, { seletor: EDITOR, conteudo: html });
 }
 
@@ -174,9 +176,11 @@ describeOrSkip('HTML colado com imagem embutida (Quill real, Chromium real)', ()
             const dt = new DataTransfer();
             dt.setData('text/html', conteudo);
             dt.setData('text/plain', 'texto');
-            alvo.dispatchEvent(new ClipboardEvent('paste', {
-                clipboardData: dt, bubbles: true, cancelable: true,
-            }));
+            const paste = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+            // Firefox ignores the constructor's clipboardData; make the test payload explicit.
+            Object.defineProperty(paste, 'clipboardData', { value: dt });
+            if (paste.clipboardData.getData('text/html') !== conteudo) throw new Error('Paste fixture lost its HTML');
+            alvo.dispatchEvent(paste);
             // SÍNCRONO com a colagem, antes de o tick do reenvio rodar: é a troca de slide.
             document.querySelector('#quill-colagem-host').replaceChildren();
         }, { seletor: EDITOR, conteudo: `<p>slide A</p><img src="${src}">` });

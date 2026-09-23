@@ -1,4 +1,5 @@
 // Path: js/azimuth_distance_tool/add_azimuth_distance_control.js
+import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
 /**
  * @fileoverview Azimuth and Distance Tool Control.
@@ -12,7 +13,7 @@ import { AzimuthDistancePanel } from './azimuth_distance_panel.js';
 import { generateFeature, generatePointFeatures, calculateWaypoints } from './azimuth_distance_geometry.js';
 import { addAzimuthDistanceAttributesToPanel } from './azimuth_distance_attributes_panel.js';
 import { DEFAULT_PROPERTIES, OUTPUT_MODE, MODE_TO_SOURCE, NORTH_REFERENCE } from './azimuth_distance_constants.js';
-import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync, getControl } from '@store';
+import { updateFeature, removeFeature, getControl } from '@store';
 import { IDUtils } from '@utils';
 import { showCoordinateEditModal } from '@modals/coordinate-edit.modal.js';
 import { showConfirm } from '@modals/confirm.modal.js';
@@ -138,6 +139,7 @@ class AddAzimuthDistanceControl extends BaseControl {
     // =========================================================================
 
     activate = () => {
+        this._activationId = (this._activationId ?? 0) + 1;
         this.isActive = true;
         this._showPanel();
         this._setupEventListeners();
@@ -429,46 +431,54 @@ class AddAzimuthDistanceControl extends BaseControl {
     // =========================================================================
 
     async _createFeature(state) {
-        const layerId = getActiveLayerIdSync();
-
-        const declination = state.northReference === NORTH_REFERENCE.MAGNETIC
-            ? state.magneticDeclination : 0;
-
-        const waypoints = calculateWaypoints(
-            state.referencePoint, state.legs, declination,
-            state.northReference, state.angularUnit, state.distanceUnit
-        );
-
-        if (waypoints.length === 0) {
-            await showConfirm('Erro ao criar geometria', {
-                message: 'N\u00E3o foi poss\u00EDvel calcular os pontos. Verifique os dados.',
-                confirmText: 'OK'
-            });
-            return;
-        }
-
+        const activation = this._activationId;
+        this._pendingCreations ??= new Set();
+        if (this._pendingCreations.has(activation)) return;
+        this._pendingCreations.add(activation);
         try {
-            if (state.outputMode === OUTPUT_MODE.POINT) {
-                await this._createPointFeatures(state, waypoints, layerId);
-            } else {
-                await this._createLineOrPolygonFeature(state, layerId);
+            const creation = captureFeatureCreation(this);
+            const snapshot = structuredClone(state);
+            const layerId = creation.layerId;
+
+            const declination = snapshot.northReference === NORTH_REFERENCE.MAGNETIC
+                ? snapshot.magneticDeclination : 0;
+
+            const waypoints = calculateWaypoints(
+                snapshot.referencePoint, snapshot.legs, declination,
+                snapshot.northReference, snapshot.angularUnit, snapshot.distanceUnit
+            );
+
+            if (waypoints.length === 0) {
+                await showConfirm('Erro ao criar geometria', {
+                    message: 'N\u00E3o foi poss\u00EDvel calcular os pontos. Verifique os dados.',
+                    confirmText: 'OK'
+                });
+                return;
             }
 
-            this._clearPreview();
-            this.toolManager.deactivateCurrentTool();
-        } catch (error) {
-            console.error('Error creating azimuth/distance feature:', error);
-            await showConfirm('Erro ao criar geometria', {
-                message: 'Ocorreu um erro ao salvar a geometria.',
-                confirmText: 'OK'
-            });
+            try {
+                if (snapshot.outputMode === OUTPUT_MODE.POINT) {
+                    await this._createPointFeatures(snapshot, waypoints, layerId, creation);
+                } else {
+                    await this._createLineOrPolygonFeature(snapshot, layerId, creation);
+                }
+
+            } catch (error) {
+                console.error('Error creating azimuth/distance feature:', error);
+                await showConfirm('Erro ao criar geometria', {
+                    message: 'Ocorreu um erro ao salvar a geometria.',
+                    confirmText: 'OK'
+                });
+            }
+        } finally {
+            this._pendingCreations.delete(activation);
         }
     }
 
     /**
      * Create multiple point features (Point mode).
      */
-    async _createPointFeatures(state, waypoints, layerId) {
+    async _createPointFeatures(state, waypoints, layerId, creation = captureFeatureCreation(this)) {
         const storedLegs = state.legs.map(leg => ({
             azimuth: leg.azimuth,
             distance: leg.distance,
@@ -499,7 +509,7 @@ class AddAzimuthDistanceControl extends BaseControl {
             },
             polarData,
             observations: legObservations,
-            currentZoom: Number.isFinite(this.map?.getZoom?.()) ? this.map.getZoom() : 0
+            currentZoom: creation.zoom
         });
 
         if (features.length === 0) {
@@ -513,24 +523,23 @@ class AddAzimuthDistanceControl extends BaseControl {
         // One upsert per waypoint instead of a read-modify-write of the whole `points`
         // collection. The store write keeps its place before the source write, and the
         // pre-existing guard on the source is kept as it was.
+        for (const feature of features) {
+            if (!(await creation.save('points', feature))) return;
+        }
+        if (!creation.isCurrent()) return;
         if (this.map.getSource('points')) {
             const dispatcher = collectionSource(this.map, 'points');
-            for (const feature of features) {
-                await addFeature('points', feature);
-                dispatcher.add(feature);
-            }
+            dispatcher.add(features);
             await dispatcher.flush();
         }
 
-        const lastFeature = features[features.length - 1];
-        await this.selectionManager.toggleFeatureSelection('point', lastFeature.properties.id, lastFeature);
-        this.selectionManager.updateUI();
+        await creation.finish('point', features[features.length - 1]);
     }
 
     /**
      * Create line or polygon feature (Route/Area mode).
      */
-    async _createLineOrPolygonFeature(state, layerId) {
+    async _createLineOrPolygonFeature(state, layerId, creation = captureFeatureCreation(this)) {
         const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const featureTypeName = state.outputMode === OUTPUT_MODE.ROUTE ? 'line' : 'polygon';
         const featureName = await IDUtils.generateFeatureName(featureTypeName, this.map);
@@ -566,7 +575,8 @@ class AddAzimuthDistanceControl extends BaseControl {
 
         const sourceName = MODE_TO_SOURCE[state.outputMode];
 
-        await addFeature(sourceName, feature);
+        if (!(await creation.save(sourceName, feature))) return;
+        if (!creation.isCurrent()) return;
 
         if (this.map.getSource(sourceName)) {
             const dispatcher = collectionSource(this.map, sourceName);
@@ -575,8 +585,7 @@ class AddAzimuthDistanceControl extends BaseControl {
         }
 
         const featureType = this._getFeatureTypeFromSource(sourceName);
-        await this.selectionManager.toggleFeatureSelection(featureType, featureId, feature);
-        this.selectionManager.updateUI();
+        await creation.finish(featureType, feature);
     }
 
     _getFeatureTypeFromSource(sourceName) {

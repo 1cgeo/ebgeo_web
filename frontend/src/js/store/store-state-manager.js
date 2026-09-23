@@ -911,7 +911,7 @@ if (!memoryStore.colorUsageCache) {
 }
 
 if (!memoryStore.groups) {
-    memoryStore.groups = {};
+    memoryStore.groups = Object.create(null);
 }
 
 const mapManagerInstance = new MapManager();

@@ -1710,3 +1710,13 @@ export function cleanupFirstPersonFeatures() {
 
     setFirstPersonUiVisible(false);
 }
+
+// Register cleanup only after this lazy engine has loaded. Exiting a 2D map must
+// not fetch an unused engine, and an already loaded viewer can release synchronously.
+window.addEventListener('beforeunload', () => {
+    try {
+        cleanupFirstPersonFeatures();
+    } catch (error) {
+        console.warn('First-person cleanup error:', error);
+    }
+});

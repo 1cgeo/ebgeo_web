@@ -1,6 +1,6 @@
 # Deploy do backend único
 
-Um processo Node 20 (HTTP + WebSocket no mesmo servidor) atrás de NGINX, com PostgreSQL/PostGIS em quatro schemas, binários fora do banco e migrações forward-only rodadas como passo separado do CMD.
+Um processo Node 22, conforme o [Dockerfile versionado](../../backend/Dockerfile), com HTTP + WebSocket no mesmo servidor atrás de NGINX, PostgreSQL/PostGIS em quatro schemas, binários fora do banco e migrações forward-only rodadas como passo separado do CMD.
 
 ## Uma instância, não por acaso
 

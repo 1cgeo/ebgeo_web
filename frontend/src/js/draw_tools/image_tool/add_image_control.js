@@ -1,7 +1,7 @@
 // Path: js/draw_tools/image_tool/add_image_control.js
+import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
 import {
-  addFeature,
   updateFeature,
   removeFeature,
   storeImage,
@@ -315,6 +315,7 @@ class AddImageControl extends BaseControl {
   // ===== TOOL ACTIVATION/DEACTIVATION =====
 
   activate = () => {
+    this._activationId = (this._activationId ?? 0) + 1;
     this.isActive = true;
     this.map.getCanvas().style.cursor = "crosshair";
   };
@@ -376,6 +377,8 @@ class AddImageControl extends BaseControl {
       return;
     }
 
+    this.toolManager.deactivateCurrentTool();
+    const creation = captureFeatureCreation(this);
     const input = document.createElement("input");
     input.type = "file";
     // THE PICKER AND THE GATE READ THE SAME LIST, never `image/*` and never a literal: the picker
@@ -403,16 +406,15 @@ class AddImageControl extends BaseControl {
       const reader = new FileReader();
       reader.onload = async () => {
         const imageBase64 = reader.result;
-        await this.addImageFeature(e.lngLat, imageBase64);
+        await this.addImageFeature(e.lngLat, imageBase64, creation);
       };
       reader.onerror = () => showError(imageRefusalNotice(ImageRefusal.ILEGIVEL));
       reader.readAsDataURL(file);
     };
     input.click();
-    this.toolManager.deactivateCurrentTool();
   };
 
-  addImageFeature = async (lngLat, imageBase64) => {
+  addImageFeature = async (lngLat, imageBase64, creation = captureFeatureCreation(this)) => {
     this.resizeImage(imageBase64, async (resizedImageBase64, width, height) => {
       try {
         const response = await fetch(resizedImageBase64);
@@ -428,12 +430,15 @@ class AddImageControl extends BaseControl {
         // reconnection, or never. The blob goes to the LOCAL store first: it is what the
         // resumption reads back, and what draws the picture in the meantime.
         const imageId = IDUtils.generateUniqueId();
+        if (!creation.canSave()) return;
         await storeImage(imageId, blob);
+        if (!creation.canSave()) return;
         await uploadImageBlob(blob, imageId, { origem: 'feicao-de-imagem' });
 
         const feature = this.createImageFeature(lngLat, imageId, width, height);
 
-        const currentZoom = this.map.getZoom();
+        feature.properties.layerId = creation.layerId;
+        const currentZoom = creation.zoom;
         feature.properties.createdAtZoom = currentZoom;
         feature.properties.calculatedSize = feature.properties.size;
 
@@ -453,9 +458,10 @@ class AddImageControl extends BaseControl {
           this.map
         );
 
+        if (!(await creation.save("images", feature))) return;
+        if (!creation.isCurrent()) return;
         await this.loadImageToMap(imageId, blob);
-
-        await addFeature("images", feature);
+        if (!creation.isCurrent()) return;
 
         // No collection read: the diff carries the new feature alone. `images` has no derived
         // label source, so nothing here is a function of the whole collection.
@@ -463,8 +469,7 @@ class AddImageControl extends BaseControl {
         dispatcher.add(feature);
         await dispatcher.flush();
 
-        await this.selectionManager.toggleFeatureSelection("image", imageId, feature);
-        this.selectionManager.updateUI();
+        await creation.finish("image", feature);
       } catch (error) {
         console.error("Error adding image feature:", error);
         showError("Erro ao adicionar imagem");

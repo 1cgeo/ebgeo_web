@@ -1,7 +1,8 @@
 // Path: js/analysis_tools/los_tool/add_los_control.js
+import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
 import { queryFeaturesAtPoint, handleHitBox } from '@tools/helpers/feature-hit-test.helpers.js';
-import { addFeature, updateFeature, removeFeature, getCurrentMapFeatures, batchUpdateLOSFeatures, getActiveLayerIdSync } from '@store';
+import { updateFeature, removeFeature, getCurrentMapFeatures, batchUpdateLOSFeatures } from '@store';
 import { IDUtils } from '@utils';
 import { getPointerPosition } from '@utils/pointer-utils';
 import { addLOSAttributesToPanel, createLOSInfoSection, addLOSParametersToPanel } from './los_attributes_panel.js';
@@ -293,6 +294,7 @@ class AddLOSControl extends BaseControl {
     }
 
     activate = () => {
+        this._activationId = (this._activationId ?? 0) + 1;
         if (!this.geometry.isTerrainAvailable(this.map)) {
             return false;
         }
@@ -647,7 +649,6 @@ class AddLOSControl extends BaseControl {
             snapping?.hideIndicator(this.map);
             this.map.off('mousemove', this.handleMouseMove);
             await this.createFeature();
-            this.toolManager.deactivateCurrentTool();
         }
     }
 
@@ -709,6 +710,8 @@ class AddLOSControl extends BaseControl {
     }
 
     createFeature = async () => {
+        const creation = captureFeatureCreation(this);
+        const activationId = this._activationId;
         if (!this.startPoint || !this.endPoint) return;
 
         try {
@@ -720,35 +723,32 @@ class AddLOSControl extends BaseControl {
                 ...AddLOSControl.DEFAULT_PROPERTIES,
                 id: featureId,
                 nome: featureName,
-                layerId: getActiveLayerIdSync(),
+                layerId: creation.layerId,
             };
 
             const losFeature = await this.geometry.createLOSFeature(coordinates, properties, this.map);
-            await addFeature('los', losFeature);
-            this.updateFeatureMeasurement(losFeature);
-
-            const dispatcher = losSource(this.map);
-            dispatcher.add(losFeature);
-            await dispatcher.flush();
-
+            if (!(await creation.save('los', losFeature))) return;
             const processedFeatures = this.geometry.generateProcessedFeatures(losFeature);
-            const processedDispatcher = processedLosSource(this.map);
-
             for (const processedFeature of processedFeatures) {
-                await addFeature('processed_los', processedFeature);
-                processedDispatcher.add(processedFeature);
+                if (!(await creation.save('processed_los', processedFeature))) return;
             }
-
+            if (!creation.isCurrent()) return;
+            this.updateFeatureMeasurement(losFeature);
+            const dispatcher = losSource(this.map);
+            const processedDispatcher = processedLosSource(this.map);
+            dispatcher.add(losFeature);
+            processedDispatcher.add(processedFeatures);
+            await dispatcher.flush();
             await processedDispatcher.flush();
-
-            await this.selectionManager.toggleFeatureSelection('los', losFeature.properties.id, losFeature);
-            this.selectionManager.updateUI();
+            await creation.finish('los', losFeature);
 
         } catch (error) {
             console.error('Error creating LOS feature:', error);
         } finally {
-            this.startPoint = null;
-            this.endPoint = null;
+            if (this._activationId === activationId) {
+                this.startPoint = null;
+                this.endPoint = null;
+            }
         }
     }
 

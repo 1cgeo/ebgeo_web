@@ -21,7 +21,7 @@
 // O ambiente é `node` sem jsdom, então a metade que constrói DOM é substituída na instância:
 // o que está sob teste é a porteira, nunca a renderização.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 const { storeMock } = vi.hoisted(() => ({
@@ -275,5 +275,54 @@ describe('maps.tab: quem abre e quem fecha a porteira', () => {
 
         const corpo = codigo.slice(ondeRender, codigo.indexOf('\n    }', ondeRender));
         expect(corpo).toMatch(/this\._estaVisivel = true;/);
+    });
+});
+
+
+describe('map name drafts during collaboration', () => {
+    let tab, input, scope, mapId;
+    beforeEach(async () => {
+        const namespace = await import('../../src/js/store/atlas-namespace.js');
+        const { mapResolver } = await import('../../src/js/store/services/map-resolver.service.js');
+        scope = {}; mapId = 'map-a';
+        vi.spyOn(namespace, 'getActiveScope').mockImplementation(() => scope);
+        vi.spyOn(mapResolver, 'resolveToId').mockImplementation(() => mapId);
+        input = { value: '', ownerDocument: { activeElement: null } };
+        tab = new MapsTab({ mapManager: {}, baseLayerControl: {}, eventBus: barramentoFalso(), exportImportService: {} });
+        tab._currentMapName = 'Original';
+        tab._currentMapCard = { querySelector: selector => selector === '#current-map-name-input' ? input : null,
+            classList: { toggle() {} } };
+        tab._updateCurrentMapStats = vi.fn(async () => {});
+        await tab._updateCurrentMapCard();
+        input.ownerDocument.activeElement = input;
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    it('keeps the focused draft across repeated refreshes of the same map', async () => {
+        input.value = 'Draft';
+        await tab._updateCurrentMapCard();
+        await tab._updateCurrentMapCard();
+        expect(input.value).toBe('Draft');
+    });
+    it('keeps an edited draft when a peer renames the same stable map id', async () => {
+        input.value = 'Draft';
+        tab._currentMapName = 'Peer name';
+        await tab._updateCurrentMapCard();
+        expect(input.value).toBe('Draft');
+    });
+    it('shows a peer rename when focus contains no local edit', async () => {
+        tab._currentMapName = 'Peer name';
+        await tab._updateCurrentMapCard();
+        expect(input.value).toBe('Peer name');
+    });
+    it('does not carry a draft into another map', async () => {
+        input.value = 'Draft'; mapId = 'map-b'; tab._currentMapName = 'Second map';
+        await tab._updateCurrentMapCard();
+        expect(input.value).toBe('Second map');
+    });
+    it('does not carry a draft into another atlas with the same map id', async () => {
+        input.value = 'Draft'; scope = {};
+        await tab._updateCurrentMapCard();
+        expect(input.value).toBe('Original');
     });
 });

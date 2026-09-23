@@ -124,7 +124,7 @@ describeOrSkip('Presence/awareness (two real browser clients + real backend)', (
         // 1. Seed ONE shared user (Node side: the account is born verified) + atlas + map.
         const owner = await createVerifiedUser({ prefix: 'presence', nome: 'Presence User' });
         const seedPage = await browser.newPage();
-        await seedPage.goto('/');
+        await seedPage.goto('/atlas.html');
         const seed = await seedPage.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
@@ -151,6 +151,8 @@ describeOrSkip('Presence/awareness (two real browser clients + real backend)', (
                 window.__EBGEO_BACKEND_URL__ = url;
             }, `${state.baseUrl}/api/v1`);
             await page.goto('/');
+            await expect(page.locator('#nav-btn-zoom-in')).toBeVisible({ timeout: 30000 });
+            await expect(page.locator('#initial-loader')).toHaveCount(0, { timeout: 30000 });
         }
 
         const clientIdA = `presence-A-${crypto.randomUUID().slice(0, 8)}`;
@@ -228,7 +230,7 @@ describeOrSkip('Presence/awareness (two real browser clients + real backend)', (
         // 1. Seed ONE shared user (Node side: the account is born verified) + atlas + map.
         const owner = await createVerifiedUser({ prefix: 'presence', nome: 'Presence User' });
         const seedPage = await browser.newPage();
-        await seedPage.goto('/');
+        await seedPage.goto('/atlas.html');
         const seed = await seedPage.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
@@ -250,6 +252,8 @@ describeOrSkip('Presence/awareness (two real browser clients + real backend)', (
         for (const page of [pageA, pageB]) {
             await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${state.baseUrl}/api/v1`);
             await page.goto('/');
+            await expect(page.locator('#nav-btn-zoom-in')).toBeVisible({ timeout: 30000 });
+            await expect(page.locator('#initial-loader')).toHaveCount(0, { timeout: 30000 });
         }
 
         const cfg = { baseUrl: state.baseUrl, username: owner.username, password: owner.password, atlasId: seed.atlasId };

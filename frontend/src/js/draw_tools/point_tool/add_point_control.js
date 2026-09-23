@@ -1,6 +1,7 @@
 // Path: js/draw_tools/point_tool/add_point_control.js
+import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
-import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
+import { updateFeature, removeFeature } from '../../store';
 import { IDUtils } from '../../utilities';
 import { addPointAttributesToPanel } from './point_attributes_panel.js';
 import AddPointGeometry from './add_point_geometry.js';
@@ -551,6 +552,7 @@ class AddPointControl extends BaseControl {
     // ===== TOOL ACTIVATION/DEACTIVATION =====
 
     activate = () => {
+        this._activationId = (this._activationId ?? 0) + 1;
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
         this.map.on('mousemove', this._onPreClickMouseMove);
@@ -660,6 +662,7 @@ class AddPointControl extends BaseControl {
      * @returns {Promise<Object|null>} Created feature or null if error
      */
     createPointAtCoordinates = async (lng, lat, propertyOverrides = {}) => {
+        const creation = captureFeatureCreation(this);
         const coordinates = [lng, lat];
 
         if (!this.geometry.validate(coordinates)) {
@@ -671,14 +674,14 @@ class AddPointControl extends BaseControl {
         const featureName = propertyOverrides.nome
             || await IDUtils.generateFeatureName('point', this.map);
 
-        const currentZoom = this.map.getZoom();
+        const currentZoom = creation.zoom;
         const baseProps = { ...AddPointControl.DEFAULT_PROPERTIES, ...propertyOverrides };
         const feature = {
             type: 'Feature',
             id: geoJsonId,
             properties: {
                 ...baseProps,
-                layerId: getActiveLayerIdSync(),
+                layerId: creation.layerId,
                 id: featureId,
                 nome: featureName,
                 labelCreatedAtZoom: currentZoom,
@@ -697,18 +700,18 @@ class AddPointControl extends BaseControl {
         );
 
         // Register per-feature image (custom icon, built-in shape/icon, or none)
-        await this._applyMarkerImage(feature.properties);
 
         try {
-            await addFeature('points', feature);
+            if (!(await creation.save('points', feature))) return null;
+            if (!creation.isCurrent()) return feature;
 
+            await this._applyMarkerImage(feature.properties);
+            if (!creation.isCurrent()) return feature;
             const dispatcher = pointsSource(this.map);
             dispatcher.add(feature);
             await dispatcher.flush();
 
-            this.toolManager.deactivateCurrentTool();
-            await this.selectionManager.toggleFeatureSelection('point', featureId, feature);
-            this.selectionManager.updateUI();
+            await creation.finish('point', feature);
 
             return feature;
         } catch (error) {

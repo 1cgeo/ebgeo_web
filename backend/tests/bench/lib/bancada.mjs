@@ -101,10 +101,14 @@ export function pisoDaBase() {
  */
 export async function aquecer({ servidor, token, atlasId, mapId, lotes = 3, opsPorLote = 10 }) {
   const serie = new Serie('aquecimento');
+  const registro = criarRegistro();
   await escritorRest({
     base: servidor.base, token, atlasId, mapId, lotes, opsPorLote,
-    serie, registro: criarRegistro(),
+    serie, registro,
   });
+  if (registro.acked.size !== lotes * opsPorLote) {
+    throw new Error(`Aquecimento não escreveu todas as operações: ${registro.acked.size}/${lotes * opsPorLote}; status ${JSON.stringify(serie.resumo().status)}`);
+  }
   await servidor.laco({ reset: true });
   return serie.resumo();
 }
@@ -197,7 +201,7 @@ export function fechar(resultados, notas = [], colunas = COLUNAS) {
   console.log('\n  CONTABILIDADE POR DEGRAU');
   tabela(
     resultados.map((r) => ({ degrau: r.linha.degrau, ...r.reconciliacao.resumo })),
-    ['degrau', 'enviados', 'acked', 'idempotentes', 'recusados', 'semVeredito',
+    ['degrau', 'enviados', 'acked', 'idempotentes', 'recusados', 'conflitos', 'semVeredito',
       'linhasNoLedger', 'aRetentar']
   );
 

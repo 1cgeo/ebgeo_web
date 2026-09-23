@@ -77,6 +77,10 @@ async function abrirAuditoria(page, creds) {
 }
 
 describeOrSkip('Painel — aba Auditoria (navegador real + backend real)', () => {
+    test.afterEach(async ({ page }, testInfo) => {
+        await page.screenshot({ path: testInfo.outputPath('auditoria.png'), fullPage: true });
+    });
+
     test('o administrador: a tabela desenha, o filtro recorta, a gaveta abre e a página anda', async ({ page }) => {
         const admin = await createVerifiedUser({ prefix: 'audadm', nome: 'Aud Admin', role: 'admin' });
 
@@ -211,36 +215,11 @@ describeOrSkip('Painel — aba Auditoria (navegador real + backend real)', () =>
         // forma de perguntar.
         await expect(page.locator('[data-testid="admin-audit-de"]')).not.toHaveValue('');
 
-        // O `to` que a tela não sabia mandar: uma janela que termina ONTEM não pode conter o
-        // que acabou de ser semeado.
-        //
-        // A DATA É DO CALENDÁRIO LOCAL, E O INSTRUMENTO ERRADO AQUI REPROVAVA O PRODUTO CERTO.
-        // Este passo era `new Date(Date.now() - 86400000).toISOString().slice(0, 10)`, isto é,
-        // um dia a menos lido no relógio UTC. Um `<input type="date">` carrega uma data de
-        // calendário LOCAL, e é assim que a tela a lê (`datasDoAtalho` e `inicioDoDiaLocal`
-        // usam `getFullYear`/`getMonth`/`getDate`). A oeste de Greenwich as duas contas
-        // discordam depois que o dia vira em Londres: MEDIDO em 2026-08-25 às 23:25 BRT
-        // (UTC-3), `toISOString()` já dizia `2026-08-26T02:25Z`, então "ontem em UTC" saía
-        // `2026-08-25` — que é HOJE no calendário local, e é o valor que o campo já tinha.
-        // A janela pedida terminava no começo de 2026-08-26 local, continha a semeadura
-        // inteira, e o caso acusava de "não filtrar" um filtro que estava filtrando.
-        //
-        // Por isso o caso REPROVAVA SÓ DEPOIS DAS 21h local, e passava o dia todo. Um caso
-        // que muda de veredito com a hora do relógio mede o fuso, não o produto.
-        //
-        // A subtração é `new Date(a, m - 1, d - 1)` e não uma soma de milissegundos: a soma
-        // erra o dia em qualquer salto de horário de verão, que é a mesma razão escrita em
-        // `inicioDoDiaLocal`, do lado do produto.
-        const hoje = new Date();
-        const diaAnterior = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - 1);
-        const doisDigitos = (n) => String(n).padStart(2, '0');
-        const ontem = `${diaAnterior.getFullYear()}-${doisDigitos(diaAnterior.getMonth() + 1)}`
-            + `-${doisDigitos(diaAnterior.getDate())}`;
-        // A DISCRIMINAÇÃO DO PRÓPRIO INSTRUMENTO: se a data escolhida for a que o campo já
-        // tem, o passo abaixo não pede janela nenhuma e o "Nenhum evento" que viesse seria
-        // sorte. O campo nasce com HOJE (`datasDoAtalho`), então ontem tem de ser diferente.
-        await expect(page.locator('[data-testid="admin-audit-ate"]')).not.toHaveValue(ontem);
-        await page.locator('[data-testid="admin-audit-ate"]').fill(ontem);
+        // A suite compartilha o banco e pode atravessar meia-noite: "ontem" pode
+        // conter eventos dos casos anteriores. Uma janela anterior a todas as
+        // fixtures prova o limite superior sem depender da hora da execucao.
+        await page.locator('[data-testid="admin-audit-de"]').fill('2000-01-01');
+        await page.locator('[data-testid="admin-audit-ate"]').fill('2000-01-01');
         await expect(page.locator('[data-testid="admin-audit-pager"]'))
             .toContainText('Nenhum evento');
         await expect(page.locator('.admin-empty__message'))

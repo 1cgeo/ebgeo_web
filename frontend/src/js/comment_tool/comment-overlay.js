@@ -29,6 +29,7 @@ import {
     ehDaSuperficie,
     montarCartaoDeCompose,
     montarCartaoDeThread,
+    escrevendoNoCartao,
     respostasDe,
 } from './comment-card.js';
 import { getEventBus } from '@store/services.js';
@@ -244,8 +245,8 @@ export class CommentOverlay {
         // closes the card, from inside it (see comment-card.js). A deleted root closes it.
         if (this._popup?._ebgeoRootId) {
             const root = this._comments[this._popup._ebgeoRootId];
-            if (root) this._openThread(root.id, true);
-            else this._closeCard();
+            if (!root) this._closeCard();
+            else if (!escrevendoNoCartao(this._popup.getElement())) this._openThread(root.id, true);
         }
     }
 
@@ -483,6 +484,7 @@ export class CommentOverlay {
             raiz: root,
             respostas: replies,
             aoFechar: () => this._closeThread(rootId),
+            aoAtualizar: () => this._reload(),
         });
 
         this._popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: '340px', className: 'comment-popup', anchor: 'bottom', offset: 38 })

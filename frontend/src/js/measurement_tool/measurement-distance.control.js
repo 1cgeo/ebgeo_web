@@ -1,4 +1,5 @@
 // Path: js/measurement_tool/measurement-distance.control.js
+import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
 /**
  * @module measurement_tool/measurement-distance.control
@@ -22,7 +23,7 @@ import {
     clearAllSources,
 } from './measurement-labels.js';
 import { createDistanceResultsPanel } from './measurement-results-panel.js';
-import { addFeature, getActiveLayerIdSync, getControl, isCurrentMapLockedSync } from '@store';
+import { getControl, isCurrentMapLockedSync } from '@store';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { IDUtils, showToast } from '@utils';
 // Por ARQUIVO, de dois modulos folha: a contagem nao pode participar da ativacao.
@@ -87,6 +88,7 @@ export class MeasurementDistanceControl {
     }
 
     activate() {
+        this._activationId = (this._activationId ?? 0) + 1;
         if (!this.map || this.isActive) return;
         this.isActive = true;
         // A GUARDA ACIMA E O QUE TORNA ISTO UMA CONTAGEM DE ABERTURA: `isActive` ja saiu com
@@ -341,41 +343,52 @@ export class MeasurementDistanceControl {
             return;
         }
 
-        const layerId = getActiveLayerIdSync();
-        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
+        const activation = this._activationId;
+        this._pendingSaves ??= new Set();
+        if (this._pendingSaves.has(activation)) return;
+        this._pendingSaves.add(activation);
+        try {
+            const creation = captureFeatureCreation(this);
+            const layerId = creation.layerId;
+            const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
 
-        const feature = {
-            type: 'Feature',
-            id: geoJsonId,
-            properties: {
-                id: featureId,
-                source: 'line',
-                layerId,
-                nome: `Medição ${formatDistanceAuto(calculateLineLength(coordinates))}`,
-                descricao: '',
-                lineColor: '#ff6600',
-                lineWidth: 2.5,
-                opacity: 1,
-                lineStyle: 'solid',
-                measure: true,
-                visivel: true,
-                bloqueado: false,
-                baseCoordinates: coordinates,
-            },
-            geometry: {
-                type: 'LineString',
-                coordinates,
-            },
-        };
+            const feature = {
+                type: 'Feature',
+                id: geoJsonId,
+                properties: {
+                    id: featureId,
+                    source: 'line',
+                    layerId,
+                    nome: `Medição ${formatDistanceAuto(calculateLineLength(coordinates))}`,
+                    descricao: '',
+                    lineColor: '#ff6600',
+                    lineWidth: 2.5,
+                    opacity: 1,
+                    lineStyle: 'solid',
+                    measure: true,
+                    visivel: true,
+                    bloqueado: false,
+                    baseCoordinates: coordinates,
+                },
+                geometry: {
+                    type: 'LineString',
+                    coordinates,
+                },
+            };
 
-        await addFeature('lines', feature);
+            if (!(await creation.save('lines', feature))) return;
+            if (!creation.isCurrent()) return;
 
-        // Through the dispatcher, not a read-modify-write on `lines`: the source is
-        // dispatcher-owned, so a raw `setData` would replace MapLibre's pending-update slot and
-        // silently drop whatever the line or azimuth tool had queued.
-        getGeoJsonDispatcher(this.map, 'lines').add(feature);
+            // Through the dispatcher, not a read-modify-write on `lines`: the source is
+            // dispatcher-owned, so a raw `setData` would replace MapLibre's pending-update slot and
+            // silently drop whatever the line or azimuth tool had queued.
+            const dispatcher = getGeoJsonDispatcher(this.map, 'lines');
+            dispatcher.add(feature);
+            await dispatcher.flush();
 
-        this.deactivate();
-        this.toolManager.deactivateCurrentTool();
+            if (creation.isActiveTool()) this.toolManager.deactivateCurrentTool();
+        } finally {
+            this._pendingSaves.delete(activation);
+        }
     }
 }

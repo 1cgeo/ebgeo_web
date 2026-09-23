@@ -39,6 +39,12 @@ describe('engineering symbols: approved scope and editable data', () => {
         expect(errorsFor(engineeringItem(16), { width: '4', minimum: '5', maximum: '4' })).toHaveLength(1);
     });
 
+    it('opens symbols imported with a null optional engineering draft using the catalog defaults', () => {
+        for (const item of ENGINEERING_CATALOG) {
+            expect(engineeringDraft(item.number, null)).toEqual(engineeringDraft(item.number));
+        }
+    });
+
     it('derives slope marks at every boundary without a redundant variant control', () => {
         for (const [value, count] of [['?',0],['',0],['0',0],['4.9',0],['5',1],['7',1],['7,1',2],['10',2],['10.1',3],['14',3],['14.1',4],['17',4]]) {
             expect(rampChevronCount(value), value).toBe(count);

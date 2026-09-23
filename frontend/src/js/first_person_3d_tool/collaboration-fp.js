@@ -131,6 +131,7 @@ export class FpCollaboration {
         // Scoped to THIS thread: after a resolution the card calls it only once the store accepted
         // the write, and by then another pin may be open.
         this.showCard(montarCartaoDeThread({
+            aoAtualizar: () => this.reload(),
             raiz: root, respostas: respostasDe(this.collection, id),
             aoFechar: () => { if (this.openId === id) this.closeCard(); },
         }));

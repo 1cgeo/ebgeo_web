@@ -1202,6 +1202,7 @@ export async function getAtlasSnapshot(atlasId, permission = 'owner', userId = n
       // Get groups and group_features, then populate group.features array for frontend
       const rawGroups = groupsByMap.get(map.id) || [];
       const groupFeatures = groupFeaturesByMap.get(map.id) || [];
+      const membershipByGroup = agrupar(groupFeatures, 'group_id');
 
       // Build a map of feature_id -> feature_type for group.features population
       const featureTypeById = {};
@@ -1212,8 +1213,7 @@ export async function getAtlasSnapshot(atlasId, permission = 'owner', userId = n
       // Transform groups: populate features array from group_features join table
       map.groups = rawGroups.map((group) => {
         // Find all features belonging to this group
-        const groupFeatureRefs = groupFeatures
-          .filter((gf) => gf.group_id === group.id)
+        const groupFeatureRefs = (membershipByGroup.get(group.id) || [])
           .map((gf) => ({
             type: featureTypeById[gf.feature_id] || null,
             id: gf.feature_id,

@@ -1,5 +1,5 @@
 // Path: src/modules/images/images.service.js
-import { mkdir, unlink, writeFile, stat, readFile } from 'fs/promises';
+import { mkdir, unlink, writeFile, stat, readFile, rename } from 'fs/promises';
 import { join, resolve } from 'path';
 import crypto from 'crypto';
 import { fileTypeFromFile, fileTypeFromBuffer } from 'file-type';
@@ -96,6 +96,29 @@ async function resolveContentHash(row) {
 }
 
 /**
+ * A committed content hash is an identity, not proof that the file reached disk.
+ * Older bulk uploads committed before writing their file, so an interrupted
+ * upload can leave missing or partial bytes. Only an exact replay may repair it.
+ * Publish by rename so readers
+ * never observe this repair half-written; preserve the original id and metadata.
+ */
+async function ensureReplayFile(row, buffer, expectedHash) {
+  const destination = resolve(row.storage_path);
+  try {
+    if (hashImageContent(await readFile(destination)) === expectedHash) return;
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
+  const temporary = `${destination}.${crypto.randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, buffer, { flag: 'wx' });
+    await rename(temporary, destination);
+  } finally {
+    await unlink(temporary).catch(() => {});
+  }
+}
+
+/**
  * True when a pg error is the unique violation of an index we deliberately lean on.
  * @param {*} err
  * @returns {boolean}
@@ -162,7 +185,7 @@ export async function uploadImage(atlasId, file, userId, attemptKey = null) {
   // Any failure from here on must take the blob with it: the file exists BEFORE
   // this handler runs, so an INSERT that throws (a constraint, a dead pool) would
   // otherwise leave bytes on disk that no row points at and nothing ever collects.
-  // The /bulk path avoids the problem by writing the blob after the INSERT.
+  // The /bulk path likewise removes an unpublished file if its INSERT fails.
   let rows;
   try {
     ({ rows } = await query(Q.INSERT_IMAGE, [
@@ -267,11 +290,11 @@ export async function bulkUploadImages(atlasId, images, userId) {
   const seenLocalIds = new Set();
 
   for (const image of images) {
-    // Declared OUTSIDE the try so the catch can undo a committed INSERT (see below) and, for
-    // `hashOfItem`, so the catch can ask whether a PK violation is this very item arriving twice.
-    let insertedId = null;
-    let claimedLocalId = false;
+    // A file remains unpublished until its INSERT commits. Only that private path
+    // may be removed on failure, never a row that a concurrent retry already saw.
+    let pendingPath = null;
     let hashOfItem = null;
+    let buffer;
 
     try {
       if (!ALLOWED_MIME_TYPES.includes(image.mimeType)) {
@@ -283,7 +306,6 @@ export async function bulkUploadImages(atlasId, images, userId) {
       }
 
       // Decode base64 data (strip data URL prefix if present)
-      let buffer;
       try {
         const base64Data = image.data.includes(',')
           ? image.data.split(',')[1]
@@ -342,6 +364,7 @@ export async function bulkUploadImages(atlasId, images, userId) {
         }
         const storedHash = await resolveContentHash(existingUnderId);
         if (storedHash === hashOfItem) {
+          await ensureReplayFile(existingUnderId, buffer, hashOfItem);
           seenLocalIds.add(image.localId);
           results.uploaded.push({
             localId: image.localId,
@@ -365,6 +388,12 @@ export async function bulkUploadImages(atlasId, images, userId) {
       // First occurrence of this localId preserves it as the server id (so an image-feature's blob
       // ref — which equals its feature id — stays valid with no post-import rewrite). A duplicate
       // localId WITHIN the same batch can't reuse the PK, so it gets a fresh generated server id.
+      // Complete bytes BEFORE publishing their row, without holding a pooled DB
+      // connection during disk I/O. Every attempt owns a unique path; a losing
+      // INSERT removes only its own file. A crash may leave an unreferenced file,
+      // but cannot publish a broken image or undo another request's success.
+      pendingPath = storagePath;
+      await writeFile(storagePath, buffer, { flag: 'wx' });
       let serverImage;
       if (seenLocalIds.has(image.localId)) {
         const { rows } = await query(Q.INSERT_IMAGE, [
@@ -391,15 +420,8 @@ export async function bulkUploadImages(atlasId, images, userId) {
         ]);
         serverImage = rows[0];
         seenLocalIds.add(image.localId);
-        claimedLocalId = true;
       }
-      insertedId = serverImage.id;
-
-      // Write the blob AFTER the row inserts, so a failed INSERT (e.g. a cross-atlas global-PK
-      // collision when re-saving the same local atlas) never leaves an orphan file on disk.
-      // The row is COMMITTED at this point (`query()` is autocommit), so the reverse leak is
-      // now the catch's job — see the compensating DELETE there.
-      await writeFile(storagePath, buffer);
+      pendingPath = null;
 
       results.uploaded.push({
         localId: image.localId,
@@ -411,41 +433,15 @@ export async function bulkUploadImages(atlasId, images, userId) {
 
     } catch (err) {
       logger.warn({ err, atlasId, localId: image.localId }, 'Bulk image item failed');
+      let failure = err;
 
-      // COMPENSATE a committed row whose blob never made it to disk.
-      //
-      // Reaching here with `insertedId` set means the INSERT committed and
-      // `writeFile` threw (ENOSPC, EACCES, a full disk). Without this DELETE the row
-      // survives: `listImages` returns it and `GET /images/:id` answers a permanent
-      // 404 'Image file' — the API publishing a state its OWN response called
-      // `failed`. Compensation, not soft-delete: the row was never visible to any
-      // client and the module hard-deletes images anyway (DELETE_IMAGE).
-      //
-      // Chosen over wrapping INSERT+writeFile in `tx()`, for two reasons.
-      // (a) `tx()` holds a pooled connection across a multi-MB disk write for EVERY
-      //     item — up to 50 per request — paying a hot-path cost on every success to
-      //     fix a rare failure. This codebase has already been bitten by holding a
-      //     connection while waiting (the `lock_timeout` argument in sync.service.js:
-      //     retention under contention becomes pool exhaustion).
-      // (b) `tx()` does not even make it atomic: the file is written BEFORE COMMIT,
-      //     so a COMMIT failure leaves an orphan FILE — exactly the leak the current
-      //     ordering was written to prevent. It swaps one leak for another.
-      // The cost accepted here is a short window in which a concurrent GET can see
-      // the phantom row, and the fact that a failing DELETE lands us back on today's
-      // behaviour — no worse, and now logged.
-      if (insertedId) {
+      if (pendingPath && err.code !== 'EEXIST') {
         try {
-          await query(Q.DELETE_IMAGE, [insertedId, atlasId]);
-          // The localId no longer holds its PK, so a later duplicate in this same
-          // batch must be allowed to claim it again (that is what `seenLocalIds`
-          // means). Leaving it in would silently downgrade the retry to a fresh
-          // server id and break the ref-validity guarantee of the WITH_ID path.
-          if (claimedLocalId) seenLocalIds.delete(image.localId);
+          await unlink(pendingPath);
         } catch (cleanupErr) {
-          logger.error(
-            { err: cleanupErr, atlasId, imageId: insertedId },
-            'Failed to remove orphan image row after blob write failure'
-          );
+          if (cleanupErr.code !== 'ENOENT') {
+            logger.warn({ err: cleanupErr, atlasId, path: pendingPath }, 'Failed to remove unpublished bulk image file');
+          }
         }
       }
 
@@ -454,20 +450,26 @@ export async function bulkUploadImages(atlasId, images, userId) {
       // same item leave one of them here with the PK violation. It asks the same question that
       // branch asks — same id, same bytes? — so the loser of the race reports what the winner
       // wrote instead of calling a stored blob `failed`.
-      if (!insertedId && isUniqueViolation(err)) {
-        const { rows: colidida } = await query(Q.FIND_IMAGE_ANY_ATLAS, [image.localId]);
-        const row = colidida[0];
-        if (row && row.atlas_id === atlasId && await resolveContentHash(row) === hashOfItem) {
-          seenLocalIds.add(image.localId);
-          results.uploaded.push({
-            localId: image.localId,
-            serverId: row.id,
-            filename: row.filename,
-            size: row.size_bytes,
-            reused: true,
-          });
-          results.mapping[image.localId] = row.id;
-          continue;
+      if (isUniqueViolation(err)) {
+        try {
+          const { rows: colidida } = await query(Q.FIND_IMAGE_ANY_ATLAS, [image.localId]);
+          const row = colidida[0];
+          if (row && row.atlas_id === atlasId && await resolveContentHash(row) === hashOfItem) {
+            await ensureReplayFile(row, buffer, hashOfItem);
+            seenLocalIds.add(image.localId);
+            results.uploaded.push({
+              localId: image.localId,
+              serverId: row.id,
+              filename: row.filename,
+              size: row.size_bytes,
+              reused: true,
+            });
+            results.mapping[image.localId] = row.id;
+            continue;
+          }
+        } catch (replayError) {
+          logger.warn({ err: replayError, atlasId, localId: image.localId }, 'Could not recover bulk image replay');
+          failure = replayError;
         }
       }
 
@@ -477,7 +479,7 @@ export async function bulkUploadImages(atlasId, images, userId) {
       // errorHandler — which refuses to forward exactly that text — never runs.
       results.failed.push({
         localId: image.localId,
-        error: safeErrorMessage(err, 'Unknown error'),
+        error: safeErrorMessage(failure, 'Unknown error'),
       });
     }
   }

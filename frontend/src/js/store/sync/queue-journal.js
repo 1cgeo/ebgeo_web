@@ -1,5 +1,7 @@
 // Path: js/store/sync/queue-journal.js
 
+import { openStoreDatabase } from '../fenced-store.js';
+
 const SEQUENCE_KEY = '__journal_sequence__';
 
 /**
@@ -91,49 +93,33 @@ export async function materializeJournal(store, operations, assertWritable = () 
     }
     await store.getItem(SEQUENCE_KEY);
     assertWritable();
+    const db = await openStoreDatabase(store);
     await new Promise((resolve, reject) => {
-        const request = indexedDB.open(store.config('name'));
-        let cancelled = false;
-        request.onerror = () => reject(request.error);
-        request.onupgradeneeded = () => {
-            request.transaction.abort();
-            reject(new DOMException('O banco da fila foi desmontado.', 'AbortError'));
-        };
-        request.onblocked = () => {
-            cancelled = true;
-            reject(new Error('Banco da fila ocupado por outra aba.'));
-        };
-        request.onsuccess = () => {
-            const db = request.result;
-            if (cancelled) { db.close(); return; }
-            let transaction;
-            let failure;
-            try {
+        let transaction;
+        let failure;
+        try {
+            assertWritable();
+            transaction = db.transaction(store.config('storeName'), 'readwrite');
+            transaction.oncomplete = () => {
+                try { assertWritable(); resolve(); } catch (error) { reject(error); }
+            };
+            transaction.onabort = () => {
+                reject(failure ?? transaction.error ?? new Error('Falha ao confirmar a gravação.'));
+            };
+            transaction.onerror = () => {};
+            const rows = transaction.objectStore(store.config('storeName'));
+            for (const operation of operations) {
                 assertWritable();
-                transaction = db.transaction(store.config('storeName'), 'readwrite');
-                transaction.oncomplete = () => {
-                    db.close();
-                    try { assertWritable(); resolve(); } catch (error) { reject(error); }
+                rows.delete(JournalKey.STATE + operation.id).onsuccess = () => {
+                    try { assertWritable(); } catch (error) { failure = error; transaction.abort(); }
                 };
-                transaction.onabort = () => {
-                    db.close();
-                    reject(failure ?? transaction.error ?? new Error('Falha ao confirmar a gravação.'));
-                };
-                transaction.onerror = () => {};
-                const rows = transaction.objectStore(store.config('storeName'));
-                for (const operation of operations) {
-                    assertWritable();
-                    rows.delete(JournalKey.STATE + operation.id).onsuccess = () => {
-                        try { assertWritable(); } catch (error) { failure = error; transaction.abort(); }
-                    };
-                }
-            } catch (error) {
-                failure = error;
-                if (transaction) {
-                    transaction.abort();
-                } else { db.close(); reject(error); }
             }
-        };
+        } catch (error) {
+            failure = error;
+            if (transaction) {
+                transaction.abort();
+            } else { reject(error); }
+        }
     });
 }
 
@@ -196,93 +182,77 @@ export async function appendJournal(store, operations, { prepared = false, asser
     // A driver read performs localforage's reconnection before we open the atomic transaction.
     await store.getItem(SEQUENCE_KEY);
     assertWritable();
-    const request = globalThis.indexedDB.open(store.config('name'));
+    const db = await openStoreDatabase(store);
     await new Promise((resolve, reject) => {
-        let cancelled = false;
-        request.onerror = () => reject(request.error);
-        request.onupgradeneeded = () => {
-            request.transaction.abort();
-            reject(new DOMException('O banco da fila foi desmontado.', 'AbortError'));
+        let transaction;
+        let failure;
+        try {
+            assertWritable();
+            transaction = db.transaction(store.config('storeName'), 'readwrite');
+        } catch (error) {
+            reject(error);
+            return;
+        }
+        const rows = transaction.objectStore(store.config('storeName'));
+        transaction.oncomplete = () => {
+            try { assertWritable(); resolve(); } catch (error) { reject(error); }
         };
-        request.onblocked = () => {
-            cancelled = true;
-            reject(new Error('Banco da fila ocupado por outra aba.'));
+        transaction.onabort = () => { reject(failure ?? transaction.error ?? new Error('Falha ao guardar a alteração.')); };
+        transaction.onerror = () => {};
+        const guarded = fn => () => {
+            try { assertWritable(); fn(); } catch (error) { failure = error; transaction.abort(); }
         };
-        request.onsuccess = () => {
-            const db = request.result;
-            if (cancelled) { db.close(); return; }
-            let transaction;
-            let failure;
-            try {
-                assertWritable();
-                transaction = db.transaction(store.config('storeName'), 'readwrite');
-            } catch (error) {
-                db.close();
-                reject(error);
-                return;
-            }
-            const rows = transaction.objectStore(store.config('storeName'));
-            transaction.oncomplete = () => {
-                db.close();
-                try { assertWritable(); resolve(); } catch (error) { reject(error); }
-            };
-            transaction.onabort = () => { db.close(); reject(failure ?? transaction.error ?? new Error('Falha ao guardar a alteração.')); };
-            transaction.onerror = () => {};
-            const guarded = fn => () => {
-                try { assertWritable(); fn(); } catch (error) { failure = error; transaction.abort(); }
-            };
-            const sequenceRequest = rows.get(SEQUENCE_KEY);
-            sequenceRequest.onsuccess = guarded(() => {
-                let sequence = sequenceRequest.result ?? 0;
-                let index = 0;
-                const appendNext = () => {
-                    if (index === operations.length) {
-                        rows.put(sequence, SEQUENCE_KEY);
-                        return;
-                    }
-                    const operation = operations[index++];
-                    const identityKey = ID_PREFIX + operation.id;
-                    const previous = rows.get(identityKey);
-                    previous.onsuccess = guarded(() => {
-                        if (previous.result) {
-                            const envelope = rows.get(previous.result);
-                            envelope.onsuccess = guarded(() => {
-                                if (!envelope.result) {
-                                    // Identity without envelope: already confirmed and dropped.
-                                    // Silence here reported a durable intention that does not exist.
-                                    failure = new ConfirmedOperationError(operation.id);
-                                    transaction.abort();
-                                    return;
-                                }
-                                if (!sameEnvelope(envelope.result, operation)) {
-                                    transaction.abort();
-                                    return;
-                                }
-                                appendNext();
-                            });
-                            return;
-                        }
-                        if (!previous.result) {
-                            try {
-                                const key = nextKey(++sequence, operation.id);
-                                rows.put(operation, key);
-                                rows.put(key, identityKey);
-                                rows.put(key, journalHeadKey(operation.entityType, operation.entityId));
-                                if (operation.entityType === 'feature') {
-                                    rows.put({ id: operation.id, operationType: operation.operationType, mapId: operation.mapId }, JournalKey.FEATURE_LATEST + operation.entityId);
-                                }
-                                if (prepared) rows.put('prepared', JournalKey.STATE + operation.id);
-                            } catch {
+        const sequenceRequest = rows.get(SEQUENCE_KEY);
+        sequenceRequest.onsuccess = guarded(() => {
+            let sequence = sequenceRequest.result ?? 0;
+            let index = 0;
+            const appendNext = () => {
+                if (index === operations.length) {
+                    rows.put(sequence, SEQUENCE_KEY);
+                    return;
+                }
+                const operation = operations[index++];
+                const identityKey = ID_PREFIX + operation.id;
+                const previous = rows.get(identityKey);
+                previous.onsuccess = guarded(() => {
+                    if (previous.result) {
+                        const envelope = rows.get(previous.result);
+                        envelope.onsuccess = guarded(() => {
+                            if (!envelope.result) {
+                                // Identity without envelope: already confirmed and dropped.
+                                // Silence here reported a durable intention that does not exist.
+                                failure = new ConfirmedOperationError(operation.id);
                                 transaction.abort();
                                 return;
                             }
+                            if (!sameEnvelope(envelope.result, operation)) {
+                                transaction.abort();
+                                return;
+                            }
+                            appendNext();
+                        });
+                        return;
+                    }
+                    if (!previous.result) {
+                        try {
+                            const key = nextKey(++sequence, operation.id);
+                            rows.put(operation, key);
+                            rows.put(key, identityKey);
+                            rows.put(key, journalHeadKey(operation.entityType, operation.entityId));
+                            if (operation.entityType === 'feature') {
+                                rows.put({ id: operation.id, operationType: operation.operationType, mapId: operation.mapId }, JournalKey.FEATURE_LATEST + operation.entityId);
+                            }
+                            if (prepared) rows.put('prepared', JournalKey.STATE + operation.id);
+                        } catch {
+                            transaction.abort();
+                            return;
                         }
-                        appendNext();
-                    });
-                };
-                appendNext();
-            });
-        };
+                    }
+                    appendNext();
+                });
+            };
+            appendNext();
+        });
     });
 }
 
@@ -344,59 +314,43 @@ export async function purgeJournalEntries(store, removals, assertWritable = () =
     }
 
     assertWritable();
+    const db = await openStoreDatabase(store);
     await new Promise((resolve, reject) => {
-        const request = indexedDB.open(store.config('name'));
-        let cancelled = false;
-        request.onerror = () => reject(request.error);
-        request.onupgradeneeded = () => {
-            request.transaction.abort();
-            reject(new DOMException('O banco da fila foi desmontado.', 'AbortError'));
-        };
-        request.onblocked = () => {
-            cancelled = true;
-            reject(new Error('Banco da fila ocupado por outra aba.'));
-        };
-        request.onsuccess = () => {
-            const db = request.result;
-            if (cancelled) { db.close(); return; }
-            let transaction;
-            let failure;
-            try {
-                assertWritable();
-                transaction = db.transaction(store.config('storeName'), 'readwrite');
-                transaction.oncomplete = () => {
-                    db.close();
-                    try { assertWritable(); resolve(); } catch (error) { reject(error); }
-                };
-                transaction.onabort = () => {
-                    db.close();
-                    reject(failure ?? transaction.error ?? new Error('Falha ao podar o diário da fila.'));
-                };
-                transaction.onerror = () => {};
-                const rows = transaction.objectStore(store.config('storeName'));
-                for (const { key, id, entityId, entityType } of removals) {
-                    rows.delete(key);
-                    if (typeof id === 'string') {
-                        rows.delete(JournalKey.ID + id);
-                        rows.delete(JournalKey.STATE + id);
-                        rows.delete(JournalKey.ISSUE + id);
-                    }
-                    if (entityId === undefined || entityType === undefined) continue;
-                    const headKey = journalHeadKey(entityType, entityId);
-                    const head = rows.get(headKey);
-                    head.onsuccess = () => {
-                        try {
-                            assertWritable();
-                            if (head.result === key) rows.delete(headKey);
-                        } catch (error) { failure = error; transaction.abort(); }
-                    };
+        let transaction;
+        let failure;
+        try {
+            assertWritable();
+            transaction = db.transaction(store.config('storeName'), 'readwrite');
+            transaction.oncomplete = () => {
+                try { assertWritable(); resolve(); } catch (error) { reject(error); }
+            };
+            transaction.onabort = () => {
+                reject(failure ?? transaction.error ?? new Error('Falha ao podar o diário da fila.'));
+            };
+            transaction.onerror = () => {};
+            const rows = transaction.objectStore(store.config('storeName'));
+            for (const { key, id, entityId, entityType } of removals) {
+                rows.delete(key);
+                if (typeof id === 'string') {
+                    rows.delete(JournalKey.ID + id);
+                    rows.delete(JournalKey.STATE + id);
+                    rows.delete(JournalKey.ISSUE + id);
                 }
-            } catch (error) {
-                failure = error;
-                if (transaction) {
-                    transaction.abort();
-                } else { db.close(); reject(error); }
+                if (entityId === undefined || entityType === undefined) continue;
+                const headKey = journalHeadKey(entityType, entityId);
+                const head = rows.get(headKey);
+                head.onsuccess = () => {
+                    try {
+                        assertWritable();
+                        if (head.result === key) rows.delete(headKey);
+                    } catch (error) { failure = error; transaction.abort(); }
+                };
             }
-        };
+        } catch (error) {
+            failure = error;
+            if (transaction) {
+                transaction.abort();
+            } else { reject(error); }
+        }
     });
 }

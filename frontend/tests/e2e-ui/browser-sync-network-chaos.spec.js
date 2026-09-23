@@ -134,27 +134,32 @@ collabTest('five short disconnect/reconnect cycles preserve all edits', async ({
     }
 });
 
-collabTest('slow network and delayed receipts preserve edits made while a push is in flight', async ({ collab }, info) => {
+collabTest('slow network and delayed receipts preserve edits made while a push is in flight', async ({ collab, browserName }, info) => {
     const A = collab.author;
     const B = collab.peers[0];
     const ids = [await draw(A)];
     await collab.expectFullSync({ entityId: ids[0], type: 'lines', operationType: 'create' });
     ids.push(await draw(B));
     await collab.expectFullSyncFrom(B, { entityId: ids[1], type: 'lines', operationType: 'create' });
-    const cdp = await B.context().newCDPSession(B);
+    const cdp = browserName === 'chromium' ? await B.context().newCDPSession(B) : null;
     const url = `**/api/v1/atlas/${collab.atlasId}/sync`;
     let delayed = 0;
     await B.route(url, async route => {
+        if (!cdp) {
+            const bytes = route.request().postDataBuffer()?.byteLength ?? 0;
+            await delay(1000 + Math.ceil(bytes / 16384 * 1000));
+        }
         const response = await route.fetch();
+        const body = !cdp ? await response.body() : undefined;
         delayed++;
-        await delay(4000);
-        await route.fulfill({ response });
+        await delay(4000 + (body ? Math.ceil(body.byteLength / 32768 * 1000) : 0));
+        await route.fulfill({ response, ...(body ? { body } : {}) });
     });
     try {
-        await cdp.send('Network.enable');
+        await cdp?.send('Network.enable');
         // Restrict the measured link to the backend. Slowing unrelated basemap tiles
         // prevents the UI driver's isStyleLoaded readiness condition from completing.
-        await cdp.send('Network.emulateNetworkConditionsByRule', {
+        await cdp?.send('Network.emulateNetworkConditionsByRule', {
             matchedNetworkConditions: [{ urlPattern: `${collab.baseUrl}/*`,
                 latency: 1000, downloadThroughput: 32768, uploadThroughput: 16384 }],
         });
@@ -162,13 +167,14 @@ collabTest('slow network and delayed receipts preserve edits made while a push i
             ids.push(await draw(B));
             ids.push(await draw(A));
         }
-        await verify(collab, ids, info, { profile: 'slow', link: 'backend HTTP', latencyMs: 1000,
+        await verify(collab, ids, info, { profile: 'slow',
+            link: cdp ? 'backend HTTP via CDP' : 'sync HTTP request/response delays', latencyMs: 1000,
             downloadBytesPerSecond: 32768, uploadBytesPerSecond: 16384, receiptDelayMs: 4000 });
         expect(delayed).toBeGreaterThan(0);
     } finally {
-        await cdp.send('Network.emulateNetworkConditionsByRule', { matchedNetworkConditions: [] });
+        await cdp?.send('Network.emulateNetworkConditionsByRule', { matchedNetworkConditions: [] });
         await B.unroute(url);
-        await cdp.detach();
+        await cdp?.detach();
     }
 });
 
