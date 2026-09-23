@@ -94,6 +94,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[sessao-boot-e-ciclo-de-vida]] - a ordem de boot, a URL como fonte de verdade e a expiração por inatividade.
 - [[coordenacao-entre-abas]] - quando duas abas do mesmo navegador colidem, por que a arbitragem é por ordem total, e o que bloquear significa (parar o sync, nunca apagar).
 - [[namespace-por-atlas]] - um conjunto de bancos IndexedDB por atlas, o expurgo derivado de registro e o resgate do trabalho não sincronizado.
+- [[finalizacao-de-desenho]] - o destino de um desenho é capturado antes da primeira espera, gravado antes de pintado, e a conclusão duplicada se guarda por ativação.
 - [[formato-ebgeo-roundtrip]] - o contêiner portável do trabalho local e as invariantes de round-trip.
 - [[sair-do-servidor]] - as DUAS regras de poda de recurso restrito na cópia, e por que sair do servidor e mudar de dono dentro dele exigem regras diferentes.
 - [[modulo-temporal]] - a dimensão de tempo por mapa e a fronteira entre estado compartilhado e estado local.
@@ -103,7 +104,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[observabilidade]] - como se olha para o EBGeo rodando: o log que sobrevive à sessão, o defeito com estado e ocorrências, o uso de produto contado sem rastro individual, o comando que consulta as duas fontes e as duas abas que mostram.
 - [[presenca-administrativa]] - quem está com o produto aberto agora: os três períodos, a saída explícita no fechamento da página, e por que o número conta navegadores e não pessoas.
 - [[peso-do-pacote-web]] - o que prende uma biblioteca no payload inicial do mapa, com o ganho já medido de tirá-la.
-- [[desempenho-do-mapa-2d]] - onde o mapa 2D gastava o quadro (zoom pelo worker, elevação em dobro, troca de base que remontava tudo, camada vazia com terreno) e os quatro mecanismos que ficam, com a régua de cada um.
+- [[desempenho-do-mapa-2d]] - onde o mapa 2D gastava o quadro (zoom pelo worker, elevação em dobro, troca de base que remontava tudo, camada vazia com terreno) e os quatro mecanismos que ficam, com a régua de cada um, mais o custo da lista de feições em acervo grande.
 
 ## Sínteses e quadros de decisão
 

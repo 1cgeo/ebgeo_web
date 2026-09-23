@@ -51,4 +51,4 @@ Não é lacuna, é recorte, e confundir os dois faz alguém "consertar" o que es
 
 ## Ver também
 
-[[fila-operacoes-outbound]] para o que acontece com o envelope depois de materializado; [[lote-logico-de-gesto]] para quando várias transações formam um gesto só; [[pendencias-de-sincronizacao]] para o que a pessoa vê quando uma intenção não sai; [[modelo-conflito-lww]] para o que o servidor faz com ela.
+[[fila-operacoes-outbound]] para o que acontece com o envelope depois de materializado; [[finalizacao-de-desenho]] para o que a ferramenta decide ANTES de chamar a store, e por que ela relê o resultado da gravação antes de pintar; [[lote-logico-de-gesto]] para quando várias transações formam um gesto só; [[pendencias-de-sincronizacao]] para o que a pessoa vê quando uma intenção não sai; [[modelo-conflito-lww]] para o que o servidor faz com ela.

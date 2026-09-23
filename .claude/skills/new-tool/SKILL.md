@@ -118,7 +118,16 @@ frontend/src/js/draw_tools/<name>_tool/       # or military_tools/<name>_tool/
 - [ ] Event cleanup in `onRemove()` (map.off, timers, handlers)
 - [ ] XSS: use `textContent`, never `innerHTML` with user data
 - [ ] CSS: BEM classes in CSS file, no inline styles
-- [ ] Store: use `addFeature()` / `updateFeature()` from `@store`
+- [ ] Store: CREATE through the finalization context, never a bare `addFeature()`.
+      Call `captureFeatureCreation(this)` (`@tools/helpers/feature-creation-context.js`)
+      BEFORE the first `await` of the finish path, bump `this._activationId` in
+      `activate()`, save with `creation.save(storage, feature)`, paint the MapLibre source
+      only if that returned truthy AND `creation.isCurrent()`, and end with
+      `creation.finish(type, feature)`. Multi-click tools also guard a double finish per
+      activation (`_pendingCreations`). A bare `addFeature()` compiles, passes every suite
+      and reopens six races (wrong map, emptied geometry, deleted layer, locked map,
+      duplicate finish, stolen selection); nothing enforces this. Why, and what each check
+      means: `docs/wiki/finalizacao-de-desenho.md`. `updateFeature()` stays the edit path.
 - [ ] IDs: use `generateUUID()` from `@utils/uuid.js`
 
 ## Reference

@@ -23,6 +23,12 @@ Medido na `main` em 2026-09-03 com bancada em Playwright e contadores nas funç�
 
 Mais dois de custo menor com a mesma forma: `installEmptySourceVisibility` esconde a camada cuja fonte está vazia e a reexibe pelo `sourcedata` de conteúdo, que o `updateData` do despachante também dispara; e `normalizeTileLodParams` recusa o par que desliga o LOD (primeiro valor abaixo de 2), com o padrão servido em `null` desde 2026-09-04 e a reaplicação depois de cada `setStyle`.
 
+## Fora do quadro: a lista de feições
+
+Para acervo grande o custo que sobra não está no desenho, está na aba de feições. `organizeFeaturesByLayers` (`frontend/src/js/features_tab/feature-organizer.service.js`) perguntava o grupo de cada feição varrendo a membresia de todos os grupos, e 2.000 membros custavam 2.001.000 consultas; desde 2026-09-22 ela monta um índice por tipo e ID uma vez por atualização, com a mesma regra do primeiro grupo ativo. O retrato do servidor tinha a mesma forma quadrática (`getAtlasSnapshot`, `backend/src/modules/sync/sync.service.js`: 200 grupos e 1.000 membresias davam 200.000 visitas), e a regressão dele mede a TRAVESSIA, não o tempo, que numa máquina carregada não separaria linear de quadrático (`backend/tests/integration/snapshot-grupos-linear.repro.test.js`).
+
+O limite que continua é da forma da lista: ela não é virtualizada e materializa um nó por item. Com 30.000 feições agrupadas, abrir a aba criou 121.741 nós DOM e levou de 1,47 a 2,44 s nos dois navegadores medidos (2026-09-22, nesta máquina, com outras rodadas simultâneas, então vale como ordem de grandeza). Quem for acelerar acervo grande começa pela lista, não pelo MapLibre.
+
 ## Armadilhas
 
 - **Régua portada de outra linha pode passar inteira contra o estado anterior daqui.** A régua da guarda de arrasto vinda da `main` só levantava a grafia morta da bandeira, e aqui a guarda era viva por outro nome. Portar régua exige vê-la reprovar o estado anterior DESTE ramo.

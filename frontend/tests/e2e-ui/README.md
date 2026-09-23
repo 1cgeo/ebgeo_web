@@ -536,6 +536,39 @@ auto-pulando sem cena servida, nos dois navegadores, exatamente como antes.
   dois navegadores, e os `test.fail()` de A1/A2b/A4 já não existem. Não houve bissecção para dizer
   o que os fechou, então a única afirmação sustentada aqui é a medição: 10 de 10, duas vezes.
 
+### O que a camada INTEIRA no Firefox ensinou (auditoria de lançamento, 2026-09-22)
+
+A primeira rodada da camada inteira no segundo navegador (503 casos naquela árvore; em 2026-09-23 o
+`--list` dá 605 nos dois projetos, então o 374 acima é da matriz de 2026-09-15) reprovou 21 e
+flakeou 3, e a maior parte era do INSTRUMENTO. Cinco formas, cada uma com o modelo a copiar:
+
+- **Os nomes de permissão de clipboard são do Chromium.** O driver do Firefox recusa
+  `clipboard-read`/`clipboard-write` e o caso morre antes do primeiro gesto (nove casos de menu e
+  teclado). Copiar e colar feição usa o clipboard do PRÓPRIO app e não precisa de permissão
+  nenhuma; onde o clipboard do sistema é o sujeito, peça a permissão só no Chromium, pela fixture
+  em função de `browserName` (modelo: `context-menu-local.spec.js`).
+- **`newCDPSession` é só do Chromium.** O estrangulamento de rede por CDP não existe no Firefox; lá
+  a latência se simula atrasando a rota (modelo: `browser-sync-network-chaos.spec.js`).
+- **`setOffline(true)` NÃO derruba o WebSocket já aberto no Firefox.** Ele recusa sockets novos e
+  continua entregando quadros no existente, então o app nunca vê a queda e o caso mede outra coisa.
+  Feche o socket junto, e deixe a reconexão por conta do cliente (modelo: `quedaEVoltaDaConexao` em
+  `browser-collab-mapa-fantasma.spec.js`).
+- **Login por API numa página que está bootando o MAPA corre contra o próprio boot, nos dois
+  navegadores.** O `login` grava os tokens, o boot enxerga sessão numa URL nua e navega para
+  `atlas.html` (a regra de `shouldRouteToProjects`), abortando os pedidos em voo e apagando os
+  globais do teste. O rastro mostrou `auth/login` 200 seguido da navegação do documento. O Firefox,
+  que boota mais devagar, só alargou a janela. Spec de PROTOCOLO começa em `/atlas.html` (modelo:
+  `browser-cesium3d-crud.spec.js`); spec de AUTORIA continua no mapa e loga pela interface.
+- **Depois de um F5, "o carregador sumiu" não é "o app está pronto".** Ler a store logo que
+  `#initial-loader` some pode encontrar o gerenciador de camadas ainda não inicializado; espere
+  antes um controle do mapa visível (`#nav-btn-zoom-in`), como `presence.spec.js` faz.
+
+E uma de MÉTODO, que custou a leitura de uma matriz inteira: **arquivo de spec editado depois que a
+rodada o coletou não muda aquela rodada.** O processo do Playwright já carregou o módulo, então uma
+matriz longa mede o instrumento do instante em que começou. Rode a matriz num checkout congelado
+(ver "Duas cópias do repositório no mesmo computador", acima) e não apresente o resultado dela como
+validação de conserto posterior ao congelamento; conserto posterior ganha rodada própria.
+
 ## Prerequisites (one-time)
 
 Playwright is a `devDependency` but the browser binary must be fetched. Because
