@@ -7,6 +7,9 @@ import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
 import { DEFAULT_TERRAIN_EXAGGERATION } from '../store/atlas/atlas.entity.js';
 import { currentGlobeProjection } from '../store/atlas-appearance.service.js';
 import { TERRAIN_BASEMAP_ACTION, decideTerrainBasemap } from './terrain-basemap.model.js';
+// BY FILE, not through `../layers`: that barrel drags the whole feature setup, and the separators
+// are a leaf (two empty sources and two hidden layers).
+import { setupLayerSeparators } from '../layers/styles/auxiliary.layers.js';
 
 // Elevation reads moved to a leaf module so the analysis geometry can be tested
 // against a fake map, and because they stopped querying twice per sample: the fixed
@@ -358,10 +361,21 @@ class TerrainControl {
         }
     }
 
+    /**
+     * The hillshade goes BELOW `analysis-separator`, and the separator may not exist yet.
+     *
+     * `switchMap` paints the base (`switchLayer`, whose last step turns the hillshade on) BEFORE
+     * `setupMapFeatures` creates the separators, so on the first paint after a boot, and after a
+     * style rebuilt from scratch, the reference was missing: the hillshade went to the top of the
+     * stack with a console warning, and the order came out right only because nothing else had
+     * been drawn yet. Creating the separators here instead is safe because `setupLayerSeparators`
+     * is idempotent: the later call in `setupMapFeatures` finds them and adds nothing.
+     */
     _addHillshadeLayerInCorrectPosition() {
         const beforeId = 'analysis-separator';
 
         try {
+            if (!this._map.getLayer(beforeId)) setupLayerSeparators(this._map);
             if (this._map.getLayer(beforeId)) {
                 this._map.addLayer(this.hillshadeConfig.layer, beforeId);
             } else {
