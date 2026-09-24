@@ -385,9 +385,7 @@ export class MeasurementDistanceControl {
             const dispatcher = getGeoJsonDispatcher(this.map, 'lines');
             dispatcher.add(feature);
             await dispatcher.flush();
-            // The saved line has `measure: true`, so it is drawn with its length label, as the line
-            // tool draws one on creation. Without this the label appeared only on the next boot
-            // (`restoreMeasurements`), and the person saved a measure and saw no number on it.
+            // `measure: true`: the label, as the line tool draws on creation (else only after F5).
             getControl('AddLineControl')?.updateFeatureMeasurement?.(feature);
 
             if (creation.isActiveTool()) this.toolManager.deactivateCurrentTool();
