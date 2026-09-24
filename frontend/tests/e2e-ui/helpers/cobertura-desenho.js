@@ -32,23 +32,24 @@ const DIAGONAL = [[-43.215, -22.91], [-43.19, -22.89]];
 /**
  * As ferramentas de desenho e geometria. `gesto`: `clique` (um clique), `par` (dois cliques),
  * `vertices` (dois cliques e o terceiro com o botão direito, que termina), `traco` (arraste). `tipo` é o
- * `feature_type` do servidor (o `properties.source` da feição).
+ * `feature_type` do servidor (o `properties.source` da feição). `alca` é a fonte de alças de edição do
+ * registro (`alcaDeEdicao` em `tool_manager/tool-registry.js`), ou null quando a ferramenta não tem alça.
  * Imagem (escolha de arquivo) e Azimute e Distância (painel de pernas) têm specs próprios.
  */
 export const FERRAMENTAS = Object.freeze([
-    { id: 'point', tipo: 'point', grupo: 'draw', balde: 'points', gesto: 'clique', controle: 'pointControl' },
-    { id: 'line', tipo: 'line', grupo: 'draw', balde: 'lines', gesto: 'vertices', controle: 'lineControl' },
-    { id: 'polygon', tipo: 'polygon', grupo: 'draw', balde: 'polygons', gesto: 'vertices', controle: 'polygonControl' },
-    { id: 'rectangle', tipo: 'rectangle', grupo: 'draw', balde: 'rectangles', gesto: 'par', controle: 'rectangleControl' },
-    { id: 'circle', tipo: 'circle', grupo: 'draw', balde: 'circles', gesto: 'par', controle: 'circleControl' },
-    { id: 'ellipse', tipo: 'ellipse', grupo: 'draw', balde: 'ellipses', gesto: 'par', controle: 'ellipseControl' },
-    { id: 'text', tipo: 'text', grupo: 'draw', balde: 'texts', gesto: 'clique', controle: 'textControl' },
-    { id: 'brush', tipo: 'brush', grupo: 'draw', balde: 'brushes', gesto: 'traco', controle: 'brushControl' },
-    { id: 'sector', tipo: 'sector', grupo: 'draw', balde: 'setores', gesto: 'par', controle: 'sectorControl' },
-    { id: 'arrow', tipo: 'arrow', grupo: 'military', balde: 'arrows', gesto: 'vertices', controle: 'arrowControl' },
-    { id: 'boundary', tipo: 'boundary', grupo: 'military', balde: 'boundarys', gesto: 'vertices', controle: 'boundaryControl' },
-    { id: 'occupiedFront', tipo: 'occupied_front', grupo: 'military', balde: 'occupied_fronts', gesto: 'par', controle: 'occupiedFrontControl' },
-    { id: 'coordinationLine', tipo: 'coordination_line', grupo: 'military', balde: 'coordination_lines', gesto: 'vertices', controle: 'coordinationLineControl' },
+    { id: 'point', tipo: 'point', grupo: 'draw', balde: 'points', gesto: 'clique', controle: 'pointControl', alca: null },
+    { id: 'line', tipo: 'line', grupo: 'draw', balde: 'lines', gesto: 'vertices', controle: 'lineControl', alca: 'line-edit-handles' },
+    { id: 'polygon', tipo: 'polygon', grupo: 'draw', balde: 'polygons', gesto: 'vertices', controle: 'polygonControl', alca: 'polygon-edit-handles' },
+    { id: 'rectangle', tipo: 'rectangle', grupo: 'draw', balde: 'rectangles', gesto: 'par', controle: 'rectangleControl', alca: 'rectangle-edit-handles' },
+    { id: 'circle', tipo: 'circle', grupo: 'draw', balde: 'circles', gesto: 'par', controle: 'circleControl', alca: 'circle-edit-handles' },
+    { id: 'ellipse', tipo: 'ellipse', grupo: 'draw', balde: 'ellipses', gesto: 'par', controle: 'ellipseControl', alca: 'ellipse-edit-handles' },
+    { id: 'text', tipo: 'text', grupo: 'draw', balde: 'texts', gesto: 'clique', controle: 'textControl', alca: 'text-edit-handles' },
+    { id: 'brush', tipo: 'brush', grupo: 'draw', balde: 'brushes', gesto: 'traco', controle: 'brushControl', alca: null },
+    { id: 'sector', tipo: 'sector', grupo: 'draw', balde: 'setores', gesto: 'par', controle: 'sectorControl', alca: 'sector-edit-handles' },
+    { id: 'arrow', tipo: 'arrow', grupo: 'military', balde: 'arrows', gesto: 'vertices', controle: 'arrowControl', alca: 'arrow-edit-handles' },
+    { id: 'boundary', tipo: 'boundary', grupo: 'military', balde: 'boundarys', gesto: 'vertices', controle: 'boundaryControl', alca: 'boundary-edit-handles' },
+    { id: 'occupiedFront', tipo: 'occupied_front', grupo: 'military', balde: 'occupied_fronts', gesto: 'par', controle: 'occupiedFrontControl', alca: 'occupied-front-edit-handles' },
+    { id: 'coordinationLine', tipo: 'coordination_line', grupo: 'military', balde: 'coordination_lines', gesto: 'vertices', controle: 'coordinationLineControl', alca: 'coordination-line-edit-handles' },
 ]);
 
 /** Ids das feições de um balde do mapa corrente. */
