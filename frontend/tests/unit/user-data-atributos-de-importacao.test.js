@@ -60,6 +60,7 @@ vi.mock('@sidebar/panels/notes-panel.js', () => ({
 }));
 
 const userDataManager = (await import('../../src/js/user_data/user_data_manager.js')).default;
+const { TEMPORAL_SOURCE_KEYS } = await import('../../src/js/temporal/temporal-import.js');
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -291,29 +292,78 @@ describe('extractAttributesFromImport — the description', () => {
 // extractAttributesFromImport — which keys are dropped
 // ============================================================================
 
-describe('extractAttributesFromImport — dropped keys', () => {
-    it('drops system properties spelled EXACTLY as the set stores them', () => {
+describe('extractAttributesFromImport — reserved keys', () => {
+    // UNTIL 2026-09-23 THIS BLOCK PINNED THE LOSS: "drops system properties". A shapefile column
+    // named `ID`, `TYPE` or `NOME`, and the `<name>` of every KML placemark, vanished on import
+    // without a trace (measured in Chromium). The contract now: the file's name becomes the
+    // feature's `nome`; a reserved key no reader consumes is KEPT as `<key>_importado`; a reserved
+    // key is never written under its own name (the I8 property, still asserted below).
+
+    it('the name becomes `nome`, and the other reserved keys are kept with the suffix', () => {
         const out = extract({ id: 'x', nome: 'y', source: 'z', fillColor: '#fff' });
+        expect(out.nome).toBe('y');
+        expect(out.attributes).toEqual({
+            id_importado: '[san]x',
+            source_importado: '[san]z',
+            fillColor_importado: '[san]#fff',
+        });
+    });
+
+    it('CONSERTADO (I8, 2026-09-21): a reserved name is never kept UNDER ITS OWN NAME, in any casing', () => {
+        // I8 closed the leak of a reserved name through a different casing. What it kept
+        // afterwards was the drop; what must hold is that no reserved spelling lands as a key.
+        expect(extract({ fillcolor: '#fff' }).attributes).toEqual({ fillcolor_importado: '[san]#fff' });
+        expect(extract({ FillColor: '#fff' }).attributes).toEqual({ FillColor_importado: '[san]#fff' });
+        expect(extract({ FILLCOLOR: '#fff' }).attributes).toEqual({ FILLCOLOR_importado: '[san]#fff' });
+        expect(extract({ ID: 'x' }).attributes).toEqual({ ID_importado: '[san]x' });
+        expect(extract({ LayerId: 'x' }).attributes).toEqual({ LayerId_importado: '[san]x' });
+    });
+
+    it('CONTROLE: the reserved branch did not start eating neighbours', () => {
+        expect(extract({ FillColor: '#fff', vizinho: 'ok' }).attributes)
+            .toEqual({ FillColor_importado: '[san]#fff', vizinho: '[san]ok' });
+    });
+
+    it('a key a READER consumes is still skipped, not kept (temporal columns)', () => {
+        const out = extract({ inicio: '2026-01-01', FIM: '2026-02-01', timespan: 'x', vizinho: 'ok' });
+        expect(out.attributes).toEqual({ vizinho: '[san]ok' });
+    });
+
+    it('the FIRST non-empty name wins, in any casing; an empty one does not take the slot', () => {
+        expect(extract({ NAME: '  ', Nome: 'Base Alfa' }).nome).toBe('Base Alfa');
+        expect(extract({ name: 'KML' }).nome).toBe('KML');
+        expect(extract({ vizinho: 'ok' }).nome).toBeUndefined();
+        expect(extract({ name: 42 }).nome).toBe('42');
+    });
+
+    it('the same name written twice is consumed once (our own KMZ: <name> and ExtendedData nome)', () => {
+        const out = extract({ name: 'Base Alfa', nome: 'Base Alfa' });
+        expect(out.nome).toBe('Base Alfa');
         expect(out.attributes).toEqual({});
     });
 
-    it('CONSERTADO (I8, 2026-09-21): drops a system name in ANY casing', () => {
-        // This case used to be marked OBSERVADO and pin the inverse: the import
-        // walk compared `SYSTEM_PROPERTIES.has(key)` while validateAttributeKey
-        // compared against the derived lowercase index, so the same word was
-        // reserved on one path and a plain attribute on the other, one file apart.
-        expect(extract({ fillcolor: '#fff' }).attributes).toEqual({});
-        expect(extract({ FillColor: '#fff' }).attributes).toEqual({});
-        expect(extract({ FILLCOLOR: '#fff' }).attributes).toEqual({});
-        expect(extract({ ID: 'x' }).attributes).toEqual({});
-        expect(extract({ LayerId: 'x' }).attributes).toEqual({});
+    it('a SECOND, different name is kept, not lost', () => {
+        const out = extract({ name: 'Base Alfa', NOME: 'Base Bravo' });
+        expect(out.nome).toBe('Base Alfa');
+        expect(out.attributes).toEqual({ NOME_importado: '[san]Base Bravo' });
     });
 
-    it('CONTROLE: the case-insensitive skip did not start eating neighbours', () => {
-        // The same row that loses `FillColor` keeps everything else, so the new
-        // lookup is a skip and not a walk that stopped early.
-        expect(extract({ FillColor: '#fff', vizinho: 'ok' }).attributes)
-            .toEqual({ vizinho: '[san]ok' });
+    it('a collision takes a numeric suffix and never overwrites a key of the file', () => {
+        const out = extract({ ID: '1', ID_importado: 'da planilha' });
+        expect(out.attributes).toEqual({ ID_importado_2: '[san]1', ID_importado: '[san]da planilha' });
+        const depois = extract({ ID_importado: 'da planilha', ID: '1' });
+        expect(depois.attributes).toEqual({ ID_importado: '[san]da planilha', ID_importado_2: '[san]1' });
+    });
+
+    it('ROUND TRIP: a kept key re-imported stays as it is (no `_importado_importado`)', () => {
+        const primeira = extract({ ID: '7', TYPE: 'ponte' }).attributes;
+        const segunda = extract(primeira).attributes;
+        expect(Object.keys(segunda)).toEqual(['ID_importado', 'TYPE_importado']);
+        expect(Object.keys(segunda).some((k) => k.includes('_importado_importado'))).toBe(false);
+    });
+
+    it('a reserved key with a nullish or object value is still skipped', () => {
+        expect(extract({ ID: null, color: { r: 1 }, type: undefined }).attributes).toEqual({});
     });
 
     it('drops keys starting with an underscore', () => {
@@ -443,53 +493,63 @@ describe('extractAttributesFromImport — a property literally named "attributes
 // ============================================================================
 
 describe('the two policies disagree about the same word', () => {
-    it('CONSERTADO: `fillColor` is now reserved on BOTH paths', () => {
-        // It used to be reserved on import and free on manual creation, which is
-        // the pair the camelCase leak created.
-        expect(extract({ fillColor: '#fff' }).attributes).toEqual({});
+    it('CONSERTADO: `fillColor` is reserved on BOTH paths, and the import keeps it under another name', () => {
+        expect(Object.keys(extract({ fillColor: '#fff' }).attributes)).toEqual(['fillColor_importado']);
         expect(validate('fillColor').valid).toBe(false);
+        expect(validate('fillColor_importado').valid).toBe(true);
     });
 
-    it('CONSERTADO (I8, 2026-09-21): `fillcolor` no longer diverges the OTHER way', () => {
-        // This used to be the leftover disagreement, excused as "the safe
-        // direction" because the import only ever KEPT what the manual path
-        // refused. Keeping is the damage when the other owner of the name is a
-        // reader that already consumed the column.
-        expect(extract({ fillcolor: '#fff' }).attributes).toEqual({});
+    it('CONSERTADO (I8, 2026-09-21): `fillcolor` does not come back under its own name either', () => {
+        // Keeping it UNDER ITS OWN NAME is the damage I8 closed (a reader may already have
+        // consumed the column). Keeping it under `_importado` is what the person can see and edit.
+        expect(extract({ fillcolor: '#fff' }).attributes).not.toHaveProperty('fillcolor');
         expect(validate('fillcolor').valid).toBe(false);
     });
 
     it('CONSERTADO (I8, 2026-09-21): `ID` is reserved on BOTH paths', () => {
-        expect(extract({ ID: 'x' }).attributes).toEqual({});
+        expect(extract({ ID: 'x' }).attributes).toEqual({ ID_importado: '[san]x' });
         expect(validate('ID').valid).toBe(false);
     });
 
-    it('the two paths now agree on every system name, in every casing', () => {
-        // The property the pairwise cases above only sample. One name is
-        // EXCLUDED and the exclusion is the declared exception, not a hole:
-        // `attributes` is renamed to `attributes_imported` instead of dropped
-        // (its own describe block above pins that, in three casings), because
-        // dropping it is the data loss that branch exists to prevent.
+    it('on every system name, in every casing: never kept under a reserved name, and never lost', () => {
+        // The property the pairwise cases above only sample. `attributes` is EXCLUDED (renamed to
+        // `attributes_imported`, pinned by its own block). Every other reserved name either fills
+        // `descricao` or `nome`, or is kept under a NON-reserved name, or is one a reader consumes
+        // (the temporal columns), and only that last kind may leave no trace.
+        const consumidas = new Set([...TEMPORAL_SOURCE_KEYS, 'temporalinicio', 'temporalfim',
+            'trajetoria', 'timespan']);
         const nomes = [...userDataManager.getSystemProperties()]
             .filter((n) => n.toLowerCase() !== 'attributes');
         expect(nomes.length).toBeGreaterThan(100);
 
+        let mantidas = 0;
         for (const nome of nomes) {
             for (const grafia of [nome, nome.toLowerCase(), nome.toUpperCase()]) {
-                expect(extract({ [grafia]: 'v' }).attributes, `import manteve "${grafia}"`)
-                    .toEqual({});
+                const out = extract({ [grafia]: 'v' });
+                const chaves = Object.keys(out.attributes);
+                for (const chave of chaves) {
+                    expect(validate(chave).reason, `import manteve "${chave}" reservado`)
+                        .not.toBe('Chave reservada pelo sistema');
+                }
+                if (chaves.length === 1) mantidas++;
+                const guardado = chaves.length === 1 || out.descricao !== '' || out.nome === 'v';
+                if (!guardado) {
+                    expect(consumidas.has(grafia.toLowerCase()), `import perdeu "${grafia}"`).toBe(true);
+                }
                 expect(validate(grafia).valid, `manual aceitou "${grafia}"`).toBe(false);
             }
         }
+        // Vacuum control: most reserved names are now KEPT, not consumed.
+        expect(mantidas).toBeGreaterThan(200);
     });
 
     it('OBSERVADO: the divergence that REMAINS is about characters, not case', () => {
         // `a.b` is not a reserved name; it is refused by the character regex of
         // validateAttributeKey, which the import walk does not apply. So an
-        // imported attribute can still be one no user could have typed — and
-        // `ID`, which used to ride along in this same row, no longer does.
+        // imported attribute can still be one no user could have typed. `ID` rides along
+        // under `ID_importado`, a name the manual path accepts.
         const imported = extract({ 'a.b': 1, ID: 2 }).attributes;
-        expect(Object.keys(imported)).toEqual(['a.b']);
+        expect(Object.keys(imported)).toEqual(['a.b', 'ID_importado']);
         expect(validate('a.b').valid).toBe(false);
         expect(validate('a.b').reason).toBe('Chave contém caracteres inválidos');
         expect(validate('ID').reason).toBe('Chave reservada pelo sistema');

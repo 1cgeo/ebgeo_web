@@ -42,6 +42,29 @@ const DESCRIPTION_PROPERTY_KEYS = new Set([
     'descricao', 'descrição', 'description', 'desc',
 ]);
 
+/**
+ * Property keys that carry the feature's NAME in an imported file (KML `<name>`, a `nome` or
+ * `name` column), checked case-insensitively. The first non-empty one becomes the feature's
+ * `nome`; until 2026-09-23 all of them were dropped as system names and the feature was born
+ * "Ponto #N", with the file's name nowhere.
+ * @constant {Set<string>}
+ */
+const NAME_PROPERTY_KEYS = new Set(['nome', 'name']);
+
+/**
+ * Reserved names that an import reader CONSUMES into the feature (the validity window, the
+ * trajectory), lowercase. Every OTHER reserved name found in a file is kept as a user attribute
+ * under `<key>_importado` instead of being dropped (see `extractAttributesFromImport`).
+ * @constant {Set<string>}
+ */
+const CONSUMED_ON_IMPORT_LOWER = new Set([
+    ...TEMPORAL_SOURCE_KEYS,
+    'temporalinicio', 'temporalfim', 'trajetoria', 'timespan',
+]);
+
+/** Suffix of a reserved imported key kept as a user attribute. */
+const IMPORTED_KEY_SUFFIX = '_importado';
+
 const SYSTEM_PROPERTIES = new Set([
     // Core identifiers
     'id', 'nome', 'name', 'source', 'layerId', 'groupId',
@@ -516,8 +539,20 @@ const userDataManager = {
      * Filters out system properties, converts values to strings, and sanitizes HTML.
      * Description-like properties (descricao, description, desc) are extracted
      * separately and returned in the result for mapping to feature.properties.descricao.
+     *
+     * The first non-empty NAME (`nome`/`name`, any casing) is returned as `nome`, for the
+     * caller to use as the feature's name. A later name key with the same value is the same
+     * name written twice (our own KMZ export writes `<name>` and an ExtendedData `nome`) and is
+     * consumed with it.
+     *
+     * A RESERVED key that no import reader consumes (an `ID`, `TYPE`, `NOME` column that was not
+     * the name, `color`, `layer`...) is KEPT as a user attribute named `<key>_importado`, with a
+     * numeric suffix when that name is taken, instead of being dropped as it was until
+     * 2026-09-23. It never lands on the reserved key itself, so no system property is written.
+     * The keys a reader does consume (the temporal columns, the trajectory) are still skipped.
      * @param {Object} importedProperties - Properties from imported GeoJSON feature
-     * @returns {{ attributes: Object, descricao: string }} Extracted user attributes and description
+     * @returns {{ attributes: Object, descricao: string, nome: (string|undefined) }} Extracted
+     *   user attributes, description, and the file's name for the feature when it had one
      */
     extractAttributesFromImport(importedProperties) {
         if (!importedProperties || typeof importedProperties !== 'object') {
@@ -526,6 +561,18 @@ const userDataManager = {
 
         const extracted = {};
         let descricao = '';
+        let nome;
+
+        /** The first free attribute name for a reserved imported key. */
+        const nomeLivre = (key) => {
+            const base = `${key}${IMPORTED_KEY_SUFFIX}`;
+            let candidato = base;
+            for (let n = 2; Object.hasOwn(extracted, candidato)
+                || Object.hasOwn(importedProperties, candidato); n++) {
+                candidato = `${base}_${n}`;
+            }
+            return candidato;
+        };
 
         for (const [key, value] of Object.entries(importedProperties)) {
             // Extract description-like properties into descricao
@@ -552,13 +599,26 @@ const userDataManager = {
                 continue;
             }
 
-            // Skip system properties, case-INSENSITIVELY. This lookup used to be
-            // case-sensitive while `validateAttributeKey` next door was not, so
-            // the two disagreed about the same name: a column spelled `Begin`,
-            // `INICIO` or `fillcolor` was consumed by its owner (the temporal
-            // reader, the style) AND kept as a duplicate user attribute that the
-            // person could then never create by hand.
-            if (SYSTEM_PROPERTIES_LOWER.has(key.toLowerCase())) {
+            // The file's NAME for the feature: the first non-empty `nome`/`name`.
+            const lower = key.toLowerCase();
+            const escalar = value !== null && value !== undefined && typeof value !== 'object';
+            if (NAME_PROPERTY_KEYS.has(lower) && escalar) {
+                const texto = String(value).trim();
+                if (nome === undefined && texto !== '') {
+                    nome = texto;
+                    continue;
+                }
+                // The same name written twice (our own KMZ: `<name>` plus ExtendedData `nome`).
+                if (texto === nome || texto === '') continue;
+            }
+
+            // Reserved names, case-INSENSITIVELY (a column spelled `Begin`, `INICIO` or
+            // `fillcolor` must not become a user attribute under that very name). A reserved
+            // name a reader consumes is skipped; any other one is KEPT under `<key>_importado`,
+            // because dropping it lost an `ID`, `TYPE` or second `NOME` column without a trace.
+            if (SYSTEM_PROPERTIES_LOWER.has(lower)) {
+                if (CONSUMED_ON_IMPORT_LOWER.has(lower) || !escalar) continue;
+                extracted[nomeLivre(key)] = sanitizeHtml(String(value));
                 continue;
             }
 
@@ -581,7 +641,7 @@ const userDataManager = {
             extracted[key] = sanitizeHtml(String(value));
         }
 
-        return { attributes: extracted, descricao };
+        return { attributes: extracted, descricao, nome };
     },
 
     // ===== VALIDATION =====

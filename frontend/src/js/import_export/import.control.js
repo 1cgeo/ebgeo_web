@@ -730,12 +730,14 @@ class AddImportControl {
      */
     async prepareFeatureForImportAsync(feature, targetType, typeCounters, layerId, temporalReport = null) {
         const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
-        const featureName = this.generateImportName(targetType, typeCounters);
 
-        // Extract custom attributes and description from imported properties
-        const { attributes: extractedAttributes, descricao } = userDataManager.extractAttributesFromImport(
-            feature.properties
-        );
+        // Extract custom attributes, description and the file's own name from imported properties
+        const { attributes: extractedAttributes, descricao, nome: nomeDoArquivo } =
+            userDataManager.extractAttributesFromImport(feature.properties);
+        // The file's name (KML `<name>`, a `nome`/`name` column) is the feature's name; the
+        // generated "Ponto #N" is only the fallback for a feature that came without one. Until
+        // 2026-09-23 the file's name was dropped and every feature was "Ponto #N".
+        const featureName = nomeDoArquivo ?? this.generateImportName(targetType, typeCounters);
 
         // Extract temporal validity (epoch-ms) from the raw imported properties.
         // @tmcw/togeojson emits KML <TimeSpan> as a nested `timespan: { begin, end }`
