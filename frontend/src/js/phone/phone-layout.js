@@ -43,6 +43,7 @@ import { controlKeyForFeatureType, ensureControl } from '@tools/tool-registry.js
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { showToast, deepClone } from '@utils';
 import config from '@js/config.js';
+import { NAME_TAKEN } from '@js/map/map.manager.js';
 import { PHONE_QUERY } from '@utils/tablet-mode.js';
 
 // ============================================================================
@@ -934,6 +935,12 @@ export class PhoneLayout {
                 const currentName = getCurrentMapNameSync() || '';
                 const newName = await this._showPrompt('Novo nome do mapa:', currentName);
                 if (newName && newName !== currentName) {
+                    // Same guard as the sidebar (MapManager): a local map is stored under its NAME,
+                    // so renaming onto another map's name would overwrite that map.
+                    if ((await getAllMapNamesStore()).includes(newName.trim())) {
+                        showToast(NAME_TAKEN, 'warning');
+                        return;
+                    }
                     await renameMap(currentName, newName);
                     // renameMap resolves to undefined on success AND on both refusals
                     // (no permission, locked map), so confirm by re-reading the list.

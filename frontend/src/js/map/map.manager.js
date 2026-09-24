@@ -51,7 +51,7 @@ const MAP_LIMIT = 100;
  * overwrote that map with the new document and its features were gone; in a server atlas it left
  * two maps with one name, and the name-to-id resolver points at only one of them.
  */
-const NAME_TAKEN = 'Já existe um mapa com esse nome neste atlas. Escolha outro nome.';
+export const NAME_TAKEN = 'Já existe um mapa com esse nome neste atlas. Escolha outro nome.';
 
 /**
  * True when `name` (already trimmed) is the name of a map other than `except`.
