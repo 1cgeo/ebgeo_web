@@ -692,26 +692,17 @@ class MapManager {
             case 'remove':
                 await executeFunction.addFeature(action.featureType, action.feature);
                 break;
+            // THE ANALYSIS OUTPUT IS RE-DERIVED FROM THE INPUT THAT RESULTS, never reinserted from
+            // the copies this entry kept: `keepLaterEdits` may leave a peer's later geometry on the
+            // input, and the kept halves were drawn on the old one. The kept copies stay in the
+            // entry only because old histories carry them; nothing reads them any more.
             case 'removeWithProcessed':
                 await executeFunction.addFeature(action.mainFeatureType, action.mainFeature);
-                if (action.processedFeatures) {
-                    for (const pf of action.processedFeatures.features) {
-                        await executeFunction.addFeature(action.processedFeatures.type, pf);
-                    }
-                }
+                await executeFunction.rederiveAnalysisOutput(action.mainFeatureType, action.mainFeature.properties.id);
                 break;
             case 'updateWithProcessed':
                 await executeFunction.updateFeature(action.mainFeatureType, action.oldFeature, null, { revertFrom: action.newFeature });
-                if (action.newProcessedFeatures) {
-                    for (const pf of action.newProcessedFeatures.features) {
-                        await executeFunction.removeFeature(action.newProcessedFeatures.type, pf.properties.id);
-                    }
-                }
-                if (action.oldProcessedFeatures) {
-                    for (const pf of action.oldProcessedFeatures.features) {
-                        await executeFunction.addFeature(action.oldProcessedFeatures.type, pf);
-                    }
-                }
+                await executeFunction.rederiveAnalysisOutput(action.mainFeatureType, action.oldFeature.properties.id);
                 break;
             case 'addMultiple':
                 for (const [type, features] of Object.entries(action.features)) {
@@ -725,12 +716,8 @@ class MapManager {
                     for (const featureOp of typeOps.mainFeatures) {
                         await executeFunction.removeFeatureFromMap(type, featureOp.feature.properties.id, action.targetMapName);
                         await executeFunction.addFeatureToMap(type, featureOp.removedData.mainFeature, action.sourceMapName);
-
-                        if (featureOp.removedData.processedFeatures) {
-                            for (const pf of featureOp.removedData.processedFeatures.features) {
-                                await executeFunction.addFeatureToMap(featureOp.removedData.processedFeatures.type, pf, action.sourceMapName);
-                            }
-                        }
+                        // Derived from the input just restored, not the kept copies (see above).
+                        await executeFunction.rederiveAnalysisOutput(type, featureOp.removedData.mainFeature.properties.id, action.sourceMapName);
                     }
                 }
                 break;
@@ -758,16 +745,7 @@ class MapManager {
                 break;
             case 'updateWithProcessed':
                 await executeFunction.updateFeature(action.mainFeatureType, action.newFeature, null, { revertFrom: action.oldFeature });
-                if (action.oldProcessedFeatures) {
-                    for (const pf of action.oldProcessedFeatures.features) {
-                        await executeFunction.removeFeature(action.oldProcessedFeatures.type, pf.properties.id);
-                    }
-                }
-                if (action.newProcessedFeatures) {
-                    for (const pf of action.newProcessedFeatures.features) {
-                        await executeFunction.addFeature(action.newProcessedFeatures.type, pf);
-                    }
-                }
+                await executeFunction.rederiveAnalysisOutput(action.mainFeatureType, action.newFeature.properties.id);
                 break;
             case 'addMultiple':
                 for (const [type, features] of Object.entries(action.features)) {
@@ -781,12 +759,7 @@ class MapManager {
                     for (const featureOp of typeOps.mainFeatures) {
                         await executeFunction.removeFeatureFromMap(type, featureOp.removedData.mainFeature.properties.id, action.sourceMapName);
                         await executeFunction.addFeatureToMap(type, featureOp.feature, action.targetMapName);
-
-                        if (featureOp.removedData.processedFeatures) {
-                            for (const pf of featureOp.removedData.processedFeatures.features) {
-                                await executeFunction.addFeatureToMap(featureOp.removedData.processedFeatures.type, pf, action.targetMapName);
-                            }
-                        }
+                        await executeFunction.rederiveAnalysisOutput(type, featureOp.feature.properties.id, action.targetMapName);
                     }
                 }
                 break;

@@ -29,6 +29,7 @@ import { applyGeneratedBitmap } from '../layers/bitmap-version.js';
 // instead of carrying a second copy of it. `temporal-attributes.model.js` imports only
 // `temporal-model.js` and `temporal.utils.js`; nothing there reaches back into the store.
 import { derivarCamposDtg } from '../temporal/temporal-attributes.model.js';
+import { derivedOutputBucketOf, replaceDerivedOutput } from './analysis-output.js';
 
 // ===== TIMESTAMP AND VERSION HELPERS =====
 
@@ -1204,7 +1205,11 @@ async function batchUpdateAnalysisFeatures(mainType, mainFeature, processedFeatu
         currentMapData.features[processedType].push(...cleanedProcessed);
 
         await runTransaction(async (tx) => {
-            if (shouldRecordUndo(mapName)) {
+            // An entry only for an edit that changed the input: the output is derived from it, so
+            // an unchanged input means nothing to take back, and an empty entry makes the next
+            // Ctrl+Z announce "desfeita" and do nothing (measured: the observer-height field
+            // commits twice, on its debounce and on blur, and the second commit recorded one).
+            if (mainChanged && shouldRecordUndo(mapName)) {
                 tx.deferSync(() => {
                     mapManager.recordAction({
                         type: 'updateWithProcessed',
@@ -1238,6 +1243,35 @@ async function batchUpdateAnalysisFeatures(mainType, mainFeature, processedFeatu
 
             return () => updateMapDataCompat(targetMap, currentMapData);
         });
+        return true;
+    });
+}
+
+/**
+ * Re-derives, IN PLACE, the analysis output of one input feature from the input as it is stored
+ * NOW (`store/analysis-output.js`). The output is never synced, so this writes no operation.
+ *
+ * It exists for undo and redo, which used to REINSERT the halves they had kept in the history
+ * entry. Since an undo takes back only what its own edit changed (`keepLaterEdits`), the input it
+ * leaves may carry a peer's later geometry, and the kept halves were drawn on the old one: the
+ * analysis showed in the wrong place on the author's screen until a reload. Deriving from the
+ * resulting input cannot disagree with it.
+ *
+ * A derived write, so a map that no longer exists is skipped in silence.
+ * @param {string} inputType - Store bucket of the input (`los` or `visibility`)
+ * @param {string} inputId - Id of the input feature
+ * @param {string} [mapName=null] - Target map name
+ * @returns {Promise<boolean>} Whether an output bucket was rewritten
+ */
+export async function rederiveAnalysisOutput(inputType, inputId, mapName = null) {
+    if (!derivedOutputBucketOf(inputType) || !inputId) return false;
+    const targetMap = resolveMap(mapName);
+    return withMapDocument(targetMap, 'rederiveAnalysisOutput', async () => {
+        const currentMapData = await mapDocumentForDerivedWrite(targetMap);
+        if (!currentMapData?.features) return false;
+        const input = (currentMapData.features[inputType] ?? []).find(f => f.properties?.id === inputId) ?? null;
+        replaceDerivedOutput(currentMapData.features, inputType, inputId, input);
+        await runTransaction(async () => () => updateMapDataCompat(targetMap, currentMapData));
         return true;
     });
 }

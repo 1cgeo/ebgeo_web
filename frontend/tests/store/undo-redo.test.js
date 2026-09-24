@@ -66,7 +66,8 @@ function createMockExecuteFn() {
         updateFeature: vi.fn().mockResolvedValue(undefined),
         removeFeature: vi.fn().mockResolvedValue(undefined),
         addFeatureToMap: vi.fn().mockResolvedValue(undefined),
-        removeFeatureFromMap: vi.fn().mockResolvedValue(undefined)
+        removeFeatureFromMap: vi.fn().mockResolvedValue(undefined),
+        rederiveAnalysisOutput: vi.fn().mockResolvedValue(true)
     };
 }
 
@@ -602,7 +603,12 @@ describe('Color tracking', () => {
 // ============================================================================
 
 describe('removeWithProcessed undo/redo', () => {
-    it('undo of removeWithProcessed restores main + processed features', async () => {
+    // SINCE 2026-09-23 THE OUTPUT IS RE-DERIVED, NOT REINSERTED. This case asserted the three
+    // addFeature calls of the old shape (main plus the two kept halves). The halves are a pure
+    // function of the input (`store/analysis-output.js`), and reinserting the kept copies drew the
+    // analysis on the OLD geometry whenever the restored input carried a peer's later one
+    // (`browser-collab-analise-desfazer.repro.spec.js`).
+    it('undo of removeWithProcessed restores the main feature and re-derives its output', async () => {
         const executeFn = createMockExecuteFn();
         const mainFeature = mockFeature('los-1');
         const processedFeatures = [
@@ -622,12 +628,12 @@ describe('removeWithProcessed undo/redo', () => {
 
         await mapManager.undoLastAction(executeFn);
 
-        // Should restore main feature
+        // Should restore main feature, and only it
         expect(executeFn.addFeature).toHaveBeenCalledWith('los', mainFeature);
-        // Should restore processed features
-        expect(executeFn.addFeature).toHaveBeenCalledWith('processed_los', processedFeatures[0]);
-        expect(executeFn.addFeature).toHaveBeenCalledWith('processed_los', processedFeatures[1]);
-        expect(executeFn.addFeature).toHaveBeenCalledTimes(3);
+        expect(executeFn.addFeature).toHaveBeenCalledTimes(1);
+        // The output is derived from the restored input, never from the kept copies
+        expect(executeFn.rederiveAnalysisOutput).toHaveBeenCalledWith('los', 'los-1');
+        expect(executeFn.addFeature).not.toHaveBeenCalledWith('processed_los', processedFeatures[0]);
     });
 
     it('redo of removeWithProcessed removes main feature', async () => {

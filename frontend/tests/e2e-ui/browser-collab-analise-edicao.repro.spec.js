@@ -18,49 +18,15 @@
  * primeiro rascunho deste arquivo passou verde sem o conserto por isso.)
  */
 
-import { collabTest, expect, selectFeatureUI } from './helpers/collab.fixtures.js';
-import { prepararTerreno, desocupar, tracarVisada, tracarViewshed, balde } from './helpers/analise-terreno.js';
+import { collabTest, expect } from './helpers/collab.fixtures.js';
+import {
+    prepararTerreno, desocupar, tracarVisada, tracarViewshed, balde, alturaNoStore, mudarAlturaDoObservador,
+} from './helpers/analise-terreno.js';
 
 collabTest.describe.configure({ retries: 0 });
 
 async function alturaNoServidor(collab, id) {
     return (await collab.db.queryFeatureRow(id))?.properties?.observerHeight ?? null;
-}
-
-async function alturaNoStore(page, bucket, id) {
-    return (await balde(page, bucket)).find((f) => f.id === id)?.props?.observerHeight ?? null;
-}
-
-/**
- * Muda a Altura do Observador pela aba Parâmetros do painel da feição, e espera o RECÁLCULO gravar
- * no store do autor, que é a premissa de tudo o que este caso afirma depois.
- *
- * O campo confirma no `blur` (`attachNumericInputHandlers`, `tool_manager/helpers/slider.helpers.js`),
- * então o gesto é preencher e sair com Tab. UMA nova tentativa do gesto, e ela é declarada: numa de
- * cinco rodadas em série o preenchimento do viewshed não disparou recálculo nenhum (nem modal, nem
- * op), o que é um sintoma do PAINEL, não do sync que este caso mede, e fica como suspeita no
- * relatório da caça. Sem a nova tentativa, este caso reprovaria pela metade errada.
- */
-async function mudarAlturaDoObservador(page, bucket, id, valor, prazo) {
-    for (let tentativa = 1; tentativa <= 2; tentativa++) {
-        await selectFeatureUI(page, id);
-        const painel = page.locator('.feature-panel[data-expanded="true"]');
-        await painel.locator('.feature-tab-btn[data-tab-id="parametros"]').click();
-        const slider = painel.locator('.feature-tab-content[data-tab-id="parametros"] .attr-modern-slider')
-            .filter({ hasText: 'Altura do Observador' });
-        const campo = slider.locator('.attr-modern-slider-input');
-        await expect(campo).toBeEnabled({ timeout: 10000 });
-        await campo.fill(String(valor));
-        await campo.press('Tab');
-        try {
-            await expect.poll(() => alturaNoStore(page, bucket, id), { timeout: prazo, intervals: [500, 1000] }).toBe(valor);
-            return;
-        } catch (erro) {
-            if (tentativa === 2) throw erro;
-            console.log(`[analise-edicao] o gesto em ${bucket} nao disparou recalculo; nova tentativa`);
-            await desocupar(page);
-        }
-    }
 }
 
 collabTest('recalcular a visada e o viewshed pela aba Parametros chega ao servidor, ao par e sobrevive ao F5', async ({ collab }) => {

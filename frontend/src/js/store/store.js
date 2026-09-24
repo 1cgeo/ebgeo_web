@@ -81,6 +81,7 @@ import {
     removeFeature,
     addFeatureToMap,
     removeFeatureFromMap,
+    rederiveAnalysisOutput,
     moveFeaturesToLayer as moveFeaturesToLayerBase
 } from './feature.operations.js';
 import {
@@ -884,7 +885,8 @@ const undoRedoExecutors = {
     updateFeature,
     removeFeature,
     addFeatureToMap,
-    removeFeatureFromMap
+    removeFeatureFromMap,
+    rederiveAnalysisOutput
 };
 
 /**
