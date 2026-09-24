@@ -140,10 +140,16 @@ export function buildExtendedData(properties = {}, extras = {}) {
     if (properties.nome) entries.push(['nome', properties.nome]);
     if (properties.descricao) entries.push(['descricao', properties.descricao]);
 
+    // AN EMPTY ATTRIBUTE IS KEPT, and only a missing one is skipped: the KEY is the user's data (the
+    // Attributes tab creates a field with no value and shows it as a dash), and the round trip of our
+    // own KMZ must bring back the same attributes, none lost. Skipping the empty value dropped the
+    // field on every export (measured on 2026-09-24, `tests/e2e-ui/cobertura-atributos-travessia.spec.js`).
+    // The import keeps an empty value (`extractAttributesFromImport`). The EXTRAS below still skip it:
+    // they are style aspects, and an empty one says nothing.
     const attributes = properties.attributes;
     if (attributes && typeof attributes === 'object') {
         for (const [key, value] of Object.entries(attributes)) {
-            if (value == null || value === '') continue;
+            if (value == null) continue;
             entries.push([key, value]);
         }
     }
