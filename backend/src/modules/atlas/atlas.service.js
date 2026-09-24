@@ -1201,9 +1201,6 @@ export async function duplicateMap(atlasId, mapId, actingUserId = null) {
   let newMapResult;
 
   await withPreparedImageCopies(atlasId, atlasId, mapId, async (t, { imageIdMap, rows: imageRows }) => {
-    // FIRST, before any write: this transaction updates the atlas row and then writes a marker
-    // into the log of an atlas that pushes are writing too. See `lockAtlasLog`.
-    await lockAtlasLog(t, atlasId);
     const map = await t.oneOrNone(
       `SELECT * FROM maps WHERE id = $1 AND atlas_id = $2 AND deleted_at IS NULL`,
       [mapId, atlasId]
@@ -1229,6 +1226,15 @@ export async function duplicateMap(atlasId, mapId, actingUserId = null) {
       { targetAtlasId: atlasId, copyComments: true }
     );
     await ensureMapLayers(t, atlasId, [newMapId]);
+
+    // THE LOG LOCK OF THE ATLAS, taken HERE and not at the top: before this line the transaction
+    // only reads the source map and writes rows of a map no one else can see yet, so it holds
+    // nothing a push waits for, and taking the lock at the top made every push of the atlas wait
+    // (holding a pool connection, then a 503) for the whole copy of a large map. From here on it
+    // updates the atlas row and writes the marker into the log, which is what must follow the
+    // push's order: taken BEFORE the atlas row, in the same order the push takes them, so there is
+    // no lock cycle. See `lockAtlasLog`.
+    await lockAtlasLog(t, atlasId);
 
     // Append to atlas map_order
     await t.none(
