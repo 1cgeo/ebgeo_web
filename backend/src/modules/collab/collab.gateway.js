@@ -16,6 +16,7 @@ import { toFrontendRole } from '../../utils/roles.js';
 import * as collabService from './collab.service.js';
 import * as handlers from './collab.handlers.js';
 import { installOutboundResourcePrune } from './collab.send.js';
+import { proximaMarca, aoPong } from './collab.fluxo.js';
 import { publicLinkFingerprint } from '../../utils/public-link-fingerprint.js';
 import {
   decidirAvisoDeTipoDesconhecido,
@@ -339,7 +340,11 @@ export async function heartbeatSweep(wss) {
     // O ping do PROTOCOLO e respondido pela pilha de rede do navegador, automaticamente. Nao
     // passa pelo JavaScript da pagina, entao nao existe temporizador para estrangular: a API de
     // WebSocket nem expoe ping e pong ao script.
-    try { ws.ping(); } catch { /* socket fechando; a proxima varredura o colhe */ }
+    //
+    // The ping carries the SEQUENCE of the presence flow control (`collab.fluxo.js`): pongs come
+    // back in order, so this one also acknowledges an older presence marker whose pong was lost,
+    // and that recipient's window reopens within one sweep.
+    try { ws.ping(proximaMarca(ws)); } catch { /* socket fechando; a proxima varredura o colhe */ }
     live.push(ws);
   });
 
@@ -759,8 +764,12 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
   // varredura e ceifar socket cujo cliente foi embora, e o pong de protocolo mede exatamente
   // isso. Frame de aplicacao continua rearmando a marca por handleMessage; este virou o sinal
   // PRIMARIO, aquele virou o bonus.
-  ws.on('pong', () => {
+  //
+  // The SAME pong closes this socket's presence flow-control window (`collab.fluxo.js`): it proves
+  // everything sent before the ping has reached the browser.
+  ws.on('pong', (data) => {
     ws.isAlive = true;
+    aoPong(ws, data);
   });
 }
 
