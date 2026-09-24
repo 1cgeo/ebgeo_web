@@ -849,12 +849,15 @@ async function applyRemoteCreateRun(run, options) {
                 if (!previous) return true;
                 const leaving = new Set(run.map((operation) => operation.entityId));
                 const removed = [];
-                for (const bucket of Object.values(previous.features ?? {})) {
+                for (const [bucketName, bucket] of Object.entries(previous.features ?? {})) {
                     if (!Array.isArray(bucket)) continue;
                     for (let i = bucket.length - 1; i >= 0; i--) {
-                        if (!leaving.has(bucket[i]?.properties?.id)) continue;
+                        const id = bucket[i]?.properties?.id;
+                        if (!leaving.has(id)) continue;
                         removed.push(bucket[i]);
                         bucket.splice(i, 1);
+                        // The derived analysis output leaves with its input, as in the single path.
+                        replaceDerivedOutput(previous.features, bucketName, id, null);
                     }
                 }
                 if (removed.length > 0) {

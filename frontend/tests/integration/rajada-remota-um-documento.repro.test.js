@@ -277,6 +277,30 @@ describe('applyRemoteOperations: criacoes do mesmo quadro', () => {
             .toEqual([`${losId}-obstructed`, `${losId}-visible`]);
     });
 
+    it('mover uma visada para outro mapa leva as metades derivadas da ORIGEM junto (achado 3)', async () => {
+        // O caminho unico tira a saida derivada da origem (`replaceDerivedOutput(..., null)`); a
+        // corrida de mudancas tirava so a entrada, e as metades <id>-visible e <id>-obstructed
+        // ficavam desenhadas no mapa de origem do colega ate o F5.
+        const losId = '22222222-2222-4222-8222-222222222222';
+        const entrada = {
+            type: 'Feature',
+            geometry: { type: 'MultiLineString', coordinates: [[[0, 0], [1, 1]], [[1, 1], [2, 2]]] },
+            properties: { id: losId, source: 'los', nome: 'Linha de Visada #2', width: 5, opacity: 1 },
+        };
+        const origem = emptyMap('map-0');
+        origem.features.los = [structuredClone(entrada)];
+        origem.features.processed_los = [
+            { type: 'Feature', properties: { id: `${losId}-visible` } },
+            { type: 'Feature', properties: { id: `${losId}-obstructed` } },
+        ];
+        mapDataStore.set('map-0', origem);
+        const mover = (op) => ({ ...op, data: { ...op.data, previousMapId: 'map-0' } });
+        await applyRemoteOperations([mover(create(losId, { data: entrada })), mover(create('p-junto'))]);
+        const docOrigem = mapDataStore.get('map-0').features;
+        expect(docOrigem.los).toEqual([]);
+        expect(docOrigem.processed_los ?? []).toEqual([]);
+    });
+
     it('a falha de gravacao sobe, como no caminho unico', async () => {
         const { getRepository } = await import('../../src/js/store/repositories/index.js');
         getRepository.mockImplementationOnce(() => ({
