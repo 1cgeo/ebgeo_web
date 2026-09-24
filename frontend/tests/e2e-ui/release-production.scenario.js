@@ -58,7 +58,10 @@ async function disk(page) {
         for (const name of names.filter(name => name.startsWith('ebgeo_maps'))) {
             const maps = await rows(name);
             const features = maps.flatMap(map => Object.values(map.features || {}).flatMap(list => Array.isArray(list) ? list : []));
-            result[name] = { maps: maps.length, features: features.length, ids: features.map(feature => feature.properties?.id).sort() };
+            // The analysis OUTPUT buckets: derived on every client and never sent (5378da27).
+            const derived = maps.flatMap(map => ['processed_los', 'processed_visibility']
+                .flatMap(key => Array.isArray(map.features?.[key]) ? map.features[key] : [])).length;
+            result[name] = { maps: maps.length, features: features.length, derived, ids: features.map(feature => feature.properties?.id).sort() };
         }
         const registry = names.includes('ebgeo_global') ? await rows('ebgeo_global', true) : [];
         const localDatabases = registry.filter(([key]) => key.startsWith('local_atlas:'))
@@ -122,6 +125,12 @@ test('HTTPS: importar, enviar ao servidor, reiniciar, editar sem rede, recuperar
     expect(Object.values(local.maps).some(map => map.features === 805)).toBe(true);
     expect(local.localDatabases.length).toBeGreaterThan(0);
     expect(local.localDatabases.some(name => local.maps[name]?.features === 805)).toBe(true);
+    // THE SERVER HOLDS THE 805 MINUS THE ANALYSIS OUTPUT. Since 5378da27 the halves of a line of
+    // sight and of a viewshed are derived on every client from the input and never travel: the
+    // upload skips their buckets and every client re-derives them. This scenario expected 805 on
+    // the server until the integration of 2026-09-24, which made it red with the product right.
+    const derived = local.maps[local.localDatabases.find(name => local.maps[name]?.features === 805)].derived;
+    expect(derived).toBeGreaterThan(0); // the fixture carries analyses, or this subtraction measures nothing
     const credentials = await createVerifiedUser({ prefix: 'release', nome: 'Ensaio de release' });
     await page.getByTestId('account-login-btn').click();
     await page.getByTestId('login-username').fill(credentials.username);
@@ -140,7 +149,7 @@ test('HTTPS: importar, enviar ao servidor, reiniciar, editar sem rede, recuperar
     const api = new ApiClient({ baseUrl: readState().baseUrl + '/api/v1' });
     await api.login(credentials.username, credentials.password);
     const count = snapshot => snapshot.maps.reduce((n, map) => n + Object.values(map.features || {}).reduce((n, list) => n + list.length, 0), 0);
-    expect(count((await api.pullSync(atlasId, 0)).snapshot)).toBe(805);
+    expect(count((await api.pullSync(atlasId, 0)).snapshot)).toBe(805 - derived);
     await page.reload();
     await expect(page.getByTestId('sync-status-badge')).toHaveAttribute('data-state', 'online', { timeout: 30000 });
     // This isolated backend intentionally serves no external basemap tiles.
@@ -157,12 +166,12 @@ test('HTTPS: importar, enviar ao servidor, reiniciar, editar sem rede, recuperar
     await canvas.click({ position: { x: 650, y: 350 } });
     await page.keyboard.press('Escape');
     await expect.poll(async () => Object.values((await disk(page)).maps).some(map => map.features === 806), { timeout: 20000 }).toBe(true);
-    expect(count((await api.pullSync(atlasId, 0)).snapshot)).toBe(805);
+    expect(count((await api.pullSync(atlasId, 0)).snapshot)).toBe(805 - derived);
     await page.reload();
     await expect(page.locator('#nav-btn-zoom-in')).toBeVisible({ timeout: 30000 });
     expect(Object.values((await disk(page)).maps).some(map => map.features === 806)).toBe(true);
     await context.unroute('**/api/v1/atlas/*/sync');
-    await expect.poll(async () => count((await api.pullSync(atlasId, 0)).snapshot), { timeout: 30000 }).toBe(806);
+    await expect.poll(async () => count((await api.pullSync(atlasId, 0)).snapshot), { timeout: 30000 }).toBe(806 - derived);
     const snapshot = (await api.pullSync(atlasId, 0)).snapshot;
     expect(sockets.some(url => url.startsWith('wss://'))).toBe(true);
     expect(errors).toEqual([]);
