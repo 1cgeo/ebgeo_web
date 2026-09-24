@@ -1,5 +1,6 @@
 // Path: js/store/sync/feature-patch.js
 import { deepEqual } from '../../utilities/deep-utils.js';
+import { fotosSemBytes } from '../../user_data/photo-refs.js';
 
 const METADATA = new Set(['id', 'sync', 'version', 'confirmedVersion', 'createdAt', 'updatedAt']);
 
@@ -50,8 +51,25 @@ function attributeEntries(previous, next) {
 }
 
 /**
+ * A property as the patch compares it. The attached photos (`images`) are compared WITHOUT the bytes
+ * of their inline items (2026-09-24, second review of the attached photos, item 4): the previous
+ * side of a feature edit travels without them (`previousOfFeatureEdit`, `store/feature.operations.js`),
+ * and the photos an edit did not touch must stay out of its patch, or every edit of a feature with
+ * an inline photo would claim the photos and dispute them with a colleague who edited something
+ * else. The bytes of an inline item never change under the same item: the gate makes a new item for
+ * a new picture, with its own id, thumbnail and size.
+ * @param {string} key
+ * @param {*} value
+ * @returns {*}
+ */
+function comparable(key, value) {
+    return key === 'images' ? fotosSemBytes(value) : value;
+}
+
+/**
  * Geometry is one unit; each property is one unit, including arrays and nested objects, EXCEPT the
- * custom attributes, whose unit is each key (see {@link ATTRIBUTES}).
+ * custom attributes, whose unit is each key (see {@link ATTRIBUTES}). Photos are compared without
+ * their inline bytes (see {@link comparable}).
  */
 export function featureMutationContract(operationType, data, previousData) {
     const baseVersion = previousData?.properties?.confirmedVersion ?? null;
@@ -64,7 +82,7 @@ export function featureMutationContract(operationType, data, previousData) {
     const previous = previousData.properties ?? {};
     const next = data.properties ?? {};
     for (const key of new Set([...Object.keys(previous), ...Object.keys(next)])) {
-        if (METADATA.has(key) || deepEqual(previous[key], next[key])) continue;
+        if (METADATA.has(key) || deepEqual(comparable(key, previous[key]), comparable(key, next[key]))) continue;
         if (key === ATTRIBUTES) {
             const perKey = attributeEntries(previous[key], next[key]);
             if (perKey) {

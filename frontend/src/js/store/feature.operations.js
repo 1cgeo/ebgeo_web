@@ -32,15 +32,16 @@ import { derivarCamposDtg } from '../temporal/temporal-attributes.model.js';
 import { derivedOutputBucketOf, replaceDerivedOutput } from './analysis-output.js';
 import { FeatureLockState, lockedLayerCreateNotice, featureLockNotice } from './denial-phrases.js';
 import { converterFotosInline, comConversao, fotosSemBytes } from './photo-attach.js';
+import { fotoTemBytesInline } from '../user_data/photo-refs.js';
 
 // ===== ATTACHED PHOTOS =====
 
 /**
- * THE SAFETY NET OF PHASE 2c of the attached photos, for a FEATURE: an edit of a feature of a
- * SERVER atlas that still carries inline photos writes them as blobs with a reference, so the
- * operation leaves without the bytes (`converterFotosInline`, `photo-attach.js`, says which convert,
- * why under a new id, and why only in a server atlas). Mutates `feature.properties.images` when
- * something converted.
+ * THE SAFETY NET OF PHASE 2c of the attached photos, for a FEATURE: an edit OF THE PHOTOS of a
+ * feature of a SERVER atlas that still carries inline photos writes them as blobs with a reference,
+ * so the operation leaves without the bytes (`converterFotosInline`, `photo-attach.js`, says which
+ * convert, why under a new id, and why only in a server atlas). Mutates `feature.properties.images`
+ * when something converted. An edit of anything else leaves them as they are ({@link fotosMudaram}).
  *
  * CALLED INSIDE THE TRANSACTION'S WORK (2026-09-24, review, item 5), like the 3D and 360 funnels:
  * it writes to IndexedDB (the bytes and the upload pendency), and outside the work those writes
@@ -59,15 +60,37 @@ async function converterFotosDaFeicao(feature) {
 }
 
 /**
- * The previous side of an edit whose photos were converted, without their bytes: the envelope carries
- * `previousData` in full, and the photo would still travel once inside it (`fotosSemBytes`).
- * @param {Object|null} conversao - What {@link converterFotosDaFeicao} returned
+ * Whether an edit changes the attached photos of a feature (compared with their bytes).
+ *
+ * THE CONVERSION RIDES ONLY ON AN EDIT OF THE PHOTOS (2026-09-24, second review of the attached
+ * photos, item 4). Converting on ANY edit put `properties.images` in the patch of an edit that had
+ * nothing to do with them, under new ids, so two colleagues editing the name and the description of
+ * the same feature both claimed the photos and the second was refused as a dispute over a field
+ * neither touched. When the person edits the photos, the patch claims `images` anyway, and the
+ * conversion adds no unit to it. The weight that made the conversion ride on every edit (the old
+ * side carrying the bytes) is taken off by {@link previousOfFeatureEdit} instead.
+ * @param {Object} anterior - The feature as it was
+ * @param {Object} nova - The feature about to be written
+ * @returns {boolean}
+ */
+function fotosMudaram(anterior, nova) {
+    return !deepEqual(anterior?.properties?.images ?? null, nova?.properties?.images ?? null);
+}
+
+/**
+ * The previous side of a feature edit, as the envelope carries it: without the bytes of its inline
+ * photos. The client reads from `previousData` only the confirmed version and the patch, and the
+ * patch compares photos without their bytes (`store/sync/feature-patch.js`), so the bytes there were
+ * dead weight: an edit of a feature with an inline photo sent the photo twice. The NEW side keeps
+ * them, because a pending intention is reprojected over a snapshot by writing its `data` as the
+ * entity (`applyRemoteSnapshot`), and a new side without bytes would drop the photo locally.
  * @param {Object} anterior - The feature as it was
  * @returns {Object}
  */
-function anteriorDaConversao(conversao, anterior) {
-    if (!conversao || !anterior?.properties) return anterior;
-    return { ...anterior, properties: { ...anterior.properties, images: fotosSemBytes(anterior.properties.images) } };
+function previousOfFeatureEdit(anterior) {
+    const fotos = anterior?.properties?.images;
+    if (!Array.isArray(fotos) || !fotos.some(fotoTemBytesInline)) return anterior;
+    return { ...anterior, properties: { ...anterior.properties, images: fotosSemBytes(fotos) } };
 }
 
 
@@ -507,9 +530,10 @@ export async function updateFeature(type, feature, mapName = null, { preserveUse
 
         touchUpdatedTimestamp(cleanedFeature);
         let conversao = null;
+        const mexeNasFotos = fotosMudaram(oldFeature, cleanedFeature);
 
         await comConversao(() => conversao, runTransaction(async (tx) => {
-            conversao = await converterFotosDaFeicao(cleanedFeature);
+            conversao = mexeNasFotos ? await converterFotosDaFeicao(cleanedFeature) : null;
             // The door's own write (an attached photo's bytes and pendency), under this transaction.
             if (typeof antesDaIntencao === 'function') await antesDaIntencao();
             currentMapData.features[type][index] = cleanedFeature;
@@ -532,7 +556,7 @@ export async function updateFeature(type, feature, mapName = null, { preserveUse
 
             {
                 const mapId = mapManager.getMapId(targetMap);
-                tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, cleanedFeature.properties.id, mapId, cleanedFeature, anteriorDaConversao(conversao, oldFeature), { storage: type });
+                tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, cleanedFeature.properties.id, mapId, cleanedFeature, previousOfFeatureEdit(oldFeature), { storage: type });
             }
 
             return () => updateMapDataCompat(targetMap, currentMapData);
@@ -964,9 +988,10 @@ export async function updateFeatureProperty(featureType, featureId, property, va
         feature.properties[property] = value;
         touchUpdatedTimestamp(feature);
         let conversao = null;
+        const mexeNasFotos = fotosMudaram(oldFeature, feature);
 
         await comConversao(() => conversao, runTransaction(async (tx) => {
-            conversao = await converterFotosDaFeicao(feature);
+            conversao = mexeNasFotos ? await converterFotosDaFeicao(feature) : null;
             if (isColorProperty) {
                 const newColor = mapManager.getFeatureColor(feature);
                 if (oldColor !== newColor) {
@@ -991,7 +1016,7 @@ export async function updateFeatureProperty(featureType, featureId, property, va
 
             {
                 const mapId = mapManager.getMapId(targetMap);
-                tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, featureId, mapId, feature, anteriorDaConversao(conversao, oldFeature), { storage: featureType });
+                tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, featureId, mapId, feature, previousOfFeatureEdit(oldFeature), { storage: featureType });
             }
 
             return () => updateMapDataCompat(targetMap, currentMapData);

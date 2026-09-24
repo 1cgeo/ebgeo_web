@@ -3,17 +3,23 @@
 /**
  * FASE 2c DAS FOTOS ANEXAS, A REDE DE SEGURANÇA (decisão do dono de 2026-09-24): a feição de um atlas
  * de SERVIDOR que ainda carrega uma foto INLINE (escrita por um cliente anterior à fase 2b, que é
- * todo o acervo de hoje) a converte na PRÓXIMA edição. A edição sai com a referência e a miniatura;
- * os bytes sobem sozinhos pela fila durável, sob um id novo; o colega abre a foto inteira.
+ * todo o acervo de hoje) a converte na PRÓXIMA edição DAS FOTOS. A edição sai com a referência e a
+ * miniatura; os bytes sobem sozinhos pela fila durável, sob um id novo; o colega abre a foto inteira.
+ *
+ * DESDE A SEGUNDA REVISÃO (2026-09-24, item 4) uma edição SEM RELAÇÃO com as fotos não as converte:
+ * converter num renomear punha as fotos no patch, sob ids novos, e dois colegas que editavam nome e
+ * descrição da mesma feição disputavam as fotos, que nenhum dos dois tinha tocado. O terceiro caso
+ * mede isso com os dois colegas; o renomear leva os bytes UMA vez (o lado anterior viaja sem eles).
  *
  * O cliente antigo é simulado pelo transporte real: uma op de feição com a foto em `data`, empurrada
  * por uma terceira página, que é exatamente o que um navegador com o build anterior manda. A edição
- * que converte é um GESTO de interface (renomear pelo painel).
+ * que converte é um GESTO de interface (anexar outra foto pela galeria).
  */
 
 import { collabTest, expect, drawLineUI, readFeatures } from './helpers/collab.fixtures.js';
 import { selectAndRenameUI, selectFeatureUI, pollPeerFeatureWhere } from './helpers/collab-helpers.js';
 import { clienteNaPagina } from './helpers/cliente-de-teste.js';
+import { Buffer } from 'node:buffer';
 
 collabTest.describe.configure({ retries: 0 });
 collabTest.setTimeout(240000);
@@ -48,6 +54,26 @@ async function fotoInline(page, { largura = 800, altura = 600 } = {}) {
         const thumbnail = mini.toDataURL('image/jpeg', 0.7);
         return { id: crypto.randomUUID(), name: 'vistoria-antiga.jpg', type: 'image/jpeg', size: 1, data, thumbnail, addedAt: 1 };
     }, { largura, altura });
+}
+
+/** Anexa uma foto pequena pela galeria do painel da feição: o gesto que é uma edição DAS FOTOS. */
+async function anexarFotoPequena(page, linha) {
+    const base64 = await page.evaluate(async () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 240;
+        canvas.height = 180;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#2f6b3a';
+        ctx.fillRect(0, 0, 240, 180);
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.8));
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        let bin = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        return btoa(bin);
+    });
+    await selectFeatureUI(page, linha);
+    await page.locator('.feature-photo-gallery__file-input').first()
+        .setInputFiles({ name: 'nova.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(base64, 'base64') });
 }
 
 /**
@@ -86,12 +112,12 @@ async function linhaComFotoInline(collab, browser, opcoes = {}) {
     return { linha, foto };
 }
 
-collabTest('foto inline de atlas de servidor: a próxima edição a converte, a op sai sem bytes e o colega abre a foto', async ({ collab, browser }) => {
+collabTest('foto inline de atlas de servidor: a próxima edição das fotos a converte, a op sai sem bytes e o colega abre a foto', async ({ collab, browser }) => {
     const A = collab.author;
     const B = collab.peers[0];
     const { linha, foto } = await linhaComFotoInline(collab, browser);
 
-    // 2) A EDIÇÃO: renomear pelo painel. Mede o que A empurra dali em diante.
+    // 2) A EDIÇÃO DAS FOTOS: anexar outra pela galeria. Mede o que A empurra dali em diante.
     const trecho = foto.data.slice(foto.data.indexOf(',') + 1000, foto.data.indexOf(',') + 1200);
     const pushes = [];
     A.on('request', (req) => {
@@ -100,9 +126,9 @@ collabTest('foto inline de atlas de servidor: a próxima edição a converte, a 
             pushes.push({ bytes: globalThis.Buffer.byteLength(corpo), levaAFoto: corpo.includes(trecho) });
         }
     });
-    await selectAndRenameUI(A, linha, 'Renomeada');
+    await anexarFotoPequena(A, linha);
 
-    await expect.poll(async () => (await collab.db.queryFeatureRow(linha))?.properties?.nome ?? null, { timeout: 30000 }).toBe('Renomeada');
+    await expect.poll(async () => (await collab.db.queryFeatureRow(linha))?.properties?.images?.length ?? 0, { timeout: 30000 }).toBe(2);
     const convertida = (await collab.db.queryFeatureRow(linha)).properties.images[0];
     console.log(`FOTO_INLINE_CONVERTIDA inline=${foto.data.length} pushes=${JSON.stringify(pushes)} id=${convertida.id}`);
     expect(convertida, 'o servidor guarda a referência, sem os bytes').not.toHaveProperty('data');
@@ -133,7 +159,7 @@ collabTest('foto inline de atlas de servidor: a próxima edição a converte, a 
  * e o namespace e a única cópia dos bytes morriam com o servidor já citando a foto. Agora a op espera a
  * foto, o censo conta a op e a subida, e "Sair" pergunta.
  */
-collabTest('link lento: renomear a feição com foto inline e clicar "Sair" pergunta, e a foto chega depois', async ({ collab, browser, browserName }) => {
+collabTest('link lento: anexar outra foto à feição com foto inline e clicar "Sair" pergunta, e a foto chega depois', async ({ collab, browser, browserName }) => {
     collabTest.skip(browserName !== 'chromium', 'CDP throttling');
     const A = collab.author;
     const B = collab.peers[0];
@@ -145,8 +171,8 @@ collabTest('link lento: renomear a feição com foto inline e clicar "Sair" perg
         matchedNetworkConditions: [{ urlPattern: `${collab.baseUrl}/*`, latency: 300, downloadThroughput: 5000, uploadThroughput: 5000 }],
     });
     try {
-        await selectAndRenameUI(A, linha, 'Renomeada no link lento');
-        // Tempo de sobra para uma edição comum (um nome e três miniaturas, ~36 KB) chegar a 5000 B/s,
+        await anexarFotoPequena(A, linha);
+        // Tempo de sobra para uma edição comum (duas miniaturas, alguns KB) chegar a 5000 B/s,
         // disputando o link com a subida da foto; a foto (~1 MB) leva minutos. Medido sem o conserto:
         // a 15 s a op ainda não tinha chegado, então o caso não media nada.
         await A.waitForTimeout(45000);
@@ -155,7 +181,7 @@ collabTest('link lento: renomear a feição com foto inline e clicar "Sair" perg
         const primeira = naLinha?.properties?.images?.[0];
         const citada = primeira && typeof primeira.data !== 'string' ? primeira.id : null;
         const temImagem = citada ? await collab.db.raw.oneOrNone('SELECT id FROM images WHERE id::text = $1', [citada]) : null;
-        console.log(`FOTO_SAIR nome=${naLinha?.properties?.nome} citada=${citada ?? '-'} imagem=${temImagem ? 'sim' : 'nao'}`);
+        console.log(`FOTO_SAIR fotos=${naLinha?.properties?.images?.length} citada=${citada ?? '-'} imagem=${temImagem ? 'sim' : 'nao'}`);
         expect(!citada || !!temImagem, 'o servidor não cita a foto sem os bytes').toBe(true);
 
         await A.locator('[data-testid="account-control"] .account-control__identity').click();
@@ -167,8 +193,8 @@ collabTest('link lento: renomear a feição com foto inline e clicar "Sair" perg
     }
 
     // Sem o freio, a edição e a foto chegam juntas, e o colega abre a foto.
-    await expect.poll(async () => (await collab.db.queryFeatureRow(linha))?.properties?.nome ?? null, { timeout: 180000 })
-        .toBe('Renomeada no link lento');
+    await expect.poll(async () => (await collab.db.queryFeatureRow(linha))?.properties?.images?.length ?? 0, { timeout: 180000 })
+        .toBe(2);
     const convertida = (await collab.db.queryFeatureRow(linha)).properties.images[0];
     expect(convertida).not.toHaveProperty('data');
     expect((await collab.db.raw.oneOrNone('SELECT id FROM images WHERE id = $1', [convertida.id]))?.id).toBe(convertida.id);
@@ -178,4 +204,71 @@ collabTest('link lento: renomear a feição com foto inline e clicar "Sair" perg
     const inteira = B.locator('.feature-photo-viewer img');
     await expect(inteira).toBeVisible();
     await expect.poll(() => inteira.evaluate((el) => el.naturalWidth), { timeout: 30000 }).toBe(1400);
+});
+
+/**
+ * O CENÁRIO DA SEGUNDA REVISÃO (2026-09-24, item 4): dois colegas editam, ao mesmo tempo, campos
+ * diferentes da MESMA feição com foto inline (A o nome, B a descrição). Antes do conserto, cada edição
+ * convertia a foto sob um id novo e punha `properties.images` no patch; a do B chegava com a base
+ * velha e o servidor a recusava como disputa pelas fotos, que nenhum dos dois tinha tocado.
+ *
+ * O "ao mesmo tempo" é determinístico: o envio do B fica segurado enquanto ele edita e o A grava, e
+ * só então o B manda a edição dele, com a base que ele tinha.
+ */
+collabTest('dois colegas editam nome e descrição da mesma feição com foto inline: nenhuma edição disputa a foto', async ({ collab, browser }) => {
+    const A = collab.author;
+    const B = collab.peers[0];
+    const { linha, foto } = await linhaComFotoInline(collab, browser);
+    const trecho = foto.data.slice(foto.data.indexOf(',') + 1000, foto.data.indexOf(',') + 1200);
+
+    // B edita a descrição com o envio segurado: a op fica na fila dele, com a base que ele leu.
+    const rotaDoSync = `**/api/v1/atlas/${collab.atlasId}/sync`;
+    await B.route(rotaDoSync, (route) => (route.request().method() === 'POST' ? route.abort() : route.continue()));
+    await B.evaluate(async (id) => {
+        const store = await import('/src/js/store/index.js');
+        await store.updateFeatureProperty('lines', id, 'descricao', 'Descrita pelo B');
+    }, linha);
+    await expect.poll(() => B.evaluate(async () => {
+        const { operationQueue } = await import('/src/js/store/sync/operation-queue.js');
+        return (await operationQueue.countByState()).pendentes;
+    }), { timeout: 15000 }).toBeGreaterThan(0);
+
+    // A renomeia pelo painel, e a edição dele chega primeiro. Mede o que A empurra.
+    const pushes = [];
+    A.on('request', (req) => {
+        if (req.method() === 'POST' && req.url().endsWith(`/atlas/${collab.atlasId}/sync`)) {
+            pushes.push((req.postData() ?? '').split(trecho).length - 1);
+        }
+    });
+    await selectAndRenameUI(A, linha, 'Nomeada pelo A');
+    await expect.poll(async () => (await collab.db.queryFeatureRow(linha))?.properties?.nome ?? null, { timeout: 30000 }).toBe('Nomeada pelo A');
+
+    // B manda a edição dele, com a base de antes do renomear.
+    await B.unroute(rotaDoSync);
+    // O DESFECHO DO B, qualquer que seja: a descrição no servidor ou um problema na fila dele. Esperar
+    // só o sucesso deixaria o controle negativo reprovar por tempo, sem dizer POR QUE a edição ficou.
+    const problemasDoB = () => B.evaluate(async () => {
+        const { operationQueue } = await import('/src/js/store/sync/operation-queue.js');
+        return (await operationQueue.getIssues()).map((p) => ({
+            motivo: p?.result?.conflict?.reason ?? p?.reason ?? p?.error ?? null,
+            campos: p?.result?.conflict?.fields ?? null,
+        }));
+    });
+    await expect.poll(async () => {
+        const descricao = (await collab.db.queryFeatureRow(linha))?.properties?.descricao ?? null;
+        return descricao === 'Descrita pelo B' || (await problemasDoB()).length > 0;
+    }, { timeout: 30000 }).toBe(true);
+    const naLinha = await collab.db.queryFeatureRow(linha);
+    const problemas = await problemasDoB();
+    console.log(`FOTO_SEM_DISPUTA pushesDoA=${JSON.stringify(pushes)} problemasDoB=${JSON.stringify(problemas)}`);
+    expect(problemas, 'a edição do B não virou problema').toEqual([]);
+    expect(naLinha.properties.descricao, 'a edição do B chegou').toBe('Descrita pelo B');
+    expect(naLinha.properties.nome, 'a edição do A continua').toBe('Nomeada pelo A');
+    // Nenhum dos dois converteu: a foto continua inline, com o id dela.
+    expect(naLinha.properties.images).toHaveLength(1);
+    expect(naLinha.properties.images[0].id).toBe(foto.id);
+    expect(naLinha.properties.images[0].data).toBe(foto.data);
+    // E o renomear levou os bytes UMA vez, no lado novo: o anterior viajou sem eles.
+    expect(pushes.length).toBeGreaterThan(0);
+    expect(Math.max(...pushes), 'a foto viaja no máximo uma vez por push').toBe(1);
 });

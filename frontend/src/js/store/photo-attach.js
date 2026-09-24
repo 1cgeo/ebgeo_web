@@ -35,6 +35,7 @@ import { storeImage, removeImage } from './settings.operations.js';
 import { registrarEnvioDeImagem, isImageSyncOnline } from './sync/image-sync.js';
 // Leaf module (zero imports).
 import { OperationType } from './sync/operation-types.js';
+import { fotosSemBytes } from '@js/user_data/photo-refs.js';
 
 /**
  * Processes a photo file and hands back the item the entity must carry, the WRITE of its bytes and
@@ -129,7 +130,10 @@ async function removerSeNoMesmoAtlas(escopo, id) {
  * THE SAFETY NET OF PHASE 2c (owner's decision of 2026-09-24): the next write of an entity of a
  * SERVER atlas that still carries INLINE photos converts them, so its operation leaves with the
  * references and the thumbnails only. Nothing converts the acervo in bulk, neither on the server
- * nor locally; an old inline photo stops weighing on the link the first time its entity is edited.
+ * nor locally. For a FEATURE the write that converts is an edit OF ITS PHOTOS (second review,
+ * item 4, `fotosMudaram` in `feature.operations.js`): its patch is per property, and a conversion
+ * riding on a rename claimed `images` and disputed it with a colleague who edited something else.
+ * A 3D or 360 item is disputed as a whole document, so any write of it converts.
  *
  * A NEW ID PER CONVERTED PHOTO, never the inline one. Cloning a server atlas passes an inline photo
  * untouched, so two atlases can hold the same inline id, and `images.id` is a GLOBAL primary key on
@@ -279,24 +283,6 @@ export async function comConversao(conversao, escrita) {
     return resultado;
 }
 
-/**
- * An `images` array with the bytes of its inline photos left out, for the PREVIOUS side of an
- * operation whose photos were just converted.
- *
- * THE ENVELOPE CARRIES `previousData` IN FULL (`createOperation`, `sync/operation-factory.js`),
- * so converting only the new side still sent the photo once, inside the old one. Nothing reads the
- * bytes there: the client takes from `previousData` only the confirmed version and the patch
- * (`feature-patch.js`, `mutation-contract.js`), and neither looks inside a photo item. The undo
- * record is a separate clone and keeps the photo whole.
- *
- * @param {Array|*} fotos
- * @returns {Array|*} A new array, or the input untouched when it is not an array
- */
-export function fotosSemBytes(fotos) {
-    if (!Array.isArray(fotos)) return fotos;
-    return fotos.map((foto) => {
-        if (!foto || typeof foto !== 'object' || typeof foto.data !== 'string') return foto;
-        const { data: _bytes, ...semBytes } = foto;
-        return semBytes;
-    });
-}
+// `fotosSemBytes` moved to the zero-import leaf (`user_data/photo-refs.js`), because the feature
+// patch reads it too; re-exported here for the callers that ask this module.
+export { fotosSemBytes };

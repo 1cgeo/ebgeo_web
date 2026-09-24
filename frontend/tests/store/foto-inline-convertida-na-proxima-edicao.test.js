@@ -1,8 +1,10 @@
 // Path: tests/store/foto-inline-convertida-na-proxima-edicao.test.js
 //
 // FASE 2c DAS FOTOS ANEXAS, A REDE DE SEGURANÇA (decisão do dono de 2026-09-24): nada converte o
-// acervo em lote, nem no servidor nem no disco. Uma feição, um marcador 3D ou um marcador 360 de
-// atlas de SERVIDOR que ainda carrega foto INLINE a converte na PRÓXIMA edição: os bytes vão para o
+// acervo em lote, nem no servidor nem no disco. Um marcador 3D ou 360 de atlas de SERVIDOR que ainda
+// carrega foto INLINE a converte na PRÓXIMA edição; uma FEIÇÃO, na próxima edição DAS FOTOS (desde a
+// segunda revisão, 2026-09-24: a edição sem relação com elas não as converte nem as reivindica no
+// patch, e o lado anterior viaja sem os bytes). Na conversão, os bytes vão para o
 // armazém de imagens sob um id NOVO, a subida é registrada na fila durável, e a operação sai só com
 // a referência e a miniatura. Antes, toda edição dessas entidades levava a foto inteira duas vezes
 // (dado e anterior), e acima de 10 MB por operação a edição nunca sincronizava.
@@ -166,6 +168,7 @@ import { updateMarker, addMarkerImage, setCesium3dDependencies } from '../../src
 import { updateMarker360, addMarker360Image, setStreetview360Dependencies } from '../../src/js/store/streetview360.operations.js';
 import { setStoreErrorEventBus } from '../../src/js/store/store-errors.js';
 import { pauseStoreWrites } from '../../src/js/store/write-coordinator.js';
+import { featureMutationContract } from '../../src/js/store/sync/feature-patch.js';
 
 const MAPA = 'Mapa';
 const MINIATURA = 'data:image/jpeg;base64,/9j/mini';
@@ -209,32 +212,42 @@ beforeEach(() => {
     setStreetview360Dependencies({ eventBus: barramento });
 });
 
-describe('feição de atlas de servidor com foto inline: a próxima edição converte', () => {
-    it('updateFeatureProperty: a op sai sem bytes, sob id NOVO, e a subida começa depois da gravação', async () => {
-        await updateFeatureProperty('points', 'p1', 'nome', 'Depois', MAPA);
+/** Uma foto nova por referência, como a galeria a anexa: é o que faz a edição ser DAS FOTOS. */
+const nova = { id: 'nova-ref', name: 'nova2.jpg', type: 'image/jpeg', thumbnail: MINIATURA, addedAt: 3 };
+
+/** Uma edição das FOTOS da feição: a lista gravada, mais uma foto por referência. */
+const editarFotos = () => updateFeatureProperty('points', 'p1', 'images', [...feicaoGravada().properties.images, nova], MAPA);
+
+/** Quantas vezes os bytes da foto inline viajam num texto. */
+const vezesQueViaja = (texto) => texto.split(INLINE).length - 1;
+
+describe('feição de atlas de servidor com foto inline: a próxima edição DAS FOTOS converte', () => {
+    it('editar as fotos: a op sai sem bytes, sob id NOVO, e a subida começa depois da gravação', async () => {
+        await editarFotos();
 
         const [op] = opsDeFeicao();
         const fotos = op.data.properties.images;
-        expect(op.data.properties.nome).toBe('Depois');
         // NEM o lado NOVO nem o ANTERIOR levam os bytes: o envelope carrega `previousData` inteiro.
         expect(JSON.stringify(op)).not.toContain(INLINE);
         expect(op.previousData.properties.images[0]).toEqual({ id: 'velha', name: 'velha.jpg', type: 'image/png', size: 9, thumbnail: MINIATURA, addedAt: 1 });
-        expect(op.previousData.properties.nome).toBe('Antes');
-        expect(fotos).toHaveLength(3);
-        const [primeira, ref, duplicata] = fotos;
+        expect(fotos).toHaveLength(4);
+        const [primeira, ref, duplicata, anexada] = fotos;
         expect(primeira.id).not.toBe('velha');
         expect(primeira).toEqual({ id: primeira.id, name: 'velha.jpg', type: 'image/jpeg', size: 9, thumbnail: MINIATURA, addedAt: 1 });
         // A duplicata da MESMA foto é um blob só.
         expect(duplicata.id).toBe(primeira.id);
         expect(ref).toEqual(referencia);
+        expect(anexada).toEqual(nova);
 
         expect(h.envios).toEqual([{ id: primeira.id, origem: 'foto-convertida', bytes: JPEG.length, enviado: true, descartado: false }]);
         expect(new Uint8Array(await h.imagens.get(primeira.id).arrayBuffer())).toEqual(JPEG);
-        // O documento gravado concorda com a op.
+        // O documento gravado concorda com a op, e o patch é só das fotos.
         expect(feicaoGravada().properties.images).toEqual(fotos);
+        expect(featureMutationContract('update', op.data, op.previousData).patch.map((e) => e.path))
+            .toEqual([['properties', 'images']]);
     });
 
-    it('updateFeature converte pelo mesmo caminho', async () => {
+    it('updateFeature converte pelo mesmo caminho quando as fotos mudam', async () => {
         const editada = ponto([inline('velha')]);
         editada.properties.nome = 'Movida';
         editada.geometry.coordinates = [-43.3, -22.8];
@@ -245,9 +258,9 @@ describe('feição de atlas de servidor com foto inline: a próxima edição con
         expect(h.envios.map((e) => e.enviado)).toEqual([true]);
     });
 
-    it('atlas LOCAL (nenhum atlas de servidor conectado): nada muda, nada é gravado no armazém', async () => {
+    it('atlas LOCAL (nenhum atlas de servidor conectado): nada é convertido, nada é gravado no armazém', async () => {
         h.online = false;
-        await updateFeatureProperty('points', 'p1', 'nome', 'Depois', MAPA);
+        await editarFotos();
         expect(opsDeFeicao()[0].data.properties.images[0].data).toBe(INLINE);
         expect(h.imagens.size).toBe(0);
         expect(h.envios).toEqual([]);
@@ -255,7 +268,7 @@ describe('feição de atlas de servidor com foto inline: a próxima edição con
 
     it('subida que não se registra: a edição sai como antes, com a foto inline, e os bytes gravados saem do armazém', async () => {
         h.registrado = false;
-        await updateFeatureProperty('points', 'p1', 'nome', 'Depois', MAPA);
+        await editarFotos();
         expect(opsDeFeicao()[0].data.properties.images[0].data).toBe(INLINE);
         expect(h.imagens.size).toBe(0);
     });
@@ -266,21 +279,21 @@ describe('feição de atlas de servidor com foto inline: a próxima edição con
     // referência para uma foto que ninguém ia mandar.
     it('gravação que falha depois da intenção: os bytes ficam e sobem', async () => {
         h.falharGravacao = true;
-        await expect(updateFeatureProperty('points', 'p1', 'nome', 'Depois', MAPA)).rejects.toThrow();
+        await expect(editarFotos()).rejects.toThrow();
         const [op] = opsDeFeicao();
         const citada = op.data.properties.images[0].id;
         expect(h.envios).toEqual([expect.objectContaining({ id: citada, enviado: true, descartado: false })]);
         expect(h.imagens.has(citada)).toBe(true);
     });
 
-    // O DISCO CHEIO NÃO DERRUBA A EDIÇÃO (revisão da fase 2c, 2026-09-24, item 4): renomear uma
-    // feição não pode falhar porque a foto dela não coube no armazém. A edição sai como antes, com a
-    // foto inline, e nada fica registrado pela metade.
+    // O DISCO CHEIO NÃO DERRUBA A EDIÇÃO (revisão da fase 2c, 2026-09-24, item 4): editar as fotos de
+    // uma feição não pode falhar porque a foto antiga não coube no armazém. A edição sai como antes,
+    // com a foto inline, e nada fica registrado pela metade.
     it('cota estourada no armazém: a edição sai como antes, inline, sem pendência pela metade', async () => {
         h.falharArmazem = true;
-        await updateFeatureProperty('points', 'p1', 'nome', 'Depois', MAPA);
+        await editarFotos();
         const [op] = opsDeFeicao();
-        expect(op.data.properties.nome).toBe('Depois');
+        expect(op.data.properties.images.at(-1)).toEqual(nova);
         expect(op.data.properties.images[0].data).toBe(INLINE);
         expect(h.envios).toEqual([]);
         expect(h.imagens.size).toBe(0);
@@ -293,7 +306,7 @@ describe('feição de atlas de servidor com foto inline: a próxima edição con
     it('escrita recusada pela pausa da aba: a conversão não grava nem registra nada', async () => {
         const pausa = pauseStoreWrites(h.escopo.atual);
         try {
-            await expect(updateFeatureProperty('points', 'p1', 'nome', 'Depois', MAPA)).rejects.toThrow();
+            await expect(editarFotos()).rejects.toThrow();
         } finally {
             pausa.resume();
         }
@@ -303,10 +316,53 @@ describe('feição de atlas de servidor com foto inline: a próxima edição con
     });
 
     it('a próxima edição de uma feição JÁ convertida não converte de novo', async () => {
-        await updateFeatureProperty('points', 'p1', 'nome', 'Uma', MAPA);
-        await updateFeatureProperty('points', 'p1', 'nome', 'Duas', MAPA);
+        await editarFotos();
+        await updateFeatureProperty('points', 'p1', 'images', feicaoGravada().properties.images.slice(0, 3), MAPA);
         expect(h.envios).toHaveLength(1);
         expect(opsDeFeicao()[1].data.properties.images[0].id).toBe(opsDeFeicao()[0].data.properties.images[0].id);
+    });
+});
+
+// A EDIÇÃO SEM RELAÇÃO COM AS FOTOS NÃO AS CONVERTE, e não as reivindica (2026-09-24, item 4 da
+// segunda revisão): converter em QUALQUER edição punha `properties.images` no patch de um renomear,
+// sob ids novos, e dois colegas que editavam nome e descrição da mesma feição disputavam as fotos,
+// que nenhum dos dois tinha tocado. O segundo era recusado. O peso que justificava converter em toda
+// edição (o lado anterior levando os bytes) sai por outro caminho: o anterior viaja sem eles.
+describe('feição com foto inline: a edição SEM RELAÇÃO com as fotos', () => {
+    it('renomear não converte nada, e o patch é só do nome', async () => {
+        await updateFeatureProperty('points', 'p1', 'nome', 'Depois', MAPA);
+
+        const [op] = opsDeFeicao();
+        expect(h.envios).toEqual([]);
+        expect(h.imagens.size).toBe(0);
+        expect(op.data.properties.nome).toBe('Depois');
+        expect(op.data.properties.images).toEqual([inline('velha'), referencia, inline('velha')]);
+        expect(featureMutationContract('update', op.data, op.previousData).patch)
+            .toEqual([{ op: 'set', path: ['properties', 'nome'], value: 'Depois' }]);
+    });
+
+    it('os bytes viajam UMA vez, no lado novo: o anterior vai sem eles', async () => {
+        await updateFeatureProperty('points', 'p1', 'nome', 'Depois', MAPA);
+        const [op] = opsDeFeicao();
+        expect(vezesQueViaja(JSON.stringify(op.previousData))).toBe(0);
+        expect(op.previousData.properties.images).toEqual([
+            { id: 'velha', name: 'velha.jpg', type: 'image/png', size: 9, thumbnail: MINIATURA, addedAt: 1 },
+            referencia,
+            { id: 'velha', name: 'velha.jpg', type: 'image/png', size: 9, thumbnail: MINIATURA, addedAt: 1 },
+        ]);
+        // Os DOIS itens inline do lado novo, e nenhum outro: o dado que a reprojeção grava continua inteiro.
+        expect(vezesQueViaja(JSON.stringify(op))).toBe(2);
+        expect(op.previousData.properties.nome).toBe('Antes');
+    });
+
+    it('updateFeature que só move a geometria também não mexe nas fotos', async () => {
+        const movida = structuredClone(feicaoGravada());
+        movida.geometry.coordinates = [-43.4, -22.7];
+        await updateFeature('points', movida, MAPA);
+        const [op] = opsDeFeicao();
+        expect(h.envios).toEqual([]);
+        expect(featureMutationContract('update', op.data, op.previousData).patch.map((e) => e.path)).toEqual([['geometry']]);
+        expect(feicaoGravada().properties.images[0].data).toBe(INLINE);
     });
 });
 

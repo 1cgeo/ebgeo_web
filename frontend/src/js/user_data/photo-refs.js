@@ -26,6 +26,38 @@ export function fotoTemBytesInline(foto) {
 }
 
 /**
+ * A photo item without the bytes an inline photo carries (its `data`), or the item untouched.
+ *
+ * The one place that strips them, so the rule that a photo item's bytes are a field and not its
+ * identity is written once: {@link fotosSemBytes} and the feature patch (`store/sync/feature-patch.js`)
+ * read it from here.
+ * @param {*} foto - An item of an `images` array
+ * @returns {*}
+ */
+export function fotoSemBytes(foto) {
+    if (!foto || typeof foto !== 'object' || typeof foto.data !== 'string') return foto;
+    const semBytes = { ...foto };
+    delete semBytes.data;
+    return semBytes;
+}
+
+/**
+ * An `images` array with the bytes of its inline photos left out.
+ *
+ * THE ENVELOPE CARRIES `previousData` IN FULL (`createOperation`, `store/sync/operation-factory.js`),
+ * so the photos of an edit travelled twice, once inside the old side. Nothing reads the bytes there:
+ * the client takes from `previousData` only the confirmed version and the patch
+ * (`store/sync/feature-patch.js`, `store/sync/mutation-contract.js`), and the feature patch compares
+ * photo items without their bytes. The undo record is a separate clone and keeps the photo whole.
+ *
+ * @param {Array|*} fotos
+ * @returns {Array|*} A new array, or the input untouched when it is not an array
+ */
+export function fotosSemBytes(fotos) {
+    return Array.isArray(fotos) ? fotos.map(fotoSemBytes) : fotos;
+}
+
+/**
  * The image-store id a photo item points at when it does NOT carry its bytes, or null.
  * @param {*} foto - An item of an `images` array
  * @returns {string|null}
