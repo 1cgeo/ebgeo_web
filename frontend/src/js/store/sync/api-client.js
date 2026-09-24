@@ -2961,7 +2961,15 @@ export class ApiClient {
      * @returns {Promise<{ uploaded: Array, failed: Array, mapping: Record<string,string> }>}
      */
     async bulkUploadImages(atlasId, images) {
-        return this._request('POST', `/atlas/${atlasId}/images/bulk`, { body: { images } });
+        // A DEADLINE SIZED FROM THE BODY, like the push (2026-09-23). This request had none, and it
+        // is the only door of the image bytes: one that never got an answer (a half-open
+        // connection, a proxy holding it) kept the image tool waiting forever before it wrote the
+        // feature, and kept the durable blob queue from ever resuming it while the collab socket
+        // stayed up. `tests/e2e-ui/subida-de-imagem-pendurada.repro.spec.js`.
+        const serializedBody = JSON.stringify({ images });
+        return this._request('POST', `/atlas/${atlasId}/images/bulk`, {
+            serializedBody, timeoutMs: uploadDeadlineMs(utf8ByteLength(serializedBody)),
+        });
     }
 
     /**

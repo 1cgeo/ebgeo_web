@@ -75,6 +75,26 @@ describe('Sync HTTP deadline and cancellation', () => {
         expect(fetch.mock.calls[0][1].headers['Content-Type']).toBe('application/json');
     });
 
+    /**
+     * A PORTA DOS BYTES DE IMAGEM TAMBÉM TEM PRAZO (2026-09-23). `bulkUploadImages` não tinha
+     * nenhum, e um pedido que nunca recebe resposta segurava a ferramenta de imagem antes de gravar
+     * a feição, e a fila de saída inteira atrás da op preparada.
+     */
+    it('bounds the image bytes upload by a deadline sized from its body', async () => {
+        vi.useFakeTimers();
+        const fetch = vi.fn(() => new Promise(() => {}));
+        const api = new ApiClient({ fetch });
+        let settled = null;
+        api.bulkUploadImages('atlas', [{ localId: 'img-1', filename: 'a.png', mimeType: 'image/png', data: 'Q'.repeat(100000) }])
+            .then(() => { settled = 'ok'; }, (e) => { settled = e.code; });
+        await vi.advanceTimersByTimeAsync(30000);
+        expect(settled, 'a 100 KB body is not cut at the base deadline').toBeNull();
+        const bytes = new TextEncoder().encode(fetch.mock.calls[0][1].body).byteLength;
+        await vi.advanceTimersByTimeAsync(uploadDeadlineMs(bytes) - 30000);
+        expect(settled).toBe('REQUEST_TIMEOUT');
+        expect(fetch.mock.calls[0][1].signal.aborted).toBe(true);
+    });
+
     it('sizes the receipt lookup deadline the same way', async () => {
         vi.useFakeTimers();
         const fetch = vi.fn(() => new Promise(() => {}));

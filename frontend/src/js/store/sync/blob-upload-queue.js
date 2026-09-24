@@ -77,6 +77,7 @@ import { fenceStore } from '../fenced-store.js';
 import { generateUUID } from '@utils/uuid.js';
 import { apiClient } from './api-client.js';
 import { operationQueue } from './operation-queue.js';
+import { connectionState } from './connection-state.js';
 import { BLOB_UPLOAD_KEY_PREFIX, BLOB_UPLOAD_PENDENTE } from './blob-upload-keys.js';
 import {
     CausaDeFalha,
@@ -118,6 +119,46 @@ const RECUSA_DEFINITIVA = new Set([400, 403, 404, 413, 415, 422]);
 
 /** Backoff between resumed attempts, in ms. Serial on purpose: a blob can be megabytes. */
 const BACKOFF_MS = [0, 1000, 4000];
+
+/**
+ * Delays of the resumption that runs WHILE THE CONNECTION STAYS UP, in ms, one per consecutive
+ * transient failure (the last one repeats).
+ *
+ * WHY A THIRD TRIGGER (2026-09-23). The resumption ran only on a connect and on the transition back
+ * to ONLINE (`image-sync.js`), both driven by the collab SOCKET. A transfer that fails while the
+ * socket stays up (the bulk request cut by its deadline, a 502 from a proxy, a 5xx) has neither: the
+ * pendency stayed PENDENTE, the feature operation stayed prepared, and the head-of-line hold of
+ * `_loadOperations` kept every later edit on this machine until something reconnected, which on a
+ * healthy socket can be hours. `tests/e2e-ui/subida-de-imagem-pendurada.repro.spec.js`.
+ */
+const RETOMADA_COM_CONEXAO_MS = [15000, 30000, 60000, 120000, 300000];
+
+/** The single timer of {@link agendarRetomada}, and how many transient failures in a row it has seen. */
+let _retomadaAgendada = null;
+let _falhasSeguidas = 0;
+
+/**
+ * Schedules one resumption of the pending blobs of `atlasId`, unless one is already scheduled.
+ *
+ * It does nothing when it fires OFFLINE: the transition back to ONLINE is the trigger that owns that
+ * case, and it runs at once. It never throws; a resumption that fails again schedules the next one
+ * from {@link assentar}.
+ * @param {string} atlasId
+ * @returns {void}
+ */
+function agendarRetomada(atlasId) {
+    if (_retomadaAgendada || !atlasId) return;
+    const espera = RETOMADA_COM_CONEXAO_MS[Math.min(_falhasSeguidas, RETOMADA_COM_CONEXAO_MS.length - 1)];
+    _falhasSeguidas += 1;
+    _retomadaAgendada = setTimeout(() => {
+        _retomadaAgendada = null;
+        if (!escopoRemoto() || !connectionState.isOnline()) return;
+        retomarBlobsPendentes(atlasId).catch(() => {
+            // Best effort: the pendency stays on disk, and the next trigger tries again.
+        });
+    }, espera);
+    _retomadaAgendada?.unref?.();
+}
 
 /**
  * Image ids whose bytes are registered and not yet confirmed, mirrored in memory.
@@ -394,6 +435,9 @@ async function assentar(scope, registro, desfecho) {
     }
     espelhar(atualizado);
 
+    if (atualizado.estado === BlobUploadState.PENDENTE) agendarRetomada(atualizado.atlasId);
+    else _falhasSeguidas = 0;
+
     if (atualizado.estado === BlobUploadState.CONFIRMADO) {
         await liberarOperacoes(atualizado.imageId);
     } else if (atualizado.estado === BlobUploadState.RECUSADO) {
@@ -618,4 +662,7 @@ export async function retomarBlobsPendentes(atlasId) {
  */
 export function esquecerPendenciasEmMemoria() {
     _pendentes.clear();
+    if (_retomadaAgendada) clearTimeout(_retomadaAgendada);
+    _retomadaAgendada = null;
+    _falhasSeguidas = 0;
 }

@@ -242,6 +242,62 @@ describe('fila durável de blobs: registro, retomada e liberação', () => {
         expect((await operationQueue.countByState()).preparadas).toBe(0);
     });
 
+    /**
+     * A RETOMADA NÃO DEPENDE DE O SOCKET CAIR (2026-09-23). Ela rodava só no connect e na volta a
+     * ONLINE, e uma subida que falha com o socket de pé (cortada pelo prazo, um 502 de proxy) não
+     * tem nenhum dos dois: a pendência ficava PENDENTE e a op preparada segurava a fila inteira até
+     * alguém reconectar, o que num socket sadio pode levar horas.
+     */
+    it('com a conexão de pé, a falha transitória agenda a retomada sozinha, sob o MESMO id', async () => {
+        const { connectionState, ConnectionStates } = await import('@store/sync/connection-state.js');
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        try {
+            connectionState._reset();
+            connectionState.transition(ConnectionStates.CONNECTING);
+            connectionState.transition(ConnectionStates.ONLINE);
+            const scope = getActiveScope();
+            const imageId = crypto.randomUUID();
+            await getStoreFor(StoreName.IMAGES, scope).setItem(imageId, blob());
+            h.resposta = redeCaiu();
+            await enfileirarBlob({ imageId, blob: blob(), atlasId: scope.atlasId });
+            await registrarOpDaFeicao(imageId, scope);
+            expect(await operationQueue.peek()).toEqual([]);
+
+            h.resposta = aceita();
+            await vi.advanceTimersByTimeAsync(14000);
+            expect(h.enviados).toHaveLength(1);
+            // 15 s, mais o recuo de 1 s da própria retomada para a segunda tentativa. O relógio anda
+            // aos poucos porque as leituras do IndexedDB entre um temporizador e outro são reais.
+            for (let i = 0; i < 40 && blobUploadPending(imageId); i++) {
+                await vi.advanceTimersByTimeAsync(500);
+                await new Promise((resolve) => globalThis.setImmediate(resolve));
+            }
+            expect(blobUploadPending(imageId)).toBe(false);
+            expect(h.enviados.map(e => e.ids)).toEqual([[imageId], [imageId]]);
+            expect(await operationQueue.peek()).toHaveLength(1);
+        } finally {
+            connectionState._reset();
+            vi.useRealTimers();
+        }
+    });
+
+    it('fora do ar, a retomada agendada não envia nada: quem retoma é a volta a ONLINE', async () => {
+        const { connectionState } = await import('@store/sync/connection-state.js');
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        try {
+            connectionState._reset();
+            const scope = getActiveScope();
+            const imageId = crypto.randomUUID();
+            h.resposta = redeCaiu();
+            await enfileirarBlob({ imageId, blob: blob(), atlasId: scope.atlasId });
+            await vi.advanceTimersByTimeAsync(60000);
+            expect(h.enviados).toHaveLength(1);
+            expect(blobUploadPending(imageId)).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('retomada de OUTRO atlas não toca as pendências deste', async () => {
         const scope = getActiveScope();
         h.resposta = redeCaiu();
