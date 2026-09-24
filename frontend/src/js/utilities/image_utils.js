@@ -5,6 +5,7 @@
  */
 
 import { ImageRefusal, imageRefusalNotice } from './image-limit-phrases.js';
+import { fotoTemBytesInline } from '@js/user_data/photo-refs.js';
 
 /**
  * Configuration for image handling.
@@ -138,6 +139,63 @@ export function planPhotoEncoding({ type, size, width, height } = {}) {
         width: Math.max(1, Math.round(w * escala)),
         height: Math.max(1, Math.round(h * escala)),
     };
+}
+
+/** Head of a base64 data URL: its MIME type, and where the payload starts. */
+const CABECA_DE_DATA_URL = /^data:([^;,]+)(?:;[^,]*)*;base64,/;
+
+/**
+ * The MIME type of an INLINE attached photo that becomes a blob with a reference when it reaches a
+ * server (phase 2c of the attached photos, 2026-09-24), or null when it stays inline.
+ *
+ * ONE RULE FOR BOTH PLACES THAT CONVERT: the boundary of a local atlas going up
+ * (`buildServerImportPayload`, `import_export/local-atlas-to-server.js`) and the next edit of an
+ * entity of a server atlas (`converterFotosInline`, `store/photo-attach.js`).
+ *
+ * STAYING INLINE IS HOW IT ALWAYS TRAVELLED, so every refusal here costs nothing: the photo reaches
+ * the server inside its entity, exactly as before phase 2c. It stays when it has no string `id`
+ * (there is no name for the blob), no `thumbnail` (every gallery draws the tile from the thumbnail
+ * of a photo held by reference, and a conversion cannot make one without a canvas), a type outside
+ * the server allowlist (an old GIF would be refused by the upload), or bytes above the server's
+ * image cap. A photo attached through the gate never falls in the last two.
+ *
+ * Only the head of the string is matched: the data URL of a large photo is megabytes long.
+ *
+ * @param {*} foto - An item of an `images` array
+ * @returns {string|null}
+ */
+export function mimeDeFotoInlineQueSobe(foto) {
+    if (!fotoTemBytesInline(foto) || typeof foto.id !== 'string' || foto.id.length === 0) return null;
+    if (typeof foto.thumbnail !== 'string' || foto.thumbnail.length === 0) return null;
+    const cabeca = CABECA_DE_DATA_URL.exec(foto.data.slice(0, 256));
+    if (!cabeca) return null;
+    const mime = cabeca[1].toLowerCase();
+    if (!IMAGE_CONFIG.allowedTypes.includes(mime)) return null;
+    const bytes = Math.floor((foto.data.length - cabeca[0].length) * 3 / 4);
+    return bytes > IMAGE_CONFIG.maxSizeBytes ? null : mime;
+}
+
+/**
+ * The bytes of a base64 data URL as a typed Blob, or null when it is not one or does not decode.
+ *
+ * It exists for the inline photo that becomes a blob (see {@link mimeDeFotoInlineQueSobe}): its bytes
+ * are in no store. A data URL that does not decode is answered with null, which the send ports count
+ * as a missing picture and the edit keeps inline, because the photo could not be drawn either.
+ *
+ * @param {string} dataUrl
+ * @returns {Blob|null}
+ */
+export function blobDeDataUrl(dataUrl) {
+    const cabeca = CABECA_DE_DATA_URL.exec(String(dataUrl ?? '').slice(0, 256));
+    if (!cabeca) return null;
+    try {
+        const binario = atob(dataUrl.slice(cabeca[0].length));
+        const bytes = new Uint8Array(binario.length);
+        for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+        return new Blob([bytes], { type: cabeca[1].toLowerCase() });
+    } catch {
+        return null;
+    }
 }
 
 /** Formats that can carry an alpha channel among the accepted ones. */

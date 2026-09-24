@@ -188,6 +188,12 @@ function rewriteSettingsIcons(settings, imageIdMap) {
  * - An IMAGE feature's blob ref IS its id (the snapshot forces properties.id = the row id),
  *   so the copy must carry the copied blob's id.
  * - A custom point icon travels as `markerSymbol = 'custom:<imageId>'`.
+ * - The photos attached to the feature (`properties.images`), since phase 2c of the attached
+ *   photos (2026-09-24): a photo attached after phase 2b is a blob in `images` with a reference,
+ *   the clone copies that row under a new id, and a copy still naming the source id answered 404
+ *   inside the new atlas (the read is scoped to the pair id and atlas). An inline photo carries its
+ *   bytes and its id is in no map, so it passes untouched. Duplicating a map copies only the rows
+ *   of image FEATURES, so there a photo keeps its id: same atlas, one shared immutable blob.
  * @param {Object} properties - Source properties
  * @param {string} newFeatureId
  * @param {boolean} isImageFeature
@@ -200,6 +206,9 @@ function rewriteFeatureProperties(properties, newFeatureId, isImageFeature, imag
   if (typeof props.markerSymbol === 'string' && props.markerSymbol.startsWith('custom:')) {
     const iconId = props.markerSymbol.slice('custom:'.length);
     if (imageIdMap[iconId]) props.markerSymbol = `custom:${imageIdMap[iconId]}`;
+  }
+  if (Array.isArray(props.images) && props.images.length > 0) {
+    props.images = rewriteItemImages(props, imageIdMap).images;
   }
   return props;
 }

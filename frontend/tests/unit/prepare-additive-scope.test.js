@@ -100,4 +100,34 @@ describe('additive preparation', () => {
         await expect(run()).rejects.toThrow(/100 mapas/);
         expect(await values(source, 'MAPS')).toHaveLength(100);
     });
+    // FASE 2c DAS FOTOS ANEXAS (2026-09-24): a conta de figuras ausentes olha a foto por REFERÊNCIA
+    // de feição e de 3D/360, e nunca a inline, que chega dentro do próprio arquivo.
+    it('a foto inline de 3D não é contada como ausente: os bytes vieram no documento', async () => {
+        const data = input();
+        data.cesium3d.A.markers[0].images.push({ id: 'inline', name: 'velha.jpg', data: 'data:image/png;base64,AQID' });
+        expect((await run(data)).missingOriginalImages).toBe(0);
+        const imported = (await values(destination, 'MAPS')).find(map => map.name === 'A_1');
+        const inline = (await get(destination, 'CESIUM3D', `cesium3d_${imported.id}`)).markers[0].images[1];
+        expect(inline.data).toBe('data:image/png;base64,AQID');
+    });
+    it('a foto de FEIÇÃO por referência vem do arquivo sob o id novo, e a que falta é contada', async () => {
+        const data = input();
+        data.maps.A.features.points[0].properties.images = [{ id: 'fphoto', name: 'nova.jpg', thumbnail: 'data:image/jpeg;base64,/9j/' }];
+        const zip = new JSZip();
+        zip.file('images/photo.png', new Uint8Array([1, 2, 3]));
+        zip.file('images/icon.png', new Uint8Array([4, 5]));
+        zip.file('images/fphoto.jpg', new Uint8Array([9, 9]));
+        const completo = await prepare(source, destination, { id: 'atlas', name: 'Original' }, data, zip,
+            layers => ({ processed: layers, unavailableCount: 0 }));
+        expect(completo.missingOriginalImages).toBe(0);
+        const imported = (await values(destination, 'MAPS')).find(map => map.name === 'A_1');
+        const foto = imported.features.points[0].properties.images[0];
+        expect(foto.id).not.toBe('fphoto');
+        expect([...new Uint8Array(await (await get(destination, 'IMAGES', foto.id)).arrayBuffer())]).toEqual([9, 9]);
+    });
+    it('a foto de FEIÇÃO por referência que o arquivo não traz é contada como ausente', async () => {
+        const data = input();
+        data.maps.A.features.points[0].properties.images = [{ id: 'fphoto', name: 'nova.jpg' }];
+        expect((await run(data)).missingOriginalImages).toBe(1);
+    });
 });

@@ -2,6 +2,7 @@
 import { copyAtlasDatabases, getStoreFor, StoreName } from '@store/atlas-namespace.js';
 import { generateUUID, isValidId } from '@utils/uuid.js';
 import { prepareEbgeoScope } from './prepare-ebgeo-scope.js';
+import { idsDeFotosPorReferencia } from '@js/user_data/photo-refs.js';
 
 const SECTIONS = ['groups', 'layers', 'cesium3d', 'streetview360', 'comments', 'colorUsage', 'mapNotes', 'gridStyle', 'temporal'];
 const REFERENCES = new Set(['id', 'parentId', 'layerId', 'groupId', 'featureId', 'mapId', 'briefingId', 'slideId']);
@@ -53,18 +54,11 @@ export async function prepareAdditiveScope(source, destination, entry, input, zi
     // Photos cannot borrow a same-ID image from the atlas being extended.
     const archiveImages = new Set([...imageFiles.values()].map(path => path.slice(7).replace(/\.[^.]+$/, '')));
     const required = new Set((input.customIcons || []).map(icon => icon.id));
-    const attached = value => {
-        if (!value || typeof value !== 'object') return;
-        if (Array.isArray(value.images)) {
-            for (const image of value.images) {
-                if (typeof image === 'string') required.add(image);
-                else if (image?.id) required.add(image.id);
-            }
-        }
-        for (const child of Object.values(value)) attached(child);
-    };
-    attached(input.cesium3d);
-    attached(input.streetview360);
+    // The attached PHOTOS held by reference, of features and of 3D/360 items (phase 2c of the
+    // attached photos, 2026-09-24). An inline photo carries its bytes and is never missing: the walk
+    // this replaced counted every 3D/360 photo, so an old inline one warned about a picture that
+    // came inside the file, and it never looked at a FEATURE's photos, so a missing one went unsaid.
+    for (const id of idsDeFotosPorReferencia(input)) required.add(id);
     for (const map of Object.values(input.maps)) {
         for (const feature of map.features?.images || []) {
             required.add(feature.properties?.id);

@@ -8,6 +8,7 @@
 
 import { buildServerImportPayload } from './local-atlas-to-server.js';
 import { buildImageUploads } from './atlas-image-upload.js';
+import { blobDeDataUrl } from '@utils/image_utils.js';
 import { classifyMissingImages, missingImagesUploadConfirm, uploadCancelledError } from './ebgeo-missing-images.js';
 import { getImage, getAllMapNamesStore } from '@store';
 import { generateUUID } from '@utils/uuid.js';
@@ -20,16 +21,20 @@ import { tamanhoDoEnvio } from '@js/projects/server-send-phrases.js';
  *
  * O blob e LIDO pelo id local e ENVIADO com o id novo de `imageIdMap`: e a mesma troca que o
  * payload ja fez nas referencias, e as duas metades precisam concordar.
+ * A foto INLINE nao esta no armazem: os bytes dela vem do proprio documento (`inlineImages`, fase
+ * 2c das fotos anexas) e sao procurados ali primeiro.
  * @param {string[]} imageIds - Ids LOCAIS dos blobs.
  * @param {Object} imageIdMap - `{ localId: novoId }`.
+ * @param {Map<string, string>} [inlineImages] - Data URL de cada foto inline, pelo id local.
  * @returns {Promise<{ uploads: Array<Object>, skipped: string[], missing: string[] }>} `missing`
  *   holds LOCAL ids.
  */
-async function collectImageUploads(imageIds, imageIdMap) {
+async function collectImageUploads(imageIds, imageIdMap, inlineImages = new Map()) {
     const found = [];
     const missing = [];
     for (const id of imageIds) {
-        const blob = await getImage(id);
+        const inline = inlineImages.get(id);
+        const blob = inline ? blobDeDataUrl(inline) : await getImage(id);
         if (!blob) { missing.push(id); continue; }
         found.push([imageIdMap[id] || id, blob]);
     }
@@ -59,7 +64,7 @@ export async function saveLocalAtlasToServer(apiClient, exportService, { name, d
     const imageIdMap = Object.fromEntries(sondagem.imageIds.map((id) => [id, generateUUID()]));
     const built = buildServerImportPayload(exportData, { name, description, imageIdMap });
 
-    const { uploads, skipped, missing } = await collectImageUploads(built.imageIds, imageIdMap);
+    const { uploads, skipped, missing } = await collectImageUploads(built.imageIds, imageIdMap, built.inlineImages);
     if (skipped.length || built.stats.droppedFeatures) throw new Error('Há imagens ou feições que não podem ser convertidas. Nenhum atlas foi publicado.');
     // ASKED BEFORE ANY NETWORK WRITE, and the answer decides: see `missingImagesUploadConfirm`.
     const question = missingImagesUploadConfirm(classifyMissingImages(missing, exportData), { from: 'disco', exportData });

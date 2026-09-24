@@ -12,8 +12,16 @@
  * is the literal `'default'`; and (2) flattening the object-keyed collections
  * (cesium3d.cameraPositions / streetview360.orientations) into typed arrays.
  *
- * Image blobs are NOT handled here — this returns the set of image ids the caller must
+ * Image blobs are NOT read here — this returns the set of image ids the caller must
  * upload (via `apiClient.bulkUploadImages`) in a later phase.
+ *
+ * ONE EXCEPTION: THE BYTES OF AN INLINE PHOTO LEAVE THE DOCUMENT HERE (phase 2c of the attached
+ * photos, 2026-09-24). A photo attached before phase 2b carries its bytes as a data URL inside the
+ * entity (`properties.images[]` of a feature, `images[]` of a 3D or 360 item). This is the
+ * boundary where the owner decided it becomes a blob with a reference: the item goes up without
+ * `data`, its id joins `imageIds` like any other blob, and the bytes come back in `inlineImages`
+ * (local id to data URL) for the caller to upload, because they are in no store. See
+ * `converterFotos`.
  */
 
 import { generateUUID, isValidUUID } from '@utils/uuid.js';
@@ -21,6 +29,8 @@ import { pruneCatalogLayerDefinitions } from '@catalog/catalog-layer.ref.js';
 import { normalizeLegacyDeclinationProperties, ensureMapDataShape } from '@store/repository.utils.js';
 import { normalizeSlideControls } from '@js/briefing/slide-controls.js';
 import { isDerivedOutputBucket } from '@store/analysis-output.js';
+import { mimeDeFotoInlineQueSobe } from '@utils/image_utils.js';
+import { fotoTemBytesInline, idDeFotoPorReferencia } from '@js/user_data/photo-refs.js';
 
 /** Server-accepted feature types (mirror of backend `VALID_FEATURE_TYPES`). */
 const VALID_FEATURE_TYPES = new Set([
@@ -110,22 +120,57 @@ function slideResourceRef(value) {
 }
 
 /**
+ * The image id a photo item makes the caller upload: a reference, or an inline photo that goes up
+ * (`mimeDeFotoInlineQueSobe`, `utilities/image_utils.js`, which says which ones stay inline and why:
+ * staying is how they always travelled, so it costs nothing).
+ * @param {*} foto - An item of an `images` array
+ * @returns {string|null}
+ */
+function idDeFotoQueSobe(foto) {
+    return mimeDeFotoInlineQueSobe(foto) ? foto.id : idDeFotoPorReferencia(foto);
+}
+
+/**
+ * Rewrites an `images` array (the photos of a feature, of a 3D or 360 item) for the server.
+ *
+ * A reference points at its uploaded id. An inline photo that goes up (`mimeDeFotoInlineQueSobe`)
+ * loses `data`, keeps everything else (the `thumbnail` above all, which the entity carries so the
+ * gallery draws without fetching the photo) and records its bytes in `fotosInline` under the LOCAL
+ * id, first occurrence winning: a duplicated feature carries the same photo twice, and it is one
+ * blob. `type` follows the bytes, because an old item kept the type of the file that was picked,
+ * not of the JPEG it was re-encoded into.
+ *
+ * @param {Array} fotos
+ * @param {Object} imageIdMap - `{ localId: serverId }`.
+ * @param {Map<string, string>} fotosInline - Mutated: local id to data URL.
+ * @returns {Array}
+ */
+function converterFotos(fotos, imageIdMap, fotosInline) {
+    return fotos.map((foto) => {
+        if (typeof foto === 'string') return imageIdMap[foto] || foto;
+        const mime = mimeDeFotoInlineQueSobe(foto);
+        if (mime) {
+            if (!fotosInline.has(foto.id)) fotosInline.set(foto.id, foto.data);
+            const { data: _bytes, ...semBytes } = foto;
+            return { ...semBytes, id: imageIdMap[foto.id] || foto.id, type: mime };
+        }
+        if (!fotoTemBytesInline(foto) && foto?.id && imageIdMap[foto.id]) return { ...foto, id: imageIdMap[foto.id] };
+        return foto;
+    });
+}
+
+/**
  * Rewrites an entity's `images[]` array (3D/360 markers etc.) from local image ids to uploaded
- * server ids. Returns the item unchanged when there is nothing to rewrite.
+ * server ids, through {@link converterFotos}. Returns the item unchanged when there is nothing to
+ * rewrite.
  * @param {Object} item
  * @param {Object} imageIdMap - `{ localId: serverId }`.
+ * @param {Map<string, string>} fotosInline - Mutated: local id to data URL.
  * @returns {Object}
  */
-function rewriteItemImages(item, imageIdMap) {
+function rewriteItemImages(item, imageIdMap, fotosInline) {
     if (!Array.isArray(item?.images) || item.images.length === 0) return item;
-    return {
-        ...item,
-        images: item.images.map((img) => {
-            if (typeof img === 'string') return imageIdMap[img] || img;
-            if (img?.id && imageIdMap[img.id]) return { ...img, id: imageIdMap[img.id] };
-            return img;
-        }),
-    };
+    return { ...item, images: converterFotos(item.images, imageIdMap, fotosInline) };
 }
 
 /**
@@ -133,11 +178,12 @@ function rewriteItemImages(item, imageIdMap) {
  * @param {Object} buckets - `{ points: [...], lines: [...], ... }`.
  * @param {(id: string) => string} featureId - Global feature-id mapper (seeded with image ids).
  * @param {(layerId: (string|null|undefined)) => string} layerIdFor - Per-map layer-id mapper.
- * @param {Object} imageIdMap - `{ localId: serverId }` for rewriting custom-icon refs.
+ * @param {Object} imageIdMap - `{ localId: serverId }` for rewriting custom-icon and photo refs.
  * @param {{ droppedFeatures: number }} stats - Mutated with the count of dropped features.
+ * @param {Map<string, string>} fotosInline - Mutated: the bytes of the inline photos that go up.
  * @returns {Array<Object>} Server feature rows.
  */
-function buildFeatures(buckets, featureId, layerIdFor, imageIdMap, stats) {
+function buildFeatures(buckets, featureId, layerIdFor, imageIdMap, stats, fotosInline) {
     const out = [];
     if (!buckets || typeof buckets !== 'object') return out;
 
@@ -167,6 +213,10 @@ function buildFeatures(buckets, featureId, layerIdFor, imageIdMap, stats) {
             if (typeof newProps.markerSymbol === 'string' && newProps.markerSymbol.startsWith('custom:')) {
                 const iconId = newProps.markerSymbol.slice('custom:'.length);
                 if (imageIdMap[iconId]) newProps.markerSymbol = `custom:${imageIdMap[iconId]}`;
+            }
+            // The attached photos: references re-pointed, inline bytes out of the document.
+            if (Array.isArray(newProps.images) && newProps.images.length > 0) {
+                newProps.images = converterFotos(newProps.images, imageIdMap, fotosInline);
             }
             out.push({
                 id: mappedId,
@@ -237,14 +287,15 @@ function buildGroups(groupsObj, groupId, featureId) {
  * @param {Object|null} c3d - `{ cameraPositions:{tilesetId→item}, markers:[], measurements:[], viewsheds:[] }`.
  * @param {(id: string) => string} idFor
  * @param {Object} imageIdMap - `{ localId: serverId }` for rewriting item `images[]`.
+ * @param {Map<string, string>} fotosInline - Mutated: the bytes of the inline photos that go up.
  * @returns {Array<Object>}
  */
-function buildCesium3d(c3d, idFor, imageIdMap) {
+function buildCesium3d(c3d, idFor, imageIdMap, fotosInline) {
     const out = [];
     if (!c3d || typeof c3d !== 'object') return out;
     const push = (item, dataType) => {
         if (!item?.id) return;
-        out.push({ id: idFor(item.id), data_type: dataType, tileset_id: item.tilesetId ?? null, data: rewriteItemImages(item, imageIdMap) });
+        out.push({ id: idFor(item.id), data_type: dataType, tileset_id: item.tilesetId ?? null, data: rewriteItemImages(item, imageIdMap, fotosInline) });
     };
     for (const item of Object.values(c3d.cameraPositions || {})) push(item, 'camera_position');
     for (const item of c3d.markers || []) push(item, 'marker');
@@ -258,14 +309,15 @@ function buildCesium3d(c3d, idFor, imageIdMap) {
  * @param {Object|null} sv - `{ orientations:{photoName→item}, markers:[] }`.
  * @param {(id: string) => string} idFor
  * @param {Object} imageIdMap - `{ localId: serverId }` for rewriting item `images[]`.
+ * @param {Map<string, string>} fotosInline - Mutated: the bytes of the inline photos that go up.
  * @returns {Array<Object>}
  */
-function buildStreetview360(sv, idFor, imageIdMap) {
+function buildStreetview360(sv, idFor, imageIdMap, fotosInline) {
     const out = [];
     if (!sv || typeof sv !== 'object') return out;
     const push = (item, dataType) => {
         if (!item?.id) return;
-        out.push({ id: idFor(item.id), data_type: dataType, photo_name: item.photoName ?? null, data: rewriteItemImages(item, imageIdMap) });
+        out.push({ id: idFor(item.id), data_type: dataType, photo_name: item.photoName ?? null, data: rewriteItemImages(item, imageIdMap, fotosInline) });
     };
     for (const item of Object.values(sv.orientations || {})) push(item, 'orientation');
     for (const item of sv.markers || []) push(item, 'marker');
@@ -274,28 +326,40 @@ function buildStreetview360(sv, idFor, imageIdMap) {
 
 /**
  * Collects the image ids referenced by a map's features (image features keyed by their own
- * id) and by 3D/360 item `images[]` arrays, for the caller's later bulk upload.
+ * id, and the photos attached to any feature) and by 3D/360 item `images[]` arrays, for the
+ * caller's later bulk upload.
+ *
+ * A PHOTO IS CITED ONLY WHEN IT GOES UP AS A BLOB ({@link idDeFotoQueSobe}). Until phase 2c the
+ * 3D/360 walk cited every `img.id`, inline ones included: their bytes are in no store, so every send
+ * of a local atlas with an old 3D or 360 photo asked the person about a MISSING picture that was
+ * travelling inside the item all along, and told the server it was missing. The feature walk did
+ * not cite photos at all, which after phase 2b would have left every new photo behind.
+ *
  * @param {Object} buckets
  * @param {Object|null} c3d
  * @param {Object|null} sv
  * @param {Set<string>} sink
  */
 function collectImageIds(buckets, c3d, sv, sink) {
+    const fromPhotos = (fotos) => {
+        if (!Array.isArray(fotos)) return;
+        for (const foto of fotos) {
+            const id = idDeFotoQueSobe(foto);
+            if (id) sink.add(id);
+        }
+    };
     for (const [bucket, list] of Object.entries(buckets || {})) {
         if (!Array.isArray(list)) continue;
         for (const f of list) {
             if ((bucket === 'images' || f?.properties?.source === 'image') && f?.properties?.id) sink.add(f.properties.id);
             const marker = f?.properties?.markerSymbol;
             if (typeof marker === 'string' && marker.startsWith('custom:')) sink.add(marker.slice(7));
+            // `buildFeatures` does not send the derived buckets, so their photos are not cited.
+            if (!isDerivedOutputBucket(bucket)) fromPhotos(f?.properties?.images);
         }
     }
     const fromItems = (items) => {
-        for (const it of items || []) {
-            for (const img of it?.images || []) {
-                const id = typeof img === 'string' ? img : img?.id;
-                if (id) sink.add(id);
-            }
-        }
+        for (const it of items || []) fromPhotos(it?.images);
     };
     if (c3d) { fromItems(c3d.markers); fromItems(c3d.measurements); fromItems(c3d.viewsheds); }
     if (sv) fromItems(sv.markers);
@@ -307,8 +371,10 @@ function collectImageIds(buckets, c3d, sv, sink) {
  * Images: the production path is TWO passes, and `meta.imageIdMap` is what the second one uses.
  * `save-local-atlas.service.js` builds once to learn WHICH blobs the atlas cites, mints a fresh
  * id for each, and builds again with `imageIdMap = { localId: novoId }`, which rewrites every
- * blob reference at once (image-feature ids, custom-icon `markerSymbol` + registry ids, 3D/360
- * `images[]`). The blobs are then uploaded under those fresh ids.
+ * blob reference at once (image-feature ids, custom-icon `markerSymbol` + registry ids, the photos
+ * of features and of 3D/360 items). The blobs are then uploaded under those fresh ids. The bytes
+ * of an inline photo are not in any store: the caller finds them in `inlineImages`, under the
+ * LOCAL id, and must look there before the store (see the fileoverview).
  *
  * A minting is not cosmetic: `images.id` is a GLOBAL primary key on the server, so re-sending the
  * same local atlas would try to claim a taken id. The server re-mints colliding ids for every
@@ -320,8 +386,9 @@ function collectImageIds(buckets, c3d, sv, sink) {
  *   `data`): `{ maps, layers, groups, cesium3d, streetview360, temporal, gridStyle, mapNotes,
  *   colorUsage, briefings, customIcons, mapOrder, currentMap }`.
  * @param {Object} meta - `{ name, description, imageIdMap? }`; `imageIdMap` is `{ localId: serverId }`.
- * @returns {{ payload: Object, imageIds: string[], stats: Object, mapNameToId: Object }}
- *   `payload` ready for `apiClient.importAtlas`; `imageIds` to bulk-upload; `mapNameToId`
+ * @returns {{ payload: Object, imageIds: string[], inlineImages: Map<string, string>, stats: Object, mapNameToId: Object }}
+ *   `payload` ready for `apiClient.importAtlas`; `imageIds` (LOCAL ids) to bulk-upload;
+ *   `inlineImages` the data URL of every inline photo among them, by local id; `mapNameToId`
  *   maps local map names → assigned server map UUIDs (for briefing/ref resolution + UI).
  */
 export function buildServerImportPayload(exportData, meta = {}) {
@@ -330,6 +397,7 @@ export function buildServerImportPayload(exportData, meta = {}) {
     const stats = { maps: 0, features: 0, droppedFeatures: 0, layers: 0, groups: 0 };
     const imageSink = new Set();
     const imageIdMap = meta.imageIdMap || {};
+    const fotosInline = new Map();
 
     // Global mappers (UUIDs kept; non-UUIDs assigned a stable UUID). featureId is SEEDED with the
     // image map so an image-feature id (which equals its blob id) becomes the uploaded server id —
@@ -356,7 +424,7 @@ export function buildServerImportPayload(exportData, meta = {}) {
         const sv = data.streetview360?.[mapName] || null;
         const notes = data.mapNotes?.[mapName] || {};
 
-        const features = buildFeatures(buckets, featureId, layerIdFor, imageIdMap, stats);
+        const features = buildFeatures(buckets, featureId, layerIdFor, imageIdMap, stats, fotosInline);
         const layers = buildLayers(data.layers?.[mapName], layerIdFor);
         const { groups, groupFeatures } = buildGroups(data.groups?.[mapName], groupId, featureId);
         collectImageIds(buckets, c3d, sv, imageSink);
@@ -388,8 +456,8 @@ export function buildServerImportPayload(exportData, meta = {}) {
             layers,
             groups,
             groupFeatures,
-            cesium3dData: buildCesium3d(c3d, makeIdMapper(), imageIdMap),
-            streetview360Data: buildStreetview360(sv, makeIdMapper(), imageIdMap),
+            cesium3dData: buildCesium3d(c3d, makeIdMapper(), imageIdMap, fotosInline),
+            streetview360Data: buildStreetview360(sv, makeIdMapper(), imageIdMap, fotosInline),
         });
     }
     stats.maps = serverMaps.length;
@@ -451,5 +519,5 @@ export function buildServerImportPayload(exportData, meta = {}) {
         briefings,
     };
 
-    return { payload, imageIds: [...imageSink], stats, mapNameToId };
+    return { payload, imageIds: [...imageSink], inlineImages: fotosInline, stats, mapNameToId };
 }

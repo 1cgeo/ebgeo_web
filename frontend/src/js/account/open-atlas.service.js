@@ -474,8 +474,14 @@ async function claimRemoteAtlas(atlasId) {
  *
  * Best-effort by construction. This runs on the way into an atlas, and a services container
  * that is not up yet is not a reason to refuse the open.
+ *
+ * EXPORTED since 2026-09-24 for the one entry that does not pass through here: "Salvar no
+ * servidor" of the map page (`account/account.control.js`) swaps the tab LIVE from the local atlas
+ * into the server atlas it has just created. Its clipboard still held the local atlas's features,
+ * and a photo attached by reference (phase 2b) pasted there pointed at an id that the new atlas
+ * never received, because the send minted a fresh one for every blob.
  */
-function clearFeatureClipboard() {
+export function clearFeatureClipboard() {
     try {
         getStateManager().clearClipboard();
     } catch (_e) {

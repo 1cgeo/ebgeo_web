@@ -21,6 +21,7 @@ import { migrateImportDataToV2 } from '@js/import_export/import-normalize.js';
 import { generateUUID } from '@utils/uuid.js';
 import { buildServerImportPayload } from '@js/import_export/local-atlas-to-server.js';
 import { buildImageUploads } from '@js/import_export/atlas-image-upload.js';
+import { blobDeDataUrl } from '@utils/image_utils.js';
 import { classifyMissingImages, missingImagesUploadConfirm, uploadCancelledError } from '@js/import_export/ebgeo-missing-images.js';
 import { atlasNameFromFilename } from './ebgeo-filename.js';
 
@@ -87,12 +88,23 @@ export async function importEbgeoAsAtlas(file, { apiClient, name, confirmMissing
     const foundIds = new Set();
     for (const entryName of Object.keys(zip.files)) {
         const match = IMAGE_ENTRY.exec(entryName);
-        if (!match || !wanted.has(match[1])) continue;
+        // An inline photo's bytes are taken from the document below, never from an entry.
+        if (!match || !wanted.has(match[1]) || built.inlineImages.has(match[1])) continue;
         if (foundIds.has(match[1])) throw new Error('O arquivo contém imagens com o mesmo identificador. Nenhum atlas foi criado.');
         const raw = await zip.file(entryName).async('blob');
         const mimeType = MIME_BY_EXT[match[2].toLowerCase()] || 'application/octet-stream';
         foundIds.add(match[1]);
         found.push([imageIdMap[match[1]], new Blob([raw], { type: mimeType })]);
+    }
+    // THE INLINE PHOTO GOES UP AS A BLOB TOO (phase 2c of the attached photos): a file written by a
+    // local atlas before phase 2b carries its photos as data URLs inside the document, and the
+    // transform took them out of the payload, so their bytes travel from here.
+    for (const [id, dataUrl] of built.inlineImages) {
+        if (!wanted.has(id)) continue;
+        const blob = blobDeDataUrl(dataUrl);
+        if (!blob) continue;
+        foundIds.add(id);
+        found.push([imageIdMap[id], blob]);
     }
     // A PICTURE THE ARCHIVE DOES NOT CARRY IS A QUESTION, NOT A REFUSAL (2026-09-21). It used to
     // stop the import, and since the exporter may now write a file KNOWING a picture is missing

@@ -62,6 +62,7 @@ import { saveLocalAtlasToServer } from '@js/import_export/save-local-atlas.servi
 // Pelo ARQUIVO: `projects/` não tem barril, e a folha não tem imports (as frases das duas portas do envio).
 import { avisosDoServidor, fraseDeEnvioGrandeDemais } from '@js/projects/server-send-phrases.js';
 import {
+    clearFeatureClipboard,
     openRemoteAtlas,
     retractAtlasClaim,
     // A TESTEMUNHA do pre-flight destrutivo (`tab-lock.js`, secao 5). Ela vem daqui, e nao de
@@ -1035,6 +1036,10 @@ export class AccountControl {
                         return;
                     }
                     // 3) Swap the local store for the new remote atlas, live.
+                    // The clipboard holds the LOCAL atlas's features, whose pictures the new atlas
+                    // knows under other ids: every other entry into an atlas empties it, and this
+                    // one was the exception (`clearFeatureClipboard`, open-atlas.service.js).
+                    clearFeatureClipboard();
                     // `markLocal: false`: REMOTE is declared on the next line (see the same
                     // reason in `openRemoteAtlas`).
                     await clearAllDataStore({ markLocal: false });
