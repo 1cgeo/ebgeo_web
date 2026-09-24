@@ -115,12 +115,14 @@ const LOTE_GRANDE_DEMAIS = `Esta ação gerou mais de ${LOTE_MAX_OPS} alteraçõ
  * The pt-BR reason stored (and shown) when a piece that cannot be split any further still exceeds
  * the body limit of the push (413). The raw `error.message` would be the Express default
  * ("request entity too large") or, from a proxy answering with HTML, `HTTP 413`, and the pending
- * list shows the stored reason verbatim. Retrying the same bytes gets the same 413, so the sentence
- * names the only thing that helps.
+ * list shows the stored reason verbatim. Retrying the same bytes gets the same 413. The sentence does
+ * NOT claim where the change came from (an import is the common road, but a large hand-drawn
+ * viewshed or a paste reach it too, and the house rule is not to state a cause the code does not
+ * know), so the advice is conditional.
  * @type {string}
  */
-const CORPO_GRANDE_DEMAIS = 'Esta alteração é grande demais para o servidor receber de uma vez '
-    + 'e ficou nas pendências. Divida a importação em partes menores e tente de novo.';
+const CORPO_GRANDE_DEMAIS = 'Esta alteração é grande demais para o servidor aceitar de uma vez '
+    + 'e ficou nas pendências. Se veio de uma importação, divida o arquivo em partes menores.';
 
 /**
  * What the public-link visitor reads when the live connection cannot come back: the link's token
