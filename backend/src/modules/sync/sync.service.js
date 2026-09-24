@@ -507,10 +507,15 @@ function normalizeSlidePayload(rawData, envelopeMapId) {
     }
   }
 
-  if (rawData.briefing_id === undefined) {
-    const parent = rawData.briefingId ?? envelopeMapId ?? undefined;
-    if (parent !== undefined) patch.briefing_id = parent;
-  }
+  // THE ENVELOPE NAMES THE PARENT, and it wins over whatever the payload carries. The client logs
+  // every slide op with the briefing it belongs to in the envelope's `mapId` slot, while the payload
+  // is a copy of a slide that may carry the `briefing_id` of ANOTHER briefing: a slide imported from
+  // briefing X into briefing Y kept X's `briefing_id` (a snapshot slide spreads every column), and
+  // the copy was created under X on the server, missing from Y after an F5 and an orphan in X
+  // (`frontend/tests/e2e-ui/briefing-editor-cobertura.spec.js`). The payload's own parent is the
+  // fallback for a caller that sends no envelope parent.
+  const parent = envelopeMapId ?? rawData.briefingId ?? rawData.briefing_id;
+  if (parent !== undefined && parent !== rawData.briefing_id) patch.briefing_id = parent;
 
   return Object.keys(patch).length ? { ...rawData, ...patch } : rawData;
 }
@@ -576,7 +581,13 @@ async function resolveSlideMapId(t, atlasId, data) {
 
 function normalizeBriefingPayload(rawData) {
   if (!rawData || typeof rawData !== 'object') return rawData;
-  if (rawData.slide_order !== undefined || !Array.isArray(rawData.slides)) return rawData;
+  // THE SLIDES WIN OVER A `slide_order` CARRIED ALONG. The client keeps no `slide_order` of its own,
+  // but a briefing it received back (the canonical receipt, a snapshot) carries the column, and the
+  // next envelope sent it again, STALE: the server kept the order of the first acknowledgement for
+  // ever, so a reorder never reached the column and an F5 showed the old order
+  // (`frontend/tests/e2e-ui/briefing-editor-cobertura.spec.js`). A payload with no slides keeps the
+  // explicit order it brings.
+  if (!Array.isArray(rawData.slides)) return rawData;
 
   const slide_order = rawData.slides
     .filter((s) => s && typeof s.id === 'string' && FEATURE_UUID_RE.test(s.id))
