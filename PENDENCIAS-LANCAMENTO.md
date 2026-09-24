@@ -135,7 +135,23 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
 - cobertura-desenho-local.spec.js: passou 18 de 39 execuções. O erro é "refazer: a copia nao saiu": depois do refazer, a cópia colada continua no mapa. Em 2026-09-24 de manhã, o mesmo spec deu 26 de 26; agora falha em todas as ferramentas medidas. PODE ser a corrida de teste descrita abaixo, mas a taxa com o spec sozinho aponta para regressão de produto no desfazer e refazer do atlas local. Bisectar.
 - browser-collab-permissions.spec.js (linha 253), revogação de compartilhamento: falhou 3 de 3, mas o defeito é do TESTE. Depois da revogação, a página do colega navega para outra tela, e o teste ainda chama clienteNaPagina nela ("Execution context was destroyed"). Confirmar que a navegação é o comportamento desejado e ajustar o spec.
 - briefing-figura-leva-bytes.spec.js: passou 3 de 3 sozinho; a falha na fatia foi da carga.
-- Não chegaram a rodar: os 233 casos restantes da suíte principal, e as camadas fora dela (Firefox, tablet, segurança do atlas, sessão longa, atlas grande e os dois cenários de release). Rode uma camada por vez: três fatias paralelas mais a suíte da raiz estouraram os 32 GB da máquina original.
+- Depois, uma camada por vez, sobre c65162df. Três fatias paralelas mais a suíte da raiz tinham estourado os 32 GB da máquina original:
+  - resto da suíte principal: 292 passaram, 3 falharam, 1 pulado;
+  - tablet: 10/10;
+  - segurança do atlas: 4/4;
+  - sessão longa: 2/2;
+  - atlas grande: 4 de 5;
+  - verificações de release: 5/5.
+- As falhas dessas camadas, rodadas sozinhas 3 vezes cada:
+  - visibilidade-compartilhada-no-colega: 3 de 3; a falha anterior foi carga.
+  - browser-migracao-2.2.spec.js (linha 421), janela do main aberta: 0 de 3, TESTE DESATUALIZADO. A tela agora diz "Há uma janela antiga do EBGeo aberta. Feche a outra janela do EBGeo neste computador...", e o teste procura as palavras "versão antiga". Confirmar que a mudança de texto foi intencional e atualizar a asserção.
+  - desempenho-do-boot-do-mapa.spec.js (linha 304), transições entre atlas: 0 de 3, TETO DESATUALIZADO. São 638 pedidos de script por transição contra o teto de 631; o código novo do dia acrescentou módulos. Remedir junto com os tetos de peso, no passo 3 do item 5.
+  - Atlas grande com 10000 pontos num grupo: 2 de 3. A falha foi "Target crashed", a queda conhecida do renderizador do Chromium no harness, descrita nas regras de teste do Playwright, que piora com mapa pesado. Nada aponta para o produto.
+- Não rodaram:
+  - o cenário de produção em HTTPS, que exige EBGEO_MIGRATION_DATA_DIR apontando para uma pasta com o arquivo 03-completo-2.4.ebgeo;
+  - a camada de migração, que exige o mesmo acervo;
+  - a "mega", que abre navegador na tela;
+  - a suíte no Firefox (npm run test:e2e:firefox), cancelada pelo dono aos 19 de 912 casos, todos passando até ali.
 
 - Figura de slide de briefing mora dentro do HTML do texto. Num link de 40 kbps, três palavras digitadas num slide com figura viraram 8 envios com o HTML inteiro (2,4 MB, cerca de 8 minutos), e em 5 minutos o colega não tinha o texto. Nada se perde, mas o slide fica inutilizável em link lento. Candidato a figura por referência, como as fotos.
 - Corrida de TESTE, não de produto: "Refazer: a cópia não saiu" em círculo, seta, limite, elipse e texto, porque o clique de refazer chega antes de o desfazer terminar. Falha também no código anterior. Conserte a espera no helper do spec antes da rodada completa do Playwright.
