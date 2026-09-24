@@ -918,6 +918,9 @@ export class TrajectoryEditControl {
         const props = this._feature?.properties;
         if (!props) return;
         const sorted = normalizeTrajectory(props.trajetoria);
+        // Every write bumps the sequence: a write's result is adopted back into the live array only
+        // if no newer gesture happened since (see the `.then` below).
+        this._persistSeq = (this._persistSeq ?? 0) + 1;
 
         // The anchor (kp 0) is bound 1:1 to the feature's home position. If it moved
         // (anchor vertex dragged), relocate the feature too and persist geometry +
@@ -935,6 +938,8 @@ export class TrajectoryEditControl {
                     null, { recordUndo },
                 );
             }
+            // A whole write: what this client asked for is the next gesture's baseline.
+            this._baseline = sorted.map(kp => ({ ...kp }));
             getControl('TemporalControl')?.sync();
             return;
         }
@@ -971,6 +976,14 @@ export class TrajectoryEditControl {
         const mesmo = (a, b) => a.t === b.t && a.lng === b.lng && a.lat === b.lat;
         const saiu = baseline.filter(b => !sorted.some(k => mesmo(k, b)));
         const entrou = sorted.filter(k => !baseline.some(b => mesmo(k, b)));
+        // THE BASELINE MOVES NOW, NOT WHEN THE WRITE LANDS. The writes of this client are applied
+        // in order under the document lock, so the next gesture must diff against what THIS one
+        // asked for; moving it only in `.then` made a second gesture before the first write landed
+        // diff against the old baseline, and a drag dragged twice persisted BOTH positions (two
+        // keypoints at the same instant). Measured in
+        // `frontend/tests/unit/editor-de-trajetoria-gestos.repro.test.js`.
+        this._baseline = sorted.map(kp => ({ ...kp }));
+        const seq = this._persistSeq;
         const feature = this._feature;
         let gravada = null;
         updateFeature(getStorageTypeFromSource(this._featureType), feature, null, {
@@ -982,7 +995,10 @@ export class TrajectoryEditControl {
                 return { ...current, properties: { ...current.properties, trajetoria: gravada } };
             },
         }).then(() => {
-            if (!gravada || this._feature !== feature) return;
+            // Adopted only when this is still the latest gesture and no "add points" session is
+            // open: a newer gesture's live array (or the clicks of an open session) is newer than
+            // this result, and splicing it in would erase them. The newer write adopts its own.
+            if (!gravada || this._feature !== feature || seq !== this._persistSeq || this._adding) return;
             const arr = feature.properties?.trajetoria;
             if (Array.isArray(arr)) arr.splice(0, arr.length, ...gravada);
             this._baseline = gravada.map(kp => ({ ...kp }));

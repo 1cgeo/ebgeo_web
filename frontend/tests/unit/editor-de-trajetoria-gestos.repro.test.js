@@ -37,6 +37,8 @@ const MIDPOINT_LAYER = 'trajectory-edit-midpoint-layer';
 const servicos = vi.hoisted(() => ({
     escritas: [],
     selecionadas: [],
+    /** When set, replaces the ledger `updateFeature` (the gated store of the ordering case). */
+    gravarNaStore: null,
 }));
 
 vi.mock('@utils/index.js', () => ({ showToast: vi.fn(), showSuccess: vi.fn() }));
@@ -59,6 +61,7 @@ vi.mock('@store', () => ({
     // valor que a transformação produz sobre a feição do arnês e a marca de desfazer que a store
     // aplica a uma escrita no mapa corrente (null = corrente, `shouldRecordUndo`).
     updateFeature: (tipo, feature, mapa, opcoes = {}) => {
+        if (servicos.gravarNaStore) return servicos.gravarNaStore(tipo, feature, mapa, opcoes);
         const atual = JSON.parse(JSON.stringify(feature));
         const escrita = typeof opcoes.transform === 'function' ? opcoes.transform(atual) : feature;
         servicos.escritas.push([tipo, feature.properties.id, 'trajetoria', escrita.properties.trajetoria,
@@ -189,6 +192,7 @@ let editor;
 
 beforeEach(() => {
     servicos.escritas = [];
+    servicos.gravarNaStore = null;
     alvo = { feicao: feicaoComRota() };
     servicos.selecionadas = [{ id: 'ponto-1' }];
     vi.stubGlobal('document', documentoFalso());
@@ -418,5 +422,65 @@ describe('E2: um gesto, uma entrada de Ctrl+Z', () => {
         // mudança que ninguém fez.
         expect(escritas[0][5]).toEqual({ recordUndo: false });
         expect(escritas[0][3]).toHaveLength(3);
+    });
+});
+
+describe('dois gestos antes de a primeira gravacao terminar (ordem de escrita)', () => {
+    /**
+     * Uma store falsa com a propriedade que importa da real: as gravacoes deste cliente sao
+     * aplicadas EM ORDEM (a trava do documento e FIFO), e cada uma so resolve quando o teste solta.
+     */
+    function storeComPortao() {
+        const guardada = { valor: ROTA() };
+        const fila = [];
+        servicos.gravarNaStore = (tipo, feature, mapa, opcoes) => new Promise((resolve) => {
+            fila.push(() => {
+                const atual = { ...feature, properties: { ...feature.properties, trajetoria: JSON.parse(JSON.stringify(guardada.valor)) } };
+                guardada.valor = opcoes.transform(atual).properties.trajetoria;
+                resolve();
+            });
+        });
+        return {
+            guardada,
+            async soltarTudo() {
+                while (fila.length) { fila.shift()(); await Promise.resolve(); }
+                await new Promise((r) => setTimeout(r, 0));
+            },
+        };
+    }
+
+    it('arrastar o MESMO ponto duas vezes antes da 1a gravacao grava so a posicao final', async () => {
+        const store = storeComPortao();
+        container.disparar('pointerdown', evento(px(2), px(2)));
+        container.disparar('pointermove', evento(px(2.5), px(2.5)));
+        container.disparar('pointerup', evento(px(2.5), px(2.5)));
+        container.disparar('pointerdown', evento(px(2.5), px(2.5)));
+        container.disparar('pointermove', evento(px(2.8), px(2.8)));
+        container.disparar('pointerup', evento(px(2.8), px(2.8)));
+
+        await store.soltarTudo();
+
+        const esperado = [
+            { t: 1000, lng: 1, lat: 1 },
+            { t: 2000, lng: 2.8, lat: 2.8 },
+            { t: 3000, lng: 3, lat: 3 },
+        ];
+        expect(store.guardada.valor).toEqual(esperado);
+        expect(alvo.feicao.properties.trajetoria).toEqual(esperado);
+    });
+
+    it('inserir pelo ponto medio e arrastar o ponto novo antes da 1a gravacao nao duplica', async () => {
+        const store = storeComPortao();
+        container.disparar('pointerdown', evento(px(1.5), px(1.5)));
+        container.disparar('pointerup', evento(px(1.5), px(1.5)));
+        container.disparar('pointerdown', evento(px(1.5), px(1.5)));
+        container.disparar('pointermove', evento(px(1.7), px(1.2)));
+        container.disparar('pointerup', evento(px(1.7), px(1.2)));
+
+        await store.soltarTudo();
+
+        expect(store.guardada.valor).toHaveLength(4);
+        expect(new Set(store.guardada.valor.map((k) => k.t)).size, 'nenhum instante repetido').toBe(4);
+        expect(store.guardada.valor.some((k) => k.lng === 1.7 && k.lat === 1.2)).toBe(true);
     });
 });
