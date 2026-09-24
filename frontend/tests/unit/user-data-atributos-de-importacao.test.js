@@ -260,10 +260,27 @@ describe('extractAttributesFromImport — the description', () => {
         }
     });
 
-    it('the FIRST non-empty description wins, and the rest are dropped', () => {
+    it('the Portuguese key wins over the foreign ones, then the first non-empty; the rest are dropped', () => {
+        // Changed on 2026-09-23: it was "the FIRST wins" (desc -> 'primeiro'). Our own KMZ writes
+        // the exact description in the ExtendedData `descricao` and a generated balloon in
+        // `<description>`, which the converter lists FIRST; the first-wins rule put the balloon
+        // (or "[object Object]") in the description on every round trip.
         const out = extract({ desc: 'primeiro', descricao: 'segundo' });
-        expect(out.descricao).toBe('[san]primeiro');
+        expect(out.descricao).toBe('[san]segundo');
         expect(out.attributes).toEqual({});
+        expect(extract({ desc: 'primeiro', description: 'segundo' }).descricao).toBe('[san]primeiro');
+    });
+
+    it('a CDATA description (an object from the KML converter) gives its text, never "[object Object]"', () => {
+        const out = extract({ description: { '@type': 'html', value: '<b>Nota</b>' } });
+        expect(out.descricao).toBe('[san]<b>Nota</b>');
+        expect(extract({ description: { '@type': 'html' } }).descricao).toBe('');
+    });
+
+    it('a balloon OUR export generated is not a description (the real one is in `descricao`)', () => {
+        const balao = { '@type': 'html', value: '<div data-ebgeo="balao"><h3>PC</h3></div>' };
+        expect(extract({ description: balao }).descricao).toBe('');
+        expect(extract({ description: balao, descricao: 'real' }).descricao).toBe('[san]real');
     });
 
     it('an empty or nullish description does not consume the slot', () => {
@@ -342,10 +359,12 @@ describe('extractAttributesFromImport — reserved keys', () => {
         expect(out.attributes).toEqual({});
     });
 
-    it('a SECOND, different name is kept, not lost', () => {
+    it('`nome` wins over `name`, and a SECOND, different name is kept, not lost', () => {
+        // `nome` first because our own KMZ writes the exact name there and puts the LABEL text of
+        // a labelled point in the placemark `<name>`.
         const out = extract({ name: 'Base Alfa', NOME: 'Base Bravo' });
-        expect(out.nome).toBe('Base Alfa');
-        expect(out.attributes).toEqual({ NOME_importado: '[san]Base Bravo' });
+        expect(out.nome).toBe('Base Bravo');
+        expect(out.attributes).toEqual({ name_importado: '[san]Base Alfa' });
     });
 
     it('a collision takes a numeric suffix and never overwrites a key of the file', () => {

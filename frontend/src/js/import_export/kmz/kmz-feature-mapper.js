@@ -27,6 +27,7 @@ import {
     iconHotSpot,
 } from './kml-style.js';
 import { buildDescription, buildExtendedData } from './kml-balloon.js';
+import { CHAVE_DO_ESTILO, estiloParaExportar } from '../estilo-importado.js';
 import { buildPlacemark, buildGroundOverlay } from './kml-document.js';
 import { buildTimePrimitive, hasMovingTrajectory } from './kml-time.js';
 import {
@@ -162,6 +163,12 @@ function buildTextBlocks(feature, featureType, photos) {
     if (featureType === 'text' && properties.text) {
         extras.texto = properties.text;
     }
+
+    // THE FEATURE'S OWN STYLE, as JSON, for OUR import to restore (`estilo-importado.js`). KML
+    // can say a colour and a width, not an EBGeo point or label, so without this a KMZ round trip
+    // brought every feature back with the tool's defaults.
+    const estilo = estiloParaExportar(properties);
+    if (estilo) extras[CHAVE_DO_ESTILO] = estilo;
 
     return {
         description: buildDescription({

@@ -13,6 +13,12 @@ import { ensureTurf } from '@utils/turf-loader.js';
 import { extractTemporalProperties, buildTrajectoryFromGpxFeature, extractGpxTimes, sanitizeImportedTrajectory, describeTemporalIssues } from '@js/temporal/temporal-import.js';
 import { serverMessageOr } from '@utils/request-failure.js';
 import { decodificarTexto, dbfPrecisaDeCpg, CODIFICACAO_DE_RESERVA } from './texto-de-arquivo.js';
+import {
+    separarEstiloImportado,
+    aplicarEstiloImportado,
+    limparEstiloDoKml,
+    nomesDeDadosPorPlacemark,
+} from './estilo-importado.js';
 
 /** Maps source type to Portuguese display name for imported features. */
 const TYPE_DISPLAY_NAMES = {
@@ -430,6 +436,20 @@ class AddImportControl {
         return zip.generateAsync({ type: 'arraybuffer', compression: 'STORE' });
     }
 
+    /**
+     * Converts a parsed KML document and drops the style keys the converter derived from each
+     * placemark's `<Style>` (`styleUrl`, `icon-scale`, `stroke`...): they are not user data, and
+     * they landed as junk attributes on every imported placemark. A key the placemark declared in
+     * its own `<ExtendedData>` is kept. See `estilo-importado.js`.
+     * @param {Document} kmlDoc
+     * @returns {Object} FeatureCollection
+     * @private
+     */
+    _kmlParaGeoJSON(kmlDoc) {
+        const { porPlacemark, todos } = nomesDeDadosPorPlacemark(kmlDoc);
+        return limparEstiloDoKml(toGeoJSON.kml(kmlDoc), porPlacemark, todos);
+    }
+
     async readKML(file) {
         return this._processFileWithReader(
             file,
@@ -439,7 +459,7 @@ class AddImportControl {
                 const kmlDoc = new DOMParser().parseFromString(content, 'text/xml');
                 // KML gx:Track carries per-vertex times like GPX → turn timed tracks
                 // into moving points too (no-op for untimed KML geometry).
-                return this._convertTimedTracksToMovingPoints(toGeoJSON.kml(kmlDoc));
+                return this._convertTimedTracksToMovingPoints(this._kmlParaGeoJSON(kmlDoc));
             },
             'Arquivo KML inválido'
         );
@@ -459,7 +479,7 @@ class AddImportControl {
 
                 const kmlContent = decodificarTexto(await kmlFile.async('uint8array'), { xml: true });
                 const kmlDoc = new DOMParser().parseFromString(kmlContent, 'text/xml');
-                return this._convertTimedTracksToMovingPoints(toGeoJSON.kml(kmlDoc));
+                return this._convertTimedTracksToMovingPoints(this._kmlParaGeoJSON(kmlDoc));
             },
             'Arquivo KMZ inválido'
         );
@@ -732,8 +752,11 @@ class AddImportControl {
         const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
 
         // Extract custom attributes, description and the file's own name from imported properties
+        // The EBGeo style a file of ours carries (KMZ round trip) is taken out of the properties
+        // here and restored onto the feature below; it is not a user attribute.
+        const { propriedades, estilo } = separarEstiloImportado(feature.properties);
         const { attributes: extractedAttributes, descricao, nome: nomeDoArquivo } =
-            userDataManager.extractAttributesFromImport(feature.properties);
+            userDataManager.extractAttributesFromImport(propriedades);
         // The file's name (KML `<name>`, a `nome`/`name` column) is the feature's name; the
         // generated "Ponto #N" is only the fallback for a feature that came without one. Until
         // 2026-09-23 the file's name was dropped and every feature was "Ponto #N".
@@ -760,6 +783,8 @@ class AddImportControl {
             attributes: extractedAttributes,
             images: [],
         };
+        // Before the per-type block below, which derives the zoom-corrected sizes from `size`.
+        aplicarEstiloImportado(baseProperties, estilo, this.getDefaultProperties(targetType));
 
         // Copy temporal validity onto the feature when found. Absent fields stay
         // absent so the feature remains permanent (visible at any cursor).

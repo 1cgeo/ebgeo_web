@@ -217,5 +217,10 @@ export function buildDescription({ properties = {}, photos = [], notes = [] } = 
 
     if (sections.length === 0) return '';
 
-    return `<description>${wrapCdata(sections.join(''))}</description>`;
+    // THE MARKER says "this balloon was generated": the import ignores it as a description,
+    // because the real `descricao` travels in the ExtendedData and the balloon only repeats it
+    // with the name and the attributes. Without it, a KMZ re-imported put the whole balloon
+    // (title, table) in the description, and it grew at every round trip. A `data-*` attribute
+    // on a wrapper renders the same in Google Earth.
+    return `<description>${wrapCdata(`<div data-ebgeo="balao">${sections.join('')}</div>`)}</description>`;
 }

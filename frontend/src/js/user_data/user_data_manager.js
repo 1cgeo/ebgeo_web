@@ -65,6 +65,39 @@ const CONSUMED_ON_IMPORT_LOWER = new Set([
 /** Suffix of a reserved imported key kept as a user attribute. */
 const IMPORTED_KEY_SUFFIX = '_importado';
 
+/** Description keys in the order they are tried: Portuguese (our own field) first. */
+const DESCRIPTION_KEY_PRIORITY = Object.freeze([
+    new Set(['descricao', 'descrição']),
+    new Set(['description', 'desc']),
+]);
+
+/** Name keys in the order they are tried: `nome` (our own field) before `name`. */
+const NAME_KEY_PRIORITY = Object.freeze([new Set(['nome']), new Set(['name'])]);
+
+/** The marker our KMZ export puts on the balloon it GENERATES (`kml-balloon.js`). */
+const BALAO_GERADO = 'data-ebgeo="balao"';
+
+/**
+ * The text of an imported description, or '' when it has none worth keeping.
+ *
+ * `@tmcw/togeojson` returns a CDATA description (every Google Earth file, and every KMZ this
+ * product exports) as an OBJECT, `{ '@type': 'html', value }`, and `String()` of it is
+ * "[object Object]", which is what every such feature got as its description until 2026-09-23.
+ * A balloon our own export generated is not a description: the real one travels in the
+ * ExtendedData `descricao`, and the balloon only repeats it with the name and the attributes.
+ * @param {*} value
+ * @returns {string}
+ */
+function textoDeDescricaoImportada(value) {
+    let texto = value;
+    if (texto && typeof texto === 'object') {
+        texto = typeof texto.value === 'string' ? texto.value : '';
+    }
+    if (texto === null || texto === undefined) return '';
+    texto = String(texto);
+    return texto.includes(BALAO_GERADO) ? '' : texto;
+}
+
 const SYSTEM_PROPERTIES = new Set([
     // Core identifiers
     'id', 'nome', 'name', 'source', 'layerId', 'groupId',
@@ -574,12 +607,39 @@ const userDataManager = {
             return candidato;
         };
 
-        for (const [key, value] of Object.entries(importedProperties)) {
-            // Extract description-like properties into descricao
-            if (DESCRIPTION_PROPERTY_KEYS.has(key.toLowerCase())) {
-                if (value != null && value !== '' && !descricao) {
-                    descricao = sanitizeHtml(String(value));
+        // THE DESCRIPTION AND THE NAME ARE CHOSEN FIRST, Portuguese keys before foreign ones:
+        // `descricao`/`nome` are what our own KMZ writes in ExtendedData, the exact values, while
+        // `description`/`name` there are the generated balloon and the placemark title (which is
+        // the label text of a labelled point). For a foreign file only one spelling usually
+        // exists, and the order does not matter.
+        const entradas = Object.entries(importedProperties);
+        for (const grupo of DESCRIPTION_KEY_PRIORITY) {
+            if (descricao) break;
+            for (const [key, value] of entradas) {
+                if (!grupo.has(key.toLowerCase())) continue;
+                const texto = textoDeDescricaoImportada(value);
+                if (texto !== '') {
+                    descricao = sanitizeHtml(texto);
+                    break;
                 }
+            }
+        }
+        for (const grupo of NAME_KEY_PRIORITY) {
+            if (nome !== undefined) break;
+            for (const [key, value] of entradas) {
+                if (!grupo.has(key.toLowerCase()) || value === null || value === undefined
+                    || typeof value === 'object') continue;
+                const texto = String(value).trim();
+                if (texto !== '') {
+                    nome = texto;
+                    break;
+                }
+            }
+        }
+
+        for (const [key, value] of entradas) {
+            // Description-like properties fill descricao (chosen above) and are never attributes
+            if (DESCRIPTION_PROPERTY_KEYS.has(key.toLowerCase())) {
                 continue;
             }
 
@@ -599,16 +659,12 @@ const userDataManager = {
                 continue;
             }
 
-            // The file's NAME for the feature: the first non-empty `nome`/`name`.
+            // The file's NAME for the feature (chosen above): consumed, and so is the same name
+            // written twice (our own KMZ: `<name>` plus ExtendedData `nome`) or an empty one.
             const lower = key.toLowerCase();
             const escalar = value !== null && value !== undefined && typeof value !== 'object';
             if (NAME_PROPERTY_KEYS.has(lower) && escalar) {
                 const texto = String(value).trim();
-                if (nome === undefined && texto !== '') {
-                    nome = texto;
-                    continue;
-                }
-                // The same name written twice (our own KMZ: `<name>` plus ExtendedData `nome`).
                 if (texto === nome || texto === '') continue;
             }
 
