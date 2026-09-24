@@ -26,7 +26,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getEmptyMapData } from '../../src/js/store/repository.utils.js';
 
-const { mockMapData, mockMapManager, mockLockedMaps, transacoes } = vi.hoisted(() => ({
+const { mockMapData, mockMapManager, mockLockedMaps, mockColetor, transacoes } = vi.hoisted(() => ({
     mockMapData: { value: null },
     /** One entry per `persistOperationIntents` call, i.e. per write-ahead transaction. */
     transacoes: { value: [] },
@@ -37,9 +37,12 @@ const { mockMapData, mockMapManager, mockLockedMaps, transacoes } = vi.hoisted((
         getFeatureColor: vi.fn(() => null),
         getFeatureColors: vi.fn(() => []),
         updateColorUsage: vi.fn(),
-        recordAction: vi.fn()
+        recordAction: vi.fn(),
+        recordBatchOperation: vi.fn()
     },
-    mockLockedMaps: { value: new Set() }
+    mockLockedMaps: { value: new Set() },
+    /** The undo batch collector: `null` when no caller opened one, an array while one is open. */
+    mockColetor: { value: null }
 }));
 
 vi.mock('../../src/js/store/store-errors.js', () => ({
@@ -83,6 +86,7 @@ vi.mock('../../src/js/store/memory-store.js', () => ({
     memoryStore: {
         get lockedMaps() { return mockLockedMaps.value; },
         set lockedMaps(v) { mockLockedMaps.value = v; },
+        get batchCollector() { return mockColetor.value; },
         currentMap: 'TestMap'
     }
 }));
@@ -161,6 +165,8 @@ beforeEach(() => {
     mockMapManager.getFeatureColors.mockImplementation(f => (f?.properties?.color ? [f.properties.color] : []));
     isCurrentMapLockedSync.mockReturnValue(false);
     mockLockedMaps.value = new Set();
+    // Most cases run as the Delete key and the panel do: with the caller's collector open.
+    mockColetor.value = [];
     transacoes.value = [];
     groupManager = { removeFeatureFromAllGroups: vi.fn(() => null) };
     setFeatureDependencies({ groupManager });
@@ -399,5 +405,35 @@ describe('updateFeatures com duas linhas de visada: o índice do balde de saída
         expect(saida.map((f) => f.properties.id).sort()).toEqual([v1, o1, v2, o2].sort());
         expect(saida.find((f) => f.properties.id === o2).properties.nome).toBe('o2 editada');
         expect(saida.find((f) => f.properties.id === o1).geometry.coordinates).toEqual([[6, 6], [7, 7]]);
+    });
+});
+
+describe('um Ctrl+Z desfaz o gesto inteiro, com ou sem coletor aberto', () => {
+    // Achado da revisão (2026-09-24): quem salva sem abrir o coletor (o painel com um tipo só, o
+    // seletor de símbolo) deixava N entradas soltas, e o Ctrl+Z desfazia uma feição por vez.
+    it('SEM coletor: a operação plural grava UMA entrada em lote com as N', async () => {
+        mockColetor.value = null;
+        const pontos = structuredClone(mockMapData.value.features.points).slice(0, 5);
+        await updateFeatures(pontos.map(f => ({ type: 'points', feature: { ...f, properties: { ...f.properties, color: '#00aa00' } } })));
+        await removeFeatures([{ type: 'points', id: 'p10' }, { type: 'points', id: 'p11' }]);
+
+        expect(mockMapManager.recordAction).not.toHaveBeenCalled();
+        expect(mockMapManager.recordBatchOperation).toHaveBeenCalledTimes(2);
+        expect(mockMapManager.recordBatchOperation.mock.calls[0][0].map(a => a.type)).toEqual(Array(5).fill('update'));
+        expect(mockMapManager.recordBatchOperation.mock.calls[1][0].map(a => a.type)).toEqual(['removeWithProcessed', 'removeWithProcessed']);
+    });
+
+    it('COM coletor: as entradas entram soltas, para o chamador fechar numa só', async () => {
+        mockColetor.value = [];
+        await removeFeatures([{ type: 'points', id: 'p10' }, { type: 'points', id: 'p11' }]);
+        expect(mockMapManager.recordAction).toHaveBeenCalledTimes(2);
+        expect(mockMapManager.recordBatchOperation).not.toHaveBeenCalled();
+    });
+
+    it('uma feição só: uma entrada simples, com ou sem coletor', async () => {
+        mockColetor.value = null;
+        await removeFeatures([{ type: 'points', id: 'p10' }]);
+        expect(mockMapManager.recordAction).toHaveBeenCalledTimes(1);
+        expect(mockMapManager.recordBatchOperation).not.toHaveBeenCalled();
     });
 });

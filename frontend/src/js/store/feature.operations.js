@@ -642,6 +642,26 @@ export async function removeFeature(type, id, mapName = null) {
 }
 
 /**
+ * Records the undo entries of ONE plural store operation as ONE Ctrl+Z.
+ *
+ * Inside a collector the caller opened (`startBatchUndo`, as `deleteSelectedFeatures` and the
+ * panel's "Salvar" over several features do) each entry goes in flat, as the single path does, and
+ * the caller commits them as one. Without one, the plural operation wraps its own entries: a mass
+ * restyle saved by a path that opens no collector (the panel with one feature type, the symbol
+ * selector) was undone one feature per Ctrl+Z (review finding, 2026-09-24).
+ * @param {Object[]} actions - Undo entries, in the order the operation applied them.
+ * @returns {void}
+ */
+function recordUndoEntries(actions) {
+    if (actions.length === 0) return;
+    if (actions.length === 1 || Array.isArray(memoryStore.batchCollector)) {
+        for (const action of actions) mapManager.recordAction(action);
+        return;
+    }
+    mapManager.recordBatchOperation(actions);
+}
+
+/**
  * The distinct `{type, id}` pairs of a list of references, in their first order.
  * @param {Array<{type: string, id: string}>} refs
  * @returns {Array<{type: string, id: string}>}
@@ -674,8 +694,8 @@ function distinctRefs(refs) {
  * WHAT STAYS AS IN {@link removeFeature}, per feature and in the order of `refs`: the analysis
  * output leaves with its input; the group memberships go (and a group left with one member), all
  * through the transaction's overlay, so the groups document is written once too; the color counts;
- * one `removeWithProcessed` undo entry per feature, grouped by the caller's batch collector as
- * before; and the DELETE operation, recorded BEFORE the entity is written, with the whole feature
+ * one `removeWithProcessed` undo entry per feature, grouped by the caller's batch collector, or
+ * by this operation when there is none (`recordUndoEntries`); and the DELETE operation, recorded BEFORE the entity is written, with the whole feature
  * as `previousData`. No feature event is emitted, exactly as in the single path: the author's map
  * is repainted by the control that called this, and the peers' events come from the inbound path.
  *
@@ -763,19 +783,15 @@ export async function removeFeatures(refs, mapName = null) {
             }
 
             if (shouldRecordUndo(mapName)) {
-                tx.deferSync(() => {
-                    for (const { type, mainFeature, processedType, processedFeatures } of removed) {
-                        mapManager.recordAction({
-                            type: 'removeWithProcessed',
-                            mainFeatureType: type,
-                            mainFeature: deepClone(mainFeature),
-                            processedFeatures: processedFeatures.length > 0 ? {
-                                type: processedType,
-                                features: deepClone(processedFeatures)
-                            } : null
-                        });
-                    }
-                });
+                tx.deferSync(() => recordUndoEntries(removed.map(({ type, mainFeature, processedType, processedFeatures }) => ({
+                    type: 'removeWithProcessed',
+                    mainFeatureType: type,
+                    mainFeature: deepClone(mainFeature),
+                    processedFeatures: processedFeatures.length > 0 ? {
+                        type: processedType,
+                        features: deepClone(processedFeatures)
+                    } : null
+                }))));
             }
 
             return async () => {
@@ -885,16 +901,12 @@ export async function updateFeatures(items, mapName = null) {
             }
 
             if (shouldRecordUndo(mapName)) {
-                tx.deferSync(() => {
-                    for (const { type, oldFeature, cleanedFeature } of written) {
-                        mapManager.recordAction({
-                            type: 'update',
-                            featureType: type,
-                            oldFeature: deepClone(oldFeature),
-                            newFeature: deepClone(cleanedFeature)
-                        });
-                    }
-                });
+                tx.deferSync(() => recordUndoEntries(written.map(({ type, oldFeature, cleanedFeature }) => ({
+                    type: 'update',
+                    featureType: type,
+                    oldFeature: deepClone(oldFeature),
+                    newFeature: deepClone(cleanedFeature)
+                }))));
             }
 
             const mapId = mapManager.getMapId(targetMap);
