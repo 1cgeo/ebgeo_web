@@ -67,6 +67,32 @@ function restoreBootCurtain() {
     saved.parent.insertBefore(saved.element, next);
 }
 
+/**
+ * Runs `speak` once the boot curtain has left the document, or at once when there is none.
+ *
+ * A NOTICE OF THE GATE IS SAID WHEN IT CAN BE READ. The gate settles while the curtain still covers
+ * the boot (z-index 9999, over the toasts' 220), and a toast counts its duration from the moment it
+ * is created: the rescue notice (12 s) spent part of it hidden and the deferred-change one (3 s,
+ * the default) could expire before the map ever showed. Without `MutationObserver` it speaks at
+ * once, which is what it did before. Guard:
+ * `tests/integration/aviso-da-migracao-depois-da-cortina.repro.test.js`.
+ * @param {() => void} speak
+ */
+function afterBootCurtain(speak) {
+    const curtain = document.getElementById('initial-loader');
+    const parent = curtain?.parentNode;
+    if (!parent || typeof globalThis.MutationObserver !== 'function') {
+        speak();
+        return;
+    }
+    const observer = new MutationObserver(() => {
+        if (curtain.isConnected) return;
+        observer.disconnect();
+        speak();
+    });
+    observer.observe(parent, { childList: true });
+}
+
 function closeScreen() {
     screen?.remove();
     screen = null;
@@ -325,8 +351,8 @@ async function reportRepairs(reparos, { mapa = false } = {}) {
             // The rescue itself is done and safe; failing to point at it costs only the shortcut.
             console.warn('Atualização local: o atlas recuperado não pôde ser aberto direto.', falha?.message);
         }
-        showToast(alteracoesGuardadasEm(reparo.entry?.name ?? 'recuperado', { aberto: apontado && mapa }),
-            'info', { duration: AVISO_DE_RESGATE_MS });
+        const aviso = alteracoesGuardadasEm(reparo.entry?.name ?? 'recuperado', { aberto: apontado && mapa });
+        afterBootCurtain(() => showToast(aviso, 'info', { duration: AVISO_DE_RESGATE_MS }));
     }
 }
 
@@ -441,7 +467,7 @@ function reportLateOutcome(late) {
         descarregarUso();
     } else if (late.outcome === LateResult.DEFERRED && !deferredNoticeShown) {
         deferredNoticeShown = true;
-        showToast('A versão antiga gravou alterações. Elas entram neste atlas ao recarregar a página, desde que nenhuma outra aba esteja com ele aberto.', 'info');
+        afterBootCurtain(() => showToast('A versão antiga gravou alterações. Elas entram neste atlas ao recarregar a página, desde que nenhuma outra aba esteja com ele aberto.', 'info'));
     }
 }
 
