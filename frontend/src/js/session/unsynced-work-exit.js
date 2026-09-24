@@ -33,6 +33,9 @@ import {
     StoreName,
     ATLAS_RECORD_KEY,
     reconcileDurablePointers,
+    getActiveScope,
+    atlasMountLockName,
+    hasMountLockSupport,
 } from '@store/atlas-namespace.js';
 import {
     retainRemoteAtlasForRescue,
@@ -47,7 +50,11 @@ import {
     exitPreservedSummary,
     exitPreserveFailedNotice,
     otherAtlasesRescueNotice,
+    OtherAtlasesOutcome,
 } from './unsynced-work-phrases.js';
+import { remoteWritesDiscarded } from '@store/remote-write-fence.js';
+// Direto, nunca pelo barril `@utils`: esta folha é lida pelas páginas sem mapa.
+import { otherClientHoldsLock } from '@utils/tab-lock.js';
 
 /**
  * The outcome vocabulary, RE-EXPORTED from the pure module where it now lives.
@@ -344,12 +351,28 @@ async function atlasNameOnDisk(atlasId) {
  * @typedef {Object} OtherAtlasesRescue
  * @property {Array<{atlasId: string, name: string}>} rescued - Now LOCAL atlases; `name` is the
  *   one the local list shows.
- * @property {Array<{atlasId: string, name: string|null}>} retained - Kept by the retention veto
- *   (`RESCUE_VETO_GRACE_MS`), because they could not become local atlases.
- * @property {Array<{atlasId: string, name: string|null}>} lost - Not even the veto could be
- *   recorded: the next logged-out sweep destroys them.
+ * @property {Array<{atlasId: string, name: string|null, remainingMs: number}>} retained - Kept by
+ *   the retention veto, because they could not become local atlases; `remainingMs` is what is LEFT
+ *   of `RESCUE_VETO_GRACE_MS` (the veto keeps its first stamp, it is never extended).
+ * @property {Array<{atlasId: string, name: string|null}>} lost - Neither adopted nor under a live
+ *   veto (none could be recorded, or the one on record expired): the sweep that follows this call
+ *   destroys them.
  * @property {number} pendingOps - Operations found across all of them; NaN when any count failed.
  */
+
+/**
+ * Whether ANOTHER live client has this namespace mounted, asked of the mount lock, which is the
+ * arbiter the sweep itself uses to spare a namespace (`purgeAllRemoteAtlases`). Null (no lock
+ * manager, plain HTTP) answers false: there is nobody to ask, and the sweep will not spare either.
+ * @param {string} dbSuffix
+ * @returns {Promise<boolean>}
+ */
+async function mountedByAnotherClient(dbSuffix) {
+    if (!hasMountLockSupport()) return false;
+    const selfHolds = getActiveScope()?.dbSuffix === dbSuffix ? 1 : 0;
+    const answer = await otherClientHoldsLock(globalThis.navigator?.locks, atlasMountLockName(dbSuffix), selfHolds);
+    return answer === true;
+}
 
 /**
  * THE RESCUE OF THE ATLASES THIS TAB LEFT, for every involuntary end of a session.
@@ -365,9 +388,14 @@ async function atlasNameOnDisk(atlasId) {
  *   - the same predicate as the mounted atlas (`shouldPreserveLocalWork`, involuntary): zero does
  *     not enter, an UNKNOWN count does;
  *   - an atlas already claimed by a local slot is skipped, so a session that falls twice never
- *     rescues the same namespace twice; so is one whose discard the person already confirmed;
+ *     rescues the same namespace twice; so is one whose discard the person already confirmed, by
+ *     the registry mark or by the discard fence (`remoteWritesDiscarded`);
+ *   - an atlas ANOTHER LIVE TAB has mounted is skipped (the idle watch is per tab): adopting it
+ *     would turn that tab's live server atlas into a local one under its feet, its next flush would
+ *     drain the queue anyway, and its own teardown would empty the slot. That tab's exit rescues it;
  *   - the local cap (`MAX_LOCAL_ATLASES`) is respected here, unlike the mounted rescue: an atlas that
- *     does not fit is NOT discarded, it takes the retention veto, and the caller says so by name;
+ *     does not fit is NOT discarded, it takes the retention veto, and the caller says so by name,
+ *     with the time LEFT; a veto that already expired protects nothing and is reported as lost;
  *   - the slot is adopted with `makeCurrent: false`, so the next boot still lands where the person
  *     was working.
  *
@@ -394,6 +422,8 @@ export async function preserveUnsyncedWorkOfOtherAtlases({ exceptAtlasId = null 
 
     for (const entry of entries) {
         if (entry.atlasId === exceptAtlasId || claimed.has(entry.dbSuffix) || entry.discardRequested) continue;
+        if (remoteWritesDiscarded(remoteScope(entry.atlasId))) continue;
+        if (await mountedByAnotherClient(entry.dbSuffix)) continue;
         const pendingOps = await countPendingOperationsFor(entry.atlasId);
         if (!shouldPreserveLocalWork({ involuntary: true, pendingOps })) continue;
         result.pendingOps += pendingOps;
@@ -418,14 +448,25 @@ export async function preserveUnsyncedWorkOfOtherAtlases({ exceptAtlasId = null 
             localCount += 1;
             claimed.add(entry.dbSuffix);
             result.rescued.push({ atlasId: entry.atlasId, name: slot.name });
-        } else if (await retainRemoteAtlasForRescue(entry.atlasId)) {
-            result.retained.push({ atlasId: entry.atlasId, name });
+        } else if (await retainRemoteAtlasForRescue(entry.atlasId) && vetoRemainingMs(entry.atlasId) > 0) {
+            result.retained.push({ atlasId: entry.atlasId, name, remainingMs: vetoRemainingMs(entry.atlasId) });
         } else {
             console.error(`[unsynced-work] the unsent work of atlas ${entry.atlasId} could not be protected`);
             result.lost.push({ atlasId: entry.atlasId, name });
         }
     }
     return result;
+}
+
+/**
+ * What is left of the retention veto of an atlas, in milliseconds (0 when none or expired).
+ * @param {string} atlasId
+ * @returns {number}
+ */
+function vetoRemainingMs(atlasId) {
+    const since = remoteAtlasRescueVetoSince(atlasId);
+    if (!(since > 0)) return 0;
+    return Math.max(0, RESCUE_VETO_GRACE_MS - (Date.now() - since));
 }
 
 /**
@@ -439,7 +480,8 @@ export function otherAtlasesRescueMessage(rescue) {
         rescued: (rescue?.rescued ?? []).map(r => r.name),
         retained: (rescue?.retained ?? []).map(r => r.name ?? semNome),
         lost: (rescue?.lost ?? []).map(r => r.name ?? semNome),
-        graceMs: RESCUE_VETO_GRACE_MS,
+        // The SHORTEST time left, so the sentence never promises more than the first to expire.
+        graceMs: Math.min(...(rescue?.retained ?? []).map(r => r.remainingMs), RESCUE_VETO_GRACE_MS),
     });
 }
 
@@ -479,10 +521,11 @@ export function otherAtlasesRescueMessage(rescue) {
  * (`countPendingOperationsFor`, `shouldPreserveLocalWork`, `preserveUnsyncedWorkAsLocal`) in the
  * right order, and the one that is easy to drop is the last, which is the one that keeps the data.
  *
- * IT LOOKS AT THE MOUNTED SERVER ATLAS AND NOTHING ELSE, and the limit is worth stating: the
- * logged-out sweep destroys EVERY registered remote namespace on this machine, but the rescue
- * adopts ONE (a namespace can only be one local slot). So a queue left behind in a third atlas by
- * a tab that crashed is outside this guard's reach, and calling it does not promise otherwise.
+ * IT LOOKS AT EVERY REGISTERED SERVER ATLAS, since 2026-09-23: the mounted one through
+ * `preserveUnsyncedWorkAsLocal`, and the ones the tab left (or another tab left, and nobody holds
+ * any more) through {@link preserveUnsyncedWorkOfOtherAtlases}. It said "the mounted atlas and
+ * nothing else" until then, and the logged-out sweep of the map this page navigates to destroyed
+ * the rest. An atlas another live tab still has mounted is left to that tab's own exit.
  *
  * @param {Object} [params]
  * @param {string|null} [params.atlasId] - Server atlas to inspect; defaults to the origin marker,
@@ -533,26 +576,24 @@ async function preserveMountedAtlas(alvo, atlasName) {
 }
 
 /**
- * One exit result out of the mounted atlas's and the others'. The URL carries ONE code, so the
- * worst outcome wins: any atlas that could not become a local atlas makes it `falhou` (the map's
- * sentence then tells the person to log in soon), and a rescue anywhere makes a quiet exit
- * `guardado`. The names only reach a caller that can show a toast.
+ * One exit result out of the mounted atlas's and the others'.
+ *
+ * EACH ATLAS KEEPS ITS OWN OUTCOME. `outcome` and `pendingOps` stay the MOUNTED atlas's, and the
+ * others travel apart in `others` (the `OtherAtlasesOutcome` codes present, for `?outros=` on the
+ * URL), because one code for both made "mounted rescued, another retained" read as a failure of the
+ * mounted atlas, with its count. The names only reach a caller that can show a toast (`message`).
  * @param {ExitGuardResult} principal
  * @param {OtherAtlasesRescue} outros
- * @returns {ExitGuardResult}
+ * @returns {ExitGuardResult & { others: string[] }}
  */
 function combineExitResults(principal, outros) {
-    const falhou = outros.retained.length > 0 || outros.lost.length > 0;
-    const guardou = outros.rescued.length > 0;
-    let outcome = principal.outcome;
-    if (falhou) outcome = ExitOutcome.FALHOU;
-    else if (guardou && outcome === ExitOutcome.NADA) outcome = ExitOutcome.GUARDADO;
+    const others = [];
+    if (outros.rescued.length > 0) others.push(OtherAtlasesOutcome.GUARDADO);
+    if (outros.retained.length > 0) others.push(OtherAtlasesOutcome.RETIDO);
+    if (outros.lost.length > 0) others.push(OtherAtlasesOutcome.PERDIDO);
     const aviso = otherAtlasesRescueMessage(outros);
     const message = [principal.message, aviso?.message].filter(Boolean).join(' ') || null;
-    // The others' count only joins when they are part of the outcome: a listing that failed rescued
-    // nothing, and its unknown count must not erase the one the mounted atlas measured.
-    const pendingOps = falhou || guardou ? principal.pendingOps + outros.pendingOps : principal.pendingOps;
-    return { ...principal, pendingOps, outcome, message };
+    return { ...principal, others, message };
 }
 
 /**

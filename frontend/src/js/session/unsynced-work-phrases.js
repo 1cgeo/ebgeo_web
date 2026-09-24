@@ -47,6 +47,22 @@ export const ExitOutcome = Object.freeze({
 });
 
 /**
+ * What became of the unsent work of the OTHER server atlases an involuntary exit looked at (the
+ * ones the tab left), apart from the mounted one. It travels as `?outros=` (a comma list of the
+ * codes present), next to `?trabalho=`, because one code for both made "the mounted atlas was
+ * kept, another was only retained" read as a failure of the mounted atlas. A wire format, like
+ * {@link ExitOutcome}.
+ */
+export const OtherAtlasesOutcome = Object.freeze({
+    /** Became local atlases. */
+    GUARDADO: 'guardado',
+    /** Could not become local atlases; kept for a while by the retention veto. */
+    RETIDO: 'retido',
+    /** Neither: the sweep of the same exit destroyed them. */
+    PERDIDO: 'perdido',
+});
+
+/**
  * A pending-operation count as a non-negative integer, or NaN for "could not be measured".
  *
  * The sibling in `admin/group-phrases.js` collapses every oddity to 0, because there a wrong count
@@ -244,8 +260,10 @@ export function otherAtlasesRescueNotice({ rescued = [], retained = [], lost = [
             + 'entre de novo e abra esse atlas nesse prazo.');
     }
     if (lost.length > 0) {
-        partes.push(`NÃO foi possível proteger o trabalho não enviado de ${listaDeNomes(lost)}. `
-            + 'Não feche esta aba: entre de novo e abra esse atlas para enviá-lo.');
+        // NO ACTION IS OFFERED, because none exists: the sweep of the same exit runs right before or
+        // right after this sentence, so "do not close this tab" or "log in again" would be false.
+        partes.push(`NÃO foi possível guardar neste computador o trabalho não enviado de `
+            + `${listaDeNomes(lost)}, e ele foi descartado.`);
     }
     if (partes.length === 0) return null;
     return { message: partes.join(' '), tone: lost.length > 0 ? 'error' : 'warning' };
@@ -320,4 +338,34 @@ export function exitOutcomeNotice(outcome, pendingOps) {
     // `nada`, ausente, ou qualquer valor que alguém tenha digitado na barra de endereços: silêncio.
     // Ecoar o desconhecido seria deixar o usuário escrever o próprio aviso.
     return null;
+}
+
+/**
+ * THE SENTENCE FOR `?outros=`: what the MAP says about the other atlases an exit on a page without
+ * a map looked at. Only codes travel (never names, for the reason given at {@link exitOutcomeNotice}),
+ * so the sentence names no atlas; unknown codes are ignored rather than echoed.
+ * @param {*} codes - The `?outros=` value, a comma list as it came off the URL.
+ * @param {{graceMs?: number|null}} [options] - The retention window, for the RETIDO sentence.
+ * @returns {{message: string, tone: string}|null}
+ */
+export function otherAtlasesExitNotice(codes, { graceMs = null } = {}) {
+    const presentes = new Set(String(codes ?? '').split(',').map(c => c.trim()));
+    const partes = [];
+    if (presentes.has(OtherAtlasesOutcome.GUARDADO)) {
+        partes.push('O trabalho não enviado de outros atlas foi guardado neste computador como atlas '
+            + 'locais. Entre de novo e use "Enviar ao servidor".');
+    }
+    if (presentes.has(OtherAtlasesOutcome.RETIDO)) {
+        partes.push('O trabalho não enviado de outros atlas não coube como atlas local e fica neste '
+            + `computador por até ${prazoEmHoras(graceMs)}: entre de novo e abra esses atlas nesse prazo.`);
+    }
+    if (presentes.has(OtherAtlasesOutcome.PERDIDO)) {
+        partes.push('NÃO foi possível guardar neste computador o trabalho não enviado de outros atlas, '
+            + 'e ele foi descartado.');
+    }
+    if (partes.length === 0) return null;
+    return {
+        message: partes.join(' '),
+        tone: presentes.has(OtherAtlasesOutcome.PERDIDO) ? 'error' : 'warning',
+    };
 }

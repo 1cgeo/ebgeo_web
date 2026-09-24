@@ -62,7 +62,8 @@ import { parseDeepLink } from './deep-link/parse.js';
 import { consumePendingEbgeoImport } from './deep-link/pending-import.js';
 import { initAtlasUrlSync } from './deep-link/atlas-url-sync.js';
 import { IdleTimeoutController } from './session/idle-timeout.controller.js';
-import { exitOutcomeNotice } from './session/unsynced-work-phrases.js';
+import { exitOutcomeNotice, otherAtlasesExitNotice } from './session/unsynced-work-phrases.js';
+import { RESCUE_VETO_GRACE_MS } from '@store/remote-atlas.api.js';
 // Pelo ARQUIVO, de um módulo folha com zero imports: é a página de CALIBRAÇÃO que escreve este
 // parâmetro, e o mapa é quem tem de o explicar, porque `replace` mata todo toast levantado lá.
 import { calibrationExitNotice } from './calibration/exit-decision.js';
@@ -641,13 +642,17 @@ function explainEndedSessionFromUrl() {
     // na memória da outra página (perdido, ou nunca começado porque a porta recusou). Misturá-lo
     // com `?trabalho=`, que é o vocabulário da fila de sync, daria a frase errada para um dos dois.
     const calibracao = params.get('calibracao');
-    if (!reason && !outcome && !calibracao && !params.has('pendentes')) return;
+    const outros = params.get('outros');
+    if (!reason && !outcome && !calibracao && !outros && !params.has('pendentes')) return;
 
     const message = ENDED_SESSION_MESSAGES[reason];
     if (message) showToast(message, 'warning');
     // DEPOIS do motivo, porque este é o aviso sobre o qual há algo a fazer.
     const trabalho = exitOutcomeNotice(outcome, params.get('pendentes'));
     if (trabalho) showToast(trabalho.message, trabalho.tone);
+    // OS OUTROS ATLAS, com desfecho proprio (`?outros=`, ver `OtherAtlasesOutcome`).
+    const deOutros = otherAtlasesExitNotice(outros, { graceMs: RESCUE_VETO_GRACE_MS });
+    if (deOutros) showToast(deOutros.message, deOutros.tone);
     // POR ÚLTIMO, portanto por cima: entre os três, é o único que fala de trabalho que NÃO tem
     // como voltar, ou do próximo passo de quem foi recusado na porta.
     const calib = calibrationExitNotice(calibracao);
@@ -659,6 +664,7 @@ function explainEndedSessionFromUrl() {
     // F5, e a limpeza de uma vez só existe justamente para isso.
     params.delete('pendentes');
     params.delete('calibracao');
+    params.delete('outros');
     const qs = params.toString();
     window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
 }

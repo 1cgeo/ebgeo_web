@@ -120,7 +120,8 @@ describe('o mapa consome o parâmetro', () => {
     it('explainEndedSessionFromUrl lê os dois parâmetros, remonta a frase e limpa a URL', async () => {
         const fonte = await fonteDe('../../src/js/index.js');
 
-        expect(fonte).toContain("import { exitOutcomeNotice } from './session/unsynced-work-phrases.js';");
+        // Desde 2026-09-23 a mesma linha traz também a frase de `?outros=` (os atlas que a aba deixou).
+        expect(fonte).toContain("import { exitOutcomeNotice, otherAtlasesExitNotice } from './session/unsynced-work-phrases.js';");
 
         const inicio = fonte.indexOf('function explainEndedSessionFromUrl(');
         expect(inicio).toBeGreaterThan(0);
@@ -135,6 +136,8 @@ describe('o mapa consome o parâmetro', () => {
         expect(corpo).toContain("params.delete('sessao')");
         expect(corpo).toContain("params.delete('trabalho')");
         expect(corpo).toContain("params.delete('pendentes')");
+        expect(corpo).toContain("params.delete('outros')");
+        expect(corpo).toContain("otherAtlasesExitNotice(");
 
         // CONTROLE NEGATIVO 1: a prosa não pode estar escrita aqui. Se estiver, o módulo puro
         // deixou de ser a fonte e as duas cópias vão divergir sem nada ficar vermelho.

@@ -509,6 +509,32 @@ describe('local-atlas.api :: criar e listar', () => {
         expect(api.listLocalAtlases()).toHaveLength(4);
     });
 
+    // O RESGATE DOS ATLAS QUE A ABA DEIXOU (`preserveUnsyncedWorkOfOtherAtlases`) adota com
+    // `makeCurrent: false`: o ponteiro fica onde a pessoa estava, e o padrão continua movendo.
+    it('o resgate com makeCurrent:false nao move o ponteiro; o padrao move', async () => {
+        const anterior = api.getCurrentLocalAtlasId();
+        const quieto = await api.adoptRemoteAtlasAsLocal('atlas-deixado', 'Resgate quieto', { makeCurrent: false });
+        expect(quieto.ok).toBe(true);
+        expect(api.getCurrentLocalAtlasId()).toBe(anterior);
+        expect(await ns.getGlobalStore().getItem(ns.GlobalKey.CURRENT_LOCAL_ATLAS)).toBe(anterior);
+
+        const montado = await api.adoptRemoteAtlasAsLocal('atlas-montado', 'Resgate do montado');
+        expect(api.getCurrentLocalAtlasId()).toBe(montado.atlas.id);
+        expect(await ns.getGlobalStore().getItem(ns.GlobalKey.CURRENT_LOCAL_ATLAS)).toBe(montado.atlas.id);
+    });
+
+    // O RAMO IDEMPOTENTE TAMBEM TROCA O TIPO DO ESCOPO: uma aba com o namespace de servidor montado,
+    // que outra aba ja adotou como local, nao pode continuar tratando o slot como dado de servidor.
+    it('adotar de novo um namespace ja adotado troca o escopo montado para LOCAL', async () => {
+        const primeira = await api.adoptRemoteAtlasAsLocal('atlas-x', 'Resgate de X', { makeCurrent: false });
+        ns.activateScope(ns.remoteScope('atlas-x'));
+        expect(ns.getActiveScope().kind).toBe('remote');
+
+        const segunda = await api.adoptRemoteAtlasAsLocal('atlas-x', 'Resgate de X de novo');
+        expect(segunda.atlas.id).toBe(primeira.atlas.id);
+        expect(ns.getActiveScope()).toMatchObject({ kind: 'local', dbSuffix: 'remote-atlas-x' });
+    });
+
     it('nome vazio e bug do chamador, entao lanca', async () => {
         await expect(api.createLocalAtlas('')).rejects.toThrow(/non-empty string/);
         await expect(api.createLocalAtlas('   ')).rejects.toThrow(/non-empty string/);

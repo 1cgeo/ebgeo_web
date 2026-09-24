@@ -219,6 +219,9 @@ async function endSession(reason, { voluntary = false } = {}) {
         params.set('trabalho', guarda.outcome);
         if (guarda.pendingOps) params.set('pendentes', String(guarda.pendingOps));
     }
+    // OS OUTROS ATLAS TÊM PARÂMETRO PRÓPRIO (`OtherAtlasesOutcome`): um código só para os dois
+    // fazia o atlas montado, guardado, ser lido como falha quando outro ficou só retido.
+    if (guarda.others?.length) params.set('outros', guarda.others.join(','));
     // PARAMETRO PROPRIO, e nao mais um valor de `trabalho`: aquele carrega o vocabulario de
     // `ExitOutcome`, que e sobre a fila de sync. Sao duas perdas de dois subsistemas diferentes, e
     // colapsa-las num parametro so daria a frase errada para uma das duas.

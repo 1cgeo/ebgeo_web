@@ -822,6 +822,12 @@ async function adoptRemoteSlot(atlasId, name, makeCurrent = true) {
     const already = _entries.find(e => e.dbSuffix === dbSuffix);
     if (already) {
         // Idempotent: a retried rescue must not spend a second slot on the same databases.
+        // BUT THE KIND OF THE ACTIVE SCOPE STILL CHANGES, as in the first adoption below: a tab
+        // whose mounted server namespace was adopted by ANOTHER tab's rescue would otherwise keep
+        // treating a local atlas as server data, and its own teardown would empty it.
+        if (getActiveScope()?.dbSuffix === dbSuffix && getActiveScope()?.kind !== StoreScopeKind.LOCAL) {
+            activateScope(scopeOfLocalAtlas(already));
+        }
         return { ok: true, atlas: { ...already } };
     }
 
