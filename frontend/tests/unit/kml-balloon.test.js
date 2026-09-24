@@ -159,11 +159,20 @@ describe('buildExtendedData', () => {
         expect(buildExtendedData({ attributes: {} })).toBe('');
     });
 
-    it('skips empty attribute values', () => {
-        const xml = buildExtendedData({ attributes: { a: '', b: null, c: 'ok' } });
+    // The key of an empty attribute is the user's data: it goes out with an empty value, and only a
+    // missing value (null, undefined) is skipped. See the comment in `buildExtendedData`.
+    it('keeps an empty attribute value and skips a missing one', () => {
+        const xml = buildExtendedData({ attributes: { a: '', b: null, c: 'ok', d: undefined } });
+        expect(xml).toContain('<Data name="a"><value></value></Data>');
         expect(xml).toContain('name="c"');
-        expect(xml).not.toContain('name="a"');
         expect(xml).not.toContain('name="b"');
+        expect(xml).not.toContain('name="d"');
+    });
+
+    it('still skips an empty EXTRA (a style aspect with no value says nothing)', () => {
+        const xml = buildExtendedData({ nome: 'X' }, { lineStyle: '', opacity: null });
+        expect(xml).not.toContain('lineStyle');
+        expect(xml).not.toContain('opacity');
     });
 
     it('escapes attribute keys and values', () => {
