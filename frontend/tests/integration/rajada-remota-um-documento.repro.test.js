@@ -301,6 +301,20 @@ describe('applyRemoteOperations: criacoes do mesmo quadro', () => {
         expect(docOrigem.processed_los ?? []).toEqual([]);
     });
 
+    it('um reparo que para no lote nao descarta os reparos das entidades seguintes (achado 4)', async () => {
+        // O primeiro reparo mira um mapa que ainda nao chegou (vai para o buffer e responde false);
+        // o lote parava ali e o reparo da entidade seguinte nunca acontecia, com a evidencia de
+        // sobrescrita ja apagada.
+        const [ausente, presente] = [create('rep-ausente', { mapId: 'map-9' }), create('rep-presente')];
+        markLocalEditPending(ausente.entityId);
+        markLocalEditPending(presente.entityId);
+        await resolveLocalEdits([
+            { entityId: ausente.entityId, serverVersion: ausente.serverVersion, localOp: ausente },
+            { entityId: presente.entityId, serverVersion: presente.serverVersion, localOp: presente },
+        ]);
+        expect(mapDataStore.get('map-1').features.points.map((f) => f.properties.id)).toEqual(['rep-presente']);
+    });
+
     it('a falha de gravacao sobe, como no caminho unico', async () => {
         const { getRepository } = await import('../../src/js/store/repositories/index.js');
         getRepository.mockImplementationOnce(() => ({

@@ -625,7 +625,13 @@ export async function resolveLocalEdits(entries) {
         }
         settled.push(entityId);
     }
-    if (repairs.length > 0) await applyRemoteOperations(repairs, context);
+    // A BATCH THAT STOPS MUST NOT DROP THE REST. `applyRemoteOperations` stops at the first
+    // `false` (a repair for a map that has not landed goes to the buffer and answers false), and
+    // the single function repaired every entity regardless: fall back to that, one by one.
+    // Re-applying the repairs the batch already wrote is idempotent.
+    if (repairs.length > 0 && await applyRemoteOperations(repairs, context) === false) {
+        for (const repair of repairs) await applyRemoteOperation(repair, context);
+    }
     context.assertActive();
     for (const entityId of settled) remoteVersions.delete(entityId);
     await replayDeferredTogether(settled, context);
