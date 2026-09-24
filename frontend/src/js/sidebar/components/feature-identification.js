@@ -7,7 +7,7 @@
 
 import { getLayers, getFeatureIcon, getFeatureDisplayName, getFeatureById, updateFeature, getStorageTypeFromSource, isCurrentMapLockedSync, getCurrentMapNameSync } from '@store/index.js';
 import { createFeatureOptionsButton } from '@tools/helpers/feature-header.helpers.js';
-import { calculatePolygonMetrics } from '../../measurement_tool/measurement-geometry.js';
+import { calculatePolygonMetrics, ellipseMetricsInMeters } from '../../measurement_tool/measurement-geometry.js';
 import {
     requestedFeatureName,
     displayedFeatureName,
@@ -466,14 +466,10 @@ function createMeasurementsSection(feature, featureType) {
     }
 
     if (featureType === 'ellipse') {
-        const a = feature.properties?.majorRadius;
-        const b = feature.properties?.minorRadius;
-        if (a == null || b == null || a <= 0 || b <= 0) return null;
-
-        const area = Math.PI * a * b;
-        // Ramanujan approximation for ellipse perimeter
-        const h = Math.pow(a - b, 2) / Math.pow(a + b, 2);
-        const perimeter = Math.PI * (a + b) * (1 + (3 * h) / (10 + Math.sqrt(4 - 3 * h)));
+        // The ellipse stores its radii in KILOMETERS; the conversion to meters is the helper's job.
+        const metrics = ellipseMetricsInMeters(feature.properties);
+        if (!metrics) return null;
+        const { a, b, area, perimeter } = metrics;
 
         return _buildMeasurementsContainer([
             { label: 'Semi-eixo maior', value: formatMetric(a, 'm', 'km', 1000) },

@@ -187,6 +187,23 @@ export function formatAreaAuto(sqMeters) {
 }
 
 /**
+ * The ellipse's semi-axes and perimeter in meters and area in m², or null. It stores its radii in
+ * KILOMETERS (`turf.ellipse` in `add_ellipse_geometry.js`), and read as meters a 3.39 km ellipse
+ * showed "3,39 m". Here and not in a new module: a new module would grow the map's eager graph.
+ * @param {{ majorRadius?: number, minorRadius?: number }} [props]
+ * @returns {{ a: number, b: number, area: number, perimeter: number } | null}
+ */
+export function ellipseMetricsInMeters(props) {
+    const a = Number(props?.majorRadius) * 1000;
+    const b = Number(props?.minorRadius) * 1000;
+    if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) return null;
+    // Ramanujan's perimeter.
+    const h = ((a - b) ** 2) / ((a + b) ** 2);
+    const perimeter = Math.PI * (a + b) * (1 + (3 * h) / (10 + Math.sqrt(4 - 3 * h)));
+    return { a, b, area: Math.PI * a * b, perimeter };
+}
+
+/**
  * Formats an area in a specific unit.
  * @param {number} sqMeters - Area in m2
  * @param {Object} unit - Unit definition from AREA_UNITS
