@@ -20,7 +20,6 @@ import { ImageRefusal, imageRefusalNotice } from './image-limit-phrases.js';
  */
 export const IMAGE_CONFIG = {
     maxSizeBytes: 10 * 1024 * 1024,  // 10MB max upload (mirrors MAX_IMAGE_SIZE_MB)
-    compressionThreshold: 2 * 1024 * 1024,  // Compress above 2MB
     compressionQuality: 0.8,
     maxDimension: 2048,
     thumbnailSize: 150,
@@ -78,6 +77,87 @@ export const IMAGE_CONFIG = {
      */
     maxPixelCount: 50 * 1000 * 1000,
 };
+
+/**
+ * How a PHOTO attached to a feature, a 3D marker or a 360 marker is stored
+ * ({@link processImageFile}).
+ *
+ * WHY THESE NUMBERS (2026-09-24, owner's approval). The photo lives as a data URL inside the
+ * entity (`properties.images` of a feature, `images` of a marker), and every edit of the entity
+ * sends the whole array, twice (the value and what it replaces). Until this date a photo was
+ * compressed only above 2 MB and only down to 2048 px, so a camera photo just under 2 MB went in
+ * raw, and a 12 MP photo came out at 710 KB of data URL and a 1.4 MB edit (measured by
+ * `tests/e2e-ui/foto-anexa-comprimida.spec.js`). 1600 px of side is more than any screen of the
+ * gallery shows, and at quality 0.8 a camera photo lands at a few hundred KB.
+ *
+ * @constant {Object}
+ */
+export const PHOTO_CONFIG = Object.freeze({
+    /** Longest side of a stored photo, in pixels. */
+    maxSide: 1600,
+    /** Lossy quality of the re-encode (JPEG, or WebP when there is transparency). */
+    quality: 0.8,
+    /**
+     * A photo at or under this size, already within {@link PHOTO_CONFIG.maxSide} and in an allowed
+     * format, is stored as it came: re-encoding it would only lose quality for nothing.
+     */
+    keepBytes: 400 * 1024,
+    /**
+     * A stored photo still above this, after the reduction, gets a notice
+     * (`photoStillLargeNotice`): every edit of the entity carries it twice, so at 40 kbps 600 KB is
+     * an edit of about four minutes. Measured at 1600 px: a camera photo near 230 KB, pure colour
+     * noise (the worst case for JPEG) near 860 KB, and a transparent photo on a browser without a
+     * WebP encoder falls back to PNG, which can be several MB.
+     */
+    warnBytes: 600 * 1024,
+});
+
+/**
+ * Whether a photo must be re-encoded, and to what size. Pure, so the rule is testable in node.
+ *
+ * @param {Object} photo
+ * @param {string} photo.type - MIME of the file
+ * @param {number} photo.size - Bytes of the file
+ * @param {number} photo.width - Decoded width
+ * @param {number} photo.height - Decoded height
+ * @returns {{keep: boolean, width: number, height: number, fits: boolean}} `keep`: store the
+ *   original bytes. `width`/`height`: the size to draw at when re-encoding (never 0). `fits`:
+ *   the original already is within the side limit.
+ */
+export function planPhotoEncoding({ type, size, width, height } = {}) {
+    const w = Number.isFinite(width) && width > 0 ? width : 1;
+    const h = Number.isFinite(height) && height > 0 ? height : 1;
+    const lado = Math.max(w, h);
+    const fits = lado <= PHOTO_CONFIG.maxSide;
+    const escala = fits ? 1 : PHOTO_CONFIG.maxSide / lado;
+    const keep = fits
+        && Number.isFinite(size) && size >= 0 && size <= PHOTO_CONFIG.keepBytes
+        && IMAGE_CONFIG.allowedTypes.includes(type);
+    return {
+        keep,
+        fits,
+        width: Math.max(1, Math.round(w * escala)),
+        height: Math.max(1, Math.round(h * escala)),
+    };
+}
+
+/** Formats that can carry an alpha channel among the accepted ones. */
+const TIPOS_COM_ALFA = new Set(['image/png', 'image/webp']);
+
+/**
+ * Whether any pixel of the canvas is not fully opaque.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} width
+ * @param {number} height
+ * @returns {boolean}
+ */
+function temTransparencia(ctx, width, height) {
+    const dados = ctx.getImageData(0, 0, width, height).data;
+    for (let i = 3; i < dados.length; i += 4) {
+        if (dados[i] < 255) return true;
+    }
+    return false;
+}
 
 /**
  * Loads a base64 image and returns the HTMLImageElement.
@@ -361,22 +441,57 @@ export async function createThumbnail(base64Data, options = {}) {
 }
 
 /**
- * Processes an image file - compresses if needed and generates thumbnail.
- * @param {File} file - Image file
- * @param {Object} options - Processing options
- * @param {number} [options.compressionThreshold] - Size threshold for compression
- * @returns {Promise<Object>} Object with data (base64) and thumbnail (base64)
+ * Processes a PHOTO file (feature gallery, 3D marker, 360 marker): reduces it to
+ * {@link PHOTO_CONFIG} and makes the thumbnail.
+ *
+ * Every photo above {@link PHOTO_CONFIG.maxSide} is drawn down to it, and every photo that is not
+ * already small is re-encoded at {@link PHOTO_CONFIG.quality}: JPEG, or WebP when the picture
+ * really has transparent pixels (a PNG screenshot stays transparent; JPEG would paint the
+ * transparent part black, which is what the old 2 MB path did). A browser that cannot encode WebP
+ * hands back PNG, which also keeps the alpha. A photo that already fits and is small is stored as
+ * it came, and a re-encode that would come out BIGGER than a photo that already fits is dropped in
+ * favour of the original.
+ *
+ * Decoded from an object URL, never from a data URL: a data URL of a 10 MB photo is a 13 MB
+ * string built on the main thread before decoding even starts. A file the browser cannot decode
+ * is stored as it came, which is what the old path did below its threshold.
+ *
+ * @param {File} file - Image file, already accepted by {@link validateImageFile}
+ * @returns {Promise<{data: string, thumbnail: string}>} Data URLs of the photo and of its thumbnail
  */
-export async function processImageFile(file, options = {}) {
-    const threshold = options.compressionThreshold ?? IMAGE_CONFIG.compressionThreshold;
-
-    let imageData = await blobToDataUrl(file);
-
-    if (file.size > threshold) {
-        imageData = await compressImage(imageData);
+export async function processImageFile(file) {
+    let url = null;
+    let data;
+    try {
+        url = URL.createObjectURL(file);
+        const img = await loadImage(url);
+        const plano = planPhotoEncoding({
+            type: file.type, size: file.size, width: img.naturalWidth, height: img.naturalHeight,
+        });
+        if (plano.keep) {
+            data = await blobToDataUrl(file);
+        } else {
+            const canvas = document.createElement('canvas');
+            canvas.width = plano.width;
+            canvas.height = plano.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, plano.width, plano.height);
+            const alfa = TIPOS_COM_ALFA.has(file.type) && temTransparencia(ctx, plano.width, plano.height);
+            let codificada = canvas.toDataURL(alfa ? 'image/webp' : 'image/jpeg', PHOTO_CONFIG.quality);
+            if (alfa && !codificada.startsWith('data:image/webp')) codificada = canvas.toDataURL('image/png');
+            // Never INFLATE a photo that already fit: the original's data URL is 4/3 of its bytes.
+            const original = Math.ceil(file.size / 3) * 4;
+            data = plano.fits && IMAGE_CONFIG.allowedTypes.includes(file.type) && codificada.length > original
+                ? await blobToDataUrl(file)
+                : codificada;
+        }
+    } catch {
+        data = await blobToDataUrl(file);
+    } finally {
+        if (url) URL.revokeObjectURL(url);
     }
 
-    const thumbnail = await createThumbnail(imageData);
+    const thumbnail = await createThumbnail(data);
 
-    return { data: imageData, thumbnail };
+    return { data, thumbnail };
 }

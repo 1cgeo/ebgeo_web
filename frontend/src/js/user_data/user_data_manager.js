@@ -16,9 +16,11 @@ import { IDUtils } from '@utils';
 import { EventTypes, FeatureUpdateProperty } from '@events';
 import {
     IMAGE_CONFIG,
+    PHOTO_CONFIG,
     validateImageFile,
     processImageFile
 } from '@utils/image_utils.js';
+import { photoStillLargeNotice } from '@utils/image-limit-phrases.js';
 import { showWarning } from '@utils/toast_service.js';
 import { sanitizeHtml } from '@sidebar/panels/notes-panel.js';
 // By FILE, not through `@js/temporal` — the barrel there would drag the whole
@@ -467,6 +469,11 @@ const userDataManager = {
             // Use shared processing utility
             const processedImage = await processImageFile(file);
             const imageId = IDUtils.generateUniqueId();
+            // Bytes of the stored photo, from its data URL: 3/4 of the base64 after the comma.
+            const guardados = Math.floor((processedImage.data.length - processedImage.data.indexOf(',') - 1) * 3 / 4);
+            if (guardados > PHOTO_CONFIG.warnBytes) {
+                showWarning(photoStillLargeNotice({ nome: file.name, bytes: guardados }));
+            }
 
             const imageData = {
                 id: imageId,

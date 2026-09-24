@@ -100,6 +100,24 @@ function megapixels(pixels) {
 }
 
 /**
+ * The notice of a photo that is still large after the reduction (`PHOTO_CONFIG.warnBytes`).
+ *
+ * It is NOT a refusal: the photo is attached. It says what happened and what the person can do,
+ * because every edit of the feature carries its photos again, and on a slow link that is the
+ * difference between an edit that leaves at once and one that takes a minute.
+ *
+ * @param {Object} [medida]
+ * @param {string} [medida.nome] - The file name, when there is one
+ * @param {number} [medida.bytes] - The stored size
+ * @returns {string}
+ */
+export function photoStillLargeNotice({ nome, bytes } = {}) {
+    const rotulo = typeof nome === 'string' && nome.trim() ? `A foto "${nome.trim()}"` : 'A foto';
+    return `${rotulo} ficou com ${megabytesMedidos(bytes)} MB mesmo depois de reduzida e pode demorar a `
+        + 'sincronizar. Se puder, anexe uma versão menor.';
+}
+
+/**
  * The sentence a person reads when a picture is refused.
  *
  * @param {string} motivo - One of {@link ImageRefusal}
