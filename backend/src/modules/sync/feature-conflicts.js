@@ -58,7 +58,7 @@ async function featureRow(t, atlasId, entityId) {
  * is that such a write is also disputed by a per-key write made after its base, because replacing
  * the bag would silently erase it.
  */
-const ATTRIBUTES = 'attributes';
+export const ATTRIBUTES = 'attributes';
 const ATTRIBUTES_PATH_KEY = JSON.stringify(['properties', ATTRIBUTES]);
 const ATTRIBUTE_KEY_PREFIX = ATTRIBUTES_PATH_KEY.slice(0, -1) + ',';
 /**
@@ -66,7 +66,7 @@ const ATTRIBUTE_KEY_PREFIX = ATTRIBUTES_PATH_KEY.slice(0, -1) + ',';
  * does: assigning `constructor` or `prototype` on a plain object creates an own key, and refusing
  * them made every edit of a feature with an attribute of that name travel as the whole bag.
  */
-const UNSAFE_ATTRIBUTE_KEYS = new Set(['__proto__']);
+export const UNSAFE_ATTRIBUTE_KEYS = new Set(['__proto__']);
 
 function fieldKey(path) { return JSON.stringify(path); }
 

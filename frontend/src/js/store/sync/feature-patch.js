@@ -11,12 +11,12 @@ const METADATA = new Set(['id', 'sync', 'version', 'confirmedVersion', 'createdA
  * it brought back a field the first had deleted. Mirrors the server's `ATTRIBUTES`
  * (`backend/src/modules/sync/feature-conflicts.js`), which merges and disputes per key.
  */
-const ATTRIBUTES = 'attributes';
+export const ATTRIBUTES = 'attributes';
 /**
  * Keys the server refuses at `['properties','attributes',key]`, because they reach the prototype.
  * Only `__proto__` does; `constructor` and `prototype` are own keys like any other.
  */
-const UNSAFE_ATTRIBUTE_KEYS = new Set(['__proto__']);
+export const UNSAFE_ATTRIBUTE_KEYS = new Set(['__proto__']);
 
 /** @returns {boolean} Whether `value` is an attribute bag that can be diffed key by key. */
 function isBag(value) {
