@@ -22,11 +22,16 @@
  * leaves it out: that work belongs to the local slot now, and opening the server atlas does not
  * send it.
  *
- * A READ THAT FAILS OR STALLS ANSWERS NaN, "unknown", and the caller asks. Zero would copy without
+ * A READ THAT FAILS OR STALLS ANSWERS null, "unknown", and the caller asks. Zero would copy without
  * a word, which is the defect.
+ *
+ * REFUSED WORK IS COUNTED APART (review of 2026-09-24). Opening the atlas sends what is on its way,
+ * never what the server refused, so the two need different advice, and the split is the queue's
+ * OWN census (`countByState` on that atlas's queue, by `forScope`, which reads without mounting):
+ * `pendentes` and `preparadas` go out, `problemas` do not.
  */
 
-import { countPendingOperationsFor } from '@js/session/unsynced-work-exit.js';
+import { operationQueue } from '@store/sync/operation-queue.js';
 import { listRemoteAtlases } from '@store/remote-atlas.api.js';
 import { getStoreFor, readLocalAtlasRegistry, remoteScope, StoreName } from '@store/atlas-namespace.js';
 import { BLOB_UPLOAD_KEY_PREFIX, BLOB_UPLOAD_PENDENTE } from '@store/sync/blob-upload-keys.js';
@@ -48,38 +53,45 @@ async function blobsPendentes(scope) {
 
 /**
  * @param {string} atlasId
- * @returns {Promise<number>}
+ * @returns {Promise<{enviaveis: number, recusadas: number}>}
  */
 async function contar(atlasId) {
+    const nada = { enviaveis: 0, recusadas: 0 };
     const registrado = (await listRemoteAtlases()).find(e => e.atlasId === atlasId);
-    if (!registrado) return 0;
+    if (!registrado) return nada;
     const adotados = new Set((await readLocalAtlasRegistry()).map(e => e.dbSuffix));
-    if (adotados.has(registrado.dbSuffix)) return 0;
-    const [operacoes, figuras] = await Promise.all([
-        countPendingOperationsFor(atlasId),
-        blobsPendentes(remoteScope(atlasId)),
+    if (adotados.has(registrado.dbSuffix)) return nada;
+    const scope = remoteScope(atlasId);
+    const [censo, figuras] = await Promise.all([
+        operationQueue.forScope(scope).countByState(),
+        blobsPendentes(scope),
     ]);
-    return operacoes + figuras;
+    const enviaveis = censo.pendentes + censo.preparadas + figuras;
+    const recusadas = censo.problemas;
+    if (!Number.isFinite(enviaveis) || !Number.isFinite(recusadas)) throw new Error('census is not a number');
+    return { enviaveis, recusadas };
 }
 
 /**
- * How many things this computer still owes the server for `atlasId`: queued operations plus
- * pictures whose bytes have not been confirmed. A held picture counts twice (its operation and its
- * bytes); only zero versus non-zero is meant to be read.
+ * What this computer still owes the server for `atlasId`, split by what the person can do about it.
+ * `enviaveis` goes out when the atlas is open (queued and held operations, and pictures whose bytes
+ * are not confirmed; a held picture counts twice, so read zero against non-zero only); `recusadas`
+ * is what the server refused and only the Pendências panel decides about.
  * @param {string} atlasId - Server atlas UUID.
- * @returns {Promise<number>} The count, 0 for an atlas never opened here, NaN when unreadable.
+ * @returns {Promise<{enviaveis: number, recusadas: number}|null>} Zeros for an atlas never opened
+ *   here; null when it could not be read.
  */
 export async function pendenciasDoAtlasNesteComputador(atlasId) {
-    if (typeof atlasId !== 'string' || atlasId.length === 0) return NaN;
+    if (typeof atlasId !== 'string' || atlasId.length === 0) return null;
     let timer;
     try {
         return await Promise.race([
             contar(atlasId),
-            new Promise(resolve => { timer = setTimeout(() => resolve(NaN), PRAZO_DA_LEITURA_MS); }),
+            new Promise(resolve => { timer = setTimeout(() => resolve(null), PRAZO_DA_LEITURA_MS); }),
         ]);
     } catch (error) {
         console.warn('[atlas-copy] could not read the pending work of this computer:', error);
-        return NaN;
+        return null;
     } finally {
         clearTimeout(timer);
     }

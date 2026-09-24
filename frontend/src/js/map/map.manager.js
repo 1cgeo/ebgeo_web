@@ -266,16 +266,19 @@ class MapManager {
         // THE FLUSH DOES NOT RELEASE A PICTURE PLACED A MOMENT AGO: its feature is held until the
         // bytes are confirmed, so the copy came out without it (2026-09-24,
         // `tests/e2e-ui/copia-sem-figura-recem-posta.repro.spec.js`). The door waits briefly for the
-        // map's debt to reach zero, and asks instead of copying in silence when it does not.
+        // map's debt to reach zero, and asks instead of copying in silence when it does not; the question
+        // tells work still on its way (wait) from work the server refused (Pendências).
         const espera = await esperarEnvioDoMapa({
             mapId: originalMapData.id,
             mapData: originalMapData,
             flush: () => syncEngine.flush(),
             aoEsperar: () => showToast(FRASE_DA_ESPERA_DA_COPIA, 'info'),
         });
-        if (espera !== DesfechoDaEspera.ENVIADO) {
+        if (espera.desfecho !== DesfechoDaEspera.ENVIADO) {
             const aviso = avisoDeCopiaComPendencias(PortaDeCopia.MAPA, {
-                desconhecido: espera === DesfechoDaEspera.DESCONHECIDO,
+                enviaveis: espera.enviaveis,
+                recusadas: espera.recusadas,
+                desconhecido: espera.desfecho === DesfechoDaEspera.DESCONHECIDO,
             });
             const seguir = await showConfirm(aviso.titulo, {
                 message: aviso.corpo, confirmText: aviso.confirmar, cancelText: aviso.cancelar,
