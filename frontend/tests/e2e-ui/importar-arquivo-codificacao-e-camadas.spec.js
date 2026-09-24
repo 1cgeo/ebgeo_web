@@ -145,6 +145,24 @@ describeOrSkip('Importar arquivo: codificação e camadas', () => {
         expect(nomes).toEqual(['Brasília', 'São Paulo']);
     });
 
+    test('ZIP com DOIS shapefiles importa os dois, cada um na sua camada', async ({ page }) => {
+        await esperarMapa(page);
+        const campos = [{ nome: 'SIGLA', tamanho: 40 }];
+        const zip = new JSZip();
+        zip.file('cidades.shp', shpDePontos([[-47.8828, -15.7939], [-46.6333, -23.5505]]));
+        zip.file('cidades.dbf', dbfDeTexto(campos, [{ SIGLA: 'Brasilia' }, { SIGLA: 'Sao Paulo' }]));
+        zip.file('quarteis.shp', shpDePontos([[-43.2, -22.9]]));
+        zip.file('quarteis.dbf', dbfDeTexto(campos, [{ SIGLA: 'Vila Militar' }]));
+        await soltarNoMapa(page, 'tema-duplo.zip', await zip.generateAsync({ type: 'nodebuffer' }));
+
+        await expect(page.locator('.toast', { hasText: 'importad' }).first()).toBeAttached({ timeout: 15000 });
+        await expect.poll(async () => (await pontosDoMapa(page)).length, { timeout: 15000 }).toBe(3);
+        const pontos = await pontosDoMapa(page);
+        expect(pontos.map((p) => p.attributes.SIGLA).sort()).toEqual(['Brasilia', 'Sao Paulo', 'Vila Militar']);
+        // One layer per shapefile, as the file is organized.
+        expect(new Set(pontos.map((p) => p.layerId)).size).toBe(2);
+    });
+
     test('KML declarado ISO-8859-1 chega com os acentos', async ({ page }) => {
         await esperarMapa(page);
         const kml = '<?xml version="1.0" encoding="ISO-8859-1"?>\n'

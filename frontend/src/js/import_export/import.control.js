@@ -186,10 +186,10 @@ class AddImportControl {
         await ensureTurf();
 
         try {
-            const geoJSON = await this.processFile(file);
-            if (geoJSON) {
+            const lido = await this.processFile(file);
+            if (lido) {
                 const fileName = file.name.replace(/\.[^/.]+$/, '');
-                const importedCount = await this.importGeoJSON(geoJSON, fileName);
+                const importedCount = await this._importarLido(lido, fileName);
                 const message = importedCount === 1
                     ? '1 geometria importada com sucesso'
                     : `${importedCount} geometrias importadas com sucesso`;
@@ -205,6 +205,32 @@ class AddImportControl {
             this.fileInput.value = '';
         }
         this.toolManager.deactivateCurrentTool();
+    }
+
+    /**
+     * Imports what `processFile` read: one FeatureCollection, or one per shapefile of a ZIP.
+     *
+     * A ZIP with several shapefiles used to import only the FIRST, silently (`result[0]`). Each
+     * one now becomes its own layer, named after the shapefile, because that is how the file is
+     * organized. A shapefile with nothing to import is skipped when another one has something, so
+     * one empty theme does not cost the others; when none has, the first one's error speaks.
+     * @param {Object|Object[]} lido - FeatureCollection, or an array of them (each with `fileName`).
+     * @param {string} fileName - The file's name without extension.
+     * @returns {Promise<number>} How many geometries were imported.
+     * @private
+     */
+    async _importarLido(lido, fileName) {
+        if (!Array.isArray(lido)) return this.importGeoJSON(lido, fileName);
+
+        const comGeometria = lido.filter((fc) => fc?.features?.some((f) => f?.geometry?.type));
+        if (comGeometria.length === 0) return this.importGeoJSON(lido[0] ?? {}, fileName);
+
+        let total = 0;
+        for (const colecao of comGeometria) {
+            const nomeDaCamada = String(colecao.fileName ?? '').split('/').pop() || fileName;
+            total += await this.importGeoJSON(colecao, nomeDaCamada);
+        }
+        return total;
     }
 
     _validateFile(file) {
@@ -364,14 +390,14 @@ class AddImportControl {
                 // anyway. So such a DBF gets a .cpg naming Windows-1252 before the reader runs.
                 const result = await shp(await this._completarCpgDosDbf(buffer));
 
-                // Multiple shapefiles in ZIP → returns array; pick first
-                const geoJSON = Array.isArray(result) ? result[0] : result;
-
-                if (!geoJSON?.features) {
+                // Several shapefiles in the ZIP come back as an array, one collection each; all
+                // of them are imported (see `_importarLido`). It used to keep only the first.
+                const colecoes = Array.isArray(result) ? result : [result];
+                if (colecoes.length === 0 || !colecoes.every((fc) => fc?.features)) {
                     throw new Error('Formato de shapefile inválido');
                 }
 
-                return geoJSON;
+                return Array.isArray(result) ? colecoes : result;
             },
             'Erro ao processar Shapefile'
         );
