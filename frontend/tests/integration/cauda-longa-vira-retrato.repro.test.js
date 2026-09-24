@@ -154,6 +154,7 @@ import { createAtlas } from '../../src/js/store/atlas/atlas.entity.js';
 import { setRemoteHandlerEventBus } from '../../src/js/store/sync/remote-operation-handler.js';
 import { operationQueue, OperationQueue } from '../../src/js/store/sync/operation-queue.js';
 import { syncEngine } from '../../src/js/store/sync/sync-engine.js';
+import { sessionContext } from '../../src/js/store/sync/session-context.js';
 
 const MAPA = '52000000-0000-4000-8000-000000000009';
 let atlasId;
@@ -225,6 +226,12 @@ beforeEach(async () => {
         removeItem: chave => armazenamento.delete(chave),
     });
 
+    // THE ACCOUNT IS KNOWN BEFORE THE FIRST CONNECT, as in the app (login and the F5 restore both
+    // set the session before any atlas opens). The durable cursor is trusted only by the principal
+    // it was staged for (`_durablePullCursor`), so a first connect with no user would stage a
+    // visitor's generation and the second connect, after the socket named the user, would
+    // rightly refuse its cursor: the harness would be measuring the visitor case, not this one.
+    sessionContext.setSession({ userId: 'user-1', role: 'owner' });
     atlasId = crypto.randomUUID();
     escopo = remoteScope(atlasId);
     activateScope(escopo);
