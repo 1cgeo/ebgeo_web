@@ -411,6 +411,11 @@ function startCellEditing(td, feature, columnKey, isAttribute, callbacks) {
                 ? feature.properties?.descricao || ''
                 : feature.properties?.attributes?.[columnKey] || '';
 
+    // The cell edits TEXT, and the stored value may be a number (attributes copied from an API
+    // keep their type): comparing the input to the raw value never matched, so an opened and
+    // unchanged numeric cell was written back as a string on blur, and asked "leave site?" on unload.
+    const currentText = String(currentValue);
+
     const originalHTML = td.innerHTML;
 
     // Create input
@@ -448,7 +453,7 @@ function startCellEditing(td, feature, columnKey, isAttribute, callbacks) {
         td.classList.remove(ATTRIBUTE_TABLE.CSS_CLASSES.CELL_EDITING);
         const newValue = input.value.trim();
 
-        if (save && newValue !== currentValue) {
+        if (save && newValue !== currentText) {
             // Update display
             const valueSpan = document.createElement('span');
             valueSpan.className = 'attribute-table-cell-value';
@@ -495,7 +500,7 @@ function startCellEditing(td, feature, columnKey, isAttribute, callbacks) {
             window.removeEventListener('beforeunload', naSaida);
             return;
         }
-        if (input.value.trim() === currentValue) return;
+        if (input.value.trim() === currentText) return;
         finishEditing(true);
         event?.preventDefault?.();
         if (event) event.returnValue = '';
