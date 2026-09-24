@@ -531,6 +531,11 @@ export class WsClient {
     /** @private Routes a batch of inbound operations, skipping this client's own echoes. */
     _applyInboundOps(ops, authorUserId = null) {
         const handler = this._handlers.operation;
+        // THE WHOLE FRAME IN ONE APPLY when the engine registered the batch handler: it keeps the
+        // per-operation contract (in order, stop at the first `false`) and lets consecutive creates
+        // on one map share a single write of the map document (`applyRemoteOperations`).
+        const batchHandler = ops.length > 1 ? this._handlers.operationBatch : null;
+        const batch = [];
         for (const raw of ops) {
             // O AUTOR VEM NO QUADRO, NAO NA OP. O servidor manda `{type, userId, ops}`
             // (`broadcastOperations`), entao quem quiser saber quem escreveu precisa receber isso
@@ -553,6 +558,10 @@ export class WsClient {
 
             // The author's canonical result must be materialized too. Local optimism is
             // not proof that the server accepted exactly those values.
+            if (batchHandler) {
+                batch.push(op);
+                continue;
+            }
             if (!handler) continue;
             // SERIALIZE: the handler does an async read-modify-write of the map's store
             // entry. Applying ops concurrently (a batch broadcast, or rapid ops) races —
@@ -560,6 +569,12 @@ export class WsClient {
             // all but one. Chain each apply after the previous one fully completes.
             this._queueApply(async () => {
                 const applied = await handler(op);
+                if (applied === false) throw new Error('Alteração remota não aplicada.');
+            });
+        }
+        if (batchHandler && batch.length > 0) {
+            this._queueApply(async () => {
+                const applied = await batchHandler(batch);
                 if (applied === false) throw new Error('Alteração remota não aplicada.');
             });
         }

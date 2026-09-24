@@ -294,11 +294,13 @@ beforeEach(() => {
  * 'atlasResources' entrou com o empréstimo por atlas (o frame só avisa que mudou, e o receptor
  * re-pede o próprio payload aditivo); 'credentialExpired' entrou com a reconexão que renova a
  * credencial (`decidirReconexao`, `ws-client.js`), emitido quando o token do link público venceu
- * e nada o renova.
+ * e nada o renova. 'operationBatch' entrou com a aplicação do quadro inteiro de uma vez
+ * (`applyRemoteOperations`), que escreve as criações consecutivas de um mapa numa ida só ao
+ * documento.
  */
 const HANDLERS_FIADOS = Object.freeze([
     'operation', 'syncResponse', 'atlasDeleted', 'atlasOwnerChanged', 'sharingUpdated',
-    'atlasSettings', 'atlasResources', 'serverResync', 'credentialExpired',
+    'atlasSettings', 'atlasResources', 'serverResync', 'credentialExpired', 'operationBatch',
 ]);
 
 /** @returns {string[]} the event names passed to `wsClient.on`, sorted, duplicates kept. */
@@ -607,7 +609,7 @@ describe('connect', () => {
         // would put every name in the list twice (18 calls), which is the listener leak this
         // case exists to catch.
         expect(eventosFiados()).toEqual([...HANDLERS_FIADOS].sort());
-        expect(wsClientMock.on).toHaveBeenCalledTimes(9);
+        expect(wsClientMock.on).toHaveBeenCalledTimes(HANDLERS_FIADOS.length);
         // Operation logging is now enabled per authenticated connect (not in wire-once), so two
         // connects enable it twice.
         expect(enableOperationLogging).toHaveBeenCalledTimes(2);

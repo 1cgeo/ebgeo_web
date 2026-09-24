@@ -668,6 +668,176 @@ export async function applyRemoteOperation(operation, options = {}) {
 }
 
 /**
+ * The smallest run of plain feature CREATEs worth one document write.
+ * @type {number}
+ */
+const MIN_CREATE_RUN = 2;
+
+/**
+ * Whether `operation` can join a run of plain feature creates on `mapId`: a CREATE of a feature
+ * with an id and a body, that is not the author's own repair and not a move between maps. Every
+ * other shape keeps the per-operation path, which is where its special handling lives.
+ * @param {Object} operation
+ * @param {string} mapId
+ * @returns {boolean}
+ */
+function joinsCreateRun(operation, mapId) {
+    return operation?.entityType === EntityType.FEATURE
+        && operation.operationType === OperationType.CREATE
+        && !!operation.entityId
+        && !!mapId
+        && operation.mapId === mapId
+        && operation.localRepair !== true
+        && !!operation.data?.properties
+        && !(operation.data.previousMapId && operation.data.previousMapId !== mapId);
+}
+
+/**
+ * The run of plain feature creates starting at `start`: consecutive, on the same map, each entity
+ * once.
+ * @param {Object[]} operations
+ * @param {number} start
+ * @returns {Object[]}
+ */
+function createRunAt(operations, start) {
+    const mapId = operations[start]?.mapId;
+    const run = [];
+    const ids = new Set();
+    for (let i = start; i < operations.length; i++) {
+        const operation = operations[i];
+        if (!joinsCreateRun(operation, mapId) || ids.has(operation.entityId)) break;
+        ids.add(operation.entityId);
+        run.push(operation);
+    }
+    return run;
+}
+
+/** Returned by {@link applyRemoteCreateRun} when the run must be applied one operation at a time. */
+const RUN_FALLBACK = Symbol('remote-create-run-fallback');
+
+/**
+ * Applies a run of a peer's feature creates on ONE map with ONE read and ONE write of the map
+ * document, or writes nothing and answers {@link RUN_FALLBACK}.
+ *
+ * WHY. A feature op is a read-modify-write of the WHOLE map document (every feature of the map),
+ * so a peer receiving an import or a paste paid that document once per feature. Measured on
+ * 2026-09-23 in Chromium: 22 ms per op on a map of ~250 features, 88 ms on ~2 500, 217 ms on
+ * ~5 250; 500 creates on a map of 5 000 points took 109 s to converge. A push frame carries up to
+ * one logical batch, so the same frame now costs one document round trip.
+ *
+ * THE PER-OPERATION RULES ARE THE SAME, checked for EVERY member before anything is written, and
+ * any member that needs one of the per-operation branches sends the whole run back: an un-acked
+ * local edit on the entity (the deferral), an older server version than the one applied (the
+ * drop), a map that has not landed yet (the buffer). Those branches have side effects the run must
+ * not duplicate, so the run never takes them itself; the fallback applies the members one by one
+ * through {@link applyRemoteOperation}, exactly as before. After the write, each member gets what
+ * the single path gives it: its version recorded, its `FEATURE_CREATED`, its `apply.persist`
+ * span, its `REMOTE_OPERATION_APPLIED` and its deferred completions. `LAYERS_CHANGED` is emitted
+ * once, since it names the map and every listener coalesces it.
+ *
+ * @param {Object[]} run - Operations accepted by {@link createRunAt}.
+ * @param {Object} options - The same options {@link applyRemoteOperation} takes.
+ * @returns {Promise<true|symbol>} True once every member is durable, or {@link RUN_FALLBACK}.
+ */
+async function applyRemoteCreateRun(run, options) {
+    const context = capturedApplyContext(options);
+    const mapId = run[0].mapId;
+    const outcome = await serializeGuardedApply(() => withApplyContext(context, async () => {
+        for (const operation of run) observeServerVersion(operation.serverVersion, applyContext?.scope);
+        const clear = () => run.every(operation => (pendingLocalEditCount.get(operation.entityId) || 0) === 0
+            && shouldApplyVersion(operation.entityId, operation.serverVersion));
+        if (!clear()) return RUN_FALLBACK;
+
+        const written = await withMapDocument(mapId, 'applyRemoteCreateRun', async () => {
+            // Re-checked under the lock, like `featureApplyPermission`: a local edit may have
+            // taken the document first.
+            if (!clear()) return RUN_FALLBACK;
+            const repo = handlerRepository();
+            const mapData = await repo.getMap(mapId);
+            if (!mapData) return RUN_FALLBACK;
+            const positions = new Map();
+            for (const operation of run) {
+                const storageType = getStorageTypeFromSource(operation.data.properties.source || 'point');
+                if (!mapData.features[storageType]) mapData.features[storageType] = [];
+                const features = mapData.features[storageType];
+                if (!positions.has(storageType)) {
+                    positions.set(storageType, new Map(features.map((feature, index) => [feature?.properties?.id, index])));
+                }
+                const index = positions.get(storageType).get(operation.entityId);
+                if (index === undefined) {
+                    positions.get(storageType).set(operation.entityId, features.length);
+                    features.push(operation.data);
+                } else {
+                    // Idempotent by id, as in the single path: an echoed CREATE replaces.
+                    features[index] = operation.data;
+                }
+            }
+            await repo.saveMap(mapId, mapData);
+            for (const operation of run) {
+                emit(EventTypes.FEATURE_CREATED, {
+                    featureId: operation.entityId,
+                    featureType: operation.data.properties.source || 'point',
+                    mapId,
+                    feature: operation.data,
+                });
+            }
+            emit(EventTypes.LAYERS_CHANGED, { mapName: mapId });
+            return true;
+        });
+        if (written !== true) return RUN_FALLBACK;
+
+        applyContext?.assertActive();
+        for (const operation of run) {
+            markAppliedVersion(operation.entityId, operation.serverVersion);
+            markRemoteApplied(operation.entityId, operation.serverVersion);
+            announceOverwrite(operation.entityId, operation.authorUserId);
+            record(TraceStage.APPLY_PERSIST, {
+                opId: operation.id, traceId: operation.traceId,
+                entityType: operation.entityType, operationType: operation.operationType,
+                entityId: operation.entityId, mapId, serverVersion: operation.serverVersion,
+                outcome: TraceOutcome.OK,
+            });
+            emit(EventTypes.REMOTE_OPERATION_APPLIED, { operation });
+        }
+        return true;
+    }));
+    if (outcome === true) {
+        for (const operation of run) {
+            for (const finish of deferredCompletions.get(completionKey(context.scope, operation)) ?? []) finish();
+        }
+    }
+    return outcome;
+}
+
+/**
+ * Applies the operations of ONE inbound frame, in order, with the same outcome contract as calling
+ * {@link applyRemoteOperation} on each: it stops and answers `false` at the first operation that
+ * answers `false`, and a throw propagates.
+ *
+ * The only difference is cost: consecutive plain feature creates on the same map are written
+ * together ({@link applyRemoteCreateRun}). Everything else goes through the single path.
+ *
+ * @param {Object[]} operations - The frame's operations, already stamped with author and repair.
+ * @param {Object} [options] - Passed to {@link applyRemoteOperation}.
+ * @returns {Promise<boolean>} False when an operation was not applied.
+ */
+export async function applyRemoteOperations(operations, options = {}) {
+    let index = 0;
+    while (index < operations.length) {
+        const run = createRunAt(operations, index);
+        if (run.length >= MIN_CREATE_RUN && await applyRemoteCreateRun(run, options) === true) {
+            index += run.length;
+            continue;
+        }
+        const end = index + Math.max(1, run.length);
+        for (; index < end; index++) {
+            if (await applyRemoteOperation(operations[index], options) === false) return false;
+        }
+    }
+    return true;
+}
+
+/**
  * @private Body of {@link applyRemoteOperation}. Runs inside the guarded-apply chain when
  * `guarded` is true, so its version check, its write and its record are one atomic step.
  * @param {Object} operation

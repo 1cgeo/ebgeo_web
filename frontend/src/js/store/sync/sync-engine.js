@@ -36,6 +36,7 @@ import { enableOperationLogging, disableOperationLogging } from './operation-dis
 import { sessionContext, sessionUserInfoFromMe } from './session-context.js';
 import {
     applyRemoteOperation,
+    applyRemoteOperations,
     applyRemoteSnapshot,
     applyMapCreationAck,
     setRemoteHandlerEventBus,
@@ -1278,12 +1279,21 @@ class SyncEngine {
             const applied = await applyRemoteOperation(op, { scope: session.scope, signal: session.signal, waitForDeferred: true });
             session.assertActive();
             return applied;
+        }, async (ops) => {
+            const session = this._session;
+            if (!session) return false;
+            session.assertActive();
+            const applied = await applyRemoteOperations(ops, { scope: session.scope, signal: session.signal, waitForDeferred: true });
+            session.assertActive();
+            return applied;
         });
 
         // Return the promise so the ws-client can SERIALIZE applies (the handler does an
         // async read-modify-write of the map; a block body that didn't return the promise
         // let a batch of ops apply concurrently and clobber each other — all but one lost).
         wsClient.on('operation', (op) => syncGateway.applyRemoteOperation(op));
+        // One frame, one apply: consecutive creates on a map share a single document write.
+        wsClient.on('operationBatch', (ops) => syncGateway.applyRemoteOperations(ops));
 
         wsClient.on('syncResponse', async (msg) => {
             // Drop a late sync_response that arrives after a disconnect (e.g. during the

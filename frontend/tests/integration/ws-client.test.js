@@ -193,6 +193,44 @@ describe('WsClient — inbound routing', () => {
         expect(maxActive).toBe(1);
     });
 
+    // A rajada de criacoes do colega custava uma ida ao documento do mapa por op; com o manipulador
+    // de lote o quadro inteiro vai numa aplicacao so, na ordem, com o eco marcado, e a resposta
+    // `false` fecha o canal como no caminho de uma em uma.
+    it('com o manipulador de lote, o quadro vai inteiro, em ordem e com o eco marcado', async () => {
+        const onOp = vi.fn();
+        const onBatch = vi.fn(async () => true);
+        ctx.ws.on('operation', onOp);
+        ctx.ws.on('operationBatch', onBatch);
+        sock.emit({ type: 'operations', userId: 'u2', ops: [
+            { id: 'a', clientId: 'other' },
+            { id: 'b', clientId: 'me' },
+            { id: 'c', clientId: 'other' },
+        ] });
+        await vi.waitFor(() => expect(onBatch).toHaveBeenCalledTimes(1));
+        expect(onOp).not.toHaveBeenCalled();
+        const [frame] = onBatch.mock.calls[0];
+        expect(frame.map((op) => op.id)).toEqual(['a', 'b', 'c']);
+        expect(frame[1]).toEqual(expect.objectContaining({ localRepair: true }));
+        expect(frame[0]).toEqual(expect.objectContaining({ authorUserId: 'u2' }));
+    });
+
+    it('op sozinha continua no manipulador de uma op, e o lote que falha fecha o canal', async () => {
+        const onOp = vi.fn(async () => true);
+        const onBatch = vi.fn(async () => false);
+        ctx.ws.on('operation', onOp);
+        ctx.ws.on('operationBatch', onBatch);
+        sock.emit({ type: 'operations', ops: [{ id: 'so', clientId: 'other' }] });
+        await vi.waitFor(() => expect(onOp).toHaveBeenCalledTimes(1));
+        expect(onBatch).not.toHaveBeenCalled();
+        const close = vi.spyOn(sock, 'close');
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        sock.emit({ type: 'operations', ops: [{ id: 'x', clientId: 'other' }, { id: 'y', clientId: 'other' }] });
+        await vi.waitFor(() => expect(close).toHaveBeenCalledWith(4000, 'local apply failed'));
+        warn.mockRestore();
+        // O fechamento agenda uma reconexao; sem isto ela nasce no meio do caso seguinte.
+        ctx.ws.disconnect();
+    });
+
     it('fires ack for ack and ack_batch frames', () => {
         const onAck = vi.fn();
         ctx.ws.on('ack', onAck);

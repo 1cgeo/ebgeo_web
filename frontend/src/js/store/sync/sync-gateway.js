@@ -26,6 +26,8 @@ class SyncGateway {
     constructor() {
         /** @type {Function|null} */
         this._remoteOperationHandler = null;
+        /** @type {Function|null} */
+        this._remoteBatchHandler = null;
     }
 
     /**
@@ -56,16 +58,48 @@ class SyncGateway {
     }
 
     /**
+     * Applies the operations of one inbound frame, with the same gate and the same outcome
+     * contract as {@link applyRemoteOperation} called on each in order: offline answers `false`,
+     * and the first operation that is not applied stops the frame with `false`.
+     *
+     * @param {import('./operation-factory.js').Operation[]} operations - The frame, in order.
+     * @returns {Promise<boolean>}
+     */
+    async applyRemoteOperations(operations) {
+        if (!connectionState.isOnline()) {
+            for (const operation of operations) {
+                record(TraceStage.GATEWAY_GATE, {
+                    opId: operation?.id, traceId: operation?.traceId,
+                    outcome: TraceOutcome.DROPPED, reason: DropReason.OFFLINE,
+                });
+            }
+            return false;
+        }
+        if (!this._remoteBatchHandler) {
+            for (const operation of operations) {
+                if (await this.applyRemoteOperation(operation) === false) return false;
+            }
+            return true;
+        }
+        for (const operation of operations) {
+            if (operation.lamportTimestamp) advanceLamportClock(operation.lamportTimestamp);
+        }
+        return this._remoteBatchHandler(operations);
+    }
+
+    /**
      * Registers a handler for applying remote operations to the local store.
      * The handler writes to LocalRepository, emits events, and updates caches.
      *
      * @param {Function} handler - async (operation) => void
+     * @param {Function} [batchHandler] - async (operations) => boolean, the frame at once.
      */
-    setRemoteOperationHandler(handler) {
+    setRemoteOperationHandler(handler, batchHandler = null) {
         if (typeof handler !== 'function') {
             throw new Error('handler must be a function');
         }
         this._remoteOperationHandler = handler;
+        this._remoteBatchHandler = typeof batchHandler === 'function' ? batchHandler : null;
     }
 
     /**
@@ -81,6 +115,7 @@ class SyncGateway {
      */
     _reset() {
         this._remoteOperationHandler = null;
+        this._remoteBatchHandler = null;
     }
 }
 
