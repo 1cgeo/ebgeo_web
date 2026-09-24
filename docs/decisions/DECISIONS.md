@@ -229,3 +229,4 @@ que envelheceu na decisão seguinte.)
 - 2026-09-24: tipografia e cor só dos tokens: controles herdam a fonte, três pesos (sem 500), escala sem 13px, uma monoespaçada, escalas de vermelho, âmbar e azul (decisão do dono), [registro](decisions-2026.md).
 - 2026-09-24: os atributos personalizados de uma feição convergem por CHAVE (a mesma chave continua conflito), e a bolsa inteira do formato antigo continua aceita (decisão do dono), [registro](decisions-2026.md).
 - 2026-09-24: cada commit roda `npm run test:tocados` (só o que o git diff pede); o `npm test` inteiro da raiz fica para contrato entre os pacotes, deploy e main (decisão do dono), [registro](decisions-2026.md).
+- 2026-09-24: a presença tem controle de fluxo por destinatário, lido do pong do ping de protocolo e não do `bufferedAmount` (que fica em zero atrás de link lento): no máximo um quadro em voo, o resto coalescido, op de sync nunca retida (decisão do dono), [registro](decisions-2026.md).
