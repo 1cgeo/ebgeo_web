@@ -161,7 +161,37 @@ O detalhe e o próximo comando estão na seção PRÓXIMO PASSO do relatório de
    TRUST_PROXY_HOPS precisa bater com o número de proxies do caminho: 3 em produção, 4 no ambiente de teste.
 6. METEOROLOGIA_URL: o padrão é a API pública da Open-Meteo, chamada pelo navegador de cada usuário. Se a coordenada não pode sair da rede, aponte para uma Open-Meteo interna em https, ou desligue o painel na aba Sistema.
 
-## 6. Linhas propostas para o livro-razão
+## 6. Áreas que nenhuma frente cobriu
+
+Propostas em 2026-09-24 e adiadas pelo dono ("não vamos abrir frentes novas por enquanto"). Tudo o que a campanha mediu foi com 2 ou 3 pessoas, e estas áreas ficaram só com os testes que já existiam. Em ordem de risco:
+
+1. Segurança e acesso. A noite de 23 para 24 achou falhas desta classe sem ninguém procurando, todas já corrigidas:
+   - token de link público revogado que voltava a valer;
+   - conta desativada que continuava escrevendo;
+   - Comentarista apagando comentário alheio;
+   - link de slide que abria a aba do EBGeo para outra página.
+
+   Falta revisar três coisas:
+   - texto de usuário exibido sem escape em toda superfície (tabela, legenda, PDF, KMZ, busca, briefing);
+   - todas as rotas REST, por papel e por recurso, atrás de acesso a atlas ou recurso de outra pessoa;
+   - os limitadores de tentativas, e o que um recurso privado do catálogo pode vazar.
+2. Administração, compartilhamento e catálogo privado. A página de administração inteira, a lixeira, compartilhar e revogar, grupos de acesso, link público, concessões com prazo, OM e papéis. As regras estão escritas na CONSTITUICAO.md, e nenhuma frente as testou pela tela.
+3. Carga com muitos usuários. Faltam 20 a 50 pessoas no mesmo atlas desenhando juntas. Medir:
+   - processador e memória do servidor;
+   - conexões do banco;
+   - repasse das edições para todos;
+   - se algum navegador trava.
+
+   Os limites de uma instância única estão estimados na wiki, não medidos com colaboração real.
+4. 3D, 360 e primeira pessoa. Faltam os visualizadores, os marcadores com foto, a cena caminhável, a colaboração dentro deles, a calibração 360 e o catálogo de modelos.
+5. Tablet e celular. O produto tem layouts próprios e specs de tablet que não entram na rodada normal (npm run test:e2e:tablet). Se houver uso em campo, percorrer os fluxos principais com toque.
+6. Menores, que caberiam numa frente só:
+   - login, cadastro, recuperação de senha, sessão expirando e inatividade;
+   - busca de topônimos e de coordenadas;
+   - links diretos (?atlas=, #view=3d);
+   - luminosidade e meteorologia, que só foram testadas pela sessão que as fez.
+
+## 7. Linhas propostas para o livro-razão
 
 - A descrição do pedido dizia que o modelo de conflito era LWW por chegada; o código é base e revisão por caminho. Codificado no repro de atributos por chave do backend.
 - docs-integridade passou no ciclo de um agente porque uma sonda não rastreada na worktree continha o símbolo errado; o portão da integração, com a árvore limpa, pegou. O verificador mediu outra cópia do sujeito.
