@@ -178,6 +178,8 @@ async function endSession(reason) {
     // fazia o atlas montado, guardado, ser lido como falha quando outro ficou só retido.
     if (guarda.others?.length) params.set('outros', guarda.others.join(','));
     if (Number.isFinite(guarda.othersGraceMs)) params.set('outrosPrazo', String(Math.max(1, Math.floor(guarda.othersGraceMs / 60000))));
+    // As fotos que o resgate não trouxe do servidor, em CONTAGEM (o nome é dado de usuário).
+    if (guarda.photosOnlyThumbnail > 0) params.set('fotos', String(guarda.photosOnlyThumbnail));
     const qs = params.toString();
     window.location.replace(qs ? `${MAP_URL}?${qs}` : MAP_URL);
 }

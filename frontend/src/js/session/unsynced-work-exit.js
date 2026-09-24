@@ -57,6 +57,86 @@ import {
 import { remoteWritesDiscarded } from '@store/remote-write-fence.js';
 // Direto, nunca pelo barril `@utils`: esta folha é lida pelas páginas sem mapa.
 import { otherClientHoldsLock } from '@utils/tab-lock.js';
+import { baixarFotosQueFaltam } from '@store/fotos-para-copia.js';
+import { fotosSoComMiniatura } from '@utils/image-limit-phrases.js';
+
+/**
+ * How long a rescue may spend bringing the photos of the atlas to this computer, in ms. The person
+ * is on the way out of the account; what does not come in time keeps its thumbnail and is said.
+ */
+const PRAZO_DAS_FOTOS_NO_RESGATE_MS = 10000;
+
+/**
+ * The photos the last rescue of each atlas could not bring, by atlas id (`fotosQueFicaramNoResgate`).
+ * @type {Map<string, Array<{id: string, nome: (string|null)}>>}
+ */
+const _fotosQueFicaram = new Map();
+
+/**
+ * The download started ahead of a rescue, by atlas id (`trazerFotosDoResgate`), consumed by the rescue.
+ * @type {Map<string, Promise<Array<{id: string, nome: (string|null)}>>>}
+ */
+const _downloadsAdiantados = new Map();
+
+/**
+ * BRINGS THE PHOTOS BEFORE THE ADOPTION (2026-09-24, second review of the attached photos). The rescue
+ * moves no bytes: the namespace becomes a local atlas as it is. A photo held by reference that this
+ * browser never fetched (a colleague's, or an old inline one another client converted) lived only on
+ * the server, and a local atlas has no server to fall back to: it kept only its thumbnail, forever,
+ * while the notice said the work was kept. The missing ones are downloaded first; on an involuntary
+ * exit the session is usually gone and they do not come, and that is said instead of hidden.
+ * @param {string} atlasId
+ * @returns {Promise<Array<{id: string, nome: (string|null)}>>} The photos that did not come.
+ */
+async function trazerFotosAntesDoResgate(atlasId) {
+    const faltaram = await trazerFotosDoResgate(atlasId);
+    _downloadsAdiantados.delete(atlasId);
+    return faltaram;
+}
+
+/**
+ * Starts (or joins) the download of the photos a rescue of this atlas would leave behind.
+ *
+ * A CALLER THAT STILL HOLDS THE SESSION CALLS THIS FIRST. The voluntary exit that chose to keep the
+ * work reaches the rescue only AFTER `logoutAndDisconnect`, when the token is gone and every
+ * download would be refused: started before, the rescue joins the same promise instead of paying the
+ * deadline twice. Never rejects (`baixarFotosQueFaltam` does not throw).
+ * @param {string|null} atlasId
+ * @returns {Promise<Array<{id: string, nome: (string|null)}>>} The photos that did not come.
+ */
+export function trazerFotosDoResgate(atlasId) {
+    if (typeof atlasId !== 'string' || !atlasId) return Promise.resolve([]);
+    let emCurso = _downloadsAdiantados.get(atlasId);
+    if (!emCurso) {
+        emCurso = baixarFotosQueFaltam(remoteScope(atlasId), atlasId, { prazoMs: PRAZO_DAS_FOTOS_NO_RESGATE_MS })
+            .then(({ faltaram }) => {
+                _fotosQueFicaram.set(atlasId, faltaram);
+                return faltaram;
+            });
+        _downloadsAdiantados.set(atlasId, emCurso);
+    }
+    return emCurso;
+}
+
+/**
+ * The photos the last rescue of an atlas could not bring to this computer, which keep only their
+ * thumbnail in the rescued local atlas. Empty when there were none or no rescue ran.
+ * @param {string|null} atlasId
+ * @returns {Array<{id: string, nome: (string|null)}>}
+ */
+export function fotosQueFicaramNoResgate(atlasId) {
+    return _fotosQueFicaram.get(atlasId) ?? [];
+}
+
+/**
+ * The sentence about those photos, to append to the rescue notice, or an empty string.
+ * @param {string|null} atlasId
+ * @returns {string}
+ */
+export function avisoDeFotosDoResgate(atlasId) {
+    const frase = fotosSoComMiniatura(fotosQueFicaramNoResgate(atlasId));
+    return frase ? ` ${frase}` : '';
+}
 
 /**
  * The outcome vocabulary, RE-EXPORTED from the pure module where it now lives.
@@ -163,6 +243,7 @@ export async function preserveUnsyncedWorkAsLocal(atlasId, atlasName = null) {
         return true;
     }
 
+    await trazerFotosAntesDoResgate(atlasId);
     try {
         await adoptRemoteAtlasAsLocal(atlasId, rescuedAtlasName(atlasName));
     } catch (error) {
@@ -479,6 +560,7 @@ export async function preserveUnsyncedWorkOfOtherAtlases({ exceptAtlasId = null,
         // the veto survives the switch, and the next account opening that atlas inside the window
         // would push the previous account's work under its own token.
         if (trocaDeConta || localCount < MAX_LOCAL_ATLASES) {
+            await trazerFotosAntesDoResgate(entry.atlasId);
             try {
                 const adopted = await adoptRemoteAtlasAsLocal(
                     entry.atlasId, rescuedAtlasName(name), { makeCurrent: false }
@@ -562,13 +644,17 @@ function vetoRemainingMs(atlasId) {
  */
 export function otherAtlasesRescueMessage(rescue) {
     const semNome = 'um atlas do servidor';
-    return otherAtlasesRescueNotice({
+    const aviso = otherAtlasesRescueNotice({
         rescued: (rescue?.rescued ?? []).map(r => r.name),
         retained: (rescue?.retained ?? []).map(r => r.name ?? semNome),
         lost: (rescue?.lost ?? []).map(r => r.name ?? semNome),
         // The SHORTEST time left, so the sentence never promises more than the first to expire.
         graceMs: Math.min(...(rescue?.retained ?? []).map(r => r.remainingMs), RESCUE_VETO_GRACE_MS),
     });
+    // The photos those rescued atlases keep only as thumbnails (`trazerFotosAntesDoResgate`).
+    const ficaram = (rescue?.rescued ?? []).flatMap(r => fotosQueFicaramNoResgate(r.atlasId));
+    const frase = fotosSoComMiniatura(ficaram);
+    return aviso && frase ? { ...aviso, message: `${aviso.message} ${frase}` } : aviso;
 }
 
 /**
@@ -585,6 +671,9 @@ export function otherAtlasesRescueMessage(rescue) {
  * @property {string|null} message - What to tell the user about what actually happened, or null
  *   when nothing was at stake. Delivered by the caller, because a page that navigates away cannot
  *   show a toast.
+ * @property {number} [photosOnlyThumbnail] - How many attached photos the rescued atlases keep only
+ *   as thumbnails (`trazerFotosAntesDoResgate`). A COUNT, because the names are user content and a
+ *   page that navigates carries it on the URL (`?fotos=`).
  *
  * THE FIELDS `proceed` AND `asked` WERE REMOVED with the dialog. The first was false only when the
  * user cancelled, and nobody is asked any more, so it was a constant `true` inviting call sites to
@@ -661,7 +750,7 @@ async function preserveMountedAtlas(alvo, atlasName) {
         outcome: preserved ? ExitOutcome.GUARDADO : ExitOutcome.FALHOU,
         atlasId: alvo,
         message: preserved
-            ? exitPreservedSummary(rescuedAtlasName(atlasName))
+            ? exitPreservedSummary(rescuedAtlasName(atlasName)) + avisoDeFotosDoResgate(alvo)
             : exitPreserveFailedNotice({ retained: rescueVetoRemainingMs(alvo) > 0, graceMs: rescueVetoRemainingMs(alvo) }),
     };
 }
@@ -688,7 +777,9 @@ function combineExitResults(principal, outros) {
     if (outros.lost.length > 0) others.push(OtherAtlasesOutcome.PERDIDO);
     const aviso = otherAtlasesRescueMessage(outros);
     const message = [principal.message, aviso?.message].filter(Boolean).join(' ') || null;
-    return { ...principal, others, othersGraceMs, message };
+    const photosOnlyThumbnail = (principal.preserved ? fotosQueFicaramNoResgate(principal.atlasId).length : 0)
+        + outros.rescued.reduce((soma, r) => soma + fotosQueFicaramNoResgate(r.atlasId).length, 0);
+    return { ...principal, others, othersGraceMs, message, photosOnlyThumbnail };
 }
 
 /**

@@ -66,6 +66,18 @@ function percorrerImagens(valor, visitar) {
  * @returns {string[]}
  */
 export function idsDeFotosPorReferencia(documento) {
+    return fotosPorReferencia(documento).map((foto) => foto.id);
+}
+
+/**
+ * The photos held BY REFERENCE in an atlas document, with the name each one shows, in document
+ * order and without duplicates. The same walk as {@link idsDeFotosPorReferencia}, for the paths that
+ * have to NAME a photo that could not be brought along (a copy made outside the server).
+ *
+ * @param {Object} documento - Same shape as {@link idsDeFotosPorReferencia}
+ * @returns {Array<{id: string, nome: (string|null)}>}
+ */
+export function fotosPorReferencia(documento) {
     const vistos = new Set();
     const ids = [];
     const colher = (fotos) => {
@@ -73,7 +85,8 @@ export function idsDeFotosPorReferencia(documento) {
             const id = idDeFotoPorReferencia(foto);
             if (id && !vistos.has(id)) {
                 vistos.add(id);
-                ids.push(id);
+                const nome = typeof foto?.name === 'string' && foto.name.trim() ? foto.name.trim() : null;
+                ids.push({ id, nome });
             }
         }
     };

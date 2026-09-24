@@ -37,7 +37,7 @@ import {
 } from '@store/index.js';
 import config from '@js/config.js';
 import { EventTypes } from '@events/event_types.js';
-import { showSuccess, showError, showWarning, IDUtils } from '@utils/index.js';
+import { showSuccess, showError, showWarning, showToast, IDUtils } from '@utils/index.js';
 import { showPrompt, showConfirm, showCombineMapsModal } from '@modals/index.js';
 import { mapLockController } from '@js/locking/index.js';
 // A grade de ações mora FORA daqui de propósito: ela é uma decisão pura sobre três valores
@@ -56,6 +56,8 @@ import { denialNotice } from '@store/denial-phrases.js';
 // (`checkPermission`); `_handleOpenSettings` precisa do POSTO, e posto se compara por hierarquia.
 import { atlasRoleHasAtLeast, getPermissionLabel, toAtlasPermission } from '@js/projects/permission-levels.js';
 import { syncEngine } from '@store/sync/sync-engine.js';
+import { baixarFotosQueFaltam } from '@store/fotos-para-copia.js';
+import { fotosSoComMiniatura } from '@utils/image-limit-phrases.js';
 import { apiClient } from '@store/sync/api-client.js';
 import { serverMessageOr } from '@utils/request-failure.js';
 // DIRECT import, not the `@store` barrel: the barrel re-exports only `adoptRemoteAtlasAsLocal`
@@ -1527,9 +1529,20 @@ export class MapsTab {
             const mapNames = await getAllMapNamesStore();
             const { relatorio } = await this._exportImportService.buildPrunedExportData(mapNames);
             const perdas = descreverPerdas(relatorio);
+            // AS FOTOS POR REFERÊNCIA QUE ESTE COMPUTADOR NÃO TEM (2026-09-24, revisão): a de um
+            // colega, a antiga convertida por outro. O atlas local não tem servidor de onde buscá-las
+            // depois, então elas descem AGORA, e as que não vierem são ditas ANTES da cópia.
+            const fotos = await baixarFotosQueFaltam(getActiveScope(), syncEngine.atlasId, {
+                // A descida vem ANTES do diálogo, e numa rede lenta ela leva segundos: sem aviso, o
+                // clique parece não ter feito nada.
+                aoBaixar: (quantas) => showToast(quantas === 1
+                    ? 'Baixando 1 foto anexa do servidor para a cópia local...'
+                    : `Baixando ${quantas} fotos anexas do servidor para a cópia local...`, 'info'),
+            });
+            const semFotos = fotosSoComMiniatura(fotos.faltaram);
 
             const seguir = await showConfirm('Guardar uma cópia deste atlas neste computador?', {
-                message: perdas
+                message: (perdas
                     // A MESMA AFIRMACAO FALSA DO M8, na outra porta, e ela sobreviveu porque o
                     // achado citava so o `.ebgeo`. Fora do servidor nao ha ponto de imposicao,
                     // entao a poda e KEEP-LIST: leva junto tudo o que nao se COMPROVA publico,
@@ -1538,9 +1551,13 @@ export class MapsTab {
                     ? 'A cópia sai do servidor, e fora dele não há como conferir quem pode ver o '
                         + 'quê: só o recurso de catálogo comprovadamente público viaja nela. '
                         + 'Sai desta cópia:\n\n' + perdas
-                        + '\n\nO conteúdo desenhado por você (feições, camadas, textos) vai inteiro.'
+                        + (semFotos
+                            ? `\n\n${semFotos} Se puder, tente de novo com a conexão boa. O resto do `
+                                + 'conteúdo desenhado (feições, camadas, textos) vai inteiro.'
+                            : '\n\nO conteúdo desenhado por você (feições, camadas, textos) vai inteiro.')
                     : 'A cópia fica só neste computador e deixa de receber as alterações dos '
-                        + 'outros participantes.',
+                        + 'outros participantes.'
+                        + (semFotos ? `\n\n${semFotos} Se puder, tente de novo com a conexão boa.` : '')),
                 confirmText: 'Salvar como local',
                 cancelText: 'Cancelar',
             });

@@ -50,6 +50,10 @@ import {
     // O prazo do veto que RESTA vem por AQUI: as frases sao puras e recebem o numero, e a janela
     // cheia prometia horas ja gastas quando o veto era de uma saida anterior.
     rescueVetoRemainingMs,
+    // As fotos que o resgate nao conseguiu trazer do servidor ficam so com a miniatura, e o aviso diz.
+    fotosQueFicaramNoResgate,
+    avisoDeFotosDoResgate,
+    trazerFotosDoResgate,
 } from '@js/session/unsynced-work-exit.js';
 import {
     exitPreservedSummary,
@@ -1172,8 +1176,10 @@ export class AccountControl {
                 this._atlasCache = null;
                 this._render();
                 // A FAILED rescue does not wipe either: `preserveUnsyncedWorkAsLocal` has retained
-                // the namespace, and the chooser says the work could not be kept as an atlas.
-                await this.openProjectPicker({ notice: `${notice}-${resgatado ? 'resgatado' : 'sem-resgate'}` });
+                // the namespace, and the chooser says the work could not be kept as an atlas. A
+                // rescue that could not bring some photos says so in its own variant of the code.
+                const semFotos = resgatado && fotosQueFicaramNoResgate(atlasId).length > 0 ? '-sem-fotos' : '';
+                await this.openProjectPicker({ notice: `${notice}-${resgatado ? 'resgatado' : 'sem-resgate'}${semFotos}` });
                 return;
             }
             await clearAllDataStore();
@@ -1474,6 +1480,10 @@ export class AccountControl {
             const outros = involuntary
                 ? await preserveUnsyncedWorkOfOtherAtlases({ exceptAtlasId: mountedAtlasId })
                 : null;
+            // AS FOTOS DESCEM ANTES DO LOGOUT, e não dentro do resgate: ele roda depois de
+            // `logoutAndDisconnect`, sem token, e toda foto por referência que este computador não
+            // tem seria recusada. O resgate adiante junta-se a este mesmo download.
+            if (preserve) await trazerFotosDoResgate(mountedAtlasId);
             await syncEngine.logoutAndDisconnect();
             // Drop the collaboration UI and return to a BLANK LOCAL atlas: clear the
             // online-users roster (remote cursors + the connection light already hide via
@@ -1493,11 +1503,12 @@ export class AccountControl {
                     // "sua sessão terminou" a quem acabou de clicar em "Sair" descreve um acidente
                     // onde houve uma decisão, e a pessoa fica procurando o erro que não houve.
                     showWarning(
-                        chosePreserve
+                        (chosePreserve
                             ? exitPreservedSummary(rescuedAtlasName(mountedAtlasName))
                             : 'Sua sessão terminou com alterações ainda não enviadas ao servidor. '
                                 + 'Elas foram guardadas neste computador como atlas local: entre de '
-                                + 'novo e use "Enviar ao servidor".',
+                                + 'novo e use "Enviar ao servidor".')
+                            + avisoDeFotosDoResgate(mountedAtlasId),
                         { duration: 10000 }
                     );
                 } else if (chosePreserve) {

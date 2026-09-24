@@ -223,6 +223,8 @@ async function endSession(reason, { voluntary = false } = {}) {
     // fazia o atlas montado, guardado, ser lido como falha quando outro ficou só retido.
     if (guarda.others?.length) params.set('outros', guarda.others.join(','));
     if (Number.isFinite(guarda.othersGraceMs)) params.set('outrosPrazo', String(Math.max(1, Math.floor(guarda.othersGraceMs / 60000))));
+    // As fotos que o resgate não trouxe do servidor, em CONTAGEM (o nome é dado de usuário).
+    if (guarda.photosOnlyThumbnail > 0) params.set('fotos', String(guarda.photosOnlyThumbnail));
     // PARAMETRO PROPRIO, e nao mais um valor de `trabalho`: aquele carrega o vocabulario de
     // `ExitOutcome`, que e sobre a fila de sync. Sao duas perdas de dois subsistemas diferentes, e
     // colapsa-las num parametro so daria a frase errada para uma das duas.

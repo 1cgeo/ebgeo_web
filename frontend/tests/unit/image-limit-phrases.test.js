@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { ImageRefusal, imageRefusalNotice } from '@utils/image-limit-phrases.js';
+import { ImageRefusal, imageRefusalNotice, fotosSoComMiniatura } from '@utils/image-limit-phrases.js';
 
 const MB = 1024 * 1024;
 
@@ -96,5 +96,38 @@ describe('imageRefusalNotice — degradação', () => {
 
     it('medida nula não derruba a frase', () => {
         expect(imageRefusalNotice(ImageRefusal.AUSENTE, null)).toBe('Nenhum arquivo selecionado.');
+    });
+});
+
+describe('fotosSoComMiniatura — as fotos que uma cópia fora do servidor não trouxe', () => {
+    it('nada faltando é silêncio (null), inclusive entrada que não é lista nem contagem', () => {
+        for (const vazio of [[], null, undefined, 0, -3, NaN, 1.5, 'duas']) {
+            expect(fotosSoComMiniatura(vazio)).toBeNull();
+        }
+    });
+
+    it('uma foto: singular, com o nome', () => {
+        expect(fotosSoComMiniatura([{ id: 'a', nome: 'ponte.jpg' }]))
+            .toBe('1 foto anexa ("ponte.jpg") não pôde ser baixada do servidor e fica só com a miniatura.');
+    });
+
+    it('nomeia até três e conta o resto, inclusive as sem nome', () => {
+        const lista = [
+            { nome: 'a.jpg' }, { nome: 'b.jpg' }, { nome: null }, { nome: 'c.jpg' }, { nome: 'd.jpg' },
+        ];
+        expect(fotosSoComMiniatura(lista))
+            .toBe('5 fotos anexas ("a.jpg", "b.jpg", "c.jpg" e mais 2) não puderam ser baixadas do servidor e ficam só com a miniatura.');
+    });
+
+    it('nenhuma com nome: só a contagem, sem parênteses vazios', () => {
+        expect(fotosSoComMiniatura([{ nome: '' }, {}]))
+            .toBe('2 fotos anexas não puderam ser baixadas do servidor e ficam só com a miniatura.');
+    });
+
+    it('a CONTAGEM que atravessou a página pela URL (?fotos=), onde nome nunca viaja', () => {
+        expect(fotosSoComMiniatura(1))
+            .toBe('1 foto anexa não pôde ser baixada do servidor e fica só com a miniatura.');
+        expect(fotosSoComMiniatura(4))
+            .toBe('4 fotos anexas não puderam ser baixadas do servidor e ficam só com a miniatura.');
     });
 });

@@ -70,6 +70,13 @@ vi.mock('@store/atlas-namespace.js', () => ({
     },
 }));
 
+// A descida das fotos antes do resgate (2026-09-24) tem suíte própria
+// (`tests/unit/fotos-descem-antes-da-copia.repro.test.js`); aqui ela não pode entrar na contagem
+// de QUAIS bancos o resgate leu, que é o que este arquivo mede.
+vi.mock('@store/fotos-para-copia.js', () => ({
+    baixarFotosQueFaltam: async () => ({ total: 0, baixadas: 0, faltaram: [] }),
+}));
+
 const veto = vi.hoisted(() => ({
     retainRemoteAtlasForRescue: vi.fn(async () => true),
     releaseRemoteAtlasRescueVeto: vi.fn(),

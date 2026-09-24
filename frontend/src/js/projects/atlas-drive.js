@@ -2350,6 +2350,11 @@ const ARRIVAL_NOTICES = Object.freeze({
     // como atlas local, que é o cartão novo em "Neste computador". Ver `_handleRemoteAtlasDeleted`.
     'excluido-por-outro-resgatado': 'Este atlas foi excluído pelo proprietário. O que você ainda não '
         + 'tinha enviado foi guardado neste computador como um atlas local, nesta lista.',
+    // O RESGATE QUE NÃO TROUXE TODAS AS FOTOS (2026-09-24): as que só existiam no servidor ficaram
+    // só com a miniatura no atlas local. `avisoDeFotosDoResgate`, `session/unsynced-work-exit.js`.
+    'excluido-por-outro-resgatado-sem-fotos': 'Este atlas foi excluído pelo proprietário. O que você ainda '
+        + 'não tinha enviado foi guardado neste computador como um atlas local, nesta lista. Algumas '
+        + 'fotos anexas não puderam ser baixadas do servidor e ficaram só com a miniatura.',
     'excluido-por-outro-sem-resgate': 'Este atlas foi excluído pelo proprietário, e não foi possível '
         + 'guardar como atlas local o que você ainda não tinha enviado. Não limpe os dados do '
         + 'navegador e avise o administrador.',
@@ -2357,6 +2362,9 @@ const ARRIVAL_NOTICES = Object.freeze({
     'sem-acesso': 'Seu acesso a este atlas foi removido.',
     'sem-acesso-resgatado': 'Seu acesso a este atlas foi removido. O que você ainda não tinha enviado '
         + 'foi guardado neste computador como um atlas local, nesta lista.',
+    'sem-acesso-resgatado-sem-fotos': 'Seu acesso a este atlas foi removido. O que você ainda não tinha '
+        + 'enviado foi guardado neste computador como um atlas local, nesta lista. Algumas fotos '
+        + 'anexas não puderam ser baixadas do servidor e ficaram só com a miniatura.',
     'sem-acesso-sem-resgate': 'Seu acesso a este atlas foi removido, e não foi possível guardar como '
         + 'atlas local o que você ainda não tinha enviado. Não limpe os dados do navegador e avise o '
         + 'administrador.',

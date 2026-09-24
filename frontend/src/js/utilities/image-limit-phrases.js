@@ -108,6 +108,29 @@ export function photoNotArrivedNotice() {
     return 'A foto ainda não chegou ao servidor. Tente abrir de novo em instantes.';
 }
 
+/**
+ * The photos a copy that leaves the server could not bring (`baixarFotosQueFaltam`,
+ * `store/fotos-para-copia.js`): offline, refused, deleted on the server. A local atlas has no server
+ * to fetch them from later, so they keep only the thumbnail, and the person reads that BEFORE it is
+ * permanent ("Salvar como local") or with the outcome (the rescue). Names up to three, then a count.
+ * A bare NUMBER is the count that crossed a page on the URL (`?fotos=`), where names never travel.
+ * @param {Array<{nome: (string|null)}>|number} faltaram
+ * @returns {string|null} Null when nothing is missing.
+ */
+export function fotosSoComMiniatura(faltaram) {
+    const lista = Array.isArray(faltaram)
+        ? faltaram
+        : Array.from({ length: Number.isInteger(faltaram) && faltaram > 0 ? Math.min(faltaram, 100000) : 0 }, () => ({}));
+    if (lista.length === 0) return null;
+    const nomes = lista.map((foto) => foto?.nome).filter((nome) => typeof nome === 'string' && nome);
+    const citados = nomes.slice(0, 3).map((nome) => `"${nome}"`).join(', ');
+    const resto = lista.length - Math.min(nomes.length, 3);
+    const quais = citados ? ` (${citados}${resto > 0 ? ` e mais ${resto}` : ''})` : '';
+    return lista.length === 1
+        ? `1 foto anexa${quais} não pôde ser baixada do servidor e fica só com a miniatura.`
+        : `${lista.length} fotos anexas${quais} não puderam ser baixadas do servidor e ficam só com a miniatura.`;
+}
+
 /** The notice of an attach that failed without a sentence of its own (a refused write, a crash). */
 export const FALHA_AO_ANEXAR = 'Não foi possível anexar a foto. Tente de novo.';
 
