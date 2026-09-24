@@ -132,6 +132,9 @@ vi.mock('../../src/js/store/photo-attach.js', async () => {
                 descartar: vi.fn(async () => {}),
             };
         }),
+        // The safety net of phase 2c converts nothing here: these suites run with no server atlas.
+        converterFotosDasOperacoes: vi.fn(async () => null),
+        comConversao: async (_conversao, escrita) => escrita,
     };
 });
 

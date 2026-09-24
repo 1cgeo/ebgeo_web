@@ -23,10 +23,12 @@
  * The store owns no toast; the callers word what the person reads.
  */
 
-import { processImageFile } from '../utilities/image_utils.js';
+import { processImageFile, mimeDeFotoInlineQueSobe, blobDeDataUrl } from '../utilities/image_utils.js';
 import { generateUUID } from '../utilities/uuid.js';
 import { storeImage, removeImage } from './settings.operations.js';
-import { registrarEnvioDeImagem } from './sync/image-sync.js';
+import { registrarEnvioDeImagem, isImageSyncOnline } from './sync/image-sync.js';
+// Leaf module (zero imports).
+import { OperationType } from './sync/operation-types.js';
 
 /**
  * Processes a photo file, stores its bytes and registers their upload, and hands back the item the
@@ -64,4 +66,172 @@ export async function prepararFotoAnexa(file, { origem = 'foto-anexa' } = {}) {
             await removeImage(id).catch(() => {});
         },
     };
+}
+
+/**
+ * THE SAFETY NET OF PHASE 2c (owner's decision of 2026-09-24): the next write of an entity of a
+ * SERVER atlas that still carries INLINE photos converts them, so its operation leaves with the
+ * references and the thumbnails only. Nothing converts the acervo in bulk, neither on the server
+ * nor locally; an old inline photo stops weighing on the link the first time its entity is edited.
+ *
+ * A NEW ID PER CONVERTED PHOTO, never the inline one. Cloning a server atlas passes an inline photo
+ * untouched, so two atlases can hold the same inline id, and `images.id` is a GLOBAL primary key on
+ * the server: the second atlas's upload under that id would be refused for good. Two items of the
+ * same array with the same inline id (a duplicated photo) become one blob.
+ *
+ * The order is the attach's ({@link prepararFotoAnexa}): the bytes are stored and the upload is
+ * registered BEFORE the entity is written, `confirmar` after it was, `descartar` when it was not.
+ * Which photos convert is `mimeDeFotoInlineQueSobe`, the same rule as the boundary of a local atlas
+ * going up; the others keep travelling inline, as before.
+ *
+ * ONLY IN A SERVER ATLAS, and the question is the image sync's (`isImageSyncOnline`), asked before a
+ * single byte is written: a local atlas keeps its photos as they are until it goes up, and the
+ * boundary converts them there (`buildServerImportPayload`).
+ *
+ * NULL MEANS "WRITE AS BEFORE": nothing inline goes up, no server atlas is connected, or the upload
+ * could not be registered, in which case every byte stored here is dropped again. Leaving the photo
+ * inline is never worse than today; converting without a registered upload would lose it.
+ *
+ * @param {Array} fotos - The entity's `images` array
+ * @param {Object} [opcoes]
+ * @param {string} [opcoes.origem='foto-convertida'] - Label of the upload pendency
+ * @returns {Promise<{fotos: Array, confirmar: () => void, descartar: () => Promise<void>}|null>}
+ */
+export async function converterFotosInline(fotos, { origem = 'foto-convertida' } = {}) {
+    if (!isImageSyncOnline() || !Array.isArray(fotos) || !fotos.some((foto) => mimeDeFotoInlineQueSobe(foto))) return null;
+    const feitos = [];
+    const descartar = async () => {
+        for (const { id, envio } of feitos) {
+            await envio.descartar();
+            // Minted here and referenced by nothing yet, so the bytes go.
+            await removeImage(id).catch(() => {});
+        }
+    };
+    const novosIds = new Map();
+    const novas = [];
+    try {
+        for (const foto of fotos) {
+            const mime = mimeDeFotoInlineQueSobe(foto);
+            if (mime && !novosIds.has(foto.id)) {
+                const blob = blobDeDataUrl(foto.data);
+                if (blob) {
+                    const id = generateUUID();
+                    await storeImage(id, blob);
+                    const envio = await registrarEnvioDeImagem(blob, id, { origem, nomeDaFigura: () => foto.name || null });
+                    feitos.push({ id, envio });
+                    if (!envio.registrado) {
+                        await descartar();
+                        return null;
+                    }
+                    novosIds.set(foto.id, id);
+                }
+            }
+            const id = mime ? novosIds.get(foto.id) : null;
+            if (!id) {
+                novas.push(foto);
+                continue;
+            }
+            const { data: _bytes, ...semBytes } = foto;
+            novas.push({ ...semBytes, id, type: mime });
+        }
+    } catch (error) {
+        await descartar();
+        throw error;
+    }
+    if (feitos.length === 0) return null;
+    return {
+        fotos: novas,
+        confirmar: () => {
+            for (const { envio } of feitos) envio.enviar();
+        },
+        descartar,
+    };
+}
+
+/**
+ * The same safety net for the 3D and 360 funnels (`editCesium3d`, `editStreetview360`), whose
+ * operations carry the LIVE item of the document: the `images` of every item a CREATE or UPDATE
+ * writes are converted in place, so the persisted document and the operation agree. A DELETE carries
+ * nothing worth uploading. Only in a server atlas, as {@link converterFotosInline} decides.
+ *
+ * Called INSIDE the transaction's work, where the items are known; the funnel confirms after the
+ * transaction and drops on a throw.
+ *
+ * @param {Array<{type: string, data?: Object}>} operacoes - The edit's operations
+ * @param {Object} [opcoes]
+ * @param {string} [opcoes.origem='foto-convertida'] - Label of the upload pendency
+ * @returns {Promise<{confirmar: () => void, descartar: () => Promise<void>}|null>}
+ */
+export async function converterFotosDasOperacoes(operacoes, { origem = 'foto-convertida' } = {}) {
+    if (!Array.isArray(operacoes)) return null;
+    const conversoes = [];
+    const descartar = async () => {
+        for (const conversao of conversoes) await conversao.descartar();
+    };
+    try {
+        for (const op of operacoes) {
+            if (op?.type === OperationType.DELETE || !op?.data) continue;
+            const conversao = await converterFotosInline(op.data.images, { origem });
+            if (!conversao) continue;
+            op.data.images = conversao.fotos;
+            // The PREVIOUS side travels too (the envelope carries `previousData`): see fotosSemBytes.
+            if (op.previous && op.previous !== op.data) op.previous = { ...op.previous, images: fotosSemBytes(op.previous.images) };
+            conversoes.push(conversao);
+        }
+    } catch (error) {
+        await descartar();
+        throw error;
+    }
+    if (conversoes.length === 0) return null;
+    return {
+        confirmar: () => {
+            for (const conversao of conversoes) conversao.confirmar();
+        },
+        descartar,
+    };
+}
+
+/**
+ * Awaits the write, then starts the uploads of the photos it converted, or drops them when the
+ * write threw (which is how `runTransaction` refuses: lock, logout barrier, a switch of atlas).
+ *
+ * The conversion is read through a function because the 3D and 360 funnels only learn it inside the
+ * transaction's work, after the write promise already exists.
+ *
+ * @param {() => ({confirmar: () => void, descartar: () => Promise<void>}|null)} conversao
+ * @param {Promise<*>} escrita - The write
+ * @returns {Promise<*>} What the write resolved with
+ */
+export async function comConversao(conversao, escrita) {
+    let resultado;
+    try {
+        resultado = await escrita;
+    } catch (error) {
+        await conversao()?.descartar();
+        throw error;
+    }
+    conversao()?.confirmar();
+    return resultado;
+}
+
+/**
+ * An `images` array with the bytes of its inline photos left out, for the PREVIOUS side of an
+ * operation whose photos were just converted.
+ *
+ * THE ENVELOPE CARRIES `previousData` IN FULL (`createOperation`, `sync/operation-factory.js`),
+ * so converting only the new side still sent the photo once, inside the old one. Nothing reads the
+ * bytes there: the client takes from `previousData` only the confirmed version and the patch
+ * (`feature-patch.js`, `mutation-contract.js`), and neither looks inside a photo item. The undo
+ * record is a separate clone and keeps the photo whole.
+ *
+ * @param {Array|*} fotos
+ * @returns {Array|*} A new array, or the input untouched when it is not an array
+ */
+export function fotosSemBytes(fotos) {
+    if (!Array.isArray(fotos)) return fotos;
+    return fotos.map((foto) => {
+        if (!foto || typeof foto !== 'object' || typeof foto.data !== 'string') return foto;
+        const { data: _bytes, ...semBytes } = foto;
+        return semBytes;
+    });
 }

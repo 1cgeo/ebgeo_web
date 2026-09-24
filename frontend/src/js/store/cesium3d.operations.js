@@ -13,7 +13,7 @@ import { mapExistsForGesture } from './mapa-inexistente.js';
 import mapManager from './store-state-manager.js';
 import { EventTypes } from '../events';
 import { validateImageFile } from '../utilities/image_utils.js';
-import { prepararFotoAnexa } from './photo-attach.js';
+import { prepararFotoAnexa, converterFotosDasOperacoes, comConversao } from './photo-attach.js';
 import { createSyncMetadata, touchSyncMetadata, isActive } from './sync/sync-metadata.js';
 import { generateUUID } from '../utilities/uuid.js';
 import { deepClone } from '../utilities/deep-utils.js';
@@ -180,8 +180,11 @@ function mirrorCesium3dInMemory(mapName, data) {
  */
 async function editCesium3d(targetMap, label, prepare, missing = undefined) {
     let output = missing;
+    // The safety net of phase 2c of the attached photos (`converterFotosDasOperacoes`): an item of a
+    // server atlas that still carries inline photos is written with references.
+    let conversao = null;
     // Leaf read-modify-write of the cesium3d document; see document-lock.js.
-    await withSideDocument('cesium3d', targetMap, label, () => runTransaction(async tx => {
+    await comConversao(() => conversao, withSideDocument('cesium3d', targetMap, label, () => runTransaction(async tx => {
         // THE EXISTENCE QUESTION LIVES INSIDE THE TRANSACTION (2026-09-21). It was first placed
         // BEFORE the side-document lock, to spare a refusal the cost of lock plus transaction. That
         // put a disk read outside the transaction's scope stamp: an atlas switch during it went
@@ -192,6 +195,7 @@ async function editCesium3d(targetMap, label, prepare, missing = undefined) {
         const data = await getCesium3dDataWithCache(targetMap);
         const edit = await prepare(data);
         if (!edit) return async () => {};
+        conversao = await converterFotosDasOperacoes(edit.operations, { origem: 'foto-convertida-3d' });
         // getMapId(targetMap), NOT getCurrentMapId(): these entries accept an explicit map
         // name and may edit a map that is not the active one (achado F15).
         const mapId = mapManager.getMapId(targetMap);
@@ -204,7 +208,7 @@ async function editCesium3d(targetMap, label, prepare, missing = undefined) {
         });
         output = edit.result;
         return () => persistCesium3dData(targetMap, data);
-    }));
+    })));
     return output;
 }
 

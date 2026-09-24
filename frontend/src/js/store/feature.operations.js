@@ -31,6 +31,41 @@ import { applyGeneratedBitmap } from '../layers/bitmap-version.js';
 import { derivarCamposDtg } from '../temporal/temporal-attributes.model.js';
 import { derivedOutputBucketOf, replaceDerivedOutput } from './analysis-output.js';
 import { FeatureLockState, lockedLayerCreateNotice, featureLockNotice } from './denial-phrases.js';
+import { converterFotosInline, comConversao, fotosSemBytes } from './photo-attach.js';
+
+// ===== ATTACHED PHOTOS =====
+
+/**
+ * THE SAFETY NET OF PHASE 2c of the attached photos, for a FEATURE: an edit of a feature of a
+ * SERVER atlas that still carries inline photos writes them as blobs with a reference, so the
+ * operation leaves without the bytes (`converterFotosInline`, `photo-attach.js`, says which convert,
+ * why under a new id, and why only in a server atlas). Mutates `feature.properties.images` when
+ * something converted.
+ *
+ * The caller confirms after the transaction and drops on a throw, which is how `runTransaction`
+ * refuses (lock, logout barrier, a switch of atlas).
+ *
+ * @param {Object} feature - The feature about to be written
+ * @returns {Promise<{confirmar: () => void, descartar: () => Promise<void>}|null>}
+ */
+async function converterFotosDaFeicao(feature) {
+    const conversao = await converterFotosInline(feature?.properties?.images);
+    if (conversao) feature.properties.images = conversao.fotos;
+    return conversao;
+}
+
+/**
+ * The previous side of an edit whose photos were converted, without their bytes: the envelope carries
+ * `previousData` in full, and the photo would still travel once inside it (`fotosSemBytes`).
+ * @param {Object|null} conversao - What {@link converterFotosDaFeicao} returned
+ * @param {Object} anterior - The feature as it was
+ * @returns {Object}
+ */
+function anteriorDaConversao(conversao, anterior) {
+    if (!conversao || !anterior?.properties) return anterior;
+    return { ...anterior, properties: { ...anterior.properties, images: fotosSemBytes(anterior.properties.images) } };
+}
+
 
 // ===== TIMESTAMP AND VERSION HELPERS =====
 
@@ -464,8 +499,9 @@ export async function updateFeature(type, feature, mapName = null, { preserveUse
         if (isFeatureEqual(oldFeature, cleanedFeature)) return;
 
         touchUpdatedTimestamp(cleanedFeature);
+        const conversao = await converterFotosDaFeicao(cleanedFeature);
 
-        await runTransaction(async (tx) => {
+        await comConversao(() => conversao, runTransaction(async (tx) => {
             currentMapData.features[type][index] = cleanedFeature;
 
             const newColor = mapManager.getFeatureColor(cleanedFeature);
@@ -486,11 +522,11 @@ export async function updateFeature(type, feature, mapName = null, { preserveUse
 
             {
                 const mapId = mapManager.getMapId(targetMap);
-                tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, cleanedFeature.properties.id, mapId, cleanedFeature, oldFeature, { storage: type });
+                tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, cleanedFeature.properties.id, mapId, cleanedFeature, anteriorDaConversao(conversao, oldFeature), { storage: type });
             }
 
             return () => updateMapDataCompat(targetMap, currentMapData);
-        });
+        }));
     });
 }
 
@@ -917,8 +953,9 @@ export async function updateFeatureProperty(featureType, featureId, property, va
 
         feature.properties[property] = value;
         touchUpdatedTimestamp(feature);
+        const conversao = await converterFotosDaFeicao(feature);
 
-        await runTransaction(async (tx) => {
+        await comConversao(() => conversao, runTransaction(async (tx) => {
             if (isColorProperty) {
                 const newColor = mapManager.getFeatureColor(feature);
                 if (oldColor !== newColor) {
@@ -943,11 +980,11 @@ export async function updateFeatureProperty(featureType, featureId, property, va
 
             {
                 const mapId = mapManager.getMapId(targetMap);
-                tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, featureId, mapId, feature, oldFeature, { storage: featureType });
+                tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, featureId, mapId, feature, anteriorDaConversao(conversao, oldFeature), { storage: featureType });
             }
 
             return () => updateMapDataCompat(targetMap, currentMapData);
-        });
+        }));
 
         return true;
     });

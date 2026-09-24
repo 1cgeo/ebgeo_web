@@ -14,7 +14,7 @@ import { mapExistsForGesture } from './mapa-inexistente.js';
 import mapManager from './store-state-manager.js';
 import { EventTypes } from '../events';
 import { validateImageFile } from '../utilities/image_utils.js';
-import { prepararFotoAnexa } from './photo-attach.js';
+import { prepararFotoAnexa, converterFotosDasOperacoes, comConversao } from './photo-attach.js';
 import { createSyncMetadata, touchSyncMetadata, markDeleted, isActive } from './sync/sync-metadata.js';
 import { generateUUID } from '../utilities/uuid.js';
 // The leaf module, never the `sync/index.js` barrel: five store suites mock that barrel
@@ -155,8 +155,11 @@ function getCachedMarkers(mapName) {
  */
 async function editStreetview360(targetMap, label, prepare, missing = undefined) {
     let output = missing;
+    // The safety net of phase 2c of the attached photos (`converterFotosDasOperacoes`): a marker of
+    // a server atlas that still carries inline photos is written with references.
+    let conversao = null;
     // Leaf read-modify-write of the sv360 document; see document-lock.js.
-    await withSideDocument('sv360', targetMap, label, () => runTransaction(async tx => {
+    await comConversao(() => conversao, withSideDocument('sv360', targetMap, label, () => runTransaction(async tx => {
         // THE EXISTENCE QUESTION LIVES INSIDE THE TRANSACTION (2026-09-21). It was first placed
         // BEFORE the side-document lock, to spare a refusal the cost of lock plus transaction. That
         // put a disk read outside the transaction's scope stamp: an atlas switch during it went
@@ -167,6 +170,7 @@ async function editStreetview360(targetMap, label, prepare, missing = undefined)
         const data = await getStreetview360Data(targetMap);
         const edit = await prepare(data);
         if (!edit) return async () => {};
+        conversao = await converterFotosDasOperacoes(edit.operations, { origem: 'foto-convertida-360' });
         // getMapId(targetMap), NOT getCurrentMapId(): these entries accept an explicit map
         // name and may edit a map that is not the active one (achado F15).
         const mapId = mapManager.getMapId(targetMap);
@@ -176,7 +180,7 @@ async function editStreetview360(targetMap, label, prepare, missing = undefined)
         if (edit.effect) tx.deferSync(edit.effect);
         output = edit.result;
         return () => setStreetview360Data(targetMap, data);
-    }));
+    })));
     return output;
 }
 
