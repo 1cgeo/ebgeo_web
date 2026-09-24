@@ -81,6 +81,34 @@ async function abrirOnline(page, atlasId) {
     await expect.poll(() => currentMapKeyIsUuid(page), { timeout: 30000 }).toBe(true);
 }
 
+/** Quantas operações (`op_`) o banco de fila daquele atlas guarda, lido cru. */
+function contarFila(page, atlasId) {
+    return page.evaluate(async (nome) => {
+        const bancos = await indexedDB.databases();
+        if (!bancos.some((b) => b.name === nome)) return { existe: false, ops: 0 };
+        return new Promise((resolve, reject) => {
+            const pedido = indexedDB.open(nome);
+            pedido.onerror = () => reject(pedido.error);
+            pedido.onsuccess = () => {
+                const db = pedido.result;
+                if (!db.objectStoreNames.contains('operation_queue')) {
+                    db.close();
+                    resolve({ existe: true, ops: 0 });
+                    return;
+                }
+                const chaves = db.transaction('operation_queue', 'readonly')
+                    .objectStore('operation_queue').getAllKeys();
+                chaves.onerror = () => { db.close(); reject(chaves.error); };
+                chaves.onsuccess = () => {
+                    const todas = chaves.result.map(String);
+                    db.close();
+                    resolve({ existe: true, ops: todas.filter((k) => k.startsWith('op_')).length });
+                };
+            };
+        });
+    }, `ebgeo__remote-${atlasId}`);
+}
+
 /** Uma edição que fica PENDENTE: o envio de lote é cortado antes de ela nascer. */
 async function editarSemEnviar(page, nome) {
     await page.route('**/atlas/*/sync', (route) => (route.request().method() === 'POST'
@@ -190,7 +218,7 @@ describeOrSkip('a visita pública anônima e o trabalho resgatado do mesmo atlas
         test.setTimeout(240000);
         const { atlasId, publicLink, featureId } = await semear(page);
         await abrirOnline(page, atlasId);
-        await editarSemEnviar(page, 'EDICAO DESCARTADA');
+        const descartada = await editarSemEnviar(page, 'EDICAO DESCARTADA');
         await perderSessao(page);
         expect((await lerResgate(page, atlasId)).slot, 'o resgate aconteceu').not.toBeNull();
 
@@ -214,6 +242,16 @@ describeOrSkip('a visita pública anônima e o trabalho resgatado do mesmo atlas
             return (f?.points || []).map((p) => p.properties?.nome);
         }), { timeout: 30000 }).toContain('PONTO DO SERVIDOR');
         expect((await lerResgate(page, atlasId)).slot, 'o descarte soltou o slot resgatado').toBeNull();
+        // "APAGAR" INCLUI A FILA: a edição pendente da conta que caiu não pode ser reprojetada no
+        // mapa do visitante, e a fila do atlas fica vazia. Sem `clearQueue` no descarte, o retrato
+        // reprojeta a intenção pendente e ela aparece na visita anônima.
+        const naVisita = await page.evaluate(async () => {
+            const store = await import('/src/js/store/index.js');
+            const f = await store.getCurrentMapFeatures();
+            return (f?.points || []).map((p) => p.properties?.nome);
+        });
+        expect(naVisita, 'a edição descartada não aparece na visita').not.toContain(descartada.properties.nome);
+        expect((await contarFila(page, atlasId)).ops, 'a fila do atlas foi esvaziada pelo descarte').toBe(0);
         expect(featureId).toBeTruthy();
     });
 });
