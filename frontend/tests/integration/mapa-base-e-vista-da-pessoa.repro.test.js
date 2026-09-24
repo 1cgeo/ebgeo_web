@@ -141,6 +141,9 @@ function mapaFalso(estiloInicial) {
         _estilo: JSON.parse(JSON.stringify(estiloInicial)),
         _setStyles: [],
         _jumps: [],
+        // A map past its boot: MapLibre's "style done loading" flag, which `switchLayer` waits
+        // for (`baselayers/style-ready.js`). This fake applies every style synchronously.
+        style: { _loaded: true },
         getStyle() { return this._estilo; },
         getLayer(id) { return (this._estilo?.layers || []).find((l) => l.id === id) || null; },
         getSource(id) { return this._estilo?.sources?.[id] || null; },

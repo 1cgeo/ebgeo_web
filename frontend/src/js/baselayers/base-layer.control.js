@@ -48,6 +48,7 @@ import { resolveBasemapStyle, firstStyledBasemap } from './basemap-style.js';
 import { defaultBasemap, FACTORY_DEFAULT_BASEMAP } from './default-basemap.js';
 import { faixaDeZoom, aplicarFaixaDeZoom } from './basemap-zoom.js';
 import { baseStyleAlreadyOnMap, collectStyleIds, mergeApplicationStyle, withSwitchAppearance } from './style-transform.js';
+import { waitForMapEvent, waitForStyleDone } from './style-ready.js';
 import { applyTileLodParams } from '../map/tile-lod.js';
 // DO ARQUIVO, e não do barrel `@js/terrain`: o barrel arrasta os dois gerentes de camada, e
 // este controle é do caminho de boot do mapa.
@@ -58,6 +59,9 @@ import { setupMapFeatures } from '../layers';
 import { clearFeatureSources } from '../layers/layer_setup.js';
 import { wireRemoteFeatureRender } from '../layers/remote-feature-render.js';
 import { showError } from '../utilities';
+
+// How long a style may take to arrive, counted in VISIBLE time only (`style-ready.js`).
+const STYLE_WAIT_MS = 10000;
 
 const STYLE_MAP = {
     'carta-topografica': cartaTopografica,
@@ -423,26 +427,16 @@ class BaseLayerControl {
         // `baselayer-style-uniqueness.repro.test.js`), o diff do MapLibre resolve em
         // zero operações e não emite evento, e a espera cobrava os 10 s inteiros do
         // temporizador abaixo.
+        //
+        // O ESTILO QUE ESTÁ NO MAPA TEM DE TER CARREGADO ANTES DA PERGUNTA, e a espera conta só
+        // tempo de aba VISÍVEL (`style-ready.js`). Numa aba oculta o estilo do construtor fica
+        // parado até ela aparecer, e o boot chega aqui mesmo assim (o `index.js` desiste do
+        // `load` em 15 s): sem esta linha o portão lia um mapa sem estilo, pedia um `setStyle` que
+        // a MapLibre remontava do zero, e a espera de 10 s abaixo desistia antes da aba aparecer.
+        await waitForStyleDone(this.map, { timeoutMs: STYLE_WAIT_MS });
         if (!baseStyleAlreadyOnMap(this._styleOnMap(), styleUrl, (id) => !!this.map.getLayer(id))) {
-            const styleLoadPromise = new Promise((resolve, reject) => {
-                const timeout = setTimeout(() => {
-                    cleanup();
-                    reject(new Error(`Timeout loading style for layer: ${layer}`));
-                }, 10000);
-
-                function cleanup() {
-                    clearTimeout(timeout);
-                    map.off('styledata', handleStyleData);
-                }
-
-                function handleStyleData() {
-                    cleanup();
-                    resolve();
-                }
-
-                const { map } = this;
-                map.on('styledata', handleStyleData);
-            });
+            // Registered BEFORE `setStyle`: a diff fires `styledata` inside the call.
+            const styleEvent = waitForMapEvent(this.map, 'styledata', { timeoutMs: STYLE_WAIT_MS });
 
             // `transformStyle` PRESERVA as sources e as layers da aplicação (pelas
             // MESMAS referências, de modo que o diff do MapLibre não vê mudança nelas)
@@ -486,7 +480,7 @@ class BaseLayerControl {
             // stall the boot for the full timeout. A missed event must not be
             // fatal: the style is either already correct or MapLibre finishes
             // applying it on its own.
-            await styleLoadPromise.catch((error) => console.warn(`[base-layer] ${error.message}`));
+            if (!(await styleEvent)) console.warn(`[base-layer] Timeout loading style for layer: ${layer}`);
 
             // O `calculateTileZoom` é estado por OBJETO de source, e o mapa base que acabou
             // de entrar traz sources NOVAS, que nascem com o padrão do MapLibre. Antes do
@@ -498,6 +492,12 @@ class BaseLayerControl {
             // Nenhum `setProjection` nem `setSky` aqui DEPOIS da espera: os dois foram para dentro
             // do estilo, no `transformStyle` acima. Escritos neste ponto eles lançavam sobre um
             // estilo em remontagem, e numa troca dupla rápida aplicariam a projeção da primeira.
+        }
+        // `styledata` não quer dizer "carregado", e o que vem depois deste método (a faixa de zoom
+        // e o relevo aqui, `setupMapFeatures` e a aparência do atlas em quem chamou) exige o estilo
+        // carregado. Com o estilo pronto, e é o caso comum, esta linha não espera nada.
+        if (!(await waitForStyleDone(this.map, { timeoutMs: STYLE_WAIT_MS }))) {
+            console.warn(`[base-layer] Style still loading for layer: ${layer}`);
         }
         // FORA do `if`, ao contrário de antes, e a razão é o próprio portão acima. Quando ele
         // decide "já está no mapa", o estilo pedido ESTÁ desenhado, então a crença tem de dizer
