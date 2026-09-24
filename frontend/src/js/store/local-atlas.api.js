@@ -793,16 +793,23 @@ export function activateCurrentLocalAtlasScope() {
  * to defend a ceiling on databases. An installation can therefore end up with 11 local
  * atlases; the user deletes one, and the next `createLocalAtlas` refuses as usual.
  *
+ * `makeCurrent: false` IS FOR A NAMESPACE THIS TAB DOES NOT HAVE MOUNTED. The involuntary exit
+ * also rescues the queues of server atlases the tab LEFT earlier
+ * (`preserveUnsyncedWorkOfOtherAtlases`, `session/unsynced-work-exit.js`), and moving the
+ * installation pointer to each of those would make the next boot land in whichever was rescued
+ * last instead of in the atlas the person was working on.
+ *
  * @param {string} atlasId - Server atlas id whose namespace is being adopted.
  * @param {string} name - Display name for the new local atlas, pt-BR.
+ * @param {{ makeCurrent?: boolean }} [options] - Whether the adopted slot becomes the current one.
  * @returns {Promise<LocalAtlasResult>} `{ ok: true, atlas }`.
  * @throws {Error} When `name` is not a non-empty string (caller bug).
  */
-export function adoptRemoteAtlasAsLocal(atlasId, name) {
-    return withRegistryLock(() => adoptRemoteSlot(atlasId, name), { refresh: false });
+export function adoptRemoteAtlasAsLocal(atlasId, name, { makeCurrent = true } = {}) {
+    return withRegistryLock(() => adoptRemoteSlot(atlasId, name, makeCurrent), { refresh: false });
 }
 
-async function adoptRemoteSlot(atlasId, name) {
+async function adoptRemoteSlot(atlasId, name, makeCurrent = true) {
     if (typeof name !== 'string' || name.trim().length === 0) {
         throw new Error('adoptRemoteAtlasAsLocal: name must be a non-empty string');
     }
@@ -836,8 +843,10 @@ async function adoptRemoteSlot(atlasId, name) {
     // (`preserveUnsyncedWorkAsLocal`) trata a falha alto, sem marcar a origem LOCAL.
     await persistRegistryEntry(entry);
     _entries.push(entry);
-    _currentId = entry.id;
-    await getGlobalStore().setItem(GlobalKey.CURRENT_LOCAL_ATLAS, _currentId);
+    if (makeCurrent) {
+        _currentId = entry.id;
+        await getGlobalStore().setItem(GlobalKey.CURRENT_LOCAL_ATLAS, _currentId);
+    }
 
     await getGlobalStore().removeItem(remoteAtlasRegistryKey(atlasId));
 

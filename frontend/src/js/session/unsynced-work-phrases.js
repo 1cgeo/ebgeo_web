@@ -206,6 +206,52 @@ export function exitPreserveFailedNotice({ retained = false, graceMs = null } = 
 }
 
 /**
+ * Uma lista de nomes entre aspas, na forma de frase: `"A"`, `"A" e "B"`, `"A", "B" e "C"`.
+ * @param {string[]} nomes
+ * @returns {string}
+ */
+function listaDeNomes(nomes) {
+    const entre = nomes.map((nome) => `"${nome}"`);
+    if (entre.length <= 1) return entre.join('');
+    return `${entre.slice(0, -1).join(', ')} e ${entre[entre.length - 1]}`;
+}
+
+/**
+ * The toast about the OTHER server atlases whose unsent work an involuntary exit had to protect:
+ * atlases this tab left earlier, which the rescue of the mounted atlas does not reach.
+ *
+ * THREE OUTCOMES, AND EACH NAMES ITS ATLASES, because a count would not tell the person which
+ * project to reopen. `rescued` became local atlases (the names are the ones the local list shows);
+ * `retained` could not become local atlases (the local cap, or the adoption failed) and is kept by
+ * the retention veto for `graceMs`; `lost` could not even be retained, so this live tab is the last
+ * chance.
+ *
+ * @param {{rescued?: string[], retained?: string[], lost?: string[], graceMs?: number|null}} [params]
+ * @returns {{message: string, tone: string}|null} Null when there is nothing to say.
+ */
+export function otherAtlasesRescueNotice({ rescued = [], retained = [], lost = [], graceMs = null } = {}) {
+    const partes = [];
+    if (rescued.length === 1) {
+        partes.push(`O trabalho não enviado de outro atlas foi guardado neste computador como o atlas `
+            + `local ${listaDeNomes(rescued)}. Entre de novo e use "Enviar ao servidor".`);
+    } else if (rescued.length > 1) {
+        partes.push(`O trabalho não enviado de outros atlas foi guardado neste computador como os `
+            + `atlas locais ${listaDeNomes(rescued)}. Entre de novo e use "Enviar ao servidor".`);
+    }
+    if (retained.length > 0) {
+        partes.push(`Não foi possível guardar como atlas local o trabalho não enviado de `
+            + `${listaDeNomes(retained)}. Ele fica neste computador por ${prazoEmHoras(graceMs)}: `
+            + 'entre de novo e abra esse atlas nesse prazo.');
+    }
+    if (lost.length > 0) {
+        partes.push(`NÃO foi possível proteger o trabalho não enviado de ${listaDeNomes(lost)}. `
+            + 'Não feche esta aba: entre de novo e abra esse atlas para enviá-lo.');
+    }
+    if (partes.length === 0) return null;
+    return { message: partes.join(' '), tone: lost.length > 0 ? 'error' : 'warning' };
+}
+
+/**
  * O prazo em português, a partir de um valor em milissegundos.
  *
  * DEGRADA PARA A FORMA VAGA quando o prazo não é um número utilizável, em vez de escrever

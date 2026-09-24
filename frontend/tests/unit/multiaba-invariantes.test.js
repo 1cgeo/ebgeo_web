@@ -938,9 +938,18 @@ describe('resgate de trabalho não sincronizado no logout involuntário', () => 
         // ele), então a ausência dele diz que o ramo do resgate não correu. Sem esta linha,
         // "não houve adoção" e "houve adoção e a leitura do registro não a viu" produzem a
         // mesma resposta nas duas asserções seguintes.
-        expect(toast.showWarning).not.toHaveBeenCalled();
+        //
+        // A TESTEMUNHA FICOU MAIS ESTREITA EM 2026-09-23, porque a antiga afirmava um defeito:
+        // "nenhum aviso" valia porque a op de Y era DESTRUÍDA em silêncio pela varredura. Desde
+        // então o caminho involuntário resgata também os atlas que a aba deixou
+        // (`preserveUnsyncedWorkOfOtherAtlases`), então Y vira atlas local e o aviso DELE sai. O
+        // que continua proibido é o aviso do resgate do atlas MONTADO, que diria que X foi adotado.
+        const avisos = toast.showWarning.mock.calls.map(([mensagem]) => String(mensagem));
+        expect(avisos.filter(m => m.startsWith('Sua sessão terminou com alterações'))).toEqual([]);
         expect(localApi.listLocalAtlases().map(a => a.dbSuffix)).not.toContain(`remote-${X}`);
         expect(await databaseState(remoteMapsDb(X))).toBe('absent');
+        // E A OP DE Y NÃO MORREU: o namespace dela agora é um atlas local.
+        expect(localApi.listLocalAtlases().map(a => a.dbSuffix)).toContain(`remote-${Y}`);
     });
 
     // FECHADO EM E6 (segunda metade, a que faltava), 2026-08-15, promovido de `it.fails`.

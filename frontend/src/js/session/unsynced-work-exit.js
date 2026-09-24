@@ -25,17 +25,20 @@
  */
 
 import { markStoreLocal, loadStoreOrigin, StoreOriginKind } from '@store/store-origin.js';
-import { adoptRemoteAtlasAsLocal } from '@store/local-atlas.api.js';
+import { adoptRemoteAtlasAsLocal, MAX_LOCAL_ATLASES } from '@store/local-atlas.api.js';
 import {
     remoteScope,
     readLocalAtlasRegistry,
     getStoreFor,
     StoreName,
+    ATLAS_RECORD_KEY,
+    reconcileDurablePointers,
 } from '@store/atlas-namespace.js';
 import {
     retainRemoteAtlasForRescue,
     releaseRemoteAtlasRescueVeto,
     remoteAtlasRescueVetoSince,
+    listRemoteAtlases,
     RESCUE_VETO_GRACE_MS,
 } from '@store/remote-atlas.api.js';
 import { operationQueue, operationBelongsToScope } from '@store/sync/operation-queue.js';
@@ -43,6 +46,7 @@ import {
     ExitOutcome,
     exitPreservedSummary,
     exitPreserveFailedNotice,
+    otherAtlasesRescueNotice,
 } from './unsynced-work-phrases.js';
 
 /**
@@ -317,6 +321,129 @@ export async function countPendingOperationsFor(atlasId) {
 }
 
 /**
+ * The name a server atlas carries in its own namespace, read from disk without mounting anything.
+ * @param {string} atlasId
+ * @returns {Promise<string|null>} The name, or null when it cannot be read.
+ */
+async function atlasNameOnDisk(atlasId) {
+    try {
+        const scope = remoteScope(atlasId);
+        // The generation pointer lives in `localStorage`; a lost pointer would read the atlas record
+        // of no generation at all and answer "no name" for an atlas that has one.
+        await reconcileDurablePointers(scope);
+        const record = await getStoreFor(StoreName.ATLAS, scope).getItem(ATLAS_RECORD_KEY);
+        const name = typeof record?.name === 'string' ? record.name.trim() : '';
+        return name.length > 0 ? name : null;
+    } catch (error) {
+        console.warn('[unsynced-work] reading the name of a server atlas failed:', error);
+        return null;
+    }
+}
+
+/**
+ * @typedef {Object} OtherAtlasesRescue
+ * @property {Array<{atlasId: string, name: string}>} rescued - Now LOCAL atlases; `name` is the
+ *   one the local list shows.
+ * @property {Array<{atlasId: string, name: string|null}>} retained - Kept by the retention veto
+ *   (`RESCUE_VETO_GRACE_MS`), because they could not become local atlases.
+ * @property {Array<{atlasId: string, name: string|null}>} lost - Not even the veto could be
+ *   recorded: the next logged-out sweep destroys them.
+ * @property {number} pendingOps - Operations found across all of them; NaN when any count failed.
+ */
+
+/**
+ * THE RESCUE OF THE ATLASES THIS TAB LEFT, for every involuntary end of a session.
+ *
+ * WHY IT EXISTS. The rescue of `preserveUnsyncedWorkAsLocal` adopts ONE namespace, the mounted one,
+ * and the logged-out sweep destroys EVERY registered remote namespace. A switch of atlas keeps the
+ * queue of the atlas left behind for its next opening (`openRemoteAtlas` empties nothing, and
+ * `switchToExistingLocalAtlas` says so), so the ordinary path "edit A with a bad network, open B,
+ * the session expires" reached the sweep with A's work inside and destroyed it, silently. Measured
+ * in `tests/e2e-ui/sessao-perdida-poupa-fila-de-outro-atlas.repro.spec.js`.
+ *
+ * THE RULES, each one a condition of the decision of 2026-09-23 (coordinator, proposal R):
+ *   - the same predicate as the mounted atlas (`shouldPreserveLocalWork`, involuntary): zero does
+ *     not enter, an UNKNOWN count does;
+ *   - an atlas already claimed by a local slot is skipped, so a session that falls twice never
+ *     rescues the same namespace twice; so is one whose discard the person already confirmed;
+ *   - the local cap (`MAX_LOCAL_ATLASES`) is respected here, unlike the mounted rescue: an atlas that
+ *     does not fit is NOT discarded, it takes the retention veto, and the caller says so by name;
+ *   - the slot is adopted with `makeCurrent: false`, so the next boot still lands where the person
+ *     was working.
+ *
+ * IT MUST RUN BEFORE ANY SWEEP OF THE SAME EXIT, and every caller places it there: the map's
+ * involuntary logout, the exit guard of the pages without a map, and the logged-out boot guard.
+ *
+ * @param {{ exceptAtlasId?: string|null }} [params] - The mounted atlas, rescued by its own path.
+ * @returns {Promise<OtherAtlasesRescue>} Never rejects.
+ */
+export async function preserveUnsyncedWorkOfOtherAtlases({ exceptAtlasId = null } = {}) {
+    const result = { rescued: [], retained: [], lost: [], pendingOps: 0 };
+    let entries;
+    let claimed;
+    let localCount;
+    try {
+        entries = await listRemoteAtlases();
+        const registry = await readLocalAtlasRegistry();
+        claimed = new Set(registry.map(entry => entry?.dbSuffix));
+        localCount = registry.length;
+    } catch (error) {
+        console.warn('[unsynced-work] listing the atlases to rescue failed:', error);
+        return { ...result, pendingOps: NaN };
+    }
+
+    for (const entry of entries) {
+        if (entry.atlasId === exceptAtlasId || claimed.has(entry.dbSuffix) || entry.discardRequested) continue;
+        const pendingOps = await countPendingOperationsFor(entry.atlasId);
+        if (!shouldPreserveLocalWork({ involuntary: true, pendingOps })) continue;
+        result.pendingOps += pendingOps;
+
+        const name = await atlasNameOnDisk(entry.atlasId);
+        let slot = null;
+        if (localCount < MAX_LOCAL_ATLASES) {
+            try {
+                const adopted = await adoptRemoteAtlasAsLocal(
+                    entry.atlasId, rescuedAtlasName(name), { makeCurrent: false }
+                );
+                // Read back from the disk, as the mounted rescue does: not throwing is not the same
+                // as the entry being on disk.
+                const onDisk = (await readLocalAtlasRegistry()).some(e => e.dbSuffix === entry.dbSuffix);
+                if (adopted?.ok && onDisk) slot = adopted.atlas;
+            } catch (error) {
+                console.error(`[unsynced-work] rescuing the work of atlas ${entry.atlasId} failed:`, error);
+            }
+        }
+        if (slot) {
+            releaseRemoteAtlasRescueVeto(entry.atlasId);
+            localCount += 1;
+            claimed.add(entry.dbSuffix);
+            result.rescued.push({ atlasId: entry.atlasId, name: slot.name });
+        } else if (await retainRemoteAtlasForRescue(entry.atlasId)) {
+            result.retained.push({ atlasId: entry.atlasId, name });
+        } else {
+            console.error(`[unsynced-work] the unsent work of atlas ${entry.atlasId} could not be protected`);
+            result.lost.push({ atlasId: entry.atlasId, name });
+        }
+    }
+    return result;
+}
+
+/**
+ * What to tell the person about {@link preserveUnsyncedWorkOfOtherAtlases}, or null.
+ * @param {OtherAtlasesRescue} rescue
+ * @returns {{message: string, tone: string}|null}
+ */
+export function otherAtlasesRescueMessage(rescue) {
+    const semNome = 'um atlas do servidor';
+    return otherAtlasesRescueNotice({
+        rescued: (rescue?.rescued ?? []).map(r => r.name),
+        retained: (rescue?.retained ?? []).map(r => r.name ?? semNome),
+        lost: (rescue?.lost ?? []).map(r => r.name ?? semNome),
+        graceMs: RESCUE_VETO_GRACE_MS,
+    });
+}
+
+/**
  * @typedef {Object} ExitGuardResult
  * @property {number} pendingOps - What was counted; NaN when it could not be measured.
  * @property {boolean} preserved - Whether the work is now on record as a LOCAL atlas.
@@ -365,6 +492,21 @@ export async function countPendingOperationsFor(atlasId) {
  */
 export async function preserveUnsyncedWorkOnLostSession({ atlasId = null, atlasName = null } = {}) {
     const alvo = atlasId ?? await mountedRemoteAtlasFromDisk();
+    // THE OTHER ATLASES FIRST, and whatever the mounted one holds: the map this page navigates to
+    // boots logged out and its sweep destroys every registered namespace nobody claimed.
+    const outros = await preserveUnsyncedWorkOfOtherAtlases({ exceptAtlasId: alvo });
+    const principal = await preserveMountedAtlas(alvo, atlasName);
+    return combineExitResults(principal, outros);
+}
+
+/**
+ * The exit guard of ONE server atlas, the mounted one; what `preserveUnsyncedWorkOnLostSession`
+ * was before it also covered the atlases the tab left.
+ * @param {string|null} alvo
+ * @param {string|null} atlasName
+ * @returns {Promise<ExitGuardResult>}
+ */
+async function preserveMountedAtlas(alvo, atlasName) {
     const nada = {
         pendingOps: 0, preserved: false, outcome: ExitOutcome.NADA, atlasId: alvo, message: null,
     };
@@ -388,6 +530,29 @@ export async function preserveUnsyncedWorkOnLostSession({ atlasId = null, atlasN
             ? exitPreservedSummary(rescuedAtlasName(atlasName))
             : exitPreserveFailedNotice({ retained: rescueVetoRecorded(alvo), graceMs: RESCUE_VETO_GRACE_MS }),
     };
+}
+
+/**
+ * One exit result out of the mounted atlas's and the others'. The URL carries ONE code, so the
+ * worst outcome wins: any atlas that could not become a local atlas makes it `falhou` (the map's
+ * sentence then tells the person to log in soon), and a rescue anywhere makes a quiet exit
+ * `guardado`. The names only reach a caller that can show a toast.
+ * @param {ExitGuardResult} principal
+ * @param {OtherAtlasesRescue} outros
+ * @returns {ExitGuardResult}
+ */
+function combineExitResults(principal, outros) {
+    const falhou = outros.retained.length > 0 || outros.lost.length > 0;
+    const guardou = outros.rescued.length > 0;
+    let outcome = principal.outcome;
+    if (falhou) outcome = ExitOutcome.FALHOU;
+    else if (guardou && outcome === ExitOutcome.NADA) outcome = ExitOutcome.GUARDADO;
+    const aviso = otherAtlasesRescueMessage(outros);
+    const message = [principal.message, aviso?.message].filter(Boolean).join(' ') || null;
+    // The others' count only joins when they are part of the outcome: a listing that failed rescued
+    // nothing, and its unknown count must not erase the one the mounted atlas measured.
+    const pendingOps = falhou || guardou ? principal.pendingOps + outros.pendingOps : principal.pendingOps;
+    return { ...principal, pendingOps, outcome, message };
 }
 
 /**

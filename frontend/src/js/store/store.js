@@ -67,6 +67,9 @@ import { ensureAtlasScope } from './repositories/local.repository.js';
 // `feature_navigation_utils`, and this module is the store.
 import { announceTabLockTeardown } from '@utils/tab-lock.js';
 import { operationQueue } from './sync/operation-queue.js';
+// Pelo ARQUIVO: o resgate mora com o mecanismo de saída, que as páginas sem mapa também usam.
+import { preserveUnsyncedWorkOfOtherAtlases, otherAtlasesRescueMessage } from '@js/session/unsynced-work-exit.js';
+import { showError, showWarning } from '@utils/toast_service.js';
 import { migratePendingOperationsToScopedQueues } from './sync/operation-queue-migration.js';
 
 import {
@@ -412,6 +415,15 @@ async function enforceLocalStoreWhenLoggedOut() {
     if (sessionContext.isAuthenticated()) {
         return;
     }
+    // THE WORK THE SERVER NEVER RECEIVED IS RESCUED BEFORE THE SWEEP, like at every other
+    // involuntary end of a session. A session that died while the browser was closed (the refresh
+    // token expired) reaches this guard with the queues of every server atlas still on disk, and
+    // the sweep below used to destroy them all. The rescued namespaces are claimed by local slots,
+    // which is exactly what the sweep spares.
+    const resgate = await preserveUnsyncedWorkOfOtherAtlases();
+    const aviso = otherAtlasesRescueMessage(resgate);
+    if (aviso?.tone === 'error') showError(aviso.message, { duration: 0 });
+    else if (aviso) showWarning(aviso.message, { duration: 10000 });
     const report = await discardRemoteAtlasNamespaces();
 
     if (!isRemoteStoreSync()) {

@@ -44,6 +44,8 @@ import {
     preserveUnsyncedWorkAsLocal,
     countPendingOperations,
     rescueVetoRecorded,
+    preserveUnsyncedWorkOfOtherAtlases,
+    otherAtlasesRescueMessage,
     // O prazo do veto de resgate vem por AQUI, e nao de `@store/remote-atlas.api.js`: as frases
     // sao puras e recebem o numero, entao ele precisa chegar derivado da constante, nunca digitado.
     RESCUE_VETO_GRACE_MS,
@@ -1398,6 +1400,15 @@ export class AccountControl {
             // `clearAllDataStore` era pulado, `ALL_DATA_CLEARED` não saía e a feição do
             // SERVIDOR ficava desenhada na fonte viva com o store já vazio.
             const eraRemoto = isRemoteStoreSync();
+            // THE ATLASES THIS TAB LEFT EARLIER, before any sweep of this exit. The rescue below
+            // reaches only the mounted atlas, and the discard branch destroys every other server
+            // namespace: a queue left in atlas A while the person moved on to atlas B died here, at
+            // the first idle timeout. Only on the involuntary path; the voluntary one has already
+            // asked (`confirmLogoutWithPendingWork` counts every atlas). See
+            // `preserveUnsyncedWorkOfOtherAtlases`.
+            const outros = involuntary
+                ? await preserveUnsyncedWorkOfOtherAtlases({ exceptAtlasId: mountedAtlasId })
+                : null;
             await syncEngine.logoutAndDisconnect();
             // Drop the collaboration UI and return to a BLANK LOCAL atlas: clear the
             // online-users roster (remote cursors + the connection light already hide via
@@ -1542,6 +1553,9 @@ export class AccountControl {
             // `remote-<atlasId>` suffix (zero copy), so those databases are still the ones another
             // tab reaches by opening that same server atlas, and `remote:<atlasId>` still names them.
             if (!preserve) retractAtlasClaim();
+            const avisoDosOutros = outros ? otherAtlasesRescueMessage(outros) : null;
+            if (avisoDosOutros?.tone === 'error') showError(avisoDosOutros.message, { duration: 0 });
+            else if (avisoDosOutros) showWarning(avisoDosOutros.message, { duration: 10000 });
             // The "Mapa local" choice belonged to the session that just ended; leaving it set would
             // silently opt the NEXT identity out of the project chooser on this tab.
             clearLocalMapIntent();
