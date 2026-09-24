@@ -70,6 +70,7 @@ import { operationQueue } from './sync/operation-queue.js';
 // Pelo ARQUIVO: o resgate mora com o mecanismo de saída, que as páginas sem mapa também usam.
 import { preserveUnsyncedWorkOfOtherAtlases, otherAtlasesRescueMessage } from '@js/session/unsynced-work-exit.js';
 import { showError, showWarning } from '@utils/toast_service.js';
+import { apiClient } from './sync/api-client.js';
 import { migratePendingOperationsToScopedQueues } from './sync/operation-queue-migration.js';
 
 import {
@@ -413,6 +414,18 @@ export async function discardRemoteAtlasNamespaces() {
 async function enforceLocalStoreWhenLoggedOut() {
     await loadStoreOrigin();
     if (sessionContext.isAuthenticated()) {
+        return;
+    }
+    // A SESSION THAT COULD NOT BE VERIFIED HAS NOT ENDED. `restoreSessionFromStorage` (`index.js`)
+    // keeps the stored pair when the server fails to answer `/auth/me` for a reason other than the
+    // credential (5xx, timeout, network), and only clears it on a real refusal. Until 2026-09-23
+    // this guard read that state as "logged out" and swept: one 503 at boot destroyed the cache and
+    // the outbound queue of every server atlas on the machine, while the session was still good and
+    // the next reload restored it. With the pair still stored nothing here is orphan data, and none
+    // of it is mounted (the boot mounts a local slot without a session), so nothing is touched; a
+    // session that really died reaches this guard with the pair cleared. Repro:
+    // `tests/e2e-ui/boot-com-sessao-adiada-preserva-fila.repro.spec.js`.
+    if (apiClient.hasStoredTokens()) {
         return;
     }
     // THE WORK THE SERVER NEVER RECEIVED IS RESCUED BEFORE THE SWEEP, like at every other
