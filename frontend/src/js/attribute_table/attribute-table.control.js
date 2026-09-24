@@ -21,7 +21,8 @@ import { showColumnContextMenu } from './components/column-context-menu.js';
 import { EventTypes } from '@events';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { ensureTurf } from '@utils/turf-loader.js';
-import { getLayers, getCurrentMapNameSync, FEATURE_TYPE_MAPPINGS, FEATURE_DISPLAY_NAMES, updateFeatureProperty } from '@store';
+import { getLayers, getCurrentMapNameSync, FEATURE_TYPE_MAPPINGS, FEATURE_DISPLAY_NAMES, updateFeatureProperty, featureLockState } from '@store';
+import { featureLockNotice } from '@store/denial-phrases.js';
 import { semEdicaoSync } from '@store/edicao-indisponivel.js';
 import { showPrompt } from '@modals';
 import userDataManager from '@js/user_data/user_data_manager.js';
@@ -395,6 +396,16 @@ export class AttributeTableControl {
                 // Somente leitura tambem pelo POSTO, e nao so pela trava do mapa: a celula editavel
                 // aceitava a digitacao de quem nao pode escrever, e a recusa so aparecia depois.
                 readOnly: semEdicaoSync(),
+                // A FEATURE HELD BY ITS OWN LOCK, ITS LAYER'S OR ITS GROUP'S: the cell stays drawn and
+                // the double click refuses naming the lock, because the lock is reversible and the
+                // person may be the one to lift it. Those three locks are client conventions (the
+                // server stores them and never asks), so this is the only place a table edit meets
+                // them; until 2026-09-24 the cell wrote the name of a feature in a locked layer.
+                refuseLockedEdit: (feature) => {
+                    const aviso = featureLockNotice(featureLockState(feature));
+                    if (aviso) showWarning(aviso);
+                    return aviso !== null;
+                },
                 onCheckboxChange: (featureId, checked) =>
                     this._handleCheckboxChange(featureId, checked),
                 onSelectAll: (checked) => this._handleSelectAll(checked),

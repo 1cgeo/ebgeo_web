@@ -30,6 +30,7 @@ import { applyGeneratedBitmap } from '../layers/bitmap-version.js';
 // `temporal-model.js` and `temporal.utils.js`; nothing there reaches back into the store.
 import { derivarCamposDtg } from '../temporal/temporal-attributes.model.js';
 import { derivedOutputBucketOf, replaceDerivedOutput } from './analysis-output.js';
+import { FeatureLockState } from './denial-phrases.js';
 
 // ===== TIMESTAMP AND VERSION HELPERS =====
 
@@ -1510,15 +1511,27 @@ export async function moveFeaturesToLayer(featureRefs, targetLayerId, mapName = 
  * @returns {boolean} True if locked
  */
 export function isFeatureEffectivelyLocked(feature) {
-    if (!feature || !feature.properties) return false;
+    return featureLockState(feature) !== null;
+}
 
-    if (deps.layerManager.isFeatureEffectivelyLocked(feature)) return true;
+/**
+ * WHICH of the three client-convention locks holds a feature, so a refusal can name the one the
+ * person has to lift: the feature's own `bloqueado`, then its layer's `locked`, then its group's
+ * `locked` (the map lock is asked separately, and is the only one the server enforces).
+ * @param {Object} feature - Feature to check
+ * @returns {string|null} A value of `FeatureLockState` (`store/denial-phrases.js`), or null.
+ */
+export function featureLockState(feature) {
+    if (!feature || !feature.properties) return null;
+
+    if (feature.properties.bloqueado === true) return FeatureLockState.FEATURE;
+    if (deps.layerManager.isFeatureEffectivelyLocked(feature)) return FeatureLockState.LAYER;
 
     const featureId = feature.properties.id;
     const sourceType = feature.properties.source;
     if (featureId && sourceType) {
         const group = deps.groupManager.getFeatureGroup(sourceType, featureId);
-        if (group && group.locked === true) return true;
+        if (group && group.locked === true) return FeatureLockState.GROUP;
     }
-    return false;
+    return null;
 }

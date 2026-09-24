@@ -1018,6 +1018,7 @@ export {
     batchUpdateVisibilityFeatures,
     deleteLayerFeatures,
     isFeatureEffectivelyLocked,
+    featureLockState,
     getLayerFeatures,
     buildLayerMappingForMove
 } from './feature.operations.js';

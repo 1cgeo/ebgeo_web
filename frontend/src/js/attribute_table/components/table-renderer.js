@@ -403,6 +403,10 @@ function startCellEditing(td, feature, columnKey, isAttribute, callbacks) {
     if (callbacks.readOnly) {
         return;
     }
+    // A locked feature (its own lock, its layer's or its group's) refuses the edit and says which.
+    if (callbacks.refuseLockedEdit?.(feature)) {
+        return;
+    }
 
     const currentValue =
         columnKey === 'nome'

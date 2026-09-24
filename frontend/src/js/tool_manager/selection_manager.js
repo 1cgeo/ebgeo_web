@@ -218,6 +218,8 @@ class SelectionManager {
             const completeFeature = await this.getCompleteFeatureFromSource(type, featureId);
             if (shouldApply && !shouldApply()) return;
             const featureToStore = completeFeature || feature;
+            // THE LOCK CONVENTION IS KEPT HERE, at the funnel. See `selectFeature`.
+            if (isFeatureEffectivelyLocked(featureToStore)) return;
 
             stateManager.addToSelection(type, featureIdStr, featureToStore);
 
@@ -282,6 +284,22 @@ class SelectionManager {
 
         const featureToStore = completeFeature || feature;
         const featureIdStr = String(featureId);
+
+        // A FEATURE HELD BY ITS OWN LOCK, ITS LAYER'S OR ITS GROUP'S IS NEVER SELECTED, and the
+        // check lives HERE, in the funnel every entry point goes through, because those three locks
+        // are client conventions: the server stores them and never asks, and neither does the store
+        // (`updateFeature`, `removeFeature` and `deleteSelectedFeatures` write whatever is
+        // selected). The map click and the box selection filtered before calling in; the layers tab
+        // asked only the feature's own `bloqueado` and the attribute table asked nothing, so a
+        // feature of a LOCKED LAYER (or a member of a group in one) was selected from there, got
+        // handles and an editable panel, and Delete removed it on the server. Measured with two
+        // browsers: the owner locked the layer, the editor deleted through the layers tab.
+        // The previous selection is cleared all the same: every control was already told of a
+        // global deselect above, and leaving the state manager holding it would split the two.
+        if (isFeatureEffectivelyLocked(featureToStore)) {
+            stateManager?.clearSelection();
+            return;
+        }
 
         // Batch clear + add so selection.features subscribers fire only ONCE
         // (avoids double updateSelectionHighlight: once for empty, once for new)
@@ -823,7 +841,9 @@ class SelectionManager {
                     completeFeature = null;
                 }
             }
-            if (completeFeature) {
+            // A locked member (its own lock, its layer's, or the group's) is left out: see
+            // `selectFeature`, the funnel every entry point goes through.
+            if (completeFeature && !isFeatureEffectivelyLocked(completeFeature)) {
                 stateManager.addToSelection(featureRef.type, String(featureRef.id), completeFeature);
                 const control = await this.ensureControlFor(featureRef.type);
                 this._notifySelected(control, completeFeature);

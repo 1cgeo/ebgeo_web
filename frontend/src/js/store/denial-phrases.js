@@ -162,3 +162,34 @@ export function unavailableEditNotice(edicao) {
     if (edicao.motivo === 'permissao') return denialNotice(edicao.required);
     return stateDenialNotice(edicao.motivo) ?? denialNotice(edicao.required);
 }
+
+// ---------------------------------------------------------------------------------------------
+// THE REFUSAL BY A FEATURE'S OWN LOCK, keyed by WHICH lock holds it.
+//
+// Three locks can hold a feature besides the map's, and none of them is enforced by the server:
+// the feature's `bloqueado`, its layer's `locked` and its group's `locked` are client conventions
+// (the server stores them and never asks), so every client gesture that writes a feature has to
+// ask, and the gestures that refuse out loud (the attribute table cell, for one) say which lock is
+// in the way, because that is the one the person has to lift.
+// ---------------------------------------------------------------------------------------------
+/** Which lock holds a feature, as answered by `featureLockState` (`store/feature.operations.js`). */
+export const FeatureLockState = Object.freeze({
+    FEATURE: 'feicao',
+    LAYER: 'camada',
+    GROUP: 'grupo',
+});
+
+const FRASES_DE_TRAVA = Object.freeze({
+    [FeatureLockState.FEATURE]: 'Feição bloqueada. Desbloqueie-a na aba Camadas para editar.',
+    [FeatureLockState.LAYER]: 'Camada bloqueada. Desbloqueie-a na aba Camadas para editar esta feição.',
+    [FeatureLockState.GROUP]: 'Grupo bloqueado. Desbloqueie-o na aba Camadas para editar esta feição.',
+});
+
+/**
+ * @param {string|null|undefined} state - A value of {@link FeatureLockState}, or null.
+ * @returns {string|null} The sentence, or null when nothing holds the feature.
+ */
+export function featureLockNotice(state) {
+    if (typeof state !== 'string') return null;
+    return Object.hasOwn(FRASES_DE_TRAVA, state) ? FRASES_DE_TRAVA[state] : null;
+}
