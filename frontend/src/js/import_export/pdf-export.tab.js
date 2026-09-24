@@ -40,8 +40,9 @@ import {
 // split it into a separate chunk — it only triggered a Rollup mixed-import warning.
 // Cartographic layout is composed on every PDF export (see "Always compose" below).
 import { composeLayout, loadLogoImage, temporalStampText } from './pdf-cartographic-elements.js'
-import { isMapTemporalEnabledSync, getControl } from '@store'
+import { isMapTemporalEnabledSync, getControl, getVisibleLayerIds } from '@store'
 import { isVisibleUnderTemporal } from '@js/temporal/temporal-model.js'
+import { isDrawnByVisibilityRule } from '@layers/visibility-filter.js'
 // Por ARQUIVO, de dois modulos folha. A `prop` separa os DOIS motores do mesmo painel: `folha` e
 // o caminho do GDAL (saida georreferenciada) e `mosaico` e o do jsPDF, que nao georreferencia.
 import { registrarUso } from '@js/session/uso-lote.js'
@@ -1393,6 +1394,11 @@ export default class PDFExportTab {
         // legenda subtraia justamente o que a imagem mostrava esmaecido.
         const temporalActive = isMapTemporalEnabledSync();
         const temporalControl = getControl('TemporalControl');
+        // THE VISIBILITY RULE TOO (2026-09-24), for the same reason: the sources keep every
+        // feature, because hiding is a filter, so a hidden feature, a feature of a hidden layer
+        // and a member of a hidden group were counted in the legend of a sheet that did not draw
+        // them. Read ONCE, as the filter reads it.
+        const visibleLayerIds = getVisibleLayerIds();
 
         for (const sourceName of sourceTypes) {
             try {
@@ -1407,6 +1413,10 @@ export default class PDFExportTab {
                 for (const feature of data.features) {
                     // Skip features hidden by the active temporal window.
                     if (!isVisibleUnderTemporal(feature.properties, temporalActive, temporalControl)) {
+                        continue;
+                    }
+                    // Skip what the visibility filter keeps off the sheet.
+                    if (!isDrawnByVisibilityRule(feature.properties, visibleLayerIds)) {
                         continue;
                     }
 

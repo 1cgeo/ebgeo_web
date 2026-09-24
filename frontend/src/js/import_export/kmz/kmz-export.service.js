@@ -9,7 +9,8 @@
  */
 
 import JSZip from 'jszip';
-import { getCurrentMapFeatures, getLayersRepo, getSourceTypeFromStorage } from '@store';
+import { getCurrentMapFeatures, getLayersRepo, getSourceTypeFromStorage, getMapGroupsFromDB } from '@store';
+import { hiddenGroupMemberIds } from '@layers/visibility-filter.js';
 import { showError, showSuccess } from '@utils/index.js';
 import { createExportProgressModal } from '../export-utils.js';
 import { StyleRegistry, buildFolder, buildKmlDocument, ORPHAN_FOLDER_NAME } from './kml-document.js';
@@ -112,6 +113,26 @@ async function loadLayers(mapName) {
 }
 
 /**
+ * Ids of the features a HIDDEN group holds in `mapName`, read from the repository.
+ *
+ * The KMZ already carried a hidden feature (`<visibility>0</visibility>` on the placemark) and a
+ * hidden layer (on the folder), and it drew the members of a hidden group as visible, the one of
+ * the three shared visibility states it did not read (2026-09-24). The repository and not the
+ * memory, because the map exported may not be the current one (the memory holds groups of the
+ * current map only). A failure to read exports as before, everything at its own visibility.
+ * @param {string} mapName
+ * @returns {Promise<Set<string>>}
+ */
+async function loadHiddenGroupMembers(mapName) {
+    try {
+        return new Set(hiddenGroupMemberIds(await getMapGroupsFromDB(mapName)));
+    } catch (error) {
+        console.warn('KMZ export: could not read the groups, exporting without group visibility', error);
+        return new Set();
+    }
+}
+
+/**
  * Triggers a browser download for the generated archive.
  *
  * @param {Blob} blob - KMZ payload
@@ -151,9 +172,10 @@ export async function exportMapAsKmz({ mapName, options = {} } = {}) {
     try {
         progress.updateProgress(5, 'Carregando feições...');
 
-        const [collection, layers] = await Promise.all([
+        const [collection, layers, hiddenByGroup] = await Promise.all([
             getCurrentMapFeatures(mapName),
             loadLayers(mapName),
+            loadHiddenGroupMembers(mapName),
         ]);
         if (cancelled) return false;
 
@@ -172,7 +194,12 @@ export async function exportMapAsKmz({ mapName, options = {} } = {}) {
         for (let i = 0; i < features.length; i++) {
             if (cancelled) return false;
 
-            const { feature, featureType } = features[i];
+            const { feature: stored, featureType } = features[i];
+            // A member of a hidden group leaves hidden, as the map shows it; the stored feature is
+            // not touched (its own `visivel` is its own state).
+            const feature = hiddenByGroup.has(stored?.properties?.id)
+                ? { ...stored, properties: { ...stored.properties, visivel: false } }
+                : stored;
 
             // Progress spans 10-85% across the feature pass.
             if (i % 25 === 0) {

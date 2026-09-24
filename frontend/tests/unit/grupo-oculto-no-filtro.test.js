@@ -19,12 +19,15 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { featureFilter } from '@maplibre/maplibre-gl-style-spec';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 vi.mock('../../src/js/store/index.js', () => ({
     getVisibleLayerIds: () => ['default'],
 }));
 
 const {
+    isDrawnByVisibilityRule,
     hiddenGroupMemberIds,
     setHiddenFeatureIds,
     createLayerVisibilityFilter,
@@ -129,5 +132,55 @@ describe('o filtro de desenho exclui o membro do grupo oculto', () => {
         updateAllLayerFilters(map);
         expect(escritas).toHaveLength(3);
         expect(passa(escritas[2], { id: 'membro', layerId: 'default' })).toBe(true);
+    });
+});
+
+// ============================================================================
+// UMA REGRA SÓ: o predicado das superfícies que não passam pelo MapLibre
+// ============================================================================
+//
+// A legenda do PDF contava direto das fontes, que guardam toda feição (ocultar é filtro), e somava
+// feição oculta, feição de camada oculta e membro de grupo oculto numa folha que não os desenhava.
+// `isDrawnByVisibilityRule` é a mesma regra do filtro, e este bloco avalia OS DOIS sobre o mesmo
+// corpus: qualquer divergência reprova, nomeando a feição.
+
+describe('isDrawnByVisibilityRule responde o mesmo que o filtro do MapLibre', () => {
+    const CAMADAS_VISIVEIS = ['default', 'visivel'];
+    const CORPUS = [
+        ['sem nada', {}],
+        ['id solto', { id: 'solto' }],
+        ['visivel true', { id: 'a', visivel: true, layerId: 'visivel' }],
+        ['visivel false', { id: 'b', visivel: false, layerId: 'visivel' }],
+        ['visivel null', { id: 'c', visivel: null }],
+        ['camada oculta', { id: 'd', layerId: 'oculta' }],
+        ['camada null vira default', { id: 'e', layerId: null }],
+        ['camada vazia NÃO vira default', { id: 'f', layerId: '' }],
+        ['membro de grupo oculto', { id: 'membro', layerId: 'visivel' }],
+        ['saída processada de visada de grupo oculto', { id: 'membro-visible' }],
+        ['membro oculto e em camada oculta', { id: 'membro', layerId: 'oculta' }],
+        ['id numérico igual ao texto oculto', { id: 7 }],
+    ];
+
+    beforeEach(() => {
+        setHiddenFeatureIds(['membro', 'membro-visible', '7']);
+    });
+
+    for (const [nome, props] of CORPUS) {
+        it(nome, () => {
+            const peloFiltro = passa(createLayerVisibilityFilter(CAMADAS_VISIVEIS), props);
+            expect(isDrawnByVisibilityRule(props, CAMADAS_VISIVEIS), nome).toBe(peloFiltro);
+        });
+    }
+
+    it('PISO: o corpus tem casos dos dois lados (senão comparar não mede nada)', () => {
+        const respostas = CORPUS.map(([, props]) => isDrawnByVisibilityRule(props, CAMADAS_VISIVEIS));
+        expect(respostas.filter(Boolean).length).toBeGreaterThan(2);
+        expect(respostas.filter((r) => !r).length).toBeGreaterThan(2);
+    });
+
+    it('a legenda do PDF pergunta a regra (e não só a janela temporal)', () => {
+        const fonte = readFileSync(fileURLToPath(new URL('../../src/js/import_export/pdf-export.tab.js', import.meta.url)), 'utf8');
+        const corpo = fonte.slice(fonte.indexOf('async _collectFeatureStats('));
+        expect(corpo.indexOf('isDrawnByVisibilityRule(feature.properties'), 'a contagem da legenda chama a regra').toBeGreaterThan(-1);
     });
 });

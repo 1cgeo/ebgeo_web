@@ -89,6 +89,29 @@ function hiddenGroupClauses() {
 }
 
 /**
+ * THE SAME VISIBILITY RULE AS THE FEATURE LAYERS' FILTER, as a predicate over one feature's
+ * properties: its own `visivel`, its layer's visibility and its group's. The temporal window is
+ * NOT here; it has its own single rule (`isVisibleUnderTemporal`, `temporal/temporal-model.js`).
+ *
+ * For every surface that counts or lists what the map DRAWS without going through MapLibre. The
+ * PDF legend counted straight from the sources, which keep every feature (hiding is a filter), so
+ * a hidden feature, a feature of a hidden layer and a member of a hidden group all entered the
+ * legend of a sheet that did not draw them (2026-09-24). Its twin expression is
+ * `createLayerVisibilityFilter`; `tests/unit/grupo-oculto-no-filtro.test.js` evaluates BOTH over
+ * the same corpus and demands identical answers.
+ * @param {Object|null|undefined} properties - A feature's properties.
+ * @param {string[]} [visibleLayerIds] - Defaults to the store's visible layers, as the filter reads.
+ * @returns {boolean}
+ */
+export function isDrawnByVisibilityRule(properties, visibleLayerIds = getVisibleLayerIds()) {
+    if (properties?.visivel === false) return false;
+    const layerId = properties?.layerId ?? 'default';
+    if (!visibleLayerIds.includes(layerId)) return false;
+    const id = properties?.id;
+    return !(id !== undefined && id !== null && hiddenFeatureIds.includes(id));
+}
+
+/**
  * Active temporal window [start, end] (epoch ms), or null when temporal control
  * is off. A feature passes when its [temporalInicio, temporalFim] validity
  * overlaps this window. During playback the window spans one timeline step, so
