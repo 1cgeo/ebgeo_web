@@ -73,7 +73,13 @@ const MAX_TRAILING_SPACING_MS = 2000;
  * trailing refresh waits `debounceMs` or as long as the refresh that just ran, whichever is
  * longer, capped at {@link MAX_TRAILING_SPACING_MS}, so a sustained burst spends at most about
  * half its time rebuilding; (4) a refresh that has not settled after {@link REFRESH_WATCHDOG_MS}
- * releases the gate, and its late settlement changes nothing.
+ * releases the gate, and when it does settle it schedules one more refresh.
+ *
+ * WHY THE LATE SETTLEMENT REPAINTS. `setupMapFeatures` reads the features FIRST and only then waits
+ * on the network (`setImages`), so a refresh released by the watchdog still holds the list it read
+ * before it stalled. When it finally settles it `setData`s that list, which can be older than what
+ * a newer refresh already drew: a feature a colleague deleted meanwhile reappears, and nothing
+ * else would repaint until the next remote event. The extra refresh re-reads the store.
  *
  * AN ISOLATED OPERATION STILL DRAWS AFTER `debounceMs`, and that is why the spacing lives only on
  * the trailing path: a peer's single edit on a big map must not wait for the cost of the previous
@@ -81,7 +87,7 @@ const MAX_TRAILING_SPACING_MS = 2000;
  *
  * @param {() => (void|Promise<void>)} refresh - Repopulates the map sources from the store.
  * @param {{ debounceMs?: number, scheduler?: (fn: () => void, ms: number) => any,
- *   now?: () => number, watchdogMs?: number,
+ *   cancelScheduled?: (handle: any) => void, now?: () => number, watchdogMs?: number,
  *   watchdogScheduler?: (fn: () => void, ms: number) => any,
  *   cancelWatchdog?: (handle: any) => void }} [opts]
  * @returns {() => void} Unsubscribe function.
@@ -89,6 +95,7 @@ const MAX_TRAILING_SPACING_MS = 2000;
 export function wireRemoteFeatureRender(refresh, {
     debounceMs = 80,
     scheduler = setTimeout,
+    cancelScheduled = clearTimeout,
     now = () => performance.now(),
     watchdogMs = REFRESH_WATCHDOG_MS,
     watchdogScheduler = setTimeout,
@@ -101,6 +108,8 @@ export function wireRemoteFeatureRender(refresh, {
     let lastRunId = 0;
     let dirty = false;
     let wired = true;
+    /** Watchdog of the refresh holding the gate, cleared on settlement and on unwire. */
+    let watchdogHandle = null;
 
     /**
      * Opens the gate for `runId`, once: the watchdog and the settlement race, and whichever comes
@@ -121,14 +130,22 @@ export function wireRemoteFeatureRender(refresh, {
         dirty = false;
         const started = now();
         const watchdog = watchdogScheduler(() => {
+            if (watchdogHandle === watchdog) watchdogHandle = null;
             if (activeRun === runId) console.warn('Remote feature render refresh did not settle; releasing the gate.');
             release(runId, 0);
         }, watchdogMs);
+        watchdogHandle = watchdog;
         Promise.resolve().then(refresh).catch((err) => {
             console.error('Remote feature render refresh failed:', err);
         }).finally(() => {
             cancelWatchdog(watchdog);
-            release(runId, Math.max(0, now() - started));
+            if (watchdogHandle === watchdog) watchdogHandle = null;
+            if (activeRun === runId) {
+                release(runId, Math.max(0, now() - started));
+            } else {
+                // Superseded: it may have just painted a list older than the store. Repaint.
+                schedule();
+            }
         });
     };
 
@@ -149,6 +166,10 @@ export function wireRemoteFeatureRender(refresh, {
 
     return function unwireRemoteFeatureRender() {
         wired = false;
+        if (timer !== null) cancelScheduled(timer);
+        timer = null;
+        if (watchdogHandle !== null) cancelWatchdog(watchdogHandle);
+        watchdogHandle = null;
         for (const evt of REMOTE_FEATURE_EVENTS) bus.off?.(evt, onRemoteFeatureEvent);
     };
 }

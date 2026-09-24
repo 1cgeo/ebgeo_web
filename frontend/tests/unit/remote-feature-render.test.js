@@ -259,6 +259,71 @@ describe('wireRemoteFeatureRender: rajada longa', () => {
         aviso.mockRestore();
     });
 
+    it('a reconstrucao superada que termina tarde agenda uma nova, porque pintou uma lista velha', async () => {
+        // O cenario da revisao: A leu as feicoes (com a foto P) e travou no blob; o vigia abriu a
+        // porta; um colega apagou P; B desenhou sem P; A termina e faz setData com a lista antiga.
+        const primeira = deferred();
+        const refresh = vi.fn().mockReturnValueOnce(primeira.promise).mockReturnValue(undefined);
+        const armed = [];
+        const vigias = [];
+        const aviso = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        wireRemoteFeatureRender(refresh, {
+            scheduler: (fn, ms) => { armed.push({ fn, ms }); return armed.length; },
+            watchdogScheduler: (fn, ms) => { vigias.push({ fn, ms }); return vigias.length; },
+            cancelWatchdog: () => {},
+        });
+        fire(EventTypes.FEATURE_CREATED);
+        armed[0].fn();
+        await settle();
+        vigias[0].fn();
+        fire(EventTypes.FEATURE_DELETED);
+        armed[1].fn();
+        await settle();
+        expect(refresh).toHaveBeenCalledTimes(2);
+        expect(armed).toHaveLength(2);
+
+        primeira.resolve();
+        await settle();
+        // Nenhum evento novo, e mesmo assim uma reconstrucao e agendada para repintar do store.
+        expect(armed).toHaveLength(3);
+        expect(armed[2].ms).toBe(80);
+        armed[2].fn();
+        await settle();
+        expect(refresh).toHaveBeenCalledTimes(3);
+        aviso.mockRestore();
+    });
+
+    it('desligar cancela o timer pendente e o vigia da reconstrucao em curso', async () => {
+        const pending = deferred();
+        const refresh = vi.fn(() => pending.promise);
+        const armed = [];
+        const cancelados = [];
+        const vigiasCancelados = [];
+        const unwire = wireRemoteFeatureRender(refresh, {
+            scheduler: (fn, ms) => { armed.push({ fn, ms }); return `timer-${armed.length}`; },
+            cancelScheduled: (handle) => { cancelados.push(handle); },
+            watchdogScheduler: () => 'vigia-1',
+            cancelWatchdog: (handle) => { vigiasCancelados.push(handle); },
+        });
+        fire(EventTypes.FEATURE_CREATED);
+        armed[0].fn();
+        await settle();
+        unwire();
+        expect(vigiasCancelados).toEqual(['vigia-1']);
+
+        const outro = wireRemoteFeatureRender(vi.fn(), {
+            scheduler: (fn, ms) => { armed.push({ fn, ms }); return 'timer-pendente'; },
+            cancelScheduled: (handle) => { cancelados.push(handle); },
+            watchdogScheduler: () => 'v',
+            cancelWatchdog: () => {},
+        });
+        fire(EventTypes.FEATURE_MODIFIED);
+        outro();
+        expect(cancelados).toContain('timer-pendente');
+        pending.resolve();
+        await settle();
+    });
+
     it('a espera de arrasto tem teto: uma reconstrucao de 160 s nao adia a seguinte por 160 s', async () => {
         let clock = 0;
         const lenta = deferred();
