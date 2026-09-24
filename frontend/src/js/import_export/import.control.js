@@ -2,6 +2,7 @@
 import JSZip from 'jszip';
 import * as toGeoJSON from '@tmcw/togeojson';
 import shp from '@js/vendor/shpjs.js';
+import proj4 from 'proj4';
 import { addFeatures, createLayerForImport, getLayers, getCurrentMapNameSync, getEventBus } from '@store';
 import { IDUtils } from '@utils/id_utils.js';
 import { showSuccess, showError, showWarning } from '@utils/toast_service.js';
@@ -220,6 +221,11 @@ class AddImportControl {
      * one now becomes its own layer, named after the shapefile, because that is how the file is
      * organized. A shapefile with nothing to import is skipped when another one has something, so
      * one empty theme does not cost the others; when none has, the first one's error speaks.
+     *
+     * A LAYER THAT FAILS AFTER OTHERS ENTERED (the map locked by a colleague in between, a
+     * quota) stops the import, and the error says what already entered: the layers before it
+     * are saved and synced, and "não foi possível importar o arquivo" alone would tell the person
+     * that nothing did.
      * @param {Object|Object[]} lido - FeatureCollection, or an array of them (each with `fileName`).
      * @param {string} fileName - The file's name without extension.
      * @returns {Promise<number>} How many geometries were imported.
@@ -234,9 +240,19 @@ class AddImportControl {
         // ONE numbering for the whole file: see the `contadores` parameter of `importGeoJSON`.
         const contadores = await this.getTypeCountersFromMapContext();
         let total = 0;
+        const entraram = [];
         for (const colecao of comGeometria) {
             const nomeDaCamada = String(colecao.fileName ?? '').split('/').pop() || fileName;
-            total += await this.importGeoJSON(colecao, nomeDaCamada, contadores);
+            try {
+                total += await this.importGeoJSON(colecao, nomeDaCamada, contadores);
+                entraram.push(nomeDaCamada);
+            } catch (erro) {
+                if (entraram.length === 0) throw erro;
+                const quantas = total === 1 ? '1 geometria entrou' : `${total} geometrias entraram`;
+                const onde = entraram.map((n) => `"${n}"`).join(', ');
+                throw new Error(`${quantas} (${onde}), mas a camada "${nomeDaCamada}" não: `
+                    + serverMessageOr(erro, 'erro inesperado.'));
+            }
         }
         return total;
     }
@@ -392,50 +408,83 @@ class AddImportControl {
             file,
             'arraybuffer',
             async (buffer) => {
-                // shp() handles ZIP extraction, .prj reprojection, .cpg encoding, .dbf
-                // attributes, and combining into GeoJSON. What it does NOT handle is a DBF with
-                // no .cpg that is not UTF-8 (the usual Brazilian DBF): it decodes it as UTF-8
-                // anyway. So such a DBF gets a .cpg naming Windows-1252 before the reader runs.
-                const result = await shp(await this._completarCpgDosDbf(buffer));
-
-                // Several shapefiles in the ZIP come back as an array, one collection each; all
-                // of them are imported (see `_importarLido`). It used to keep only the first.
-                const colecoes = Array.isArray(result) ? result : [result];
-                if (colecoes.length === 0 || !colecoes.every((fc) => fc?.features)) {
-                    throw new Error('Formato de shapefile inválido');
-                }
-
-                return Array.isArray(result) ? colecoes : result;
+                // Several shapefiles in the ZIP come back as one collection each, and all of them
+                // are imported (see `_importarLido`); it used to keep only the first.
+                const colecoes = await this._lerShapefileZip(buffer);
+                return colecoes.length === 1 ? colecoes[0] : colecoes;
             },
             'Erro ao processar Shapefile'
         );
     }
 
     /**
-     * Gives every DBF of a shapefile ZIP that has no `.cpg` and is not UTF-8 a `.cpg` naming
-     * Windows-1252, so the reader decodes it right. Returns the ZIP unchanged (same buffer) when
-     * no DBF needs it, which is the common case and costs one ZIP listing.
+     * Reads every layer of a shapefile ZIP, one FeatureCollection each (with `fileName`).
+     *
+     * THE ZIP IS READ HERE, LAYER BY LAYER, and not by handing the whole buffer to `shp()`, for
+     * three reasons measured on 2026-09-23. (1) A DBF with no `.cpg` that is not UTF-8 (the usual
+     * Brazilian DBF) needs a `.cpg` naming Windows-1252, and giving it one through `shp(zip)`
+     * meant REGENERATING the whole ZIP uncompressed (about 190 ms and one more full copy in
+     * memory for a 48 MB DBF); here the encoding is simply passed. (2) `shp(zip)` turns EVERY
+     * `.json` of the ZIP into a "layer", so a shapefile shipped with a metadata `.json` imported
+     * nothing; here a `.json` is a layer only when it is a FeatureCollection. (3) A `.prj` the
+     * projection library cannot read made `shp(zip)` throw; here it still refuses, naming the
+     * layer, instead of importing projected metres as degrees.
      * @param {ArrayBuffer} buffer - The ZIP.
-     * @returns {Promise<ArrayBuffer>}
+     * @returns {Promise<Object[]>} At least one collection.
      * @private
      */
-    async _completarCpgDosDbf(buffer) {
+    async _lerShapefileZip(buffer) {
         const zip = await JSZip.loadAsync(buffer);
-        const nomes = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
-        const temCpg = new Set(nomes
-            .filter((n) => n.toLowerCase().endsWith('.cpg'))
-            .map((n) => n.slice(0, -4).toLowerCase()));
-        let mudou = false;
-        for (const nome of nomes) {
-            if (!nome.toLowerCase().endsWith('.dbf')) continue;
-            const base = nome.slice(0, -4);
-            if (temCpg.has(base.toLowerCase())) continue;
-            if (!dbfPrecisaDeCpg(await zip.file(nome).async('uint8array'))) continue;
-            zip.file(`${base}.cpg`, CODIFICACAO_DE_RESERVA);
-            mudou = true;
+        const camadas = new Map();
+        const jsons = [];
+        for (const nome of Object.keys(zip.files)) {
+            if (zip.files[nome].dir || nome.includes('__MACOSX')) continue;
+            const ponto = nome.lastIndexOf('.');
+            if (ponto <= 0) continue;
+            const ext = nome.slice(ponto + 1).toLowerCase();
+            const base = nome.slice(0, ponto);
+            if (ext === 'json') {
+                jsons.push(nome);
+                continue;
+            }
+            if (!['shp', 'dbf', 'cpg', 'prj'].includes(ext)) continue;
+            const chave = base.toLowerCase();
+            if (!camadas.has(chave)) camadas.set(chave, { base });
+            camadas.get(chave)[ext] = nome;
         }
-        if (!mudou) return buffer;
-        return zip.generateAsync({ type: 'arraybuffer', compression: 'STORE' });
+
+        const ler = (nome, tipo) => (nome ? zip.file(nome).async(tipo) : Promise.resolve(undefined));
+        const colecoes = [];
+        for (const camada of camadas.values()) {
+            if (!camada.shp) continue;
+            const dbf = await ler(camada.dbf, 'uint8array');
+            let cpg = (await ler(camada.cpg, 'string'))?.trim() || undefined;
+            if (!cpg && dbf && dbfPrecisaDeCpg(dbf)) cpg = CODIFICACAO_DE_RESERVA;
+            const prj = (await ler(camada.prj, 'string'))?.trim() || undefined;
+            if (prj) {
+                try {
+                    proj4(prj);
+                } catch {
+                    throw new Error(`projeção (.prj) não reconhecida em "${camada.base}"`);
+                }
+            }
+            const colecao = await shp({ shp: await ler(camada.shp, 'uint8array'), dbf, cpg, prj });
+            colecao.fileName = camada.base;
+            colecoes.push(colecao);
+        }
+        for (const nome of jsons) {
+            try {
+                const objeto = JSON.parse(decodificarTexto(await ler(nome, 'uint8array')));
+                if (Array.isArray(objeto?.features)) {
+                    objeto.fileName = nome.slice(0, -5);
+                    colecoes.push(objeto);
+                }
+            } catch {
+                // A `.json` that is not a FeatureCollection is metadata, not a layer.
+            }
+        }
+        if (colecoes.length === 0) throw new Error('nenhum shapefile encontrado no ZIP');
+        return colecoes;
     }
 
     /**

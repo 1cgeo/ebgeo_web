@@ -167,6 +167,20 @@ describeOrSkip('Importar arquivo: codificação e camadas', () => {
         expect(new Set(pontos.map((p) => p.nome)).size).toBe(3);
     });
 
+    test('shapefile com um .json de metadados ao lado importa o shapefile', async ({ page }) => {
+        // Review of 2026-09-23: the reader turned every `.json` of the ZIP into a "layer", and the
+        // check that every layer had features refused the whole file, which imported before.
+        await esperarMapa(page);
+        const zip = new JSZip();
+        zip.file('cidades.shp', shpDePontos([[-47.8828, -15.7939]]));
+        zip.file('cidades.dbf', dbfDeTexto([{ nome: 'SIGLA', tamanho: 20 }], [{ SIGLA: 'BSB' }]));
+        zip.file('metadados.json', JSON.stringify({ fonte: 'IBGE', ano: 2022 }));
+        await soltarNoMapa(page, 'com-metadados.zip', await zip.generateAsync({ type: 'nodebuffer' }));
+
+        await expect.poll(async () => (await pontosDoMapa(page)).length, { timeout: 15000 }).toBe(1);
+        expect((await pontosDoMapa(page))[0].attributes.SIGLA).toBe('BSB');
+    });
+
     test('KML declarado ISO-8859-1 chega com os acentos', async ({ page }) => {
         await esperarMapa(page);
         const kml = '<?xml version="1.0" encoding="ISO-8859-1"?>\n'

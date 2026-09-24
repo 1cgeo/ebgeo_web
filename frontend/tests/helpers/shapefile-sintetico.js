@@ -28,12 +28,16 @@ export function shpDePontos(pontos) {
     buf.writeInt32BE(tamanho / 2, 24);
     buf.writeInt32LE(1000, 28);
     buf.writeInt32LE(1, 32);
-    const xs = pontos.map((p) => p[0]);
-    const ys = pontos.map((p) => p[1]);
-    buf.writeDoubleLE(Math.min(...xs), 36);
-    buf.writeDoubleLE(Math.min(...ys), 44);
-    buf.writeDoubleLE(Math.max(...xs), 52);
-    buf.writeDoubleLE(Math.max(...ys), 60);
+    // A scan, not `Math.min(...xs)`: spreading a large array overflows the call stack.
+    let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const [x, y] of pontos) {
+        minX = Math.min(minX, x); minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+    }
+    buf.writeDoubleLE(minX, 36);
+    buf.writeDoubleLE(minY, 44);
+    buf.writeDoubleLE(maxX, 52);
+    buf.writeDoubleLE(maxY, 60);
     pontos.forEach(([x, y], i) => {
         const base = 100 + i * 28;
         buf.writeInt32BE(i + 1, base);
