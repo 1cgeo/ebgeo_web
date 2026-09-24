@@ -3,9 +3,10 @@
 /**
  * @fileoverview Every sentence the weather panel and its saved table put on screen.
  *
- * A leaf with ZERO imports, read statically by the context menu for its label. The name ends in
- * `-phrases.js` on purpose: that puts every literal here under
- * `tests/unit/avisos-de-tela-estilo.test.js`.
+ * A leaf with ZERO imports, read only by the lazy panel: the context menu item's label is in
+ * `carregador.js`, the module's eager door, because importing it from here put this whole file in
+ * the map's boot payload. The name ends in `-phrases.js` on purpose: that puts every literal here
+ * under `tests/unit/avisos-de-tela-estilo.test.js`.
  *
  * THE ROW NAMES ARE QUADRO 4-5's (EB70-MC-10.336, "Previsão de tempo para 3 dias"): Previsão de
  * tempo, Precipitação, Temperatura, Ventos, Umidade, Visibilidade. Where the manual's row carries
@@ -13,9 +14,8 @@
  * label reads either way.
  */
 
-/** The panel's title, and the context menu item. */
+/** The panel's title. */
 export const TITULO_DO_PAINEL = 'Meteorologia';
-export const ROTULO_DO_ITEM_DE_MENU = 'Meteorologia neste ponto';
 export const ROTULO_DA_ALCA = 'Expandir ou recolher o painel de meteorologia';
 
 /** The table caption, which a screen reader announces first. */

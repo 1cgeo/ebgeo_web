@@ -19,6 +19,13 @@
 
 import { carregarSobDemanda } from '@utils/carga-sob-demanda.js';
 
+/**
+ * The context menu item's label. It lives HERE, in the door, and not in `luminosidade-phrases.js`:
+ * this file is the only piece of the module the map loads at boot, and importing the label from the
+ * phrase leaf put every sentence of the panel in the boot payload to read one string.
+ */
+export const ROTULO_DO_ITEM_DE_MENU = 'Luminosidade neste ponto';
+
 /** @type {Promise<Object>|null} */
 let carregando = null;
 

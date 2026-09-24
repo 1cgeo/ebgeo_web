@@ -855,6 +855,10 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // purpose: the inbound path and the snapshot (`store/sync/remote-operation-handler.js`) and
         // the dispatcher reach it statically, because a peer derives the output the moment the input
         // arrives. Measured by this case's own failure (795 against 794, no other new source file).
+        // The same night, the two phrase leaves named above as eager LEFT the boot: they are each
+        // panel's whole text, and the menu read one string from each. The label moved into each
+        // loader; the count here does not move (same files), the eager graph loses the two leaves,
+        // and the case "the TEXT of the two point panels" below pins it.
         expect(completo.arquivos.size).toBeLessThanOrEqual(795);
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
@@ -955,6 +959,35 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // O lançador é ansioso, e é ele que guarda as três arestas dinâmicas. Sem esta linha, um
         // arquivo apagado deixaria as cinco afirmações acima verdes e vazias.
         expect(tem(ansioso, 'src/js/modals/account-modals-launcher.js')).toBe(true);
+    });
+
+    it('the TEXT of the two point panels arrives only by `import()`; the menu carries its label only', () => {
+        // The 2026-09-23 lots (light panel, then weather panel) imported each panel's WHOLE phrase
+        // leaf into `context-menu/context-menu.control.js` to read ONE string, the menu label, and
+        // that put every sentence of both panels in the map's boot. Measured with fresh builds and
+        // the ruler of half (b): 4292069 bytes with the two leaves eager, and the label moved into
+        // each loader (the module's eager door, already imported by the menu) took them out. The
+        // labels now live in `utilities/luminosidade/carregador.js` and
+        // `utilities/meteorologia/carregador.js`; the leaves are read only by the lazy panels.
+        //
+        // BOTH SIDES, for the same reason as the dialogs above: absent from the eager graph AND
+        // present in the full one, or a blind walker would pass green.
+        const sobDemanda = [
+            'src/js/utilities/luminosidade/luminosidade-phrases.js',
+            'src/js/utilities/meteorologia/meteorologia-phrases.js',
+        ];
+        const tem = (grafo, sufixo) => [...grafo.arquivos]
+            .some((f) => f.replace(/\\/g, '/').endsWith(sufixo));
+        for (const modulo of sobDemanda) {
+            expect(tem(ansioso, modulo), `${modulo} voltou para o payload ansioso do mapa`)
+                .toBe(false);
+            expect(tem(completo, modulo), `${modulo} sumiu do grafo: a afirmação virou vazia`)
+                .toBe(true);
+        }
+        // The doors stay eager, and they hold the two dynamic edges. Without these lines a deleted
+        // loader would leave the four assertions above green and empty.
+        expect(tem(ansioso, 'src/js/utilities/luminosidade/carregador.js')).toBe(true);
+        expect(tem(ansioso, 'src/js/utilities/meteorologia/carregador.js')).toBe(true);
     });
 
     for (const pacote of EXTERNOS_SO_DINAMICOS) {

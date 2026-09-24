@@ -6,15 +6,17 @@
  * A leaf with ZERO imports. The name ends in `-phrases.js` on purpose: that puts every literal here
  * under `tests/unit/avisos-de-tela-estilo.test.js`.
  *
+ * ONLY THE LAZY PANEL READS IT. The context menu item's label is in `carregador.js`, the module's
+ * eager door: importing it from here put this whole file in the map's boot payload.
+ *
  * THE LABELS ARE THE MANUAL'S, AS THEY ARE (principle U1 of the proposal): "ICMN", "FCVN", "Fase
  * lunar", "Ini Luar", "Fim do luar", with Quadro 4-5's own capitalization, and the product name
  * of Quadro 2-1, "Matriz das condições meteorológicas". The three twilight tooltips are the text of
  * EB70-MC-10.336 item 4.3.3.3.3 a, VERBATIM: it is the sentence that turns a time into a decision.
  */
 
-/** The panel's title, and the context menu item. */
+/** The panel's title. */
 export const TITULO_DO_PAINEL = 'Luminosidade';
-export const ROTULO_DO_ITEM_DE_MENU = 'Luminosidade neste ponto';
 
 /** The table caption, which a screen reader announces first. */
 export const LEGENDA_DO_QUADRO = 'Dados de luminosidade (PITCIC, Quadro 4-5)';

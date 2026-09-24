@@ -14,6 +14,12 @@
 import config from '@js/config.js';
 import { carregarSobDemanda } from '@utils/carga-sob-demanda.js';
 
+/**
+ * The context menu item's label, kept in the door for the same reason as the light loader's: the
+ * phrase leaf is the panel's whole text, and only this file rides the boot.
+ */
+export const ROTULO_DO_ITEM_DE_MENU = 'Meteorologia neste ponto';
+
 /** @type {Promise<Object>|null} */
 let carregando = null;
 

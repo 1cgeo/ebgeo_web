@@ -31,14 +31,17 @@ import {
 // at zero eager modules. Its header says why it sits there.
 import { canSplitBoundary } from '@tools/helpers/boundary-split.model.js';
 import { semEdicaoSync } from '@store/edicao-indisponivel.js';
-// The light panel: its DOOR is static and tiny (the loader and the phrase leaf); the panel, the
-// model and the astronomy library come by `import()` behind it.
-import { carregarLuminosidade } from '@utils/luminosidade/carregador.js';
-import { ROTULO_DO_ITEM_DE_MENU } from '@utils/luminosidade/luminosidade-phrases.js';
-// The weather panel, the light panel's twin: the same kind of door, and the only static pieces are
-// the loader (which also answers whether this deployment offers it) and the phrase leaf.
-import { carregarMeteorologia, meteorologiaDisponivel } from '@utils/meteorologia/carregador.js';
-import { ROTULO_DO_ITEM_DE_MENU as ROTULO_DA_METEOROLOGIA } from '@utils/meteorologia/meteorologia-phrases.js';
+// The light panel: its DOOR is static and tiny (the loader, which also holds the menu label); the
+// panel, its phrase leaf, the model and the astronomy library come by `import()` behind it. The
+// label is NOT read from the phrase leaf: that import put the panel's whole text in the boot.
+import { carregarLuminosidade, ROTULO_DO_ITEM_DE_MENU } from '@utils/luminosidade/carregador.js';
+// The weather panel, the light panel's twin: the same kind of door, and the only static piece is
+// the loader (which also answers whether this deployment offers it, and holds the menu label).
+import {
+    carregarMeteorologia,
+    meteorologiaDisponivel,
+    ROTULO_DO_ITEM_DE_MENU as ROTULO_DA_METEOROLOGIA
+} from '@utils/meteorologia/carregador.js';
 import { ehFalhaDeCarga } from '@utils/carga-sob-demanda.model.js';
 
 /** A sun over the horizon, 16 px, static markup. */
