@@ -329,10 +329,15 @@ export async function countPendingOperationsFor(atlasId) {
 
 /**
  * The name a server atlas carries in its own namespace, read from disk without mounting anything.
+ *
+ * EXPORTED FOR THE MOUNTED ATLAS TOO (2026-09-24). The exit of the map named the rescued slot of
+ * the atlas it held from `AccountControl._atlasCache`, which only the account MENU fills: whoever
+ * never opened it got "Trabalho recuperado em <data>" while the other atlases of the same exit,
+ * read from here, came out named (`tests/e2e-ui/resgate-nomeia-o-atlas-montado.repro.spec.js`).
  * @param {string} atlasId
  * @returns {Promise<string|null>} The name, or null when it cannot be read.
  */
-async function atlasNameOnDisk(atlasId) {
+export async function atlasNameOnDisk(atlasId) {
     try {
         const scope = remoteScope(atlasId);
         // The generation pointer lives in `localStorage`; a lost pointer would read the atlas record
