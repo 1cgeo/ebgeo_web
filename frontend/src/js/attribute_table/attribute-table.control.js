@@ -17,7 +17,7 @@ import {
     setPanelReadOnly,
 } from './components/table-panel.js';
 import { createFiltersBar } from './components/table-filters.js';
-import { renderTable, updateRowSelections, discardOpenEdit } from './components/table-renderer.js';
+import { renderTable, updateRowSelections, discardOpenEdit, hasOpenEdit } from './components/table-renderer.js';
 import { showColumnContextMenu, hideColumnContextMenu } from './components/column-context-menu.js';
 import { EventTypes } from '@events';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
@@ -81,6 +81,11 @@ export class AttributeTableControl {
 
         // Whether the table is drawn read-only (role or map lock); see _handleEditAvailabilityChanged.
         this._readOnly = false;
+
+        // A redraw held while a cell is open, and the save of the last committed cell; see
+        // _renderTable and _flushHeldRedraw.
+        this._heldRedraw = false;
+        this._cellSave = null;
 
         // Event unsubscribers
         this._unsubscribers = [];
@@ -173,6 +178,8 @@ export class AttributeTableControl {
         this._attributeColumns = [];
         this._extraColumns?.clear();
         this._selectedIds.clear();
+        this._heldRedraw = false;
+        this._cellSave = null;
 
         this._filterState = {
             search: '',
@@ -219,6 +226,7 @@ export class AttributeTableControl {
      */
     async refresh() {
         if (!this._isOpen) return;
+        if (this._holdWhileEditing()) return;
         await this._loadData();
         this._renderTable();
     }
@@ -385,6 +393,7 @@ export class AttributeTableControl {
      */
     _renderTable() {
         if (!this._panel) return;
+        if (this._holdWhileEditing()) return;
 
         const container = getTableContainer(this._panel);
         if (!container) return;
@@ -408,8 +417,11 @@ export class AttributeTableControl {
                 onCheckboxChange: (featureId, checked) =>
                     this._handleCheckboxChange(featureId, checked),
                 onSelectAll: (checked) => this._handleSelectAll(checked),
-                onCellEdit: (featureId, featureType, columnKey, newValue) =>
-                    this._handleCellEdit(featureId, featureType, columnKey, newValue),
+                onCellEdit: (featureId, featureType, columnKey, newValue) => {
+                    this._cellSave = this._handleCellEdit(featureId, featureType, columnKey, newValue);
+                    return this._cellSave;
+                },
+                onEditClosed: () => queueMicrotask(() => this._flushHeldRedraw()),
                 onZoomToFeature: (feature) => this._handleZoomToFeature(feature),
                 onRowHover: (feature, isHovering) =>
                     this._handleRowHover(feature, isHovering),
@@ -474,6 +486,38 @@ export class AttributeTableControl {
             }
         });
         this._unsubscribers = [];
+    }
+
+    /**
+     * Holds the redraw while a cell is open, and says whether it did.
+     *
+     * THE REDRAW REPLACES THE WHOLE TABLE, and the open cell with it. Every remote feature op emits
+     * `LAYERS_CHANGED`, so a colleague editing ANY feature closed the cell someone was typing in:
+     * Chromium SAVED the half-typed value (removing the focused input fires `blur`) and Firefox lost
+     * it in silence; and the save of the cell a Tab just left closed the cell the Tab opened (measured
+     * on 2026-09-24, `tests/e2e-ui/tabela-de-atributos-celula-aberta-no-redesenho.repro.spec.js`).
+     * @returns {boolean} True when the redraw was held.
+     */
+    _holdWhileEditing() {
+        if (!this._panel || !hasOpenEdit(getTableContainer(this._panel))) return false;
+        this._heldRedraw = true;
+        return true;
+    }
+
+    /**
+     * Runs the held redraw once no cell is open. It runs in a microtask after the cell closes, so a
+     * Tab has already opened the next cell (and the redraw keeps waiting), and it waits for the save of
+     * the committed cell, so the reload does not paint the old value back for a moment.
+     */
+    async _flushHeldRedraw() {
+        if (!this._heldRedraw || !this._isOpen || !this._panel) return;
+        if (hasOpenEdit(getTableContainer(this._panel))) return;
+        const save = this._cellSave;
+        if (save) await save.catch(() => {});
+        if (this._cellSave === save) this._cellSave = null;
+        if (!this._heldRedraw || !this._panel || hasOpenEdit(getTableContainer(this._panel))) return;
+        this._heldRedraw = false;
+        await this.refresh();
     }
 
     /**

@@ -30,6 +30,8 @@ import { tableDataService } from '../services/table-data.service.js';
  *   or the role can change while the cell is open.
  * @property {Function} [onEditRefused] - A changed cell was closed WITHOUT saving because editing
  *   became unavailable; the controller says why.
+ * @property {Function} [onEditClosed] - An open cell closed (saved, discarded or refused): the
+ *   controller runs the redraw it held while the cell was open (`hasOpenEdit`).
  */
 
 /**
@@ -40,6 +42,19 @@ import { tableDataService } from '../services/table-data.service.js';
  * @type {WeakMap<HTMLElement, () => boolean>}
  */
 const openEditors = new WeakMap();
+
+/**
+ * Whether a cell of the table is open for editing.
+ *
+ * The controller holds every redraw while this is true, because a redraw replaces the whole table and
+ * the open cell with it: a colleague editing ANY feature (every remote feature op emits
+ * `LAYERS_CHANGED`) or the save of the cell a Tab just left would close the cell someone is typing in.
+ * @param {HTMLElement|null} container - Table container
+ * @returns {boolean}
+ */
+export function hasOpenEdit(container) {
+    return Boolean(container?.querySelector(`td.${ATTRIBUTE_TABLE.CSS_CLASSES.CELL_EDITING}`));
+}
 
 /**
  * Closes the open cell editor of the table WITHOUT saving it, if there is one.
@@ -484,6 +499,7 @@ function startCellEditing(td, feature, columnKey, isAttribute, callbacks) {
         if (save && newValue !== currentText && callbacks.isReadOnly?.()) {
             td.innerHTML = originalHTML;
             callbacks.onEditRefused?.();
+            callbacks.onEditClosed?.();
             return;
         }
 
@@ -527,6 +543,7 @@ function startCellEditing(td, feature, columnKey, isAttribute, callbacks) {
             // Restore original
             td.innerHTML = originalHTML;
         }
+        callbacks.onEditClosed?.();
     };
 
     naSaida = (event) => {
