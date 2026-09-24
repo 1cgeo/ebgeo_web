@@ -42,8 +42,31 @@ const COUNT_BATCH_SIZE = 200;
  */
 class PendingBlockade {
     constructor() {
-        this._entities = new Set();
-        this._operations = new Set();
+        /** Blocked entity -> id of the refused operation that holds it. */
+        this._entities = new Map();
+        /** Blocked operation -> id of the refused operation that holds it. */
+        this._operations = new Map();
+    }
+
+    /**
+     * The refused operation that holds this one, or `null` when nothing does.
+     *
+     * THE CAUSE, NOT THE LAST REFUSAL READ. The pending list names it and "Aceitar o servidor"
+     * discards what it names, so an operation attributed to the wrong refusal is work of ANOTHER
+     * feature thrown away by a click about a different one (review finding, 2026-09-24: moving F10
+     * after two independent refusals on F10 and F20 showed "parada atrás de F20", and accepting F20
+     * dropped the move). Each blocked entity and operation carries the root refusal forward.
+     * @param {Object} operation - Envelope being classified.
+     * @returns {string|null}
+     */
+    causeOf(operation) {
+        for (const key of [operation.entityId, operation.mapId, operation.data?.briefingId ?? operation.data?.briefing_id]) {
+            if (this._entities.has(key)) return this._entities.get(key);
+        }
+        for (const id of operation.dependsOn ?? []) {
+            if (this._operations.has(id)) return this._operations.get(id);
+        }
+        return null;
     }
 
     /**
@@ -51,20 +74,18 @@ class PendingBlockade {
      * @returns {boolean} Whether something this operation needs is already blocked.
      */
     blocks(operation) {
-        return this._entities.has(operation.entityId)
-            || this._entities.has(operation.mapId)
-            || this._entities.has(operation.data?.briefingId ?? operation.data?.briefing_id)
-            || (operation.dependsOn ?? []).some(id => this._operations.has(id));
+        return this.causeOf(operation) !== null;
     }
 
     /**
      * Records an operation that will not be sent, so its descendants are blocked too.
      * @param {Object} operation - Envelope that stays on disk.
+     * @param {string} [cause] - The refusal that holds it; a refusal is its own cause.
      * @returns {void}
      */
-    add(operation) {
-        this._entities.add(operation.entityId);
-        this._operations.add(operation.id);
+    add(operation, cause = operation.id) {
+        this._entities.set(operation.entityId, cause);
+        this._operations.set(operation.id, cause);
     }
 }
 
@@ -243,7 +264,6 @@ class OperationQueue {
         const { store, scopeSuffix } = this._context();
         const blockade = new PendingBlockade();
         const problems = [];
-        let culpada = null;
         for (const key of await this._getOrderedKeys(store)) {
             const operation = await store.getItem(key);
             if (!operation) continue;
@@ -251,15 +271,16 @@ class OperationQueue {
             const issue = await store.getItem(JournalKey.ISSUE + operation.id);
             if (issue) {
                 blockade.add(operation);
-                culpada = operation.id;
                 problems.push({ operation, ...issue, classe: classifyIssue(issue.result), bloqueadaPor: null });
                 continue;
             }
-            if (!blockade.blocks(operation)) continue;
-            blockade.add(operation);
+            // The refusal that ACTUALLY holds it (`causeOf`), never the last one read.
+            const causa = blockade.causeOf(operation);
+            if (causa === null) continue;
+            blockade.add(operation, causa);
             problems.push({
                 operation, result: null, recordedAt: null,
-                classe: IssueClass.DEPENDENCIA, bloqueadaPor: culpada,
+                classe: IssueClass.DEPENDENCIA, bloqueadaPor: causa,
             });
         }
         return problems;
