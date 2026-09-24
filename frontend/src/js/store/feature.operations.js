@@ -114,9 +114,8 @@ function getFeatureType(feature) {
  * @returns {string|null}
  */
 function getProcessedType(type) {
-    if (type === 'los') return 'processed_los';
-    if (type === 'visibility') return 'processed_visibility';
-    return null;
+    // The one list (`DERIVED_OUTPUT_BUCKET_OF`, read through the leaf), not a second copy of it.
+    return derivedOutputBucketOf(type);
 }
 
 /**

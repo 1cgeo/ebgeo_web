@@ -13,8 +13,6 @@ class AddLOSGeometry extends BaseGeometry {
     constructor(properties = {}) {
         super(properties);
 
-        this.VISIBLE_COLOR = '#00FF00';
-        this.OBSTRUCTED_COLOR = '#FF0000';
         this.DEFAULT_OBSERVER_HEIGHT = 1.5;
         this.DEFAULT_TARGET_HEIGHT = 0;
         this.DEFAULT_SAMPLE_POINTS = 100;
@@ -224,9 +222,8 @@ class AddLOSGeometry extends BaseGeometry {
     generateProcessedFeatures(mainFeature) {
         // The split lives in ONE pure function, shared with the inbound path of a peer, which
         // derives the same output from the synced line (the output itself never travels).
-        return deriveAnalysisOutput('los', mainFeature, {
-            visible: this.VISIBLE_COLOR, obstructed: this.OBSTRUCTED_COLOR,
-        });
+        // The two colors are the leaf's (`ANALYSIS_OUTPUT_COLORS`), one source for author and peer.
+        return deriveAnalysisOutput('los', mainFeature);
     }
 
     /**

@@ -26,8 +26,6 @@ class AddVisibilityGeometry extends BaseGeometry {
     constructor(properties = {}) {
         super(properties);
 
-        this.VISIBLE_COLOR = '#00FF00';
-        this.OBSTRUCTED_COLOR = '#FF0000';
     }
 
     /**
@@ -525,9 +523,8 @@ class AddVisibilityGeometry extends BaseGeometry {
     generateProcessedFeatures(mainFeature) {
         // The split lives in ONE pure function, shared with the inbound path of a peer, which
         // derives the same output from the synced viewshed (the output itself never travels).
-        return deriveAnalysisOutput('visibility', mainFeature, {
-            visible: this.VISIBLE_COLOR, obstructed: this.OBSTRUCTED_COLOR,
-        });
+        // The two colors are the leaf's (`ANALYSIS_OUTPUT_COLORS`), one source for author and peer.
+        return deriveAnalysisOutput('visibility', mainFeature);
     }
 
     /**
