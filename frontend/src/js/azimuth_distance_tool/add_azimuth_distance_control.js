@@ -13,7 +13,7 @@ import { AzimuthDistancePanel } from './azimuth_distance_panel.js';
 import { generateFeature, generatePointFeatures, calculateWaypoints } from './azimuth_distance_geometry.js';
 import { addAzimuthDistanceAttributesToPanel } from './azimuth_distance_attributes_panel.js';
 import { DEFAULT_PROPERTIES, OUTPUT_MODE, MODE_TO_SOURCE, NORTH_REFERENCE } from './azimuth_distance_constants.js';
-import { updateFeature, removeFeature, getControl } from '@store';
+import { updateFeatures, removeFeatures, getControl } from '@store';
 import { IDUtils } from '@utils';
 import { showCoordinateEditModal } from '@modals/coordinate-edit.modal.js';
 import { showConfirm } from '@modals/confirm.modal.js';
@@ -742,6 +742,7 @@ class AddAzimuthDistanceControl extends BaseControl {
     // retrato de abertura, e sem retrato `mergePendingEdits` não reaplica nada, de modo que a
     // edição pendente continuaria evaporando só nesta ferramenta.
     async saveFeatures(features, initialPropertiesMap) {
+        const storeWrites = [];
         for (const feature of features) {
             const sourceName = resolveAzimuthCollection(feature);
             const source = this.map.getSource(sourceName);
@@ -753,10 +754,13 @@ class AddAzimuthDistanceControl extends BaseControl {
                 const data = await source.getData();
                 const currentFeature = data.features.find(f => f.properties.id === feature.properties.id);
                 if (currentFeature) {
-                    await updateFeature(sourceName, mergePendingEdits(currentFeature, feature, initialPropertiesMap?.get(feature.properties.id)));
+                    storeWrites.push({ type: sourceName, feature: mergePendingEdits(currentFeature, feature, initialPropertiesMap?.get(feature.properties.id)) });
                 }
             }
         }
+        // ONE read and ONE write of the map document for all of them, in one write-ahead
+        // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+        await updateFeatures(storeWrites);
     }
 
     async discardChangeFeatures(features, initialPropertiesMap) {
@@ -774,12 +778,15 @@ class AddAzimuthDistanceControl extends BaseControl {
     async deleteFeatures(features) {
         const touched = new Set();
 
-        for (const feature of features) {
-            const sourceName = resolveAzimuthCollection(feature);
+        // ONE read and ONE write of the map document for the whole selection, in one write-ahead
+        // transaction (`removeFeatures`): a loop of `removeFeature` paid both once per feature.
+        try {
+            await removeFeatures(features.map(feature => ({
+                type: resolveAzimuthCollection(feature), id: feature.properties.id
+            })));
 
-            try {
-                await removeFeature(sourceName, feature.properties.id);
-
+            for (const feature of features) {
+                const sourceName = resolveAzimuthCollection(feature);
                 // Removal by promoted key, with no collection read. The key goes in raw, never
                 // coerced: MapLibre keyed the feature by the very value sitting in `properties.id`.
                 if (this.map.getSource(sourceName)) {
@@ -787,9 +794,9 @@ class AddAzimuthDistanceControl extends BaseControl {
                     dispatcher.remove(feature.properties.id);
                     touched.add(dispatcher);
                 }
-            } catch (error) {
-                console.error('Error removing azimuth distance feature:', error);
             }
+        } catch (error) {
+            console.error('Error removing azimuth distance features:', error);
         }
 
         for (const dispatcher of touched) {
@@ -819,6 +826,7 @@ class AddAzimuthDistanceControl extends BaseControl {
     async updateFeatures(features, save = false, onlyUpdateProperties = false) {
         const touched = new Set();
 
+        const storeWrites = [];
         for (const feature of features) {
             const sourceName = resolveAzimuthCollection(feature);
             const source = this.map.getSource(sourceName);
@@ -843,10 +851,13 @@ class AddAzimuthDistanceControl extends BaseControl {
                 touched.add(dispatcher);
 
                 if (save) {
-                    await updateFeature(sourceName, data.features[idx]);
+                    storeWrites.push({ type: sourceName, feature: data.features[idx] });
                 }
             }
         }
+        // ONE read and ONE write of the map document for all of them, in one write-ahead
+        // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+        await updateFeatures(storeWrites);
 
         for (const dispatcher of touched) {
             await dispatcher.flush();

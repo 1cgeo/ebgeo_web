@@ -20,7 +20,7 @@
  *      decide que nada mudou e NÃO persiste. O trabalho some no próximo F5.
  *
  * O quarto é a razão de este arquivo ser comportamental e não léxico: ele se lê
- * numa cadeia (`saveFeatures` → `hasFeatureChanged` → `updateFeature`), e é essa
+ * numa cadeia (`saveFeatures` → `hasFeatureChanged` → `updateFeatures`), e é essa
  * cadeia que uma lista incompleta rompe.
  *
  * O QUE ELE NÃO ALCANÇA. Nada de MapLibre, store, undo ou sync de verdade: o
@@ -46,6 +46,12 @@ vi.mock('@store', () => ({
     addFeature: () => Promise.resolve(),
     updateFeature: (source, feature) => { persisted.push({ source, id: feature.properties.id }); return Promise.resolve(); },
     removeFeature: () => Promise.resolve(),
+    // The mass save writes through the plural operation, one item per feature (`updateFeatures`).
+    updateFeatures: (items) => {
+        for (const { type, feature } of items) persisted.push({ source: type, id: feature.properties.id });
+        return Promise.resolve(items.length);
+    },
+    removeFeatures: () => Promise.resolve(0),
     getActiveLayerIdSync: () => 'camada-ativa',
 }));
 
@@ -189,7 +195,7 @@ describe('AddArrowControl.hasFeatureChanged', () => {
 
 describe('AddArrowControl.saveFeatures', () => {
     it('PERSISTE a seta cuja única mudança foi a cauda', () => {
-        // A cadeia inteira: saveFeatures → hasFeatureChanged → updateFeature.
+        // A cadeia inteira: saveFeatures → hasFeatureChanged → updateFeatures.
         const atual = arrowFeature({ doubleHeaded: true });
         const control = controlWith([atual]);
         const antes = new Map([['a1', { ...arrowFeature({ doubleHeaded: false }).properties }]]);

@@ -8,8 +8,8 @@ import { beginImageTask } from '../../store/image-context.js';
  */
 
 import {
-    updateFeature,
-    removeFeature,
+    updateFeatures,
+    removeFeatures,
     storeImage,
 } from '@store';
 import { IDUtils, showError, loadImageToMap } from '@utils';
@@ -784,17 +784,21 @@ class AddDeclinationControl extends BaseControl {
         await declinationsSource(this.map).flush();
         const currentData = await this.map.getSource('magnetic_declinations').getData();
 
+        const storeWrites = [];
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
                 const currentFeature = currentData.features.find(
                     (f) => f.properties.id === selectedFeature.properties.id
                 );
                 if (currentFeature) {
-                    await updateFeature('magnetic_declinations', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
+                    storeWrites.push({ type: 'magnetic_declinations', feature: mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)) });
                     this._colorPreviews.delete(selectedFeature.properties.id);
                 }
             }
         }
+        // ONE read and ONE write of the map document for all of them, in one write-ahead
+        // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+        await updateFeatures(storeWrites);
     };
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
@@ -835,14 +839,13 @@ class AddDeclinationControl extends BaseControl {
         // otherwise the diagram reappears from IndexedDB on the next load. The
         // rasterized PNG blob is released later, on undo-history eviction, so an
         // Undo can still restore the diagram.
-        for (const feature of features) {
-            const featureId = feature.properties.id;
-            this._colorPreviews.delete(featureId);
-            try {
-                await removeFeature('magnetic_declinations', featureId);
-            } catch (error) {
-                console.error('Error removing declination feature:', error);
-            }
+        for (const feature of features) this._colorPreviews.delete(feature.properties.id);
+        // ONE read and ONE write of the map document for the whole selection, in one write-ahead
+        // transaction (`removeFeatures`): a loop of `removeFeature` paid both once per feature.
+        try {
+            await removeFeatures(features.map(f => ({ type: 'magnetic_declinations', id: f.properties.id })));
+        } catch (error) {
+            console.error('Error removing declination features:', error);
         }
 
         // Removal by promoted key, with no collection read. The keys go in raw, never coerced:

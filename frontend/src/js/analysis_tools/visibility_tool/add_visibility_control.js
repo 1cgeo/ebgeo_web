@@ -2,7 +2,7 @@
 import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
 import { queryFeaturesAtPoint, handleHitBox } from '@tools/helpers/feature-hit-test.helpers.js';
-import { removeFeature, getCurrentMapFeatures, batchUpdateVisibilityFeatures } from '@store';
+import { removeFeatures, getCurrentMapFeatures, batchUpdateVisibilityFeatures } from '@store';
 import { IDUtils } from '@utils';
 import { getPointerPosition } from '@utils/pointer-utils';
 import { addVisibilityAttributesToPanel, addVisibilityParametersToPanel } from './visibility_attributes_panel.js';
@@ -1052,17 +1052,18 @@ class AddVisibilityControl extends BaseControl {
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
 
-        for (const feature of features) {
-            try {
-                await removeFeature('visibility', feature.properties.id);
-            } catch (error) {
-                console.error(`Error removing visibility feature ${feature.properties.id}:`, error);
-            }
+        // ONE read and ONE write of the map document for the whole selection, in one write-ahead
+        // transaction (`removeFeatures`): a loop of `removeFeature` paid both once per feature.
+        // It resolves after the write, so the rebuild below reads the survivors.
+        try {
+            await removeFeatures(features.map(f => ({ type: 'visibility', id: f.properties.id })));
+        } catch (error) {
+            console.error('Error removing visibility features:', error);
         }
 
         // NOT a diff, on purpose, and the one place in this file where the whole collection is
         // still written. The rebuild comes from the STORE, which is authoritative about the
-        // cascade: `removeFeature('visibility', id)` also drops every processed feature whose id
+        // cascade: `removeFeatures` also drops every processed feature whose id
         // starts with `<id>-`, and reading the survivors back resyncs the source with persistence
         // instead of trusting this file's idea of which derived ids exist. It goes through the
         // dispatchers only for ownership: a raw `setData` here would silently discard whatever is

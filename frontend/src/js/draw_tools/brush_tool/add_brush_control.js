@@ -1,7 +1,7 @@
 // Path: js/draw_tools/brush_tool/add_brush_control.js
 import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
-import { updateFeature, removeFeature } from '../../store';
+import { updateFeatures, removeFeatures } from '../../store';
 import { IDUtils } from '../../utilities';
 import { getPointerPosition, preventDefaultGestures, restoreDefaultGestures } from '../../utilities/pointer-utils';
 import { addBrushAttributesToPanel } from './brush_attributes_panel.js';
@@ -619,16 +619,20 @@ class AddBrushControl extends BaseControl {
         const currentData = await this.map.getSource('brushes').getData();
         let _hasChanges = false;
 
+        const storeWrites = [];
         for (const selectedFeature of correctedFeatures) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
                 const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    await updateFeature('brushes', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
+                    storeWrites.push({ type: 'brushes', feature: mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)) });
                     _hasChanges = true;
                 }
             }
         }
+        // ONE read and ONE write of the map document for all of them, in one write-ahead
+        // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+        await updateFeatures(storeWrites);
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
@@ -642,12 +646,12 @@ class AddBrushControl extends BaseControl {
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
 
-        for (const feature of features) {
-            try {
-                await removeFeature('brushes', feature.properties.id);
-            } catch (error) {
-                console.error(`Error removing brush ${feature.properties.id}:`, error);
-            }
+        // ONE read and ONE write of the map document for the whole selection, in one write-ahead
+        // transaction (`removeFeatures`): a loop of `removeFeature` paid both once per feature.
+        try {
+            await removeFeatures(features.map(f => ({ type: 'brushes', id: f.properties.id })));
+        } catch (error) {
+            console.error('Error removing brush features:', error);
         }
 
         // Removal by promoted key, with no collection read (the read used to sit INSIDE the loop,
@@ -690,6 +694,7 @@ class AddBrushControl extends BaseControl {
             const dispatcher = brushesSource(this.map);
             await dispatcher.flush();
             const data = await this.map.getSource('brushes').getData();
+            const storeWrites = [];
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
@@ -704,10 +709,13 @@ class AddBrushControl extends BaseControl {
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ?
                             data.features[featureIndex] : feature;
-                        await updateFeature('brushes', featureToUpdate);
+                        storeWrites.push({ type: 'brushes', feature: featureToUpdate });
                     }
                 }
             }
+            // ONE read and ONE write of the map document for all of them, in one write-ahead
+            // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+            await updateFeatures(storeWrites);
 
             await dispatcher.flush();
 

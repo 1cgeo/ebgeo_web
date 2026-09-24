@@ -4,8 +4,8 @@ import { beginImageTask } from '../../store/image-context.js';
 
 import { normalizeSIDC } from './brazilian_sidc_extension.js';
 import {
-  updateFeature,
-  removeFeature,
+  updateFeatures,
+  removeFeatures,
   storeImage,
 } from '@store';
 import { MilitarySymbolGenerator } from './military_symbol_generator.js';
@@ -1222,6 +1222,7 @@ class AddMilitarySymbolControl extends BaseControl {
     await militarySymbolsSource(this.map).flush();
     const currentData = await this.map.getSource("military_symbols").getData();
 
+    const storeWrites = [];
     for (const selectedFeature of features) {
       if (
         this.hasFeatureChanged(
@@ -1234,10 +1235,13 @@ class AddMilitarySymbolControl extends BaseControl {
         );
 
         if (currentFeature) {
-          await updateFeature("military_symbols", mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
+          storeWrites.push({ type: "military_symbols", feature: mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)) });
         }
       }
     }
+    // ONE read and ONE write of the map document for all of them, in one write-ahead
+    // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+    await updateFeatures(storeWrites);
   };
 
   discardChangeFeatures = async (features, initialPropertiesMap) => {
@@ -1260,17 +1264,14 @@ class AddMilitarySymbolControl extends BaseControl {
   deleteFeatures = async (features) => {
     if (features.length === 0) return;
 
-    for (const feature of features) {
-      try {
-        // Remove from storage (the rasterized PNG blob is released later, on
-        // undo-history eviction, so an Undo can still restore the symbol image).
-        await removeFeature("military_symbols", feature.properties.id);
-      } catch (error) {
-        console.error(
-          `Error removing military symbol ${feature.properties.id}:`,
-          error
-        );
-      }
+    // ONE read and ONE write of the map document for the whole selection, in one write-ahead
+    // transaction (`removeFeatures`): a loop of `removeFeature` paid both once per feature.
+    // The rasterized PNG blob is released later, on undo-history eviction, so an
+    // Undo can still restore the symbol image.
+    try {
+      await removeFeatures(features.map((f) => ({ type: "military_symbols", id: f.properties.id })));
+    } catch (error) {
+      console.error("Error removing military symbol features:", error);
     }
 
     // Removal by promoted key, with no collection read, and once for the whole batch instead of
@@ -1308,6 +1309,7 @@ class AddMilitarySymbolControl extends BaseControl {
       const currentZoom = this.map.getZoom();
       const upserts = [];
 
+      const storeWrites = [];
       for (const feature of features) {
         const featureIndex = data.features.findIndex(
           (f) => f.properties.id === feature.properties.id
@@ -1337,10 +1339,13 @@ class AddMilitarySymbolControl extends BaseControl {
             const featureToUpdate = onlyUpdateProperties
               ? data.features[featureIndex]
               : feature;
-            await updateFeature("military_symbols", featureToUpdate);
+            storeWrites.push({ type: "military_symbols", feature: featureToUpdate });
           }
         }
       }
+      // ONE read and ONE write of the map document for all of them, in one write-ahead
+      // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+      await updateFeatures(storeWrites);
 
       if (!this.isSourceUpdateBlocked()) {
         dispatcher.add(upserts);

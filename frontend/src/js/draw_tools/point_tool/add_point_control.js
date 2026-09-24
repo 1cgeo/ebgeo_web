@@ -1,7 +1,7 @@
 // Path: js/draw_tools/point_tool/add_point_control.js
 import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
-import { updateFeature, removeFeature } from '../../store';
+import { updateFeatures, removeFeatures } from '../../store';
 import { IDUtils } from '../../utilities';
 import { addPointAttributesToPanel } from './point_attributes_panel.js';
 import AddPointGeometry from './add_point_geometry.js';
@@ -803,15 +803,19 @@ class AddPointControl extends BaseControl {
         await pointsSource(this.map).flush();
         const currentData = await this.map.getSource('points').getData();
 
+        const storeWrites = [];
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
                 const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    await updateFeature('points', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
+                    storeWrites.push({ type: 'points', feature: mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)) });
                 }
             }
         }
+        // ONE read and ONE write of the map document for all of them, in one write-ahead
+        // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+        await updateFeatures(storeWrites);
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
@@ -838,13 +842,12 @@ class AddPointControl extends BaseControl {
             }
         }
 
-        // Remove from store
-        for (const feature of features) {
-            try {
-                await removeFeature('points', feature.properties.id);
-            } catch (error) {
-                console.error(`Error removing point ${feature.properties.id}:`, error);
-            }
+        // ONE read and ONE write of the map document for the whole selection, in one write-ahead
+        // transaction (`removeFeatures`): a loop of `removeFeature` paid both once per feature.
+        try {
+            await removeFeatures(features.map(f => ({ type: 'points', id: f.properties.id })));
+        } catch (error) {
+            console.error('Error removing point features:', error);
         }
 
         // Removal by promoted key, with no collection read. The keys go in raw, never coerced:
@@ -897,6 +900,7 @@ class AddPointControl extends BaseControl {
             // arrives without them. Draining first keeps that read from being stale.
             await dispatcher.flush();
             const data = await this.map.getSource('points').getData();
+            const storeWrites = [];
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
@@ -922,10 +926,13 @@ class AddPointControl extends BaseControl {
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ?
                             data.features[featureIndex] : feature;
-                        await updateFeature('points', featureToUpdate);
+                        storeWrites.push({ type: 'points', feature: featureToUpdate });
                     }
                 }
             }
+            // ONE read and ONE write of the map document for all of them, in one write-ahead
+            // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+            await updateFeatures(storeWrites);
 
             await dispatcher.flush();
 

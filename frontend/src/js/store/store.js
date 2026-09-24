@@ -79,6 +79,9 @@ import {
     addFeature,
     updateFeature,
     removeFeature,
+    addFeatures,
+    updateFeatures,
+    removeFeatures,
     addFeatureToMap,
     removeFeatureFromMap,
     rederiveAnalysisOutput,
@@ -917,11 +920,19 @@ export async function deleteLayer(layerId, mapName = null) {
 
 // ===== UNDO/REDO SYSTEM =====
 
-/** Feature operation executors passed to the undo/redo engine. */
+/**
+ * Feature operation executors passed to the undo/redo engine. The three plural ones are what an
+ * undo or redo IN MASS runs on (one read and one write of the map document for a whole run of
+ * like entries, see `_executeActionsInOrder` in `store-state-manager.js`); without them the engine
+ * falls back to one call per entry.
+ */
 const undoRedoExecutors = {
     addFeature,
     updateFeature,
     removeFeature,
+    addFeatures,
+    updateFeatures,
+    removeFeatures,
     addFeatureToMap,
     removeFeatureFromMap,
     rederiveAnalysisOutput
@@ -1111,6 +1122,8 @@ export {
     addFeature,
     updateFeature,
     removeFeature,
+    updateFeatures,
+    removeFeatures,
     addFeatureToMap,
     removeFeatureFromMap,
     addFeatures,

@@ -1,7 +1,7 @@
 // Path: js/military_tools/occupied_front_tool/add_occupied_front_control.js
 import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
-import { updateFeature, removeFeature } from '@store';
+import { updateFeature, updateFeatures, removeFeatures } from '@store';
 import { IDUtils, showWarning } from '@utils';
 import { getPointerPosition } from '@utils/pointer-utils';
 import { addOccupiedFrontAttributesToPanel } from './occupied_front_attributes_panel.js';
@@ -746,15 +746,19 @@ class AddOccupiedFrontControl extends BaseControl {
         await occupiedFrontsSource(this.map).flush();
         const currentData = await this.map.getSource('occupied_fronts').getData();
 
+        const storeWrites = [];
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
                 const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    await updateFeature('occupied_fronts', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
+                    storeWrites.push({ type: 'occupied_fronts', feature: mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)) });
                 }
             }
         }
+        // ONE read and ONE write of the map document for all of them, in one write-ahead
+        // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+        await updateFeatures(storeWrites);
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
@@ -772,12 +776,12 @@ class AddOccupiedFrontControl extends BaseControl {
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
 
-        for (const feature of features) {
-            try {
-                await removeFeature('occupied_fronts', feature.properties.id);
-            } catch (error) {
-                console.error(`Error removing occupied front ${feature.properties.id}:`, error);
-            }
+        // ONE read and ONE write of the map document for the whole selection, in one write-ahead
+        // transaction (`removeFeatures`): a loop of `removeFeature` paid both once per feature.
+        try {
+            await removeFeatures(features.map(f => ({ type: 'occupied_fronts', id: f.properties.id })));
+        } catch (error) {
+            console.error('Error removing occupied front features:', error);
         }
 
         // Removal by promoted key, with no collection read, and once for the whole batch instead
@@ -818,6 +822,7 @@ class AddOccupiedFrontControl extends BaseControl {
             const data = await this.map.getSource('occupied_fronts').getData();
             const upserts = [];
 
+            const storeWrites = [];
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
@@ -836,10 +841,13 @@ class AddOccupiedFrontControl extends BaseControl {
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ?
                             data.features[featureIndex] : feature;
-                        await updateFeature('occupied_fronts', featureToUpdate);
+                        storeWrites.push({ type: 'occupied_fronts', feature: featureToUpdate });
                     }
                 }
             }
+            // ONE read and ONE write of the map document for all of them, in one write-ahead
+            // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+            await updateFeatures(storeWrites);
 
             dispatcher.add(upserts);
             await dispatcher.flush();

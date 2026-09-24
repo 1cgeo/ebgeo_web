@@ -791,7 +791,7 @@ class GroupManager {
      * disso já deixou a estrutura fantasma na memória.
      *
      * {@link GroupManager#removeFeatureFromAllGroups} NÃO precisa da pergunta, e não poderia
-     * fazê-la: ela é SÍNCRONA e roda dentro da transação do pai. Os três chamadores dela vivem em
+     * fazê-la: ela é SÍNCRONA e roda dentro da transação do pai. Os chamadores dela vivem em
      * `store/feature.operations.js`, todos dentro de um `withMapDocument` cuja primeira linha é
      * `mapDocumentForGesture`, que já recusou e voltou antes de chegar aqui.
      *

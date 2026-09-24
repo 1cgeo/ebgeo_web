@@ -3,8 +3,8 @@ import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.
 import { beginImageTask } from '../../store/image-context.js';
 
 import {
-  updateFeature,
-  removeFeature,
+  updateFeatures,
+  removeFeatures,
   storeImage,
 } from "../../store";
 import { CoordinationMeasureGenerator } from './coordination_measure_generator.js';
@@ -1204,6 +1204,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     await this.getSourceDispatcher().flush();
     const currentData = await this.map.getSource(this.storageType).getData();
 
+    const storeWrites = [];
     for (const selectedFeature of features) {
       if (
         this.hasFeatureChanged(
@@ -1216,10 +1217,13 @@ class AddCoordinationMeasureControl extends BaseControl {
         );
 
         if (currentFeature) {
-          await updateFeature(this.storageType, mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
+          storeWrites.push({ type: this.storageType, feature: mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)) });
         }
       }
     }
+    // ONE read and ONE write of the map document for all of them, in one write-ahead
+    // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+    await updateFeatures(storeWrites);
   };
 
   discardChangeFeatures = async (features, initialPropertiesMap) => {
@@ -1249,17 +1253,14 @@ class AddCoordinationMeasureControl extends BaseControl {
   deleteFeatures = async (features) => {
     if (features.length === 0) return;
 
-    for (const feature of features) {
-      try {
-        // The rasterized blob is released later, on undo-history eviction, so an
-        // Undo can still restore the measure image.
-        await removeFeature(this.storageType, feature.properties.id);
-      } catch (error) {
-        console.error(
-          `Error removing coordination measure ${feature.properties.id}:`,
-          error
-        );
-      }
+    // ONE read and ONE write of the map document for the whole selection, in one write-ahead
+    // transaction (`removeFeatures`): a loop of `removeFeature` paid both once per feature.
+    // The rasterized blob is released later, on undo-history eviction, so an
+    // Undo can still restore the measure image.
+    try {
+      await removeFeatures(features.map((f) => ({ type: this.storageType, id: f.properties.id })));
+    } catch (error) {
+      console.error("Error removing coordination measure features:", error);
     }
 
     // Removal by promoted key, with no collection read, and once for the whole batch instead of
@@ -1331,6 +1332,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       const currentZoom = this.map.getZoom();
       const upserts = [];
 
+      const storeWrites = [];
       for (const feature of features) {
         const featureIndex = data.features.findIndex(
           (f) => f.properties.id === feature.properties.id
@@ -1360,10 +1362,13 @@ class AddCoordinationMeasureControl extends BaseControl {
             const featureToUpdate = onlyUpdateProperties
               ? data.features[featureIndex]
               : feature;
-            await updateFeature(this.storageType, featureToUpdate);
+            storeWrites.push({ type: this.storageType, feature: featureToUpdate });
           }
         }
       }
+      // ONE read and ONE write of the map document for all of them, in one write-ahead
+      // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+      await updateFeatures(storeWrites);
 
       if (!this.isSourceUpdateBlocked()) {
         dispatcher.add(upserts);

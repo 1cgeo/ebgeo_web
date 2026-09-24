@@ -1,7 +1,7 @@
 // Path: js/draw_tools/ellipse_tool/add_ellipse_control.js
 import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
-import { updateFeature, removeFeature } from '../../store';
+import { updateFeature, updateFeatures, removeFeatures } from '../../store';
 import { IDUtils, showWarning } from '../../utilities';
 import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addEllipseAttributesToPanel } from './ellipse_attributes_panel.js';
@@ -937,15 +937,19 @@ class AddEllipseControl extends BaseControl {
         await ellipsesSource(this.map).flush();
         const currentData = await this.map.getSource('ellipses').getData();
 
+        const storeWrites = [];
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
                 const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    await updateFeature('ellipses', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
+                    storeWrites.push({ type: 'ellipses', feature: mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)) });
                 }
             }
         }
+        // ONE read and ONE write of the map document for all of them, in one write-ahead
+        // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+        await updateFeatures(storeWrites);
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
@@ -964,12 +968,12 @@ class AddEllipseControl extends BaseControl {
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
 
-        for (const feature of features) {
-            try {
-                await removeFeature('ellipses', feature.properties.id);
-            } catch (error) {
-                console.error(`Error removing ellipse ${feature.properties.id}:`, error);
-            }
+        // ONE read and ONE write of the map document for the whole selection, in one write-ahead
+        // transaction (`removeFeatures`): a loop of `removeFeature` paid both once per feature.
+        try {
+            await removeFeatures(features.map(f => ({ type: 'ellipses', id: f.properties.id })));
+        } catch (error) {
+            console.error('Error removing ellipse features:', error);
         }
 
         // Removal by promoted key, with no collection read (the read used to sit INSIDE the loop,
@@ -1094,6 +1098,7 @@ class AddEllipseControl extends BaseControl {
             const dispatcher = ellipsesSource(this.map);
             await dispatcher.flush();
             const data = await this.map.getSource('ellipses').getData();
+            const storeWrites = [];
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
@@ -1115,10 +1120,13 @@ class AddEllipseControl extends BaseControl {
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ?
                             data.features[featureIndex] : feature;
-                        await updateFeature('ellipses', featureToUpdate);
+                        storeWrites.push({ type: 'ellipses', feature: featureToUpdate });
                     }
                 }
             }
+            // ONE read and ONE write of the map document for all of them, in one write-ahead
+            // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+            await updateFeatures(storeWrites);
 
             await dispatcher.flush();
             syncLabelSource(this.map, 'ellipse-labels', data);

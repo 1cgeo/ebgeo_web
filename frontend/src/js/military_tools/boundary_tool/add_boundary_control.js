@@ -3,7 +3,8 @@ import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.
 
 import {
     updateFeature,
-    removeFeature,
+    updateFeatures,
+    removeFeatures,
     getFeatureById,
     getStateManager,
 } from '../../store';
@@ -2012,15 +2013,19 @@ class AddBoundaryControl extends BaseControl {
         await boundarysSource(this.map).flush();
         const currentData = await this.map.getSource('boundarys').getData();
 
+        const storeWrites = [];
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
                 const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    await updateFeature('boundarys', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
+                    storeWrites.push({ type: 'boundarys', feature: mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)) });
                 }
             }
         }
+        // ONE read and ONE write of the map document for all of them, in one write-ahead
+        // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+        await updateFeatures(storeWrites);
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
@@ -2056,17 +2061,16 @@ class AddBoundaryControl extends BaseControl {
         const textData = await this.map.getSource('boundary-texts').getData();
         const circleData = await this.map.getSource('boundary-circles').getData();
 
-        for (const feature of features) {
-            try {
-                const featureId = feature.properties.id;
-                await removeFeature('boundarys', featureId);
+        // ONE read and ONE write of the map document for the whole selection, in one write-ahead
+        // transaction (`removeFeatures`): a loop of `removeFeature` paid both once per feature.
+        try {
+            await removeFeatures(features.map(f => ({ type: 'boundarys', id: f.properties.id })));
 
-                textData.features = textData.features.filter(f => f.properties.parent !== featureId);
-                circleData.features = circleData.features.filter(f => f.properties.parent !== featureId);
-
-            } catch (error) {
-                console.error(`Error removing boundary ${feature.properties.id}:`, error);
-            }
+            const removedIds = new Set(features.map(f => f.properties.id));
+            textData.features = textData.features.filter(f => !removedIds.has(f.properties.parent));
+            circleData.features = circleData.features.filter(f => !removedIds.has(f.properties.parent));
+        } catch (error) {
+            console.error('Error removing boundary features:', error);
         }
 
         // Removal by promoted key, with no collection read. The keys go in raw, never coerced:
@@ -2205,6 +2209,7 @@ class AddBoundaryControl extends BaseControl {
             const data = await this.map.getSource('boundarys').getData();
             const upserts = [];
 
+            const storeWrites = [];
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
@@ -2215,10 +2220,13 @@ class AddBoundaryControl extends BaseControl {
                     await this._updateDependentFeaturesUnlocked(feature);
 
                     if (save) {
-                        await updateFeature('boundarys', feature);
+                        storeWrites.push({ type: 'boundarys', feature });
                     }
                 }
             }
+            // ONE read and ONE write of the map document for all of them, in one write-ahead
+            // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+            await updateFeatures(storeWrites);
 
             dispatcher.add(upserts);
             await dispatcher.flush();

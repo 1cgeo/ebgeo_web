@@ -2,7 +2,7 @@
 import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
 import { queryFeaturesAtPoint, handleHitBox } from '@tools/helpers/feature-hit-test.helpers.js';
-import { updateFeature, removeFeature, getCurrentMapFeatures, batchUpdateLOSFeatures } from '@store';
+import { updateFeature, removeFeatures, getCurrentMapFeatures, batchUpdateLOSFeatures } from '@store';
 import { IDUtils } from '@utils';
 import { getPointerPosition } from '@utils/pointer-utils';
 import { addLOSAttributesToPanel, createLOSInfoSection, addLOSParametersToPanel } from './los_attributes_panel.js';
@@ -986,21 +986,20 @@ class AddLOSControl extends BaseControl {
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
 
-        for (const feature of features) {
-            try {
-                const featureId = feature.properties.id;
+        for (const feature of features) this.removeFeatureMeasurement(feature.properties.id);
 
-                this.removeFeatureMeasurement(featureId);
-                await removeFeature('los', featureId);
-
-            } catch (error) {
-                console.error(`Error removing LOS feature ${feature.properties.id}:`, error);
-            }
+        // ONE read and ONE write of the map document for the whole selection, in one write-ahead
+        // transaction (`removeFeatures`): a loop of `removeFeature` paid both once per feature.
+        // It resolves after the write, so the rebuild below reads the survivors.
+        try {
+            await removeFeatures(features.map(f => ({ type: 'los', id: f.properties.id })));
+        } catch (error) {
+            console.error('Error removing LOS features:', error);
         }
 
         // NOT a diff, on purpose, and the one place in this file where the whole collection is
         // still written. The rebuild comes from the STORE, which is authoritative about the
-        // cascade: `removeFeature('los', id)` also drops every processed feature whose id starts
+        // cascade: `removeFeatures` also drops every processed feature whose id starts
         // with `<id>-`, and reading the survivors back resyncs the source with persistence instead
         // of trusting this file's idea of which derived ids exist. It goes through the dispatchers
         // only for ownership: a raw `setData` here would silently discard whatever is queued.

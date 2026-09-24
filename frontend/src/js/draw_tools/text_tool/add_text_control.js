@@ -1,7 +1,7 @@
 // Path: js/draw_tools/text_tool/add_text_control.js
 import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
-import { updateFeature, removeFeature } from '../../store';
+import { updateFeature, updateFeatures, removeFeatures } from '../../store';
 import { IDUtils } from '../../utilities';
 import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addTextAttributesToPanel } from './text_attributes_panel.js';
@@ -850,15 +850,19 @@ class AddTextControl extends BaseControl {
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('texts').getData();
 
+        const storeWrites = [];
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
                 const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    await updateFeature('texts', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
+                    storeWrites.push({ type: 'texts', feature: mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)) });
                 }
             }
         }
+        // ONE read and ONE write of the map document for all of them, in one write-ahead
+        // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+        await updateFeatures(storeWrites);
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
@@ -874,18 +878,19 @@ class AddTextControl extends BaseControl {
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
 
-        for (const feature of features) {
-            try {
-                const featureId = feature.properties.id;
-                await removeFeature('texts', featureId);
+        // ONE read and ONE write of the map document for the whole selection, in one write-ahead
+        // transaction (`removeFeatures`): a loop of `removeFeature` paid both once per feature.
+        // The source's read-filter-write, which already removed the WHOLE selection, ran once per
+        // feature inside the loop; once is the same result.
+        try {
+            await removeFeatures(features.map(f => ({ type: 'texts', id: f.properties.id })));
 
-                const data = await this.map.getSource('texts').getData();
-                const idsToDelete = new Set(features.map(f => String(f.properties.id)));
-                data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
-                this.map.getSource('texts').setData(data);
-            } catch (error) {
-                console.error(`Error removing text ${feature.properties.id}:`, error);
-            }
+            const data = await this.map.getSource('texts').getData();
+            const idsToDelete = new Set(features.map(f => String(f.properties.id)));
+            data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
+            this.map.getSource('texts').setData(data);
+        } catch (error) {
+            console.error('Error removing text features:', error);
         }
 
         await this.updateTextBackgroundsSource();
@@ -934,6 +939,7 @@ class AddTextControl extends BaseControl {
             const currentZoom = this.map.getZoom();
             let backgroundNeedsUpdate = false;
 
+            const storeWrites = [];
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
@@ -952,10 +958,13 @@ class AddTextControl extends BaseControl {
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ?
                             data.features[featureIndex] : feature;
-                        await updateFeature('texts', featureToUpdate);
+                        storeWrites.push({ type: 'texts', feature: featureToUpdate });
                     }
                 }
             }
+            // ONE read and ONE write of the map document for all of them, in one write-ahead
+            // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+            await updateFeatures(storeWrites);
 
             await this.forceUpdateMainSource(data);
 

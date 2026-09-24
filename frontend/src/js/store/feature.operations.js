@@ -642,6 +642,265 @@ export async function removeFeature(type, id, mapName = null) {
 }
 
 /**
+ * The distinct `{type, id}` pairs of a list of references, in their first order.
+ * @param {Array<{type: string, id: string}>} refs
+ * @returns {Array<{type: string, id: string}>}
+ */
+function distinctRefs(refs) {
+    const seen = new Map();
+    const out = [];
+    for (const ref of refs ?? []) {
+        if (!ref?.type || ref.id === undefined || ref.id === null) continue;
+        if (!seen.has(ref.type)) seen.set(ref.type, new Set());
+        if (seen.get(ref.type).has(ref.id)) continue;
+        seen.get(ref.type).add(ref.id);
+        out.push({ type: ref.type, id: ref.id });
+    }
+    return out;
+}
+
+/**
+ * Removes MANY features of one map with ONE read and ONE write of the map document, in ONE
+ * write-ahead transaction.
+ *
+ * WHY IT EXISTS. Every feature of a map lives in one document, so {@link removeFeature} is a
+ * read-modify-write of the WHOLE map, and a loop of it over a selection pays that once per
+ * feature: deleting 1 000 points took 19 s of the author's gesture in Chromium, and its redo
+ * 41 s (measured on 2026-09-24 with two browsers and the real backend). Here the document is read
+ * once under the document lock, every removal is applied to it in memory, and it is written once.
+ * `frontend/tests/store/gesto-local-em-massa-um-documento.repro.test.js` counts the reads and the
+ * writes.
+ *
+ * WHAT STAYS AS IN {@link removeFeature}, per feature and in the order of `refs`: the analysis
+ * output leaves with its input; the group memberships go (and a group left with one member), all
+ * through the transaction's overlay, so the groups document is written once too; the color counts;
+ * one `removeWithProcessed` undo entry per feature, grouped by the caller's batch collector as
+ * before; and the DELETE operation, recorded BEFORE the entity is written, with the whole feature
+ * as `previousData`. No feature event is emitted, exactly as in the single path: the author's map
+ * is repainted by the control that called this, and the peers' events come from the inbound path.
+ *
+ * THE GATE IS ASKED ONCE, for the role and for the map lock, as the single path asks it per call.
+ * The feature, layer and group locks are client conventions asked by the caller that owns the
+ * selection (`deleteSelectedFeatures`), which is where they were asked before.
+ *
+ * WHAT CHANGES, and it is the price declared by B6.1: the operations are ONE logical batch instead
+ * of one per feature. Above `MAX_OPS_PER_LOGICAL_BATCH` it leaves in chained parts, and a part the
+ * server refuses holds the parts after it for review; one by one, a refusal cost one feature.
+ *
+ * @param {Array<{type: string, id: string}>} refs - Storage type and id of each feature.
+ * @param {string} [mapName=null] - Target map name
+ * @returns {Promise<number>} How many features were removed.
+ */
+export async function removeFeatures(refs, mapName = null) {
+    const wanted = distinctRefs(refs);
+    if (wanted.length === 0) return 0;
+    const targetMap = resolveMap(mapName);
+    if (guardWrite(GuardAction.DELETE_FEATURE, 'removeFeatures', targetMap).blocked) return 0;
+
+    return withMapDocument(targetMap, 'removeFeatures', async () => {
+        const currentMapData = await mapDocumentForGesture(targetMap, 'removeFeatures');
+        if (!currentMapData) return 0;
+
+        // One pass per bucket, never one scan per feature: the first copy of each id leaves, as
+        // `findIndex` + `splice` did.
+        const idsByType = new Map();
+        for (const { type, id } of wanted) {
+            if (!idsByType.has(type)) idsByType.set(type, new Set());
+            idsByType.get(type).add(id);
+        }
+        const found = new Map();
+        for (const [type, ids] of idsByType) {
+            const bucket = currentMapData.features[type];
+            if (!Array.isArray(bucket)) continue;
+            const hits = new Map();
+            const kept = [];
+            for (const feature of bucket) {
+                const id = feature?.properties?.id;
+                if (ids.has(id) && !hits.has(id)) hits.set(id, feature);
+                else kept.push(feature);
+            }
+            if (hits.size === 0) continue;
+            currentMapData.features[type] = kept;
+            found.set(type, hits);
+        }
+
+        const removed = [];
+        for (const { type, id } of wanted) {
+            const mainFeature = found.get(type)?.get(id);
+            if (!mainFeature) continue;
+            const processedType = getProcessedType(type);
+            const processedFeatures = processedType && Array.isArray(currentMapData.features[processedType])
+                ? findRelatedProcessedFeatures(type, id, currentMapData)
+                : [];
+            removeProcessedFeaturesFromData(processedType, processedFeatures, currentMapData);
+            removed.push({ type, id, mainFeature, processedType, processedFeatures });
+        }
+        if (removed.length === 0) return 0;
+
+        await runTransaction(async (tx) => {
+            const mapId = mapManager.getMapId(targetMap);
+            const colors = [];
+            // N removals, ONE groups document: every call composes with the previous ones through
+            // the transaction's overlay, and every closure writes that same accumulated object, so
+            // keeping the last non-null one persists all of them (as `deleteLayerFeatures` does).
+            let persistGroups = null;
+            for (const { type, id, mainFeature } of removed) {
+                for (const color of mapManager.getFeatureColors(mainFeature)) colors.push(color);
+                persistGroups = deps.groupManager.removeFeatureFromAllGroups(
+                    tx, mainFeature.properties.source, id, targetMap
+                ) ?? persistGroups;
+                tx.recordOperation(EntityType.FEATURE, OperationType.DELETE, id, mapId, null, mainFeature, { storage: type });
+            }
+
+            if (colors.length > 0) {
+                tx.deferSync(() => {
+                    for (const color of colors) mapManager.updateColorUsage(color, null, targetMap);
+                });
+            }
+
+            if (shouldRecordUndo(mapName)) {
+                tx.deferSync(() => {
+                    for (const { type, mainFeature, processedType, processedFeatures } of removed) {
+                        mapManager.recordAction({
+                            type: 'removeWithProcessed',
+                            mainFeatureType: type,
+                            mainFeature: deepClone(mainFeature),
+                            processedFeatures: processedFeatures.length > 0 ? {
+                                type: processedType,
+                                features: deepClone(processedFeatures)
+                            } : null
+                        });
+                    }
+                });
+            }
+
+            return async () => {
+                await updateMapDataCompat(targetMap, currentMapData);
+                await persistGroups?.();
+            };
+        });
+        return removed.length;
+    });
+}
+
+/**
+ * Updates MANY features of one map with ONE read and ONE write of the map document, in ONE
+ * write-ahead transaction. The counterpart of {@link removeFeatures}, for the same reason: a loop
+ * of {@link updateFeature} restyling 1 000 points took 28.6 s of the author's gesture, and the
+ * undo of it 16 s (measured on 2026-09-24).
+ *
+ * Each item is exactly one {@link updateFeature} call, with the same options and the same rules,
+ * applied in order to the SAME in-memory document: an item whose feature is absent is skipped,
+ * `transform` and `revertFrom` read the feature as the previous items left it (so two items on
+ * one feature compose as two calls would), user data and sync metadata are preserved, an item that
+ * changes nothing records nothing, and every written item records its `update` undo entry and its
+ * UPDATE operation with the stored feature as `previousData`. One addition, which the single path
+ * does not need because its analysis callers write the output themselves: an item on an analysis
+ * INPUT re-derives that input's output in the same write (`replaceDerivedOutput`), so a batch that
+ * reaches one (an undo in mass) cannot leave the green and red drawing on the old geometry.
+ *
+ * The gate and the price are those of {@link removeFeatures}.
+ *
+ * @param {Array<{type: string, feature: Object, options?: {preserveUserData?: boolean,
+ *   revertFrom?: Object, transform?: function(Object): Object}}>} items - One per feature write.
+ * @param {string} [mapName=null] - Target map name
+ * @returns {Promise<number>} How many features were written.
+ */
+export async function updateFeatures(items, mapName = null) {
+    const list = (items ?? []).filter(item => item?.type && item.feature);
+    if (list.length === 0) return 0;
+    const targetMap = resolveMap(mapName);
+    if (guardWrite(GuardAction.UPDATE_FEATURE, 'updateFeatures', targetMap).blocked) return 0;
+
+    const prepared = [];
+    for (const { type, feature, options } of list) {
+        const cleaned = cleanFeature(feature);
+        if (!cleaned) {
+            console.warn('Feature ignored after cleanup:', feature);
+            continue;
+        }
+        prepared.push({ type, incoming: cleaned, options: options ?? {} });
+    }
+    if (prepared.length === 0) return 0;
+
+    return withMapDocument(targetMap, 'updateFeatures', async () => {
+        const currentMapData = await mapDocumentForGesture(targetMap, 'updateFeatures');
+        if (!currentMapData) return 0;
+
+        // One index per bucket, the FIRST position of each id, as `findIndex` answered.
+        const positions = new Map();
+        const positionOf = (type, id) => {
+            if (!positions.has(type)) {
+                const index = new Map();
+                currentMapData.features[type].forEach((f, i) => {
+                    const fid = f?.properties?.id;
+                    if (!index.has(fid)) index.set(fid, i);
+                });
+                positions.set(type, index);
+            }
+            return positions.get(type).get(id);
+        };
+
+        const written = [];
+        for (const { type, incoming, options } of prepared) {
+            const bucket = currentMapData.features[type];
+            if (!Array.isArray(bucket)) continue;
+            const index = positionOf(type, incoming.properties.id);
+            if (index === undefined) continue;
+
+            const { preserveUserData: keepUserData = true, revertFrom = null, transform = null } = options;
+            const oldFeature = bucket[index];
+            const oldColor = mapManager.getFeatureColor(oldFeature);
+            let cleanedFeature = incoming;
+            if (typeof transform === 'function') {
+                cleanedFeature = cleanFeature(transform(deepClone(oldFeature)));
+                if (!cleanedFeature) continue;
+            }
+            if (revertFrom) cleanedFeature = cleanFeature(keepLaterEdits(oldFeature, cleanFeature(revertFrom), cleanedFeature));
+            if (keepUserData) preserveUserData(oldFeature, cleanedFeature);
+            preserveSyncMetadata(oldFeature, cleanedFeature);
+            if (isFeatureEqual(oldFeature, cleanedFeature)) continue;
+            touchUpdatedTimestamp(cleanedFeature);
+
+            bucket[index] = cleanedFeature;
+            replaceDerivedOutput(currentMapData.features, type, cleanedFeature.properties.id, cleanedFeature);
+            written.push({ type, oldFeature, cleanedFeature, oldColor, newColor: mapManager.getFeatureColor(cleanedFeature) });
+        }
+        if (written.length === 0) return 0;
+
+        await runTransaction(async (tx) => {
+            const recolored = written.filter(w => w.oldColor !== w.newColor);
+            if (recolored.length > 0) {
+                tx.deferSync(() => {
+                    for (const w of recolored) mapManager.updateColorUsage(w.oldColor, w.newColor, targetMap);
+                });
+            }
+
+            if (shouldRecordUndo(mapName)) {
+                tx.deferSync(() => {
+                    for (const { type, oldFeature, cleanedFeature } of written) {
+                        mapManager.recordAction({
+                            type: 'update',
+                            featureType: type,
+                            oldFeature: deepClone(oldFeature),
+                            newFeature: deepClone(cleanedFeature)
+                        });
+                    }
+                });
+            }
+
+            const mapId = mapManager.getMapId(targetMap);
+            for (const { type, oldFeature, cleanedFeature } of written) {
+                tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, cleanedFeature.properties.id, mapId, cleanedFeature, oldFeature, { storage: type });
+            }
+
+            return () => updateMapDataCompat(targetMap, currentMapData);
+        });
+        return written.length;
+    });
+}
+
+/**
  * Adds a feature to a specific map.
  * @param {string} type - Storage type
  * @param {Object} feature - Feature to add

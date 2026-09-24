@@ -1,7 +1,7 @@
 // Path: js/military_tools/arrow_tool/add_arrow_control.js
 import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
-import { updateFeature, removeFeature, getFeatureById } from '../../store';
+import { updateFeature, updateFeatures, removeFeatures, getFeatureById } from '../../store';
 import { IDUtils, showWarning, showToast, deepClone } from '../../utilities';
 import { getPointerPosition, isTouchDevice, createLongPressHandler } from '../../utilities/pointer-utils';
 import { addArrowAttributesToPanel } from './arrow_attributes_panel.js';
@@ -1265,15 +1265,19 @@ class AddArrowControl extends BaseControl {
         await arrowsSource(this.map).flush();
         const currentData = await this.map.getSource('arrows').getData();
 
+        const storeWrites = [];
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
                 const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    await updateFeature('arrows', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
+                    storeWrites.push({ type: 'arrows', feature: mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)) });
                 }
             }
         }
+        // ONE read and ONE write of the map document for all of them, in one write-ahead
+        // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+        await updateFeatures(storeWrites);
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
@@ -1291,12 +1295,12 @@ class AddArrowControl extends BaseControl {
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
 
-        for (const feature of features) {
-            try {
-                await removeFeature('arrows', feature.properties.id);
-            } catch (error) {
-                console.error(`Error removing arrow ${feature.properties.id}:`, error);
-            }
+        // ONE read and ONE write of the map document for the whole selection, in one write-ahead
+        // transaction (`removeFeatures`): a loop of `removeFeature` paid both once per feature.
+        try {
+            await removeFeatures(features.map(f => ({ type: 'arrows', id: f.properties.id })));
+        } catch (error) {
+            console.error('Error removing arrow features:', error);
         }
 
         // Removal by promoted key, with no collection read, and once for the whole batch instead
@@ -1346,6 +1350,7 @@ class AddArrowControl extends BaseControl {
             const data = await this.map.getSource('arrows').getData();
             const upserts = [];
 
+            const storeWrites = [];
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
@@ -1364,10 +1369,13 @@ class AddArrowControl extends BaseControl {
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ?
                             data.features[featureIndex] : feature;
-                        await updateFeature('arrows', featureToUpdate);
+                        storeWrites.push({ type: 'arrows', feature: featureToUpdate });
                     }
                 }
             }
+            // ONE read and ONE write of the map document for all of them, in one write-ahead
+            // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+            await updateFeatures(storeWrites);
 
             dispatcher.add(upserts);
             await dispatcher.flush();

@@ -3,7 +3,8 @@ import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.
 
 import {
     updateFeature,
-    removeFeature,
+    updateFeatures,
+    removeFeatures,
     getFeatureById,
     getStateManager,
 } from '@store';
@@ -1714,6 +1715,7 @@ class AddCoordinationLineControl extends BaseControl {
         await coordinationLinesSource(this.map).flush();
         const currentData = await source.getData();
 
+        const storeWrites = [];
         for (const selectedFeature of features) {
             if (!this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
                 continue;
@@ -1721,9 +1723,12 @@ class AddCoordinationLineControl extends BaseControl {
             const currentFeature = currentData.features.find(f =>
                 f.properties.id === selectedFeature.properties.id);
             if (currentFeature) {
-                await updateFeature('coordination_lines', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
+                storeWrites.push({ type: 'coordination_lines', feature: mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)) });
             }
         }
+        // ONE read and ONE write of the map document for all of them, in one write-ahead
+        // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+        await updateFeatures(storeWrites);
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
@@ -1756,13 +1761,13 @@ class AddCoordinationLineControl extends BaseControl {
 
         const removed = [];
 
-        for (const feature of features) {
-            try {
-                await removeFeature('coordination_lines', feature.properties.id);
-                removed.push(feature.properties.id);
-            } catch (error) {
-                console.error(`Error removing coordination line ${feature.properties.id}:`, error);
-            }
+        // ONE read and ONE write of the map document for the whole selection, in one write-ahead
+        // transaction (`removeFeatures`): a loop of `removeFeature` paid both once per feature.
+        try {
+            await removeFeatures(features.map(f => ({ type: 'coordination_lines', id: f.properties.id })));
+            removed.push(...features.map(f => f.properties.id));
+        } catch (error) {
+            console.error('Error removing coordination line features:', error);
         }
 
         if (removed.length === 0) return;
@@ -1845,6 +1850,7 @@ class AddCoordinationLineControl extends BaseControl {
         const data = await source.getData();
         const upserts = [];
 
+        const storeWrites = [];
         for (const feature of features) {
             const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
             if (featureIndex === -1) continue;
@@ -1852,9 +1858,12 @@ class AddCoordinationLineControl extends BaseControl {
             // The incoming feature is COMPLETE, so it ships as an upsert.
             upserts.push(feature);
             if (save) {
-                await updateFeature('coordination_lines', feature);
+                storeWrites.push({ type: 'coordination_lines', feature });
             }
         }
+        // ONE read and ONE write of the map document for all of them, in one write-ahead
+        // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+        await updateFeatures(storeWrites);
 
         if (upserts.length > 0) {
             dispatcher.add(upserts);

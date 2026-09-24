@@ -2,8 +2,8 @@
 import { captureFeatureCreation } from '@tools/helpers/feature-creation-context.js';
 
 import {
-  updateFeature,
-  removeFeature,
+  updateFeatures,
+  removeFeatures,
   storeImage,
   getActiveLayerIdSync
 } from "../../store";
@@ -898,6 +898,7 @@ class AddImageControl extends BaseControl {
     await imagesSource(this.map).flush();
     const currentData = await this.map.getSource("images").getData();
 
+    const storeWrites = [];
     for (const selectedFeature of features) {
       if (
         this.hasFeatureChanged(
@@ -910,10 +911,13 @@ class AddImageControl extends BaseControl {
         );
 
         if (currentFeature) {
-          await updateFeature("images", mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
+          storeWrites.push({ type: "images", feature: mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)) });
         }
       }
     }
+    // ONE read and ONE write of the map document for all of them, in one write-ahead
+    // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+    await updateFeatures(storeWrites);
   };
 
   discardChangeFeatures = async (features, initialPropertiesMap) => {
@@ -929,20 +933,21 @@ class AddImageControl extends BaseControl {
   deleteFeatures = async (features) => {
     if (features.length === 0) return;
 
-    for (const feature of features) {
-      try {
+    // ONE read and ONE write of the map document for the whole selection, in one write-ahead
+    // transaction (`removeFeatures`): a loop of `removeFeature` paid both once per feature.
+    try {
+      await removeFeatures(features.map((f) => ({ type: "images", id: f.properties.id })));
+
+      // Release the MapLibre image (GPU texture). The IndexedDB blob is released
+      // later, on undo-history eviction, so an Undo can still restore the image.
+      for (const feature of features) {
         const featureId = feature.properties.id;
-
-        await removeFeature("images", featureId);
-
-        // Release the MapLibre image (GPU texture). The IndexedDB blob is released
-        // later, on undo-history eviction, so an Undo can still restore the image.
         if (this.map.hasImage(featureId)) {
           this.map.removeImage(featureId);
         }
-      } catch (error) {
-        console.error(`Error removing image ${feature.properties.id}:`, error);
       }
+    } catch (error) {
+      console.error("Error removing image features:", error);
     }
 
     // Removal by promoted key, with no collection read (the read used to sit INSIDE the loop, so
@@ -993,6 +998,7 @@ class AddImageControl extends BaseControl {
       const data = await this.map.getSource("images").getData();
       const currentZoom = this.map.getZoom();
 
+      const storeWrites = [];
       for (const feature of features) {
         const featureIndex = data.features.findIndex(
           (f) => f.properties.id === feature.properties.id
@@ -1022,10 +1028,13 @@ class AddImageControl extends BaseControl {
             const featureToUpdate = onlyUpdateProperties
               ? data.features[featureIndex]
               : feature;
-            await updateFeature("images", featureToUpdate);
+            storeWrites.push({ type: "images", feature: featureToUpdate });
           }
         }
       }
+      // ONE read and ONE write of the map document for all of them, in one write-ahead
+      // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+      await updateFeatures(storeWrites);
 
       await dispatcher.flush();
       this.updateSelectionManagerFeatures(features);

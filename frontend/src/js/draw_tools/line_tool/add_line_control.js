@@ -7,7 +7,7 @@
  * @module draw_tools/line_tool/add_line_control
  */
 
-import { updateFeature, removeFeature, getActiveLayerIdSync, getFeatureById, getStateManager, getCurrentMapNameSync } from '../../store';
+import { updateFeature, updateFeatures, removeFeatures, getActiveLayerIdSync, getFeatureById, getStateManager, getCurrentMapNameSync } from '../../store';
 import { saveCreatedFeature } from '@tools/helpers/feature-creation-context.js';
 import { getActiveScope } from '@store/atlas-namespace.js';
 import { mapResolver } from '@store/services/map-resolver.service.js';
@@ -1571,16 +1571,20 @@ class AddLineControl extends BaseControl {
         const currentData = await this.map.getSource('lines').getData();
         let _hasChanges = false;
 
+        const storeWrites = [];
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
                 const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    await updateFeature('lines', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
+                    storeWrites.push({ type: 'lines', feature: mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)) });
                     _hasChanges = true;
                 }
             }
         }
+        // ONE read and ONE write of the map document for all of them, in one write-ahead
+        // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+        await updateFeatures(storeWrites);
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
@@ -1598,16 +1602,14 @@ class AddLineControl extends BaseControl {
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
 
-        for (const feature of features) {
-            try {
-                const featureId = feature.properties.id;
+        for (const feature of features) this.removeFeatureMeasurement(feature.properties.id);
 
-                this.removeFeatureMeasurement(featureId);
-
-                await removeFeature('lines', featureId);
-            } catch (error) {
-                console.error(`Error removing line ${feature.properties.id}:`, error);
-            }
+        // ONE read and ONE write of the map document for the whole selection, in one write-ahead
+        // transaction (`removeFeatures`): a loop of `removeFeature` paid both once per feature.
+        try {
+            await removeFeatures(features.map(f => ({ type: 'lines', id: f.properties.id })));
+        } catch (error) {
+            console.error('Error removing line features:', error);
         }
 
         // Removal by promoted key, with no collection read (the read used to sit INSIDE the loop,
@@ -1650,6 +1652,7 @@ class AddLineControl extends BaseControl {
             const dispatcher = linesSource(this.map);
             await dispatcher.flush();
             const data = await this.map.getSource('lines').getData();
+            const storeWrites = [];
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
@@ -1664,10 +1667,13 @@ class AddLineControl extends BaseControl {
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ?
                             data.features[featureIndex] : feature;
-                        await updateFeature('lines', featureToUpdate);
+                        storeWrites.push({ type: 'lines', feature: featureToUpdate });
                     }
                 }
             }
+            // ONE read and ONE write of the map document for all of them, in one write-ahead
+            // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+            await updateFeatures(storeWrites);
 
             await dispatcher.flush();
             this.updateSelectionManagerFeatures(features);

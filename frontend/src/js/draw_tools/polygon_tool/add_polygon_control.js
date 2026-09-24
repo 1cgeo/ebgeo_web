@@ -1,6 +1,6 @@
 // Path: js/draw_tools/polygon_tool/add_polygon_control.js
 
-import { updateFeature, removeFeature, getActiveLayerIdSync, getStateManager, getCurrentMapNameSync } from '../../store';
+import { updateFeature, updateFeatures, removeFeatures, getActiveLayerIdSync, getStateManager, getCurrentMapNameSync } from '../../store';
 import { saveCreatedFeature } from '@tools/helpers/feature-creation-context.js';
 import { getActiveScope } from '@store/atlas-namespace.js';
 import { mapResolver } from '@store/services/map-resolver.service.js';
@@ -1215,15 +1215,19 @@ class AddPolygonControl extends BaseControl {
         await polygonsSource(this.map).flush();
         const currentData = await this.map.getSource('polygons').getData();
 
+        const storeWrites = [];
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
                 const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    await updateFeature('polygons', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
+                    storeWrites.push({ type: 'polygons', feature: mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)) });
                 }
             }
         }
+        // ONE read and ONE write of the map document for all of them, in one write-ahead
+        // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+        await updateFeatures(storeWrites);
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
@@ -1241,12 +1245,12 @@ class AddPolygonControl extends BaseControl {
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
 
-        for (const feature of features) {
-            try {
-                await removeFeature('polygons', feature.properties.id);
-            } catch (error) {
-                console.error(`Error removing polygon ${feature.properties.id}:`, error);
-            }
+        // ONE read and ONE write of the map document for the whole selection, in one write-ahead
+        // transaction (`removeFeatures`): a loop of `removeFeature` paid both once per feature.
+        try {
+            await removeFeatures(features.map(f => ({ type: 'polygons', id: f.properties.id })));
+        } catch (error) {
+            console.error('Error removing polygon features:', error);
         }
 
         // Removal by promoted key, with no collection read (the read used to sit INSIDE the loop,
@@ -1301,6 +1305,7 @@ class AddPolygonControl extends BaseControl {
             const dispatcher = polygonsSource(this.map);
             await dispatcher.flush();
             const data = await this.map.getSource('polygons').getData();
+            const storeWrites = [];
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
@@ -1322,10 +1327,13 @@ class AddPolygonControl extends BaseControl {
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ?
                             data.features[featureIndex] : feature;
-                        await updateFeature('polygons', featureToUpdate);
+                        storeWrites.push({ type: 'polygons', feature: featureToUpdate });
                     }
                 }
             }
+            // ONE read and ONE write of the map document for all of them, in one write-ahead
+            // transaction (`updateFeatures`), right where the loop's per-feature calls ran.
+            await updateFeatures(storeWrites);
 
             await dispatcher.flush();
             syncLabelSource(this.map, 'polygon-labels', data);
