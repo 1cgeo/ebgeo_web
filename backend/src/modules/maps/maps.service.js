@@ -7,6 +7,7 @@ import { NotFoundError, ConflictError } from '../../utils/errors.js';
 import * as Q from './maps.queries.js';
 import * as SQ from '../sync/sync.queries.js';
 import { STRUCTURAL_MARKER } from '../sync/structural-marker.js';
+import { lockAtlasLog } from '../sync/atlas-log-lock.js';
 
 // Entity type of the marker operation written when a merge re-parents rows in bulk.
 // Shared contract with the frontend (STRUCTURAL_RESYNC_OPS in `store/sync/structural-markers.js`):
@@ -98,6 +99,10 @@ export async function getMapById(atlasId, mapId) {
  */
 export async function mergeMaps(atlasId, destMapId, sourceMapIds, actingUserId = null) {
   return tx(async (t) => {
+    // FIRST, before any read or write: the merge writes a marker into the log of an atlas that
+    // pushes are writing too, and its lock check below must not race a push that locks a map.
+    // See `lockAtlasLog`.
+    await lockAtlasLog(t, atlasId);
     const dest = await t.oneOrNone(Q.FIND_MAP_BY_ID, [destMapId, atlasId]);
     if (!dest) throw new NotFoundError('Map');
 

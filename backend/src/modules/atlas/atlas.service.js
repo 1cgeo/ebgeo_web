@@ -20,6 +20,7 @@ import { ensureMapLayers, readMapLayers } from '../maps/default-layer.js';
 // `sync/structural-marker.js`: sem ele o par offline reconecta, o pull incremental responde
 // vazio e ele conclui que esta em dia.
 import { STRUCTURAL_MARKER, recordStructuralMarker } from '../sync/structural-marker.js';
+import { lockAtlasLog } from '../sync/atlas-log-lock.js';
 import { normalizeSlideControls } from '../sync/slide-controls.js';
 import { normalizeEpochMs } from '../sync/temporal-config.js';
 // A PODA DE COPIA (clone e import). O predicado NAO e reimplementado aqui: quem decide e
@@ -1198,6 +1199,9 @@ export async function duplicateMap(atlasId, mapId, actingUserId = null) {
   let newMapResult;
 
   await withPreparedImageCopies(atlasId, atlasId, mapId, async (t, { imageIdMap, rows: imageRows }) => {
+    // FIRST, before any write: this transaction updates the atlas row and then writes a marker
+    // into the log of an atlas that pushes are writing too. See `lockAtlasLog`.
+    await lockAtlasLog(t, atlasId);
     const map = await t.oneOrNone(
       `SELECT * FROM maps WHERE id = $1 AND atlas_id = $2 AND deleted_at IS NULL`,
       [mapId, atlasId]

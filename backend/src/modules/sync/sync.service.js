@@ -13,9 +13,10 @@ import {
 } from './entity-conflicts.js';
 import { canonicalEntityData, buildSyncMetadata } from './entity-canonical.js';
 import { ensureMapLayers, readMapLayers, resolveDefaultFeatureLayer } from '../maps/default-layer.js';
-import { ForbiddenError, ServiceUnavailableError } from '../../utils/errors.js';
+import { ForbiddenError } from '../../utils/errors.js';
 import * as Q from './sync.queries.js';
 import { recordSpan, isTraceEnabled, TraceStage, TraceOutcome } from '../../utils/sync-trace.js';
+import { lockAtlasLog } from './atlas-log-lock.js';
 import logger from '../../utils/logger.js';
 import { PERMISSION_LEVELS } from '../../middleware/permissions.js';
 import { principalIdOrNull } from '../../utils/principal.js';
@@ -392,11 +393,6 @@ function unflatten3d360LogPayload(payload, row) {
  */
 const FEATURE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Namespace for the per-atlas advisory lock taken by pushOperations (P2). The
-// two-argument form of pg_advisory_xact_lock keys locks by (namespace, key), so
-// this constant keeps sync's lock space from colliding with any other advisory
-// lock the app may take later. Value is ASCII 'SYNC' read as int32.
-const SYNC_PUSH_LOCK_NAMESPACE = 0x53594e43;
 
 function deriveFeatureColumns(rawData) {
   if (!rawData || typeof rawData !== 'object' || !rawData.properties || typeof rawData.properties !== 'object') {
@@ -2257,21 +2253,11 @@ export async function pushOperations(atlasId, operations, userId, permission = '
     // travam o processo inteiro, inclusive /auth/login e o /health (que usa o
     // mesmo pool e ficaria pendurado na fila em vez de responder 503).
     // Falhar em 5s vira um 503 retentável em vez de uma parada global.
-    await t.none("SET LOCAL lock_timeout = '5s'");
-    try {
-      await t.one('SELECT pg_advisory_xact_lock($1, hashtext($2))', [
-        SYNC_PUSH_LOCK_NAMESPACE,
-        atlasId,
-      ]);
-    } catch (err) {
-      // 55P03 = lock_not_available (o lock_timeout acima disparou).
-      if (err && err.code === '55P03') {
-        throw new ServiceUnavailableError(
-          'Servidor ocupado processando outra sincronização deste atlas. Tente novamente.'
-        );
-      }
-      throw err;
-    }
+    //
+    // The lock has ONE definition (`lockAtlasLog`), because the push is not its only taker: the
+    // REST exceptions that write a marker into an existing atlas take the same lock, and the
+    // guarantee above holds only if EVERY writer of this atlas's log does.
+    await lockAtlasLog(t, atlasId);
 
     // A recusa POR OPERAÇÃO tem uma forma só, e ela é usada em QUATRO sítios (política,
     // consulta ao banco, violação de integridade, e o lote inteiro recusado por causa de
