@@ -302,6 +302,51 @@ export function antimeridianSafeLngSpan(lngs) {
 }
 
 /**
+ * What of a feature an extent must contain: its selection box when it has one.
+ *
+ * A feature drawn as a symbol on screen (point, text, image, military symbol, coordination
+ * measure, engineering symbol, magnetic declination) stores its drawn footprint as
+ * `properties.selectionBox`, a Polygon, while its geometry is a single position. The rule is
+ * "the box when there is one", not a list of those types: a hand-written list of the same
+ * seven had already drifted once (`SELECTION_BOX_TYPES`, 2026-09-24).
+ * @param {Object} feature - GeoJSON feature
+ * @returns {Object|null|undefined} GeoJSON geometry
+ */
+export function footprintOf(feature) {
+    const box = feature?.properties?.selectionBox;
+    return box?.type === 'Polygon' ? box : feature?.geometry;
+}
+
+/**
+ * The bounds that contain every feature's footprint, across the antimeridian: what the
+ * context menu's "Zoom para Seleção" frames. By geometry alone, a lone selected symbol was an
+ * extent of zero size, which the camera answered by zooming in until the symbol overflowed
+ * the screen, and the symbols at the edge of a wider selection were cut off.
+ * Pinned by `tests/unit/zoom-para-selecao-pela-caixa.repro.test.js`.
+ * @param {Object[]} features - GeoJSON features
+ * @returns {[[number, number], [number, number]]|null} [[west, south], [east, north]], or null
+ *   when no feature has a finite position
+ */
+export function selectionExtent(features) {
+    const lngs = [];
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const feature of features ?? []) {
+        const footprint = footprintOf(feature);
+        if (!footprint) continue;
+        for (const [x, y] of flattenPositions(footprint)) {
+            if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+            lngs.push(x);
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+        }
+    }
+    if (lngs.length === 0) return null;
+    const [west, east] = antimeridianSafeLngSpan(lngs);
+    return [[west, minY], [east, maxY]];
+}
+
+/**
  * Translate every keypoint of a temporal trajectory (`{ t, lng, lat }`) by a
  * lng/lat delta, preserving each `t` and every other field on the keypoint.
  *

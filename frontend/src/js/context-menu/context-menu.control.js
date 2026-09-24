@@ -20,7 +20,7 @@ import {
 import { EventTypes } from '@events';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { fitBounds, ANIMATION_DURATION } from '@js/map/animation.service.js';
-import { flattenPositions, antimeridianSafeLngSpan } from '@utils/geometry-utils.js';
+import { selectionExtent } from '@utils/geometry-utils.js';
 import { checkPermission } from '@store/sync/permission-guard.js';
 import {
     ClipboardMenuAction,
@@ -848,11 +848,10 @@ class ContextMenuControl {
         const newGroup = await createGroup(features);
         if (!newGroup) return;
 
-        if (this._selectionManager) {
-            this._selectionManager.deselectAllFeatures();
-            this._selectGroup(newGroup);
-            this._selectionManager.updateUI();
-        }
+        // `selectGroup` AWAITS the members' selection before refreshing the panel. The copy that
+        // lived here fired those selections without awaiting and refreshed first, so the panel
+        // saw an empty selection and closed while the features came back selected behind it.
+        await this._selectionManager?.selectGroup(newGroup);
     }
 
     async _handleCombineGroups(groupIds, ungroupedFeatures) {
@@ -866,11 +865,8 @@ class ContextMenuControl {
         const combinedGroup = await combineGroups(groupIds, ungroupedFeatures);
         if (!combinedGroup) return;
 
-        if (this._selectionManager) {
-            this._selectionManager.deselectAllFeatures();
-            this._selectGroup(combinedGroup);
-            this._selectionManager.updateUI();
-        }
+        // Same as `_handleCreateGroup`: the awaited whole-group selection keeps the panel open.
+        await this._selectionManager?.selectGroup(combinedGroup);
     }
 
     async _handleUngroup(groupId) {
@@ -881,17 +877,6 @@ class ContextMenuControl {
         if (this._selectionManager) {
             this._selectionManager.updateUI();
         }
-    }
-
-    _selectGroup(group) {
-        if (!this._selectionManager) return;
-
-        group.features.forEach(featureRef => {
-            const completeFeature = this._selectionManager.getCompleteFeatureFromSource(featureRef.type, featureRef.id);
-            if (completeFeature) {
-                this._selectionManager.toggleFeatureSelection(featureRef.type, featureRef.id, completeFeature, false);
-            }
-        });
     }
 
     // =========================================================================
@@ -1106,35 +1091,16 @@ class ContextMenuControl {
     }
 
     /**
-     * ANTIMERIDIAN: the longitude span comes from `antimeridianSafeLngSpan`, not from
-     * min/max. A selection straddling the date line used to produce west -179 / east 179,
-     * i.e. the box of the whole world mirrored, so this command framed everything EXCEPT
-     * what was selected and zoomed out until the planet fit. The fix arrived for free with
-     * the promotion of that helper out of `terrain/data-layers.manager.js`, which had the
-     * identical bug and had already paid for it.
+     * Frames every selected feature by its footprint (the selection box of a symbol, the
+     * geometry otherwise), across the antimeridian. The rule lives in `selectionExtent`
+     * (`utilities/geometry-utils.js`), which is pure and pinned by a node test.
      * @private
      */
     _handleZoomToSelection() {
-        const selectedFeatures = this._selectionManager.getAllSelectedFeatures();
-        if (selectedFeatures.length === 0) return;
+        const extent = selectionExtent(this._selectionManager.getAllSelectedFeatures());
+        if (!extent) return;
 
-        const lngs = [];
-        let minY = Infinity, maxY = -Infinity;
-
-        for (const feature of selectedFeatures) {
-            for (const [x, y] of flattenPositions(feature.geometry)) {
-                if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-                lngs.push(x);
-                if (y < minY) minY = y;
-                if (y > maxY) maxY = y;
-            }
-        }
-
-        if (lngs.length === 0) return;
-
-        const [west, east] = antimeridianSafeLngSpan(lngs);
-
-        fitBounds(this._map, [[west, minY], [east, maxY]], {
+        fitBounds(this._map, extent, {
             duration: ANIMATION_DURATION.FAST,
             padding: 80
         });
