@@ -24,6 +24,7 @@ import {
 } from './measurement-labels.js';
 import { createDistanceResultsPanel } from './measurement-results-panel.js';
 import { getControl, isCurrentMapLockedSync } from '@store';
+import { semEdicaoSync } from '@store/edicao-indisponivel.js';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { IDUtils, showToast } from '@utils';
 // Por ARQUIVO, de dois modulos folha: a contagem nao pode participar da ativacao.
@@ -279,7 +280,7 @@ export class MeasurementDistanceControl {
         this._resultsPanel = createDistanceResultsPanel({
             segmentDistances,
             totalDistance,
-            onSave: isCurrentMapLockedSync() ? null : () => this._saveAsFeature(vertices),
+            onSave: semEdicaoSync('CREATE_FEATURE') ? null : () => this._saveAsFeature(vertices),
             onClear: () => {
                 this.deactivate();
                 this.toolManager.deactivateCurrentTool();
