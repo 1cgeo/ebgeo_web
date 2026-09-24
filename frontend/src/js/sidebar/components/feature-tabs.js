@@ -219,15 +219,53 @@ export function createFeatureTabs(options) {
     // Initial render of attributes
     renderAttributesTab();
 
+    // A COLLEAGUE'S CHANGE TO THIS FEATURE'S ATTRIBUTES REDRAWS THE OPEN TAB. Only the local
+    // FEATURE_UPDATED redrew it, and a remote op emits FEATURE_MODIFIED: with the tab open, a key
+    // the colleague renamed or deleted stayed on screen, and it was the key this person would edit
+    // (measured on 2026-09-24, `tests/e2e-ui/cobertura-atributos-aba-aberta-colega.spec.js`). The
+    // redraw WAITS while a field of the tab is open, because it replaces the whole tab and the
+    // field with it; it runs when the field closes (a save redraws through FEATURE_UPDATED anyway).
+    const attributesContent = tabContents[FEATURE_TAB_IDS.ATTRIBUTES];
+    let remoteRedrawHeld = false;
+    const hasOpenField = () => Boolean(attributesContent.querySelector(
+        '.feature-attribute-key-input, .feature-attribute-value-input, .feature-attributes-inline-form'
+    ));
+    const redrawWhenIdle = () => {
+        if (hasOpenField()) {
+            remoteRedrawHeld = true;
+            return;
+        }
+        remoteRedrawHeld = false;
+        renderAttributesTab();
+    };
+    const runHeldRedraw = () => {
+        if (!remoteRedrawHeld) return;
+        setTimeout(() => { if (remoteRedrawHeld) redrawWhenIdle(); }, 0);
+    };
+    // Every way a field closes passes through one of these (blur, Enter/Escape, the cancel button).
+    for (const type of ['focusout', 'keydown', 'click']) {
+        attributesContent.addEventListener(type, runHeldRedraw);
+    }
+
+    const sameAttributes = (a, b) => JSON.stringify(a ?? {}) === JSON.stringify(b ?? {});
+
     // Subscribe to attribute updates
+    let remoteUnsubscribe = null;
     try {
         const eventBus = getEventBus();
         eventUnsubscribe = eventBus.on(EventTypes.FEATURE_UPDATED, (payload) => {
             if (payload.featureId === featureId &&
                 payload.featureType === featureType &&
                 payload.property === FeatureUpdateProperty.ATTRIBUTES) {
+                remoteRedrawHeld = false;
                 renderAttributesTab();
             }
+        });
+        remoteUnsubscribe = eventBus.on(EventTypes.FEATURE_MODIFIED, (payload) => {
+            if (payload?.featureId !== featureId) return;
+            if (sameAttributes(payload.feature?.properties?.attributes,
+                payload.previousFeature?.properties?.attributes)) return;
+            redrawWhenIdle();
         });
     } catch {
         // EventBus not available
@@ -237,6 +275,8 @@ export function createFeatureTabs(options) {
         if (eventUnsubscribe) {
             eventUnsubscribe();
         }
+        remoteUnsubscribe?.();
+        remoteRedrawHeld = false;
     }
 
     return {
