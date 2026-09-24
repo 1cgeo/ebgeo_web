@@ -32,21 +32,25 @@ Guia completo: `frontend/tests/TESTING.md`. O detalhe de cada camada mora em arq
 
 ## Before claiming done
 
-- **Logic**: `npm run lint` and `npm test` **from the repo root**, as separate
-  commands run BEFORE any commit. On one command line the lint output lands after
-  the commit already succeeded, which is not verification.
+- **Logic, every commit**: `npm run lint` and `npm run test:tocados` from the repo
+  root, as separate commands run BEFORE the commit (on one command line the lint
+  output lands after the commit already succeeded). The script picks the suite from
+  the git diff; `-- --plano` shows the choice without running anything.
+- **Everything, `npm test` at the root**: before deploy, before taking work to
+  main, and whenever `test:tocados` picks it (contract between the packages, or
+  code in both). Owner's decision of 2026-09-24.
 
 **Saiba o que o `npm test` da raiz cobra de você.** Ele encadeia TRÊS pernas:
 `test:frontend` (vitest, node puro), `test:backend` (exige PostgreSQL + PostGIS +
-superusuário) e `test:e2e`, que sobe o BACKEND REAL num `globalSetup` e roda as
-specs `tests/e2e/**` contra ele. Ou seja, o comando que a constituição chama de
-"verificação de lógica" precisa de banco no ar; sem ele a terceira perna falha por
-ambiente, não por código, e é fácil ler esse vermelho como regressão. O que ele NÃO
-roda é o Playwright (`test:e2e:ui`), que é outro comando.
+superusuário, e é 16 dos ~19 minutos) e `test:e2e`, que sobe o BACKEND REAL num
+`globalSetup`. Sem banco a perna do backend falha por ambiente, não por código. O
+que ele NÃO roda é o Playwright (`test:e2e:ui`), que é outro comando.
 
-When you only touched one package, `npm run lint:backend` / `test:backend` (or
-the `:frontend` pair) is the faster loop; just don't mistake it for the whole
-check before a commit that crosses the boundary.
+**`Test timed out` nos censos que varrem a árvore, com a `Duration` do
+`test:frontend` muito acima dos ~55 s, é carga da máquina, não código** (medido em
+2026-09-24: 11 casos a 91 s, zero a 51 s, mesmo commit). Leia a `Duration` antes
+de diagnosticar, e repita com a máquina quieta; asserção que falha não tem essa
+desculpa.
 
 `test:fast` (`--reuse-db`) **exige um alvo** e recusa a suíte completa: ele troca
 hermeticidade por tempo, e a rodada que vale antes do commit não pode fazer esse

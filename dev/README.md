@@ -33,6 +33,23 @@ cd dev/tile-privado && docker compose up -d --build
 O porquê do desenho, as decisões e o custo medido estão em
 [`docs/wiki/tile-privado.md`](../docs/wiki/tile-privado.md).
 
+## `testes-tocados.mjs`
+
+A verificação de todo commit (`npm run test:tocados`, da raiz): lê o `git diff` (o que não foi
+commitado, os arquivos novos e os commits que ainda não subiram) e roda só o que a mudança
+pede. Frontend, documentação e instrução de agente vão para `test:frontend`, que é onde moram os
+guardas deles; backend vai para os testes que MIRAM os arquivos tocados, numa rodada hermética só
+(o grafo de import cortado em `src/app.js`, por onde tudo alcança tudo, mais os testes de
+integração cujo nome carrega o módulo); contrato entre os pacotes, ou código dos dois, vai para o
+`npm test` inteiro. `-- --plano` mostra a decisão sem rodar nada; `-- --desde <ref>` troca a
+base. Medido em 2026-09-24 sobre os 272 arquivos de `backend/src`: 210 saem com alvo (mediana de
+13 arquivos de teste, cerca de 20 s), 31 pedem a raiz por serem contrato e 31 a suíte inteira do
+backend, por serem centrais demais.
+
+Ele não substitui a rodada completa antes de deploy e de levar à main, e o cabeçalho do arquivo
+diz os dois buracos que só ela fecha. A regra de quando usar cada um mora na constituição
+(`CLAUDE.md`, "Não negociável"); a decisão é de 2026-09-24.
+
 ## `gerar-golden-busca.mjs` + `tune-busca.mjs`
 
 Conjunto dourado e calibrador de `GET /nomes/busca`. Exigem um acervo carregado.

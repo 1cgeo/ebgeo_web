@@ -40,8 +40,9 @@ vermelho ERRADO (schema defasado reprovando código certo) e o verde errado (có
 que só passa porque a coluna nova ainda não existe); pular o `c8` reporta verde sem
 o piso. Nenhum dos dois se anuncia: quem rodou vê a mesma linha de sucesso da rodada
 hermética, e é aí que o atalho deixa de ser troca informada e vira medição falsa. A
-rodada que vale antes do commit é `npm test` sem argumento, no pacote, ou o
-`npm test` da raiz.
+rodada que vale antes do commit é HERMÉTICA: o `npm run test:tocados` da raiz (que
+roda os testes mirados numa rodada hermética, sem `--reuse-db`), o `npm test` sem
+argumento no pacote, ou o `npm test` da raiz.
 
 **DUAS RODADAS DO BACKEND NA MESMA MÁQUINA SE ATROPELAM, e o vermelho que sai disso
 se lê como regressão** (medido em 2026-08-29). Elas compartilham o banco

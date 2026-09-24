@@ -22,6 +22,7 @@
     "test:frontend": "npm test --prefix frontend",
     "test:backend": "npm test --prefix backend",
     "test:all": "npm run test",
+    "test:tocados": "node dev/testes-tocados.mjs",
     "test:watch": "npm run test:watch --prefix frontend",
     "test:coverage": "npm run test:coverage:frontend && npm run test:coverage:backend",
     "test:e2e": "npm run test:e2e --prefix frontend",
