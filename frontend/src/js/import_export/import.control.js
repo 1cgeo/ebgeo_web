@@ -12,6 +12,7 @@ import { userDataManager } from '@js/user_data';
 import { ensureTurf } from '@utils/turf-loader.js';
 import { extractTemporalProperties, buildTrajectoryFromGpxFeature, extractGpxTimes, sanitizeImportedTrajectory, describeTemporalIssues } from '@js/temporal/temporal-import.js';
 import { serverMessageOr } from '@utils/request-failure.js';
+import { decodificarTexto, dbfPrecisaDeCpg, CODIFICACAO_DE_RESERVA } from './texto-de-arquivo.js';
 
 /** Maps source type to Portuguese display name for imported features. */
 const TYPE_DISPLAY_NAMES = {
@@ -333,12 +334,16 @@ class AddImportControl {
         }
     }
 
+    // THE TEXT READERS READ BYTES and decode them with `decodificarTexto`, never with
+    // `readAsText`, which is UTF-8 whatever the file is: a Windows-1252 CSV, DBF or KML came out
+    // with U+FFFD in place of every accented letter. See `texto-de-arquivo.js`.
+
     async readGeoJSON(file) {
         return this._processFileWithReader(
             file,
-            'text',
-            (content) => {
-                const geoJSON = JSON.parse(content);
+            'arraybuffer',
+            (buffer) => {
+                const geoJSON = JSON.parse(decodificarTexto(buffer));
                 if (!geoJSON.features || !Array.isArray(geoJSON.features)) {
                     throw new Error('Estrutura GeoJSON inválida');
                 }
@@ -353,9 +358,11 @@ class AddImportControl {
             file,
             'arraybuffer',
             async (buffer) => {
-                // shp() handles everything: ZIP extraction, .prj reprojection,
-                // .cpg encoding, .dbf attributes, and combining into GeoJSON
-                const result = await shp(buffer);
+                // shp() handles ZIP extraction, .prj reprojection, .cpg encoding, .dbf
+                // attributes, and combining into GeoJSON. What it does NOT handle is a DBF with
+                // no .cpg that is not UTF-8 (the usual Brazilian DBF): it decodes it as UTF-8
+                // anyway. So such a DBF gets a .cpg naming Windows-1252 before the reader runs.
+                const result = await shp(await this._completarCpgDosDbf(buffer));
 
                 // Multiple shapefiles in ZIP → returns array; pick first
                 const geoJSON = Array.isArray(result) ? result[0] : result;
@@ -370,11 +377,39 @@ class AddImportControl {
         );
     }
 
+    /**
+     * Gives every DBF of a shapefile ZIP that has no `.cpg` and is not UTF-8 a `.cpg` naming
+     * Windows-1252, so the reader decodes it right. Returns the ZIP unchanged (same buffer) when
+     * no DBF needs it, which is the common case and costs one ZIP listing.
+     * @param {ArrayBuffer} buffer - The ZIP.
+     * @returns {Promise<ArrayBuffer>}
+     * @private
+     */
+    async _completarCpgDosDbf(buffer) {
+        const zip = await JSZip.loadAsync(buffer);
+        const nomes = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
+        const temCpg = new Set(nomes
+            .filter((n) => n.toLowerCase().endsWith('.cpg'))
+            .map((n) => n.slice(0, -4).toLowerCase()));
+        let mudou = false;
+        for (const nome of nomes) {
+            if (!nome.toLowerCase().endsWith('.dbf')) continue;
+            const base = nome.slice(0, -4);
+            if (temCpg.has(base.toLowerCase())) continue;
+            if (!dbfPrecisaDeCpg(await zip.file(nome).async('uint8array'))) continue;
+            zip.file(`${base}.cpg`, CODIFICACAO_DE_RESERVA);
+            mudou = true;
+        }
+        if (!mudou) return buffer;
+        return zip.generateAsync({ type: 'arraybuffer', compression: 'STORE' });
+    }
+
     async readKML(file) {
         return this._processFileWithReader(
             file,
-            'text',
-            (content) => {
+            'arraybuffer',
+            (buffer) => {
+                const content = decodificarTexto(buffer, { xml: true });
                 const kmlDoc = new DOMParser().parseFromString(content, 'text/xml');
                 // KML gx:Track carries per-vertex times like GPX → turn timed tracks
                 // into moving points too (no-op for untimed KML geometry).
@@ -396,7 +431,7 @@ class AddImportControl {
                     throw new Error('Arquivo KML não encontrado no KMZ');
                 }
 
-                const kmlContent = await kmlFile.async('string');
+                const kmlContent = decodificarTexto(await kmlFile.async('uint8array'), { xml: true });
                 const kmlDoc = new DOMParser().parseFromString(kmlContent, 'text/xml');
                 return this._convertTimedTracksToMovingPoints(toGeoJSON.kml(kmlDoc));
             },
@@ -407,8 +442,9 @@ class AddImportControl {
     async readGPX(file) {
         return this._processFileWithReader(
             file,
-            'text',
-            (content) => {
+            'arraybuffer',
+            (buffer) => {
+                const content = decodificarTexto(buffer, { xml: true });
                 const gpxDoc = new DOMParser().parseFromString(content, 'text/xml');
                 const geoJSON = toGeoJSON.gpx(gpxDoc);
                 return this._convertTimedTracksToMovingPoints(geoJSON);

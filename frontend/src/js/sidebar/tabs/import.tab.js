@@ -26,6 +26,7 @@ import { SIDEBAR_TABS } from '@sidebar/sidebar.constants.js';
 import { getStateManager } from '@store/services.js';
 import { serverMessageOr } from '@utils/request-failure.js';
 import { carregarSobDemanda } from '@utils/carga-sob-demanda.js';
+import { decodificarTexto } from '@js/import_export/texto-de-arquivo.js';
 
 /**
  * Import format configurations.
@@ -405,7 +406,9 @@ export class ImportTab {
         }
 
         try {
-            const csvText = await file.text();
+            // BYTES, not `file.text()`: that is UTF-8 whatever the file is, and a CSV saved by
+            // Excel in pt-BR is Windows-1252, so every accented letter became U+FFFD.
+            const csvText = decodificarTexto(await file.arrayBuffer());
 
             if (!csvText.trim()) {
                 showError('Arquivo CSV vazio');
