@@ -23,6 +23,7 @@ import { apiClient } from '@store/sync/api-client.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
 import { sectionHeader, ICON_CONFIG, failureState } from './admin-dom.js';
 import { serverMessageOr } from '@utils/request-failure.js';
+import { bloqueadaPorConteudoMisto, fraseDeConteudoMisto } from './conteudo-misto.js';
 
 /**
  * Placeholder for the primary-server field: the address the BACKEND ships as the default of
@@ -403,8 +404,21 @@ class ConfigTab {
             }
 
             const servicesDiff = {};
-            if (tileUrl.value.trim() !== (eff.services?.tileServerUrl ?? '')) {
-                servicesDiff.tileServerUrl = tileUrl.value.trim();
+            // The two servers below are FETCHED by every browser of the deploy: an `http://` one is
+            // blocked as mixed content on an https page, silently (see `conteudo-misto.js`).
+            const recusarConteudoMisto = (campo) => {
+                const recusa = fraseDeConteudoMisto(campo);
+                error.textContent = recusa;
+                error.hidden = false;
+                showError(recusa);
+            };
+            const tileVal = tileUrl.value.trim();
+            if (tileVal !== (eff.services?.tileServerUrl ?? '')) {
+                if (bloqueadaPorConteudoMisto(tileVal, globalThis.location?.protocol)) {
+                    recusarConteudoMisto('O servidor de tiles da grade UTM');
+                    return;
+                }
+                servicesDiff.tileServerUrl = tileVal;
             }
             const meteoVal = meteoUrl.value.trim();
             if (meteoVal !== (eff.services?.meteorologiaUrl ?? '')) {
@@ -416,6 +430,10 @@ class ConfigTab {
                     error.textContent = recusa;
                     error.hidden = false;
                     showError(recusa);
+                    return;
+                }
+                if (bloqueadaPorConteudoMisto(meteoVal, globalThis.location?.protocol)) {
+                    recusarConteudoMisto('A fonte da previsão meteorológica');
                     return;
                 }
                 servicesDiff.meteorologiaUrl = meteoVal;
