@@ -894,7 +894,9 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // `store/sync/copia-no-servidor-phrases.js` (zero imports), through which "Duplicar" waits
         // for this computer's pending sends before asking the server for a copy, so a picture
         // placed a second earlier is not left out of it.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(805);
+        // 806: `store/sync/slide-shape.js`, which strips the server's snake_case columns from a
+        // slide coming back, so a later edit of its base layer, timeline or map reaches the server.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(806);
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
@@ -939,7 +941,9 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
 
         // arriving (photos 2b/2c, composite batches); it is re-measured and tightened when it closes.
 
-        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(12020);
+        // 12020 -> 12060 the same morning: 12029 kB measured with the locked-active-layer refusal, the
+        // slide shape leaf and the batched remote runs. Still wide on purpose until the lot closes.
+        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(12060);
     });
 
     it('seguir `import()` de fato acrescenta grafo, e é isso que prova a regex dinâmica', () => {
