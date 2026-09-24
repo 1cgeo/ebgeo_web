@@ -145,6 +145,11 @@ describeOrSkip('o atlas some com trabalho não enviado do colega', () => {
             if (semRede) ws.close();
             else ws.connectToServer();
         });
+        // O ENVIO TAMBÉM FICA SEM REDE. Recusar só o socket não segura o envio no Firefox: medido em
+        // 2026-09-24, o ponto subiu por POST /sync 300 ms depois de desenhado (200, linha no
+        // PostgreSQL) e antes da lixeira, e a saída sem resgate estava certa, porque não havia mais
+        // nada a resgatar. Sem rede é sem as duas coisas, e é esse o caso que este teste cobra.
+        await pageB.context().route('**/api/v1/atlas/*/sync', (route) => (semRede ? route.abort() : route.continue()));
         await pageB.evaluate(async () => {
             const { wsClient } = await import('/src/js/store/sync/ws-client.js');
             wsClient._socket?.close();

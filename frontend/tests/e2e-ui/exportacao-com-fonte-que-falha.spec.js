@@ -129,7 +129,11 @@ describeOrSkip('exportação com uma fonte do estilo que falha', () => {
             });
             return { status: res.status, json: await res.json().catch(() => null) };
         };
-        const BASE = 'http://127.0.0.1:9/tiles';
+        // NÃO A PORTA 9: ela está na lista de portas proibidas do Fetch, e o Firefox recusa o pedido
+        // antes de o Playwright vê-lo (medido em 2026-09-24: fonte no estilo, zero eventos de
+        // pedido em 15 s), enquanto o Chromium deixa a rota interceptar antes. A rota atende tudo,
+        // então a porta só precisa ser permitida, não viva.
+        const BASE = 'http://127.0.0.1:65531/tiles';
         expect((await api('PUT', '/config/admin', { services: { tileServerUrl: BASE } })).status).toBeLessThan(300);
         const camada = await api('PUT', '/data-layers/limites-municipais', {
             config: { source: { type: 'vector', url: `${BASE}/municipios` }, sourceLayer: 'municipios' },
