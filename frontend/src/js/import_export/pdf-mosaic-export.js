@@ -30,7 +30,7 @@ import {
     drawMosaicTileBorder,
     drawMosaicCartographicOverlay,
 } from './pdf-cartographic-elements.js';
-import { transferMapImages, correctZoomInvariantFeatures } from './export-utils.js';
+import { transferMapImages, correctZoomInvariantFeatures, repaintOnSourceError } from './export-utils.js';
 import { parseScaleDenom, MOSAIC_BORDER_MM, MOSAIC_OVERLAP_MM } from './pdf-export.constants.js';
 import { maplibregl } from '@js/map/maplibre.js';
 
@@ -168,6 +168,8 @@ export async function exportMosaicPdf(config) {
             zoomLevelsToOverscale: undefined,
         });
 
+        // Before the `load` await: see the helper for the hang it prevents.
+        repaintOnSourceError(hiddenMap);
         await new Promise((resolve) => hiddenMap.once('load', resolve));
         transferMapImages(map, hiddenMap);
 

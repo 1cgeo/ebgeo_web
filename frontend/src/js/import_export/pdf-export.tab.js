@@ -12,6 +12,7 @@ import { carregarSobDemanda } from '@utils/carga-sob-demanda.js'
 import {
     correctZoomInvariantFeatures,
     transferMapImages,
+    repaintOnSourceError,
     createExportProgressModal,
     getCleanMapStyle,
 } from './export-utils.js'
@@ -1048,6 +1049,8 @@ export default class PDFExportTab {
                 // imagem exportada deixaria de bater com a da tela.
                 zoomLevelsToOverscale: undefined,
             });
+            // Before the `idle` await below: see the helper for the hang it prevents.
+            repaintOnSourceError(hiddenMap);
 
             this.updateProgress(40, 'Transferindo recursos...');
 

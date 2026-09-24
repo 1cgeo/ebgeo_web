@@ -21,6 +21,7 @@ import { showError } from '@utils/toast_service.js';
 import {
     correctZoomInvariantFeatures,
     transferMapImages,
+    repaintOnSourceError,
     createExportProgressModal,
     getCleanMapStyle,
 } from './export-utils.js';
@@ -559,6 +560,9 @@ export class GarminKmzExport {
                 // imagem exportada deixaria de bater com a da tela.
                 zoomLevelsToOverscale: undefined,
             });
+
+            // Before the `idle` awaits below: see the helper for the hang it prevents.
+            repaintOnSourceError(hiddenMap);
 
             // Transfer custom images
             transferMapImages(this.map, hiddenMap);

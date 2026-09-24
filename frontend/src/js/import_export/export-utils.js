@@ -267,6 +267,33 @@ export function transferMapImages(sourceMap, targetMap) {
     }
 }
 
+/**
+ * Keeps an off-screen export map rendering past a source whose TileJSON FAILS to load.
+ *
+ * Call it right after constructing the map, before awaiting `load` or `idle` on it. Without it,
+ * those awaits can hang forever: a vector, raster or raster-dem source whose TileJSON request
+ * fails marks itself loaded and fires `error`, but no `data` event, so MapLibre schedules no new
+ * frame. When that failure is the LAST thing the off-screen map was waiting for, the map has
+ * already stopped rendering, never re-evaluates `loaded()`, and never fires `load` nor `idle`.
+ * The style of the live map carries every catalog source, visible or not, so a single tile
+ * server that is down (or a placeholder URL left by the catalog seed) froze the PDF export on
+ * "Enquadrando área..." with no error. One repaint per failure is what lets MapLibre see the
+ * settled source and fire the events. Measured in the browser, see
+ * `tests/e2e-ui/exportacao-com-fonte-que-falha.spec.js`.
+ *
+ * The listener dies with the map (`remove()`), which every exporter already calls.
+ *
+ * @param {maplibregl.Map} map - The off-screen map of an export.
+ * @returns {void}
+ */
+export function repaintOnSourceError(map) {
+    map.on('error', (event) => {
+        // A listener silences MapLibre's own console.error for the event; keep it visible.
+        console.warn('Export map: a source failed to load:', event?.error?.message ?? event);
+        map.triggerRepaint();
+    });
+}
+
 // ===== EXPORT PROGRESS MODAL =====
 
 /**
