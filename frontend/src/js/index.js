@@ -46,7 +46,9 @@ import {
     remoteMountWitness,
     switchToNewLocalAtlas,
     switchAtlas,
+    confirmDiscardingRescuedWork,
 } from './account/open-atlas.service.js';
+import { localAtlasAdoptingRemote, releaseAdoptedLocalAtlas } from '@store/local-atlas.api.js';
 import { parseAtlasLink, setPendingAtlasLink, clearAtlasUrl } from './deep-link/atlas-link.js';
 import {
     publicLinkFailureNotice, shouldForgetPublicLink, publicLinkOpenedWithAccountNotice,
@@ -775,7 +777,6 @@ async function openPublicAtlasFromUrl(link = new URLSearchParams(window.location
     }
 
     try {
-        apiClient.setEphemeralToken(atlas.publicToken);
         // Now the claim, and it still precedes every destructive step below.
         // A TESTEMUNHA, pelo mesmo motivo dos outros dois sítios destrutivos: `granted` sozinho é
         // concedido por AUSÊNCIA DE PROVA (o settle ouve silêncio e conclui que está só), e três
@@ -794,6 +795,21 @@ async function openPublicAtlasFromUrl(link = new URLSearchParams(window.location
             deferAtlasOpen(() => openPublicAtlasFromUrl(link));
             return true;
         }
+        // THE RESCUE QUESTION, the same one `openRemoteAtlas` asks, and for the same reason: a slot
+        // rescued by `adoptRemoteAtlasAsLocal` IS the `remote-<atlasId>` namespace this visit is
+        // about to empty. Without it, an edit made in the rescued local atlas after the rescue was
+        // erased by opening the public link of the same atlas, silently (the queue keeps only what
+        // was pending at the rescue). Asked after the claim and before anything is written, so
+        // "Cancelar" costs nothing and leaves the tab on the atlas it had mounted.
+        const rescued = await localAtlasAdoptingRemote(atlas.id);
+        if (rescued && !await confirmDiscardingRescuedWork(rescued)) {
+            syncAtlasLockKey();
+            forgetPublicAtlasUrl();
+            return true;
+        }
+        // The ephemeral token only once the visit is really going ahead: set before the question,
+        // a "Cancelar" would leave the visitor's credential in memory with no visit to use it.
+        apiClient.setEphemeralToken(atlas.publicToken);
         // The namespace, before the first write into it. A public visit is READ-only for the user
         // and ephemeral by contract, but on disk it is server data like any other: it has to own
         // `ebgeo_*__remote-<atlasId>` and be in the remote registry, or the logged-out purge (which
@@ -801,10 +817,14 @@ async function openPublicAtlasFromUrl(link = new URLSearchParams(window.location
         // Same reason as `openRemoteAtlas` for coming before the wipe: the claim above already
         // names this atlas, so this is the only namespace this tab may empty.
         await activateRemoteAtlas(atlas.id);
+        // The rescue's claim goes only after the remote one is registered, as in `openRemoteAtlas`:
+        // a crash in between leaves the namespace claimed twice, never by nobody.
+        if (rescued) await releaseAdoptedLocalAtlas(atlas.id);
         // `markLocal: false`: this visit mounts a REMOTE atlas two lines down, and the marker is
         // global to the installation. Announcing LOCAL in between is a window in which another
-        // tab reads a marker that contradicts what this one has mounted.
-        await clearAllDataStore({ markLocal: false });
+        // tab reads a marker that contradicts what this one has mounted. A confirmed discard of a
+        // rescue also empties the queue, which is what "Apagar e abrir" means at the other door.
+        await clearAllDataStore({ markLocal: false, clearQueue: Boolean(rescued) });
         await markStoreRemote(atlas.id);
         await syncEngine.connectPublic(atlas.id);
         await activateAtlasInitialMap();

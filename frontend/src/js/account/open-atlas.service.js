@@ -565,11 +565,17 @@ export async function enterLocalAtlasOnBoot() {
  * server project stopped touching the local atlas (see the fileoverview). This one survives it
  * precisely because here the two namespaces ARE the same ten databases.
  *
+ * EXPORTED FOR THE OTHER DOOR, the anonymous public visit (`openPublicAtlasFromUrl`, `index.js`),
+ * which mounts and empties the same `remote-<atlasId>` namespace without going through
+ * `openRemoteAtlas`. Until 2026-09-23 it asked nothing, and an edit made in the rescued local atlas
+ * after the rescue (which no queue carries) was erased by opening the public link of the same
+ * atlas. Repro: `tests/e2e-ui/visita-publica-poupa-resgate.repro.spec.js`.
+ *
  * @param {import('@store/local-atlas.api.js').LocalAtlasEntry} rescued - The local slot claiming
  *   this atlas's namespace.
  * @returns {Promise<boolean>} True when the user chose to discard the rescue and open.
  */
-async function confirmDiscardingRescuedWork(rescued) {
+export async function confirmDiscardingRescuedWork(rescued) {
     const choice = await showChoice('Este atlas tem trabalho guardado neste computador', {
         message:
             `Quando sua sessão caiu, as alterações não enviadas foram guardadas aqui como o atlas `
