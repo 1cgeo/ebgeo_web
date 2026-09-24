@@ -503,7 +503,8 @@ class ContextMenuControl {
                 id: f.properties.id
             }));
 
-            await moveFeaturesToLayer(featureRefs, targetLayerId);
+            // Refused by the store (it already said why): nothing is painted and nothing announced.
+            if (!(await moveFeaturesToLayer(featureRefs, targetLayerId))) return;
 
             for (const feature of features) {
                 const storageType = feature.properties.source + 's';

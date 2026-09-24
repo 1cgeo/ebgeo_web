@@ -402,3 +402,80 @@ describe('moveFeaturesToLayer - sync', () => {
         expect(logFeatureOperation).not.toHaveBeenCalled();
     });
 });
+
+
+// ============================================================================
+// Travas de cliente: camada, grupo e feição (2026-09-24)
+// ============================================================================
+//
+// O arrasto na árvore de camadas movia feição PARA e DE camada travada, no servidor, para o Dono e
+// o Editor (medido com dois navegadores). A recusa mora aqui, no funil das duas portas (arrasto e
+// menu de contexto). Controle negativo: com `refuseLockedLayerMove` devolvendo sempre falso, os
+// três casos de recusa reprovam e o de controle continua verde.
+
+describe('moveFeaturesToLayer recusa o que uma trava de cliente segura', () => {
+    const camadas = new Map([
+        ['layer-A', { id: 'layer-A', locked: false }],
+        ['layer-B', { id: 'layer-B', locked: false }],
+        ['travada', { id: 'travada', locked: true }],
+    ]);
+    let grupoTravado = null;
+
+    beforeEach(() => {
+        grupoTravado = null;
+        setFeatureDependencies({
+            groupManager: {
+                removeFeatureFromAllGroups: vi.fn(),
+                getFeatureGroup: (type, id) => (grupoTravado && grupoTravado.ids.includes(id) ? { locked: true } : null),
+            },
+            layerManager: {
+                getLayerById: (id) => camadas.get(id) || null,
+                getActiveLayerIdSync: () => 'layer-A',
+                isFeatureEffectivelyLocked: (f) => camadas.get(f?.properties?.layerId)?.locked === true,
+            },
+        });
+    });
+
+    it('PARA camada travada: recusa, nada muda no documento, e a frase diz destino', async () => {
+        mockMapData.value.features.points.push(makeFeature('p1', 'point', { layerId: 'layer-A' }));
+        const result = await moveFeaturesToLayer([{ type: 'point', id: 'p1' }], 'travada');
+        expect(result).toBe(false);
+        expect(updateMapDataCompat).not.toHaveBeenCalled();
+        expect(mockMapData.value.features.points[0].properties.layerId).toBe('layer-A');
+        expect(emitStoreError).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+            operation: 'moveFeaturesToLayer', reason: 'layer_locked',
+            message: expect.stringMatching(/^A camada de destino está bloqueada./),
+        }));
+    });
+
+    it('DE camada travada: recusa nomeando a camada', async () => {
+        mockMapData.value.features.points.push(makeFeature('p1', 'point', { layerId: 'travada' }));
+        const result = await moveFeaturesToLayer([{ type: 'point', id: 'p1' }], 'layer-B');
+        expect(result).toBe(false);
+        expect(mockMapData.value.features.points[0].properties.layerId).toBe('travada');
+        expect(emitStoreError).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+            message: expect.stringMatching(/^Camada bloqueada./),
+        }));
+    });
+
+    it('membro de GRUPO travado e feição bloqueada também não saem', async () => {
+        mockMapData.value.features.points.push(
+            makeFeature('g1', 'point', { layerId: 'layer-A' }),
+            makeFeature('b1', 'point', { layerId: 'layer-A', bloqueado: true }),
+        );
+        grupoTravado = { ids: ['g1'] };
+        expect(await moveFeaturesToLayer([{ type: 'point', id: 'g1' }], 'layer-B')).toBe(false);
+        expect(await moveFeaturesToLayer([{ type: 'point', id: 'b1' }], 'layer-B')).toBe(false);
+        expect(updateMapDataCompat).not.toHaveBeenCalled();
+        const mensagens = emitStoreError.mock.calls.map(([, payload]) => payload.message);
+        expect(mensagens).toEqual([expect.stringMatching(/^Grupo bloqueado./), expect.stringMatching(/^Feição bloqueada./)]);
+    });
+
+    it('CONTROLE: entre duas camadas livres, move e grava', async () => {
+        mockMapData.value.features.points.push(makeFeature('p1', 'point', { layerId: 'layer-A' }));
+        const result = await moveFeaturesToLayer([{ type: 'point', id: 'p1' }], 'layer-B');
+        expect(result).toBe(true);
+        expect(updateMapDataCompat).toHaveBeenCalledOnce();
+        expect(emitStoreError).not.toHaveBeenCalled();
+    });
+});

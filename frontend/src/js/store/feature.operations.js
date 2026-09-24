@@ -30,7 +30,7 @@ import { applyGeneratedBitmap } from '../layers/bitmap-version.js';
 // `temporal-model.js` and `temporal.utils.js`; nothing there reaches back into the store.
 import { derivarCamposDtg } from '../temporal/temporal-attributes.model.js';
 import { derivedOutputBucketOf, replaceDerivedOutput } from './analysis-output.js';
-import { FeatureLockState, lockedLayerCreateNotice } from './denial-phrases.js';
+import { FeatureLockState, lockedLayerCreateNotice, featureLockNotice } from './denial-phrases.js';
 
 // ===== TIMESTAMP AND VERSION HELPERS =====
 
@@ -1502,6 +1502,40 @@ export async function getLayerFeaturesByStorageType(layerId, mapName = null) {
 }
 
 /**
+ * Refuses a move between layers that a lock forbids, and names the lock.
+ *
+ * A locked layer, a locked group and a feature's own `bloqueado` are client conventions (the server
+ * stores them and never asks), and the move asked none of them: dragging a row of the layers tree
+ * moved a feature OUT of a locked layer and INTO one, on the server, for the owner and the editor
+ * alike (measured with two browsers). The context menu filtered locked DESTINATIONS on its own and
+ * nothing else did. Same scope as `refuseCreationInLockedLayer`: the current map only.
+ * @param {Array<Object>} features - The features about to move.
+ * @param {string} targetLayerId
+ * @param {string} targetMap
+ * @returns {boolean} True when refused (the refusal has already been announced).
+ */
+function refuseLockedLayerMove(features, targetLayerId, targetMap) {
+    if (targetMap !== mapManager.getCurrentMapName() || typeof deps.layerManager?.getLayerById !== 'function') return false;
+    let message = null;
+    if (deps.layerManager.getLayerById(targetLayerId, targetMap)?.locked === true) {
+        message = lockedLayerCreateNotice(false);
+    } else {
+        for (const feature of features) {
+            const state = featureLockState(feature);
+            if (state) { message = featureLockNotice(state); break; }
+        }
+    }
+    if (!message) return false;
+    emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+        operation: 'moveFeaturesToLayer',
+        message,
+        reason: 'layer_locked',
+        timestamp: Date.now()
+    });
+    return true;
+}
+
+/**
  * Moves features to another layer.
  * @param {Array} featureRefs - Array of layer IDs or feature references
  * @param {string} targetLayerId - Target layer ID
@@ -1519,6 +1553,7 @@ export async function moveFeaturesToLayer(featureRefs, targetLayerId, mapName = 
         if (!currentMapData) return false;
         let modified = false;
         const moved = [];
+        const candidates = [];
         const isLayerIdArray = typeof featureRefs[0] === 'string';
 
         for (const storageType of getAllStorageTypes()) {
@@ -1535,13 +1570,19 @@ export async function moveFeaturesToLayer(featureRefs, targetLayerId, mapName = 
                     });
                 }
 
-                if (shouldMove) {
-                    const oldFeature = deepClone(feature);
-                    feature.properties.layerId = targetLayerId;
-                    moved.push({ feature, oldFeature, storage: storageType });
-                    modified = true;
-                }
+                if (shouldMove) candidates.push({ feature, storage: storageType });
             }
+        }
+
+        // DECIDED BEFORE ANY FEATURE IS TOUCHED, because the document read above may be the
+        // cached one and a mutation left behind by a refusal would be read by the next writer.
+        if (refuseLockedLayerMove(candidates.map(c => c.feature), targetLayerId, targetMap)) return false;
+
+        for (const { feature, storage } of candidates) {
+            const oldFeature = deepClone(feature);
+            feature.properties.layerId = targetLayerId;
+            moved.push({ feature, oldFeature, storage });
+            modified = true;
         }
 
         if (modified) {

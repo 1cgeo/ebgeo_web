@@ -926,7 +926,14 @@ export class FeaturesTab {
         // because MapLibre sources are not yet updated at that point.
         this._suppressLayersChangedRefresh = true;
 
-        await moveFeaturesToLayer(featureRefs, targetLayerId);
+        const moved = await moveFeaturesToLayer(featureRefs, targetLayerId);
+        if (!moved) {
+            // Refused (the store already said why). Sortable has ALREADY moved the row in the
+            // DOM, so the tree is rebuilt from the store, which puts the row back where it is.
+            this._suppressLayersChangedRefresh = false;
+            this._scheduleRefresh();
+            return;
+        }
 
         // Propagate layerId to MapLibre sources using the proven pattern
         for (const ref of featureRefs) {

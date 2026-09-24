@@ -976,6 +976,9 @@ export async function moveFeaturesToLayer(featureRefs, targetLayerId, mapName = 
         const targetMap = mapName || getCurrentMapNameSync();
         deps.eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: targetMap });
     }
+    // RETURNED since 2026-09-24: the two callers paint the new layer on the map after the write,
+    // and a refusal (role, map lock, a locked layer or group) has to stop them.
+    return modified;
 }
 
 // ===== RE-EXPORTS FROM CONSTANTS =====
