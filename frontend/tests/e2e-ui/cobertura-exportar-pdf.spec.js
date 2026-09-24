@@ -201,4 +201,93 @@ describeOrSkip('Cobertura: exportar PDF', () => {
             expect(Math.abs(j.largura / j.altura - A4_PAISAGEM), `ladrilho ${j.largura}x${j.altura} em proporção A4`).toBeLessThan(0.03);
         }
     });
+
+    // THE FEATURE IN THE RIGHT TILE, BY ITS PIXELS. The mosaic is not georeferenced (jsPDF), so the
+    // reference is the PREVIEW: the panel draws one rectangle per sheet (`pdf-export-preview`, with
+    // `row`/`col`), which is what the person frames before exporting. A magenta square is put at the
+    // centre of the preview's (0,1) sheet; in the file, the second map tile must have it at its
+    // centre and the first must not have it at all. That also pins the ORDER of the sheets.
+    test('mosaico 1x2: a feição sai no ladrilho em que a pré-visualização a mostra', async ({ page }) => {
+        test.setTimeout(180000);
+        await esperarMapa(page);
+        await page.evaluate((c) => globalThis.__ebgeoMap.jumpTo({ center: c, zoom: 12 }), CENTRO);
+        await page.waitForFunction(() => globalThis.__ebgeoMap.loaded(), null, { timeout: 20000 });
+        await abrirPdf(page, '2');
+        const lerPrevia = () => page.evaluate(() => {
+            const dados = globalThis.__ebgeoMap.getSource('pdf-export-preview')?.serialize()?.data;
+            const folhas = (dados?.features ?? []).filter((f) => f.properties?.type === 'paper');
+            return {
+                folhas: folhas.map((f) => {
+                    const xs = f.geometry.coordinates[0].map((p) => p[0]);
+                    const ys = f.geometry.coordinates[0].map((p) => p[1]);
+                    return { row: f.properties.row, col: f.properties.col, oeste: Math.min(...xs), leste: Math.max(...xs), sul: Math.min(...ys), norte: Math.max(...ys) };
+                }),
+                centro: globalThis.__ebgeoMap.getCenter().toArray(),
+                zoom: globalThis.__ebgeoMap.getZoom(),
+            };
+        });
+        await expect.poll(async () => (await lerPrevia()).folhas.length, { timeout: 10000 }).toBe(2);
+        const previa = await lerPrevia();
+        const direita = previa.folhas.find((f) => f.row === 0 && f.col === 1);
+        const esquerda = previa.folhas.find((f) => f.row === 0 && f.col === 0);
+        expect(direita.oeste, 'a folha (0,1) fica à direita').toBeGreaterThan(esquerda.oeste);
+        const alvo = [(direita.oeste + direita.leste) / 2, (direita.sul + direita.norte) / 2];
+        const meio = { lng: (direita.leste - direita.oeste) / 10, lat: (direita.norte - direita.sul) / 10 };
+        const area = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { nome: 'Área magenta' },
+            geometry: { type: 'Polygon', coordinates: [[
+                [alvo[0] - meio.lng, alvo[1] - meio.lat], [alvo[0] + meio.lng, alvo[1] - meio.lat],
+                [alvo[0] + meio.lng, alvo[1] + meio.lat], [alvo[0] - meio.lng, alvo[1] + meio.lat],
+                [alvo[0] - meio.lng, alvo[1] - meio.lat]]] } }] };
+        await soltarNoMapa(page, 'area.geojson', B.from(JSON.stringify(area), 'utf8'));
+        await expect(page.locator('.toast', { hasText: 'importad' }).first()).toBeAttached({ timeout: 15000 });
+        const id = await page.evaluate(async () => {
+            const store = await import('/src/js/store/index.js');
+            return (await store.getCurrentMapFeatures()).polygons[0].properties.id;
+        });
+        await selectFeatureUI(page, id);
+        await recolorViaPanelUI(page, MAGENTA);
+        await page.keyboard.press('Escape');
+
+        // Back to the framing of the preview: the import zoomed to the square and the panel closed.
+        await abrirPdf(page, '2');
+        await page.evaluate((v) => globalThis.__ebgeoMap.jumpTo({ center: v.centro, zoom: v.zoom }), previa);
+        await page.waitForFunction(() => globalThis.__ebgeoMap.loaded(), null, { timeout: 20000 });
+        await expect.poll(async () => {
+            const agora = (await lerPrevia()).folhas.find((f) => f.row === 0 && f.col === 1);
+            return agora ? Math.abs(agora.oeste - direita.oeste) + Math.abs(agora.norte - direita.norte) : 1;
+        // Within 1e-4 degree (about 10 m, a thousandth of the sheet): the visible centre is recomputed
+        // from the sidebar's pixel offset, and a pixel is about 2e-5 degree here.
+        }, { timeout: 10000, message: 'a pré-visualização voltou ao mesmo enquadramento' }).toBeLessThan(1e-4);
+
+        const bytes = await baixarPdf(page);
+        const jpegs = imagens(bytes).filter((i) => i.filtro === 'DCTDecode');
+        expect(jpegs, 'um ladrilho por folha').toHaveLength(2);
+        const leituras = [];
+        for (const j of jpegs) {
+            leituras.push(await page.evaluate(async (b64) => {
+                const img = new Image();
+                img.src = `data:image/jpeg;base64,${b64}`;
+                await img.decode();
+                const c = document.createElement('canvas');
+                c.width = img.naturalWidth;
+                c.height = img.naturalHeight;
+                const ctx = c.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                const d = ctx.getImageData(0, 0, c.width, c.height).data;
+                let n = 0; let sx = 0; let sy = 0;
+                for (let y = 0; y < c.height; y += 2) {
+                    for (let x = 0; x < c.width; x += 2) {
+                        const i = (y * c.width + x) * 4;
+                        if (d[i] - d[i + 1] > 60 && d[i + 2] - d[i + 1] > 60) { n++; sx += x; sy += y; }
+                    }
+                }
+                return { w: c.width, h: c.height, magenta: n, cx: n ? sx / n / c.width : null, cy: n ? sy / n / c.height : null };
+            }, j.corpo.toString('base64')));
+        }
+        console.log('[pdf mosaico pixels]', JSON.stringify(leituras));
+        expect(leituras[0].magenta, 'o ladrilho da esquerda não tem a feição').toBe(0);
+        expect(leituras[1].magenta, 'o ladrilho da direita tem a feição').toBeGreaterThan(1000);
+        expect(Math.abs(leituras[1].cx - 0.5), 'no centro, na horizontal').toBeLessThan(0.03);
+        expect(Math.abs(leituras[1].cy - 0.5), 'no centro, na vertical').toBeLessThan(0.03);
+    });
 });
