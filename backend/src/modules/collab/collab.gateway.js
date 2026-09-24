@@ -757,6 +757,30 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
 }
 
 /**
+ * THE FRAMES THAT WRITE OR READ THE LOG RE-CHECK AUTHORIZATION FIRST, the way every REST request
+ * does. `ws.permission` is resolved at the handshake and otherwise re-resolved only by the heartbeat
+ * sweep (~30 s) or when sharing changes; deactivating the ACCOUNT or the OM, demoting the global
+ * role or cutting the sessions reconciles no socket on the spot, so for up to a whole sweep the
+ * owner of an open socket kept writing through `operation`/`operations` and reading the log through
+ * `sync_request` with the permission of before, while the same person was already refused over
+ * REST. The product client writes over REST and stops at once; the hole was for whoever talks to the
+ * socket directly. Pinned by `tests/ws/escrita-ws-reconfere-autorizacao.repro.test.js`.
+ *
+ * Presence frames (cursor, selection, viewer) are left to the sweep: they carry no atlas content
+ * the sender did not already have, and a query per cursor frame would cost the hot path.
+ *
+ * NOT fail-closed: a transient database failure is counted by `reconcileAuthorization` as the sweep
+ * does, and the frame then meets the database again in the handler, which answers for itself.
+ *
+ * @param {import('ws').WebSocket} ws
+ * @returns {Promise<boolean>} Whether the socket is still open after the re-check.
+ */
+async function authorizationStillHolds(ws) {
+  await reconcileAuthorization(ws);
+  return ws.readyState === WebSocket.OPEN;
+}
+
+/**
  * Routes incoming messages to appropriate handlers.
  */
 async function handleMessage(ws, data) {
@@ -805,14 +829,17 @@ async function handleMessage(ws, data) {
       break;
 
     case 'operation':
+      if (!(await authorizationStillHolds(ws))) break;
       await handlers.handleOperation(ws, data);
       break;
 
     case 'operations':
+      if (!(await authorizationStillHolds(ws))) break;
       await handlers.handleOperations(ws, data);
       break;
 
     case 'sync_request':
+      if (!(await authorizationStillHolds(ws))) break;
       await handlers.handleSyncRequest(ws, data);
       break;
 
