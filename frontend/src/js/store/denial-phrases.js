@@ -193,3 +193,18 @@ export function featureLockNotice(state) {
     if (typeof state !== 'string') return null;
     return Object.hasOwn(FRASES_DE_TRAVA, state) ? FRASES_DE_TRAVA[state] : null;
 }
+
+/**
+ * A NEW feature aimed at a locked layer: the drawing tools while the ACTIVE layer is locked, and
+ * the store's creation funnel (`addFeature` and `addFeatures`) for paste, batch points and the rest.
+ * The ways out are in the sentence, because the person either lifts the lock or creates the
+ * feature somewhere else. Which layer it names depends on where the feature was going: the active
+ * one (a drawing), or the one it came from (a paste keeps its layer).
+ * @param {boolean} isActiveLayer - Whether the locked layer is the active one.
+ * @returns {string}
+ */
+export function lockedLayerCreateNotice(isActiveLayer) {
+    return isActiveLayer
+        ? 'Camada ativa bloqueada. Desbloqueie-a ou escolha outra camada na aba Camadas.'
+        : 'A camada de destino está bloqueada. Desbloqueie-a na aba Camadas.';
+}

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getEmptyMapData } from '../../src/js/store/repository.utils.js';
 
 // ============================================================================
@@ -1152,3 +1152,75 @@ vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
         }
     },
 }));
+
+// ============================================================================
+// Camada travada: a criação LOCAL é recusada (2026-09-24)
+// ============================================================================
+//
+// A trava de camada é convenção do cliente, e a camada ATIVA travada recebia desenho novo do dono
+// e do editor (repro de navegador em `tests/e2e-ui/camada-ativa-travada-nao-recebe-desenho.repro.spec.js`).
+// A recusa mora no funil de criação; aqui ficam as fronteiras dela, que o navegador não isola.
+// Controle negativo: com `refuseCreationInLockedLayer` devolvendo sempre falso, os três casos de
+// recusa reprovam e os de passagem continuam verdes.
+
+describe('addFeature e addFeatures recusam camada travada do mapa corrente', () => {
+    const camadas = new Map([
+        ['livre', { id: 'livre', locked: false }],
+        ['travada', { id: 'travada', locked: true }],
+        ['ativa-travada', { id: 'ativa-travada', locked: true }],
+    ]);
+    const layerManager = {
+        getLayerById: (id) => camadas.get(id) || null,
+        getActiveLayerIdSync: () => 'ativa-travada',
+    };
+
+    beforeEach(() => {
+        setFeatureDependencies({ layerManager });
+    });
+
+    afterEach(() => {
+        setFeatureDependencies({ layerManager: null });
+    });
+
+    it('camada ATIVA travada: nada é gravado, e a recusa diz "Camada ativa bloqueada"', async () => {
+        const result = await addFeature('points', makeFeature('p1', 'point', { layerId: 'ativa-travada' }), 'TestMap');
+        expect(result).toBeUndefined();
+        expect(updateMapDataCompat).not.toHaveBeenCalled();
+        expect(logFeatureOperation).not.toHaveBeenCalled();
+        expect(emitStoreError).toHaveBeenCalledWith('store:operationBlocked', expect.objectContaining({
+            operation: 'addFeature', reason: 'layer_locked',
+            message: expect.stringMatching(/^Camada ativa bloqueada./),
+        }));
+    });
+
+    it('camada travada que NÃO é a ativa (um colar mantém a camada de origem): a frase diz destino', async () => {
+        await addFeature('points', makeFeature('p1', 'point', { layerId: 'travada' }), 'TestMap');
+        expect(updateMapDataCompat).not.toHaveBeenCalled();
+        expect(emitStoreError).toHaveBeenCalledWith('store:operationBlocked', expect.objectContaining({
+            message: expect.stringMatching(/^A camada de destino está bloqueada./),
+        }));
+    });
+
+    it('addFeatures: UMA feição em camada travada recusa o lote inteiro', async () => {
+        await addFeatures({ points: [makeFeature('a', 'point', { layerId: 'livre' })], lines: [makeFeature('b', 'line', { layerId: 'travada' })] });
+        expect(updateMapDataCompat).not.toHaveBeenCalled();
+        expect(emitStoreError).toHaveBeenCalledWith('store:operationBlocked', expect.objectContaining({ operation: 'addFeatures', reason: 'layer_locked' }));
+    });
+
+    it('CONTROLE: camada livre grava', async () => {
+        await addFeature('points', makeFeature('p1', 'point', { layerId: 'livre' }), 'TestMap');
+        expect(updateMapDataCompat).toHaveBeenCalledOnce();
+        expect(emitStoreError).not.toHaveBeenCalled();
+    });
+
+    it('restauração (featureIntent) não é recusada: desfazer e mover recriam o que existia', async () => {
+        await addFeature('points', makeFeature('p1', 'point', { layerId: 'travada' }), 'TestMap', { featureIntent: 'restore' });
+        expect(updateMapDataCompat).toHaveBeenCalledOnce();
+    });
+
+    it('mapa que NÃO é o corrente não é perguntado (a memória de camadas é só do corrente)', async () => {
+        mockMapData.value = getEmptyMapData();
+        await addFeature('points', makeFeature('p1', 'point', { layerId: 'travada' }), 'OutroMapa');
+        expect(emitStoreError).not.toHaveBeenCalledWith('store:operationBlocked', expect.objectContaining({ reason: 'layer_locked' }));
+    });
+});

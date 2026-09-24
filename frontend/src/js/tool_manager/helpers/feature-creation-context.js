@@ -2,7 +2,28 @@
 import { addFeature, getActiveLayerIdSync, getCurrentMapNameSync, getLayers, getStateManager } from '@store/index.js';
 import { getActiveScope } from '@store/atlas-namespace.js';
 import { mapResolver } from '@store/services/map-resolver.service.js';
+import { lockedLayerCreateNotice } from '@store/denial-phrases.js';
 import { showWarning } from '@utils/toast_service.js';
+import { criaFeicao } from '../tool-registry.js';
+
+/**
+ * The activation gate of the drawing tools: the refusal sentence when `tool` creates features and
+ * the ACTIVE layer is locked, or null.
+ *
+ * Wired into `ToolManager.setActiveTool` by `map_sig.js`. The tool stays drawn and the click
+ * refuses naming the state ("o ESTADO recusa o clique"), because the person can lift the lock or
+ * pick another layer. The store refuses the same creation at the commit
+ * (`refuseCreationInLockedLayer`, `store/feature.operations.js`), for the lock that lands in the
+ * middle of a drawing; this gate is what spares the person drawing something that cannot be kept.
+ * @param {Object} tool - The tool being activated (its `type` is the registry's `tipoDeUi`).
+ * @returns {string|null}
+ */
+export function lockedActiveLayerRefusal(tool) {
+    if (!criaFeicao(tool?.type)) return null;
+    const activeId = getActiveLayerIdSync();
+    const layer = getLayers().find((l) => l.id === activeId);
+    return layer?.locked === true ? lockedLayerCreateNotice(true) : null;
+}
 
 /** Keep a completed drawing visible when its original layer was removed during preparation. */
 export async function saveCreatedFeature(storage, feature, mapName) {

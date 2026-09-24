@@ -9,6 +9,7 @@ import { getStateManager } from '../store';
 // Por ARQUIVO, de dois modulos folha: contar uma ativacao nao pode participar dela.
 import { registrarUso } from '@js/session/uso-lote.js';
 import { EventoDeUso } from '@js/session/eventos-de-uso.js';
+import { StoreErrorEvents, emitStoreError } from '@store/store-errors.js';
 
 class ToolManager {
     constructor() {
@@ -22,6 +23,19 @@ class ToolManager {
 
         /** @type {Map<string, Set<Function>>} Event listeners */
         this._listeners = new Map();
+
+        /** @type {((tool: Object) => string|null)|null} See {@link ToolManager#setActivationGate}. */
+        this._activationGate = null;
+    }
+
+    /**
+     * Installs the question asked before a tool is ACTIVATED: it returns the sentence that refuses
+     * the activation, or null to let it through. `map_sig.js` wires the locked-active-layer gate
+     * (`lockedActiveLayerRefusal`); a page without it activates everything, as before.
+     * @param {((tool: Object) => string|null)|null} gate
+     */
+    setActivationGate(gate) {
+        this._activationGate = typeof gate === 'function' ? gate : null;
     }
 
     /**
@@ -85,8 +99,12 @@ class ToolManager {
      * Activate a tool.
      * If the same tool is already active, deactivates it instead (toggle behavior).
      * @param {Object} tool - Tool instance to activate
+     * @param {Object} [options]
+     * @param {boolean} [options.continuation=false] - The tool opens to CONTINUE an existing
+     *   feature from its end handle, so it writes into that feature's layer, not the active one,
+     *   and the activation gate does not apply (the continuation asks its own lock question).
      */
-    setActiveTool(tool) {
+    setActiveTool(tool, { continuation = false } = {}) {
         if (!tool) {
             return;
         }
@@ -95,6 +113,26 @@ class ToolManager {
         if (this.activeTool && this.activeTool === tool) {
             this.deactivateCurrentTool();
             return;
+        }
+
+        // THE STATE REFUSES THE CLICK, and it refuses BEFORE anything changes: the previous tool
+        // stays active and the selection stays, because nothing was activated.
+        if (!continuation && this._activationGate) {
+            let refusal = null;
+            try {
+                refusal = this._activationGate(tool);
+            } catch (error) {
+                console.error('Tool activation gate failed:', error);
+            }
+            if (refusal) {
+                emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+                    operation: 'setActiveTool',
+                    message: refusal,
+                    reason: 'layer_locked',
+                    timestamp: Date.now()
+                });
+                return;
+            }
         }
 
         // Deactivate previous tool

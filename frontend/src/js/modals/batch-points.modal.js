@@ -236,11 +236,17 @@ export function createBatchPointsPanel(options = {}) {
                     },
                 };
 
-                // Persist to IndexedDB (per-feature undo + operation logging)
-                await addFeature('points', feature);
+                // Persist to IndexedDB (per-feature undo + operation logging). ONLY what the store
+                // stored is painted and counted: a refusal (role, map lock, locked active layer)
+                // returns nothing and has already been announced, and painting it anyway put on the
+                // map, next to "N pontos criados com sucesso", points that nothing had kept.
+                const stored = await addFeature('points', feature);
+                if (!stored) break;
 
-                created.push(feature);
+                created.push(stored);
             }
+
+            if (created.length === 0) return;
 
             // One queued batch instead of a read-modify-write: `points` is dispatcher-owned, and a
             // raw `setData` would replace MapLibre's pending-update slot, dropping whatever the

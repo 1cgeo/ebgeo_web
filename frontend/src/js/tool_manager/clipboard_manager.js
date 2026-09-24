@@ -355,7 +355,13 @@ class ClipboardManager {
 
             await this.loadPastedImages(newFeaturesByType);
 
-            await addFeatures(newFeaturesByType);
+            // THE STORE'S ANSWER DECIDES whether anything is painted or announced. The two gates
+            // above cover rank and map lock before the work; a LOCKED LAYER (the one a same-map
+            // paste keeps, or the one a cross-map paste maps to) is known only to the store's
+            // creation funnel, which refuses the whole batch and has already said why. Painting
+            // and toasting success over that refusal is the defect this method was fixed for once.
+            const added = await addFeatures(newFeaturesByType);
+            if (!added) return 0;
 
             await this.updateMapSources(newFeaturesByType);
             await this.autoSelectPastedFeatures(newFeaturesByType);

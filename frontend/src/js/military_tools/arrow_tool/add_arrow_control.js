@@ -629,7 +629,8 @@ class AddArrowControl extends BaseControl {
         const sourceFeature = deepClone(feature);
 
         if (this.toolManager.activeTool !== this) {
-            this.toolManager.setActiveTool(this);
+            // A continuation writes into this feature's layer, not the active one.
+            this.toolManager.setActiveTool(this, { continuation: true });
         }
 
         this._extending = {

@@ -224,3 +224,4 @@ que envelheceu na decisão seguinte.)
 - 2026-09-23: polyfill local de `toReversed` para Chrome e Edge 105 a 109, e o navegador mínimo passa a ser Chrome/Edge 109 e Firefox ESR 115 (decisão do dono), [registro](decisions-2026.md).
 - 2026-09-24: nenhum gesto deixa de chegar ao servidor por ter mais de 200 operações: todo lote acima do teto sobe em blocos de até 200 encadeados por `dependsOn`, e um bloco recusado segura os seguintes (decisão do dono, B6.1), [registro](decisions-2026.md).
 - 2026-09-24: as regras de agente ganham escopo por caminho (`paths:`) e o núcleo que carrega sempre tem teto de 60k caracteres; a história da correção vai para o livro-razão, [registro](decisions-2026.md).
+- 2026-09-24: a camada ativa travada não recebe feição nova: a ferramenta recusa nomeando o estado e a store recusa no commit (decisão do dono), [registro](decisions-2026.md).

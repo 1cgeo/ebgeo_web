@@ -100,7 +100,12 @@ export function registerStoreErrorListeners(eventBus) {
         // A frase do ESTADO, ou null quando a recusa é de capacidade (ver `denial-phrases.js`).
         const estado = explicit ? null : stateDenialNotice(payload?.reason);
         const kind = explicit ? 'explicit' : (estado ? 'state' : 'denied');
-        const bucket = kind === 'state' ? `state:${payload.reason}` : kind;
+        // An EXPLICIT message buckets by its own text, for the reason the state buckets by reason:
+        // two different refusals are two different ways out. Measured on 2026-09-24: the notice
+        // that a lock had just dropped the selection swallowed, for three seconds, the refusal of
+        // the drawing tool clicked right after, which named another state and another way out.
+        const bucket = kind === 'state' ? `state:${payload.reason}`
+            : kind === 'explicit' ? `explicit:${payload.message}` : kind;
 
         // "AINDA NÃO SEI" NÃO SE ANUNCIA, e este é o único lugar que precisa saber disso.
         //

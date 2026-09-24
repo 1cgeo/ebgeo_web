@@ -47,7 +47,7 @@ const blobs = new Map();
 
 let clipboard = { features: [], copiedAt: null, sourceMapName: 'Principal' };
 let atlasRemoto = true;
-const addFeatures = vi.fn(async () => {});
+const addFeatures = vi.fn(async () => true);
 /** A ordem em que os dois lados do contrato aconteceram (a subida vem antes da gravação). */
 let ordem = [];
 

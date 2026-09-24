@@ -32,6 +32,7 @@ import ScreenshotControl from './import_export/screenshot.control.js';
 import PDFExportTab from './import_export/pdf-export.tab.js';
 import { ToolManager, SelectionManager, UIManager, MoveHandler, ClipboardManager } from './tool_manager';
 import { initToolRegistry, seedControl } from './tool_manager/tool-registry.js';
+import { lockedActiveLayerRefusal } from './tool_manager/helpers/feature-creation-context.js';
 import { MapManager, DragRotateHandler } from './map';
 import { applyTileLodParams } from './map/tile-lod.js';
 import { FeaturesTab } from './features_tab';
@@ -279,6 +280,9 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
     const selectionManager = new SelectionManager(map);
     const toolManager = new ToolManager();
     toolManager.setSelectionManager(selectionManager);
+    // A tool that creates features does not open over a locked ACTIVE layer: the click refuses
+    // naming the state. The store refuses the same creation at the commit.
+    toolManager.setActivationGate(lockedActiveLayerRefusal);
 
     const pointControl = new AddPointControl(toolManager);
     const lineControl = new AddLineControl(toolManager);

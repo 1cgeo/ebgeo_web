@@ -323,6 +323,22 @@ export function peekControl(controlKey) {
 }
 
 /**
+ * Se a ferramenta ativada com este `tipoDeUi` CRIA feição, lido da mesma coluna que diz qual
+ * `properties.source` ela possui (`tipoDeFeicao` não nulo). É a pergunta do portão de ativação
+ * de `ToolManager.setActiveTool` quando a camada ativa está travada: as de medição, a leitura de
+ * tile vetorial e a seleção por caixa não criam nada e continuam ativáveis.
+ * @param {string|null|undefined} tipoDeUi
+ * @returns {boolean}
+ */
+export function criaFeicao(tipoDeUi) {
+    if (typeof tipoDeUi !== 'string' || tipoDeUi === '') return false;
+    for (const f of Object.values(FERRAMENTAS)) {
+        if (f.tipoDeUi === tipoDeUi) return f.tipoDeFeicao !== null && f.tipoDeFeicao !== undefined;
+    }
+    return false;
+}
+
+/**
  * O `controlKey` que possui um `properties.source`, ou null.
  * @param {string} tipoDeFeicao
  * @returns {string|null}

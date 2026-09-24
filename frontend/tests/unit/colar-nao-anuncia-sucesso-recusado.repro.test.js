@@ -35,7 +35,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // OS DUBLÊS
 // ---------------------------------------------------------------------------
 
-const addFeatures = vi.fn(async () => {});
+const addFeatures = vi.fn(async () => true);
 const emitStoreError = vi.fn();
 let mapaTravado = false;
 let clipboard = { features: [], copiedAt: null, sourceMapName: 'Principal' };
@@ -222,6 +222,24 @@ describe('paste() com o papel RECUSADO', () => {
         expect(addFeatures).toHaveBeenCalledTimes(1);
         expect(toasts.success).toEqual(['3 feição(ões) colada(s) com sucesso']);
         expect(toasts.warning).toEqual([]);
+    });
+});
+
+describe('paste() que a STORE recusa depois do trabalho (camada travada, 2026-09-24)', () => {
+    // A trava de CAMADA só a store conhece (`refuseCreationInLockedLayer`): a colagem na mesma
+    // camada de origem, ou na mapeada de outro mapa, chega até `addFeatures` e é recusada lá,
+    // que devolve `undefined` no lugar de `true`. O que este caso prende é o que vem DEPOIS:
+    // nada pintado e nada anunciado sobre uma escrita que não aconteceu.
+    beforeEach(() => { addFeatures.mockImplementationOnce(async () => undefined); });
+
+    it('devolve 0, não pinta, não seleciona e não anuncia sucesso', async () => {
+        const manager = montar();
+        const contagem = await manager.paste();
+
+        expect(contagem).toBe(0);
+        expect(addFeatures).toHaveBeenCalledTimes(1);
+        expect(toasts.success).toEqual([]);
+        expect(manager.selectionManager.toggleFeatureSelection).not.toHaveBeenCalled();
     });
 });
 

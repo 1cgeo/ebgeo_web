@@ -30,7 +30,7 @@ import { applyGeneratedBitmap } from '../layers/bitmap-version.js';
 // `temporal-model.js` and `temporal.utils.js`; nothing there reaches back into the store.
 import { derivarCamposDtg } from '../temporal/temporal-attributes.model.js';
 import { derivedOutputBucketOf, replaceDerivedOutput } from './analysis-output.js';
-import { FeatureLockState } from './denial-phrases.js';
+import { FeatureLockState, lockedLayerCreateNotice } from './denial-phrases.js';
 
 // ===== TIMESTAMP AND VERSION HELPERS =====
 
@@ -158,6 +158,52 @@ function guardWrite(guardAction, operationName, targetMap) {
 }
 
 /**
+ * Refuses a LOCAL creation of a feature into a LOCKED layer of the current map.
+ *
+ * A layer's `locked` is a client convention: the server stores it and never asks. Until
+ * 2026-09-24 nothing on the creation path asked either, so with the ACTIVE layer locked (by its
+ * owner, or by a peer while this person had it active) every drawing tool, the batch points and a
+ * paste wrote the new feature INTO the locked layer, and the server accepted it. Measured with two
+ * browsers, owner and editor alike. The drawing tools also refuse at activation
+ * (`ToolManager.setActiveTool`); this is the funnel under all of them, so the lock that lands in
+ * the middle of a drawing refuses at the commit, before anything is painted (the tools paint only
+ * what `addFeature` returned).
+ *
+ * WHAT IS LEFT OUT, and why:
+ * - a REMOTE op never comes here (it is applied by the remote handler), and it is never refused:
+ *   the lock is a convention of each client, not of the author's peer;
+ * - a restore (`featureIntent`: undo, redo, the move half of a layer transfer) re-creates what
+ *   existed, and refusing it in the middle of an undo batch is a question of its own;
+ * - a map that is NOT the current one: `memoryStore.layers` is hydrated one map at a time, and
+ *   for any other map the lookup would answer from a fabricated default layer (see
+ *   `.claude/rules/architecture.md`, the synchronous getter trap). Every path that creates into
+ *   another map is a whole-entity operation (transfer, merge) with its own checks.
+ * @param {Array<Object>} features
+ * @param {string} targetMap
+ * @param {string} operationName
+ * @param {Object} options - The caller's options (`featureIntent`).
+ * @returns {boolean} True when refused (the refusal has already been announced).
+ */
+function refuseCreationInLockedLayer(features, targetMap, operationName, options) {
+    if (options?.featureIntent) return false;
+    if (targetMap !== mapManager.getCurrentMapName() || typeof deps.layerManager?.getLayerById !== 'function') return false;
+    for (const feature of features) {
+        const layerId = feature?.properties?.layerId || 'default';
+        const layer = deps.layerManager.getLayerById(layerId, targetMap);
+        if (layer?.locked !== true) continue;
+        const isActive = deps.layerManager.getActiveLayerIdSync?.() === layerId;
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation: operationName,
+            message: lockedLayerCreateNotice(isActive),
+            reason: 'layer_locked',
+            timestamp: Date.now()
+        });
+        return true;
+    }
+    return false;
+}
+
+/**
  * Returns whether undo should be recorded for this operation.
  * Undo is recorded when the operation targets the current map.
  * @param {string|null} mapName - Explicit map name (null means current)
@@ -274,6 +320,7 @@ export async function addFeature(type, feature, mapName = null, options = {}) {
     if (!options.featureIntent && (memoryStore.isUndoing || memoryStore.isRedoing)) options = { ...options, featureIntent: 'restore' };
     const targetMap = resolveMap(mapName);
     if (guardWrite(GuardAction.CREATE_FEATURE, 'addFeature', targetMap).blocked) return;
+    if (refuseCreationInLockedLayer([feature], targetMap, 'addFeature', options)) return;
 
     const cleanedFeature = cleanFeature(feature);
     if (!cleanedFeature) {
@@ -619,10 +666,13 @@ export async function removeFeatureSilent(type, id, mapName = null) {
  * Adds multiple features at once.
  * @param {Object<string, Array>} featuresMap - Map of type to features array
  * @param {string} [mapName=null] - Target map name
+ * @param {Object} [options] - `featureIntent` and the sync options of each operation
+ * @returns {Promise<true|undefined>} True when the batch was stored, undefined when refused
  */
 export async function addFeatures(featuresMap, mapName = null, options = {}) {
     const targetMap = resolveMap(mapName);
     if (guardWrite(GuardAction.CREATE_FEATURE, 'addFeatures', targetMap).blocked) return;
+    if (refuseCreationInLockedLayer(Object.values(featuresMap || {}).flat(), targetMap, 'addFeatures', options)) return;
 
     return withMapDocument(targetMap, 'addFeatures', async () => {
         const currentMapData = await mapDocumentForGesture(targetMap, 'addFeatures');
@@ -680,6 +730,10 @@ export async function addFeatures(featuresMap, mapName = null, options = {}) {
 
             return () => updateMapDataCompat(targetMap, currentMapData);
         });
+        // TRUE ONLY HERE, and every refusal above returns undefined. It is how a caller that
+        // paints and announces after the write (`ClipboardManager.paste`) tells a batch that was
+        // stored from one the store refused in silence (role, map lock, locked layer).
+        return true;
     });
 }
 
