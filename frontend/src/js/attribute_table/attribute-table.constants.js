@@ -68,6 +68,7 @@ export const ATTRIBUTE_TABLE = Object.freeze({
     /** CSS class names */
     CSS_CLASSES: Object.freeze({
         PANEL: 'attribute-table-panel',
+        PANEL_READ_ONLY: 'attribute-table-panel--somente-leitura',
         RESIZE_HANDLE: 'attribute-table-resize-handle',
         TOOLBAR: 'attribute-table-toolbar',
         FILTERS: 'attribute-table-filters',

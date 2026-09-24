@@ -137,6 +137,11 @@
     color: var(--color-error, #ef4444);
 }
 
+/* Read-only (role or map lock): the write command leaves the toolbar; CSV, minimize and close stay. */
+.attribute-table-panel--somente-leitura .attribute-table-add-column-btn {
+    display: none;
+}
+
 /* =========================================================================
    FILTERS
    ========================================================================= */

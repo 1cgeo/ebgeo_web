@@ -25,7 +25,32 @@ import { tableDataService } from '../services/table-data.service.js';
  * @property {Function} onRowHover - Row hover callback (feature, isHovering)
  * @property {Function} onColumnSort - Column sort callback (columnKey)
  * @property {Function} onColumnContextMenu - Column context menu callback (columnKey, event)
+ * @property {boolean} [readOnly] - Editing unavailable when the table was drawn (no cell opens).
+ * @property {() => boolean} [isReadOnly] - Asked again when an open cell COMMITS, because the lock
+ *   or the role can change while the cell is open.
+ * @property {Function} [onEditRefused] - A changed cell was closed WITHOUT saving because editing
+ *   became unavailable; the controller says why.
  */
+
+/**
+ * The open cell editor of each cell, so the controller can close it when editing stops being
+ * possible (`discardOpenEdit`). Redrawing the table alone does not close it the same way in both
+ * browsers: removing the focused input fires `blur` in Chromium, which COMMITS the cell, and nothing
+ * in Firefox, which drops it in silence.
+ * @type {WeakMap<HTMLElement, () => boolean>}
+ */
+const openEditors = new WeakMap();
+
+/**
+ * Closes the open cell editor of the table WITHOUT saving it, if there is one.
+ * @param {HTMLElement|null} container - Table container
+ * @returns {boolean} Whether a CHANGED value was discarded (the caller must tell the person).
+ */
+export function discardOpenEdit(container) {
+    const td = container?.querySelector(`td.${ATTRIBUTE_TABLE.CSS_CLASSES.CELL_EDITING}`);
+    const discard = td ? openEditors.get(td) : null;
+    return discard ? discard() : false;
+}
 
 /**
  * @typedef {Object} SortState
@@ -400,7 +425,7 @@ function startCellEditing(td, feature, columnKey, isAttribute, callbacks) {
     if (td.classList.contains(ATTRIBUTE_TABLE.CSS_CLASSES.CELL_EDITING)) {
         return;
     }
-    if (callbacks.readOnly) {
+    if (callbacks.readOnly || callbacks.isReadOnly?.()) {
         return;
     }
 
@@ -451,7 +476,16 @@ function startCellEditing(td, feature, columnKey, isAttribute, callbacks) {
         }
 
         td.classList.remove(ATTRIBUTE_TABLE.CSS_CLASSES.CELL_EDITING);
+        openEditors.delete(td);
         const newValue = input.value.trim();
+
+        // The lock or the role may have changed while the cell was open: the cell does not paint a
+        // value that nothing will save (`_handleCellEdit` refuses it), it goes back and says why.
+        if (save && newValue !== currentText && callbacks.isReadOnly?.()) {
+            td.innerHTML = originalHTML;
+            callbacks.onEditRefused?.();
+            return;
+        }
 
         if (save && newValue !== currentText) {
             // Update display
@@ -506,6 +540,12 @@ function startCellEditing(td, feature, columnKey, isAttribute, callbacks) {
         if (event) event.returnValue = '';
     };
     window.addEventListener('beforeunload', naSaida);
+
+    openEditors.set(td, () => {
+        const changed = input.value.trim() !== currentText;
+        finishEditing(false);
+        return changed;
+    });
 
     // Event handlers
     input.addEventListener('blur', () => finishEditing(true));
