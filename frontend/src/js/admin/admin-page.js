@@ -177,6 +177,7 @@ async function endSession(reason) {
     // OS OUTROS ATLAS TÊM PARÂMETRO PRÓPRIO (`OtherAtlasesOutcome`): um código só para os dois
     // fazia o atlas montado, guardado, ser lido como falha quando outro ficou só retido.
     if (guarda.others?.length) params.set('outros', guarda.others.join(','));
+    if (Number.isFinite(guarda.othersGraceMs)) params.set('outrosPrazo', String(Math.max(1, Math.floor(guarda.othersGraceMs / 60000))));
     const qs = params.toString();
     window.location.replace(qs ? `${MAP_URL}?${qs}` : MAP_URL);
 }

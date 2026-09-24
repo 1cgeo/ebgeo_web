@@ -356,8 +356,10 @@ export function otherAtlasesExitNotice(codes, { graceMs = null } = {}) {
             + 'locais. Entre de novo e use "Enviar ao servidor".');
     }
     if (presentes.has(OtherAtlasesOutcome.RETIDO)) {
+        // SEM PRAZO CONHECIDO, SEM NÚMERO: prometer a janela cheia sobre um veto já gasto é a frase
+        // que mente. `prazoEmHoras` degrada para "tempo limitado" quando o valor não serve.
         partes.push('O trabalho não enviado de outros atlas não coube como atlas local e fica neste '
-            + `computador por até ${prazoEmHoras(graceMs)}: entre de novo e abra esses atlas nesse prazo.`);
+            + `computador por ${prazoEmHoras(graceMs)}: entre de novo e abra esses atlas nesse prazo.`);
     }
     if (presentes.has(OtherAtlasesOutcome.PERDIDO)) {
         partes.push('NÃO foi possível guardar neste computador o trabalho não enviado de outros atlas, '

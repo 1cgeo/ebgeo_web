@@ -50,6 +50,11 @@ const ns = vi.hoisted(() => ({
 }));
 vi.mock('@store/atlas-namespace.js', () => ({
     remoteScope: (atlasId) => ({ kind: 'remote', atlasId, dbSuffix: `remote-${atlasId}` }),
+    // Sem gerente de locks: nenhuma outra aba segura o atlas (o pulo por aba viva, de 2026-09-24,
+    // é medido em `resgate-de-outros-atlas.test.js`).
+    hasMountLockSupport: () => false,
+    atlasMountLockName: (suffix) => `mount#${suffix}`,
+    getActiveScope: () => null,
     readLocalAtlasRegistry: async () => ns.registro,
     StoreName: Object.freeze({ OPERATION_QUEUE: 'operationQueue' }),
     getStoreFor: (storeId, scope) => {

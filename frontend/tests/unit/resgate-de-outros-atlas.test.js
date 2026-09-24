@@ -217,7 +217,7 @@ describe('as frases dos outros atlas', () => {
         const url = frases.otherAtlasesExitNotice('guardado,retido', { graceMs: PRAZO });
         expect(url.tone).toBe('warning');
         expect(url.message).toContain('como atlas locais');
-        expect(url.message).toContain('por até 24 horas');
+        expect(url.message).toContain('por 24 horas');
         expect(frases.otherAtlasesExitNotice('perdido').tone).toBe('error');
     });
 });
@@ -251,5 +251,60 @@ describe('endPreviousAccountIfReplaced: a outra conta entrando depois da sessão
         const r = await saida.endPreviousAccountIfReplaced({ previousSubject: 'u1', currentUserId: 'u2', sweep });
         expect(r.rescued.map(x => x.atlasId)).toEqual(['a']);
         expect(ordem).toEqual(['varreu com 1 adotado(s)']);
+    });
+});
+
+describe('revisão final (2026-09-24)', () => {
+    it('(3) página sem mapa: o atlas do marcador que OUTRA aba tem montado não é adotado aqui', async () => {
+        atlasRemoto('do-mapa');
+        mundo.montadosPorOutra.add('do-mapa');
+        const r = await saida.preserveUnsyncedWorkOnLostSession({ atlasId: 'do-mapa' });
+        expect(mundo.adotados, 'a aba ociosa adotou o atlas vivo do mapa').toEqual([]);
+        expect(r.outcome).toBe(frases.ExitOutcome.NADA);
+    });
+
+    it('(3) CONTROLE: sem outra aba segurando, o atlas do marcador é resgatado', async () => {
+        atlasRemoto('do-mapa');
+        const r = await saida.preserveUnsyncedWorkOnLostSession({ atlasId: 'do-mapa' });
+        expect(mundo.adotados.map(a => a.atlasId)).toEqual(['do-mapa']);
+        expect(r.outcome).toBe(frases.ExitOutcome.GUARDADO);
+    });
+
+    it('(4) troca de conta com o teto cheio: adota mesmo acima do teto, nunca deixa sob veto', async () => {
+        mundo.registro = Array.from({ length: 10 }, (_, i) => ({ id: `l${i}`, name: `L${i}`, dbSuffix: `l${i}` }));
+        atlasRemoto('da-conta-1');
+        mundo.vetos.set('da-conta-1', Date.now() - HORA);
+        const r = await saida.endPreviousAccountIfReplaced({
+            previousSubject: 'u1', currentUserId: 'u2', sweep: async () => {},
+        });
+        expect(r.rescued.map(x => x.atlasId)).toEqual(['da-conta-1']);
+        expect(r.retained).toEqual([]);
+        expect(mundo.vetos.has('da-conta-1'), 'o veto antigo saiu com a adoção').toBe(false);
+    });
+
+    it('(4) troca de conta com a adoção falhando: descartado com aviso, e o veto solto', async () => {
+        const local = await import('@store/local-atlas.api.js');
+        local.adoptRemoteAtlasAsLocal.mockRejectedValueOnce(new Error('cota'));
+        atlasRemoto('falha');
+        mundo.vetos.set('falha', Date.now() - HORA);
+        const r = await saida.endPreviousAccountIfReplaced({
+            previousSubject: 'u1', currentUserId: 'u2', sweep: async () => {},
+        });
+        expect(r.retained).toEqual([]);
+        expect(r.lost.map(x => x.atlasId)).toEqual(['falha']);
+        expect(mundo.vetos.has('falha'), 'nada fica sob veto na troca de conta').toBe(false);
+    });
+
+    it('(2) o prazo que resta viaja na URL, e o canal da URL não promete a janela cheia', async () => {
+        mundo.registro = Array.from({ length: 10 }, (_, i) => ({ id: `l${i}`, name: `L${i}`, dbSuffix: `l${i}` }));
+        atlasRemoto('retido');
+        mundo.vetos.set('retido', Date.now() - 20.5 * HORA);
+        const r = await saida.preserveUnsyncedWorkOnLostSession({ atlasId: null });
+        expect(r.others).toEqual([frases.OtherAtlasesOutcome.RETIDO]);
+        expect(r.othersGraceMs).toBeGreaterThan(3 * HORA);
+        expect(r.othersGraceMs).toBeLessThanOrEqual(3.5 * HORA);
+        const url = frases.otherAtlasesExitNotice('retido', { graceMs: r.othersGraceMs });
+        expect(url.message).toContain('por 3 horas');
+        expect(frases.otherAtlasesExitNotice('retido').message, 'sem prazo, sem número').toContain('por tempo limitado');
     });
 });

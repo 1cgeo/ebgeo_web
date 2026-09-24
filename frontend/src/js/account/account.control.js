@@ -43,13 +43,12 @@ import {
     rescuedAtlasName,
     preserveUnsyncedWorkAsLocal,
     countPendingOperations,
-    rescueVetoRecorded,
     preserveUnsyncedWorkOfOtherAtlases,
     otherAtlasesRescueMessage,
     endPreviousAccountIfReplaced,
-    // O prazo do veto de resgate vem por AQUI, e nao de `@store/remote-atlas.api.js`: as frases
-    // sao puras e recebem o numero, entao ele precisa chegar derivado da constante, nunca digitado.
-    RESCUE_VETO_GRACE_MS,
+    // O prazo do veto que RESTA vem por AQUI: as frases sao puras e recebem o numero, e a janela
+    // cheia prometia horas ja gastas quando o veto era de uma saida anterior.
+    rescueVetoRemainingMs,
 } from '@js/session/unsynced-work-exit.js';
 import {
     exitPreservedSummary,
@@ -1492,7 +1491,10 @@ export class AccountControl {
                     // dois casos NADA reivindica o namespace. Prometer resgate aqui é a mentira que
                     // o caminho involuntário já pagou uma vez.
                     showError(
-                        exitPreserveFailedNotice({ retained: rescueVetoRecorded(mountedAtlasId), graceMs: RESCUE_VETO_GRACE_MS }),
+                        exitPreserveFailedNotice({
+                            retained: rescueVetoRemainingMs(mountedAtlasId) > 0,
+                            graceMs: rescueVetoRemainingMs(mountedAtlasId),
+                        }),
                         { duration: 0 }
                     );
                 } else {
@@ -1508,7 +1510,7 @@ export class AccountControl {
                     // teria que estar errada num dos dois casos, que é a forma de mentira que este
                     // caminho inteiro existe para remover.
                     showError(
-                        rescueVetoRecorded(mountedAtlasId)
+                        rescueVetoRemainingMs(mountedAtlasId) > 0
                             ? 'Sua sessão terminou e NÃO foi possível guardar as alterações '
                                 + 'não enviadas como atlas local. Elas ficam neste computador por '
                                 + 'tempo limitado: entre de novo o quanto antes para enviá-las.'

@@ -405,7 +405,7 @@ async function mountedByAnotherClient(dbSuffix) {
  * @param {{ exceptAtlasId?: string|null }} [params] - The mounted atlas, rescued by its own path.
  * @returns {Promise<OtherAtlasesRescue>} Never rejects.
  */
-export async function preserveUnsyncedWorkOfOtherAtlases({ exceptAtlasId = null } = {}) {
+export async function preserveUnsyncedWorkOfOtherAtlases({ exceptAtlasId = null, trocaDeConta = false } = {}) {
     const result = { rescued: [], retained: [], lost: [], pendingOps: 0 };
     let entries;
     let claimed;
@@ -430,7 +430,10 @@ export async function preserveUnsyncedWorkOfOtherAtlases({ exceptAtlasId = null 
 
         const name = await atlasNameOnDisk(entry.atlasId);
         let slot = null;
-        if (localCount < MAX_LOCAL_ATLASES) {
+        // ON AN ACCOUNT SWITCH THE CAP DOES NOT APPLY, as in the mounted rescue: a queue left under
+        // the veto survives the switch, and the next account opening that atlas inside the window
+        // would push the previous account's work under its own token.
+        if (trocaDeConta || localCount < MAX_LOCAL_ATLASES) {
             try {
                 const adopted = await adoptRemoteAtlasAsLocal(
                     entry.atlasId, rescuedAtlasName(name), { makeCurrent: false }
@@ -448,6 +451,11 @@ export async function preserveUnsyncedWorkOfOtherAtlases({ exceptAtlasId = null 
             localCount += 1;
             claimed.add(entry.dbSuffix);
             result.rescued.push({ atlasId: entry.atlasId, name: slot.name });
+        } else if (trocaDeConta) {
+            // Never left under a veto on an account switch (see above): an adoption that failed is
+            // discarded by the sweep that follows, and the caller says so by name.
+            releaseRemoteAtlasRescueVeto(entry.atlasId);
+            result.lost.push({ atlasId: entry.atlasId, name });
         } else if (await retainRemoteAtlasForRescue(entry.atlasId) && vetoRemainingMs(entry.atlasId) > 0) {
             result.retained.push({ atlasId: entry.atlasId, name, remainingMs: vetoRemainingMs(entry.atlasId) });
         } else {
@@ -478,7 +486,7 @@ export async function preserveUnsyncedWorkOfOtherAtlases({ exceptAtlasId = null 
  */
 export async function endPreviousAccountIfReplaced({ previousSubject, currentUserId, sweep }) {
     if (!previousSubject || !currentUserId || previousSubject === currentUserId) return null;
-    const rescue = await preserveUnsyncedWorkOfOtherAtlases();
+    const rescue = await preserveUnsyncedWorkOfOtherAtlases({ trocaDeConta: true });
     await sweep();
     return rescue;
 }
@@ -487,6 +495,14 @@ export async function endPreviousAccountIfReplaced({ previousSubject, currentUse
  * What is left of the retention veto of an atlas, in milliseconds (0 when none or expired).
  * @param {string} atlasId
  * @returns {number}
+ */
+export function rescueVetoRemainingMs(atlasId) {
+    return typeof atlasId === 'string' ? vetoRemainingMs(atlasId) : 0;
+}
+
+/**
+ * @param {string} atlasId
+ * @returns {number} What is left of the veto, in milliseconds (0 when none or expired).
  */
 function vetoRemainingMs(atlasId) {
     const since = remoteAtlasRescueVetoSince(atlasId);
@@ -563,7 +579,12 @@ export async function preserveUnsyncedWorkOnLostSession({ atlasId = null, atlasN
     // THE OTHER ATLASES FIRST, and whatever the mounted one holds: the map this page navigates to
     // boots logged out and its sweep destroys every registered namespace nobody claimed.
     const outros = await preserveUnsyncedWorkOfOtherAtlases({ exceptAtlasId: alvo });
-    const principal = await preserveMountedAtlas(alvo, atlasName);
+    // THE ORIGIN MARKER NAMES WHAT ANOTHER TAB (the map) HAS MOUNTED, and the idle watch is per tab:
+    // `admin.html` expiring while the person edits X in the map tab used to adopt X as a local atlas
+    // under the live map, which kept draining X's queue with its own token (a local copy plus
+    // "Enviar ao servidor" = a duplicated atlas). A live tab's atlas is left to that tab's exit.
+    const deOutraAba = alvo ? await mountedByAnotherClient(remoteScope(alvo).dbSuffix) : false;
+    const principal = await preserveMountedAtlas(deOutraAba ? null : alvo, atlasName);
     return combineExitResults(principal, outros);
 }
 
@@ -596,7 +617,7 @@ async function preserveMountedAtlas(alvo, atlasName) {
         atlasId: alvo,
         message: preserved
             ? exitPreservedSummary(rescuedAtlasName(atlasName))
-            : exitPreserveFailedNotice({ retained: rescueVetoRecorded(alvo), graceMs: RESCUE_VETO_GRACE_MS }),
+            : exitPreserveFailedNotice({ retained: rescueVetoRemainingMs(alvo) > 0, graceMs: rescueVetoRemainingMs(alvo) }),
     };
 }
 
@@ -612,13 +633,17 @@ async function preserveMountedAtlas(alvo, atlasName) {
  * @returns {ExitGuardResult & { others: string[] }}
  */
 function combineExitResults(principal, outros) {
+    // The SHORTEST time left among the retained, for `?outrosPrazo=` (minutes): the map rebuilds the
+    // sentence from codes, and a full window there promised hours that were already spent.
+    const restantes = outros.retained.map(r => r.remainingMs).filter(ms => Number.isFinite(ms) && ms > 0);
+    const othersGraceMs = restantes.length > 0 ? Math.min(...restantes) : null;
     const others = [];
     if (outros.rescued.length > 0) others.push(OtherAtlasesOutcome.GUARDADO);
     if (outros.retained.length > 0) others.push(OtherAtlasesOutcome.RETIDO);
     if (outros.lost.length > 0) others.push(OtherAtlasesOutcome.PERDIDO);
     const aviso = otherAtlasesRescueMessage(outros);
     const message = [principal.message, aviso?.message].filter(Boolean).join(' ') || null;
-    return { ...principal, others, message };
+    return { ...principal, others, othersGraceMs, message };
 }
 
 /**
