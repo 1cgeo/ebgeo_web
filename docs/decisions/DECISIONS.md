@@ -230,6 +230,7 @@ que envelheceu na decisão seguinte.)
 - 2026-09-24: tipografia e cor só dos tokens: controles herdam a fonte, três pesos (sem 500), escala sem 13px, uma monoespaçada, escalas de vermelho, âmbar e azul (decisão do dono), [registro](decisions-2026.md).
 - 2026-09-24: os atributos personalizados de uma feição convergem por CHAVE (a mesma chave continua conflito), e a bolsa inteira do formato antigo continua aceita (decisão do dono), [registro](decisions-2026.md).
 - 2026-09-24: cada commit roda `npm run test:tocados` (só o que o git diff pede); o `npm test` inteiro da raiz fica para contrato entre os pacotes, deploy e main (decisão do dono), [registro](decisions-2026.md).
+- 2026-09-24: a presença tem controle de fluxo por destinatário, lido do pong do ping de protocolo e não do `bufferedAmount` (que fica em zero atrás de link lento): no máximo um quadro em voo, o resto coalescido, op de sync nunca retida (decisão do dono), [registro](decisions-2026.md).
 - 2026-09-25: a foto anexa viaja como blob com referência, e a edição que a cita espera os bytes; a recusa de foto convertida prende a edição, a de foto anexada não, [registro](decisions-2026.md).
 - 2026-09-25: os painéis laterais escondem a edição também pela trava; desenhar e recusar fica para o menu por mapa (decisão do dono), [registro](decisions-2026.md).
 - 2026-09-24: a alça da partida da rota é um ANEL, e o miolo dele é do corpo da feição (decisão do dono), [registro](decisions-2026.md).
