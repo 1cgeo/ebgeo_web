@@ -1,8 +1,12 @@
-// Path: e2e-ui/browser-collab-trajetoria-painel.repro.spec.js
+// Path: e2e-ui/browser-collab-trajetoria-mapa.repro.spec.js
 
 /**
- * @fileoverview REMOVER UM PONTO DA TRAJETÓRIA pelo painel não desfaz o ponto que o colega removeu
- * enquanto o painel estava aberto.
+ * @fileoverview REMOVER UM PONTO DA TRAJETÓRIA NO MAPA (botão direito no vértice) não devolve o
+ * ponto que o colega removeu enquanto a feição estava selecionada.
+ *
+ * O EDITOR DO MAPA (`temporal/trajectory-tool/trajectory-edit-control.js`, `_persist`) grava o
+ * array compartilhado INTEIRO, o mesmo da seção do painel (`browser-collab-trajetoria-painel.repro.spec.js`),
+ * e herda a mesma cópia velha.
  *
  * A HIPÓTESE (2026-09-24). A seção de trajetória do painel (`createTrajectorySection`,
  * `temporal/temporal-attributes-section.js`) edita EM LUGAR o array `trajetoria` da feição que o
@@ -81,8 +85,20 @@ collabTest('remover um ponto da trajetoria com o painel aberto nao devolve o pon
         timeout: 30000, message: 'a remocao de B nao chegou ao store de A',
     }).toBe(2);
 
-    // A, com o painel aberto desde antes, remove o SEGUNDO ponto.
-    await removerPonto(A, 1);
+    // A, com a feição selecionada desde antes, remove o SEGUNDO ponto no MAPA (botão direito).
+    await A.evaluate((c) => globalThis.__ebgeoMap.jumpTo({ center: c, zoom: 12 }), [trajetoria[1].lng, trajetoria[1].lat]);
+    await expect.poll(() => A.evaluate((p) => {
+        const map = globalThis.__ebgeoMap;
+        const pt = map.project(p);
+        return map.queryRenderedFeatures([[pt.x - 6, pt.y - 6], [pt.x + 6, pt.y + 6]], { layers: ['trajectory-edit-vertex-layer'] }).length;
+    }, [trajetoria[1].lng, trajetoria[1].lat]), { timeout: 15000, message: 'o vertice 2 da trajetoria nao foi desenhado' }).toBeGreaterThan(0);
+    const alvo = await A.evaluate((p) => {
+        const map = globalThis.__ebgeoMap;
+        const rect = map.getCanvas().getBoundingClientRect();
+        const pt = map.project(p);
+        return { x: rect.left + pt.x, y: rect.top + pt.y };
+    }, [trajetoria[1].lng, trajetoria[1].lat]);
+    await A.mouse.click(alvo.x, alvo.y, { button: 'right' });
 
     await expect.poll(async () => (await trajetoriaNoServidor(collab, id))?.map((k) => k.t) ?? null, {
         timeout: 30000, message: 'o servidor nao ficou so com a ancora',

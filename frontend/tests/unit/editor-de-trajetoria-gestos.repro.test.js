@@ -54,6 +54,17 @@ vi.mock('@store', () => ({
         getSelectedFeatures: () => servicos.selecionadas,
     }),
     updateFeatureProperty: (...args) => { servicos.escritas.push(args); },
+    // Desde 2026-09-24 o gesto grava por `updateFeature` com `transform` (o que ele mudou, sobre a
+    // trajetória GUARDADA, sob a trava). O livro-razão registra essa escrita na mesma forma, com o
+    // valor que a transformação produz sobre a feição do arnês e a marca de desfazer que a store
+    // aplica a uma escrita no mapa corrente (null = corrente, `shouldRecordUndo`).
+    updateFeature: (tipo, feature, mapa, opcoes = {}) => {
+        const atual = JSON.parse(JSON.stringify(feature));
+        const escrita = typeof opcoes.transform === 'function' ? opcoes.transform(atual) : feature;
+        servicos.escritas.push([tipo, feature.properties.id, 'trajetoria', escrita.properties.trajetoria,
+            mapa ?? null, { recordUndo: mapa == null }]);
+        return Promise.resolve();
+    },
     getStorageTypeFromSource: (fonte) => `${fonte}s`,
     getMapTemporalConfigSync: () => ({ unidade: 'DIA' }),
 }));

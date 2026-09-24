@@ -31,6 +31,7 @@ import {
     getControl,
     getEventBus,
     getStateManager,
+    updateFeature,
     updateFeatureProperty,
     getStorageTypeFromSource,
     getMapTemporalConfigSync,
@@ -179,6 +180,7 @@ export class TrajectoryEditControl {
         }
         this._feature = feature;
         this._featureType = feature.properties.source;
+        this._baseline = this._snapshotTrajectory();
 
         this._ensureLayers();
         this._renderAll();
@@ -190,7 +192,15 @@ export class TrajectoryEditControl {
 
     /** Re-renders the path + handles for the currently shown feature (after a panel edit). */
     refreshDisplay() {
+        // The panel section persists through the STORED value and copies the result back into the
+        // shared array before calling this, so the array is the new baseline of this editor too.
+        this._baseline = this._snapshotTrajectory();
         if (this._feature) this._renderAll();
+    }
+
+    /** @private The shared trajectory, normalized and copied (the baseline of the next edit). */
+    _snapshotTrajectory() {
+        return normalizeTrajectory(this._feature?.properties?.trajetoria).map(kp => ({ ...kp }));
     }
 
     /**
@@ -933,12 +943,53 @@ export class TrajectoryEditControl {
         if (sourceId) {
             updateSourceFeatureProperty(this._map, sourceId, props.id, 'trajetoria', sorted);
         }
-        // updateFeatureProperty keys by STORAGE type ('points'), not the source type
-        // ('point') held in _featureType — convert or the store write silently fails.
-        updateFeatureProperty(
-            getStorageTypeFromSource(this._featureType), props.id, 'trajetoria', sorted,
-            null, { recordUndo },
-        );
+        if (!recordUndo) {
+            // The cancel of the add mode restores the entry snapshot: a whole value by nature,
+            // written without an undo entry, as before.
+            // updateFeatureProperty keys by STORAGE type ('points'), not the source type
+            // ('point') held in _featureType — convert or the store write silently fails.
+            updateFeatureProperty(
+                getStorageTypeFromSource(this._featureType), props.id, 'trajetoria', sorted,
+                null, { recordUndo },
+            );
+            this._baseline = sorted.map(kp => ({ ...kp }));
+            getControl('TemporalControl')?.sync();
+            return;
+        }
+
+        // THE GESTURE IS WRITTEN AS WHAT IT CHANGED, over the trajectory AS STORED (2026-09-24).
+        // The shared array is the one this feature carried when it was selected, and a colleague's
+        // op does not reach it: writing it whole gave back a keypoint the colleague had removed
+        // meanwhile, with an up-to-date base, so the server accepted it
+        // (`frontend/tests/e2e-ui/browser-collab-trajetoria-mapa.repro.spec.js`). The keypoints that
+        // left the array since the baseline are removed from the stored value, and the ones that
+        // arrived are added, by value, under the document lock (`updateFeature({ transform })`,
+        // which also records the undo entry of a write to the current map). A drag is a removal
+        // plus an addition. The anchor branch above still writes whole, through the owning control,
+        // because it moves the geometry in the same write.
+        const baseline = this._baseline ?? [];
+        const mesmo = (a, b) => a.t === b.t && a.lng === b.lng && a.lat === b.lat;
+        const saiu = baseline.filter(b => !sorted.some(k => mesmo(k, b)));
+        const entrou = sorted.filter(k => !baseline.some(b => mesmo(k, b)));
+        const feature = this._feature;
+        let gravada = null;
+        updateFeature(getStorageTypeFromSource(this._featureType), feature, null, {
+            transform: (current) => {
+                const guardada = normalizeTrajectory(current.properties?.trajetoria);
+                gravada = normalizeTrajectory(guardada
+                    .filter(k => !saiu.some(r => mesmo(r, k)))
+                    .concat(entrou.filter(a => !guardada.some(k => mesmo(k, a)))));
+                return { ...current, properties: { ...current.properties, trajetoria: gravada } };
+            },
+        }).then(() => {
+            if (!gravada || this._feature !== feature) return;
+            const arr = feature.properties?.trajetoria;
+            if (Array.isArray(arr)) arr.splice(0, arr.length, ...gravada);
+            this._baseline = gravada.map(kp => ({ ...kp }));
+            if (sourceId) updateSourceFeatureProperty(this._map, sourceId, props.id, 'trajetoria', gravada);
+            this._renderAll();
+            getControl('TemporalControl')?.sync();
+        }).catch(error => console.error('Error saving trajectory:', error));
         getControl('TemporalControl')?.sync();
     }
 
