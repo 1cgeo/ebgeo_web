@@ -46,7 +46,7 @@ import {
     CONVERGENCE_GUARDED,
 } from './remote-operation-handler.js';
 import { syncGateway } from './sync-gateway.js';
-import { connectionState } from './connection-state.js';
+import { connectionState, ConnectionStates } from './connection-state.js';
 import { setImageSyncAtlas } from './image-sync.js';
 import { applyAtlasSettings, revertAtlasSettings } from './atlas-settings.service.js';
 import { refreshVisibleResources, clearVisibleResources } from './resource-access.service.js';
@@ -58,7 +58,15 @@ import { EventTypes } from '../../events/event_types.js';
 import { record } from './diag/trace-core.js';
 import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
 import { showWarning } from '../../utilities/toast_service.js';
-import { MAX_OPS_PER_LOGICAL_BATCH, describeRefusedPart } from './operation-factory.js';
+import {
+    MAX_OPS_PER_LOGICAL_BATCH, describeRefusedPart, clientIdInstallation, getClientId,
+} from './operation-factory.js';
+import {
+    PRAZO_DO_TEMPO_REAL_MS, PRAZO_DO_TEMPO_REAL_CODE, POLL_BASE_MS, FALHAS_ATE_RECONECTAR,
+    SONDA_APOS_QUEDA_MS, POLLS_POR_RELEITURA_DO_PAPEL,
+    seguirSemTempoReal, proximoIntervaloDoPoll, desfechoDaFalhaDoPoll,
+} from './sem-tempo-real.js';
+import { atlasRoleForPermission } from '@js/projects/permission-levels.js';
 
 /**
  * Max operations pushed per HTTP batch when flushing the queue.
@@ -394,8 +402,17 @@ class SyncEngine {
 
     _beginSession(atlasId) {
         this._session?.close();
-        this._session = new SyncSession(atlasId, sessionContext.userId);
-        return this._session;
+        const session = new SyncSession(atlasId, sessionContext.userId);
+        // The timers of the mode without real time belong to the session: closing it (another
+        // atlas, a disconnect, the tab-lock brake) must stop the pull and the probe with it.
+        session.signal.addEventListener('abort', () => {
+            clearTimeout(session.pollTimer);
+            clearTimeout(session.sondaTimer);
+            session.pollTimer = null;
+            session.sondaTimer = null;
+        }, { once: true });
+        this._session = session;
+        return session;
     }
 
     /**
@@ -491,11 +508,15 @@ class SyncEngine {
             });
         }
 
-        const payload = await wsClient.connect(atlasId, {
-            lastVersion: this._lastVersion,
-            haveSnapshot: this._haveSnapshot,
-        });
+        // WITHOUT REAL TIME (owner, 2026-09-24): the snapshot already came over HTTP, so a socket
+        // that does not open no longer fails the opening. `null` here means the atlas goes on over
+        // HTTP; the socket keeps being retried in the background.
+        const payload = await this._abrirTempoReal(atlasId, session);
         session.assertActive();
+        if (!payload) {
+            await this._papelPorHttp(session);
+            session.assertActive();
+        }
 
         // Reflect the PER-ATLAS role from the connect payload (owner/editor/viewer). This is the
         // ONLY place the axis is resolved for a non-owner: hydration seeds it at VIEWER and the
@@ -511,9 +532,12 @@ class SyncEngine {
         }
         // THE RECORTE ALSO DEPENDS ON THE LEVEL, and only the socket tells it: see
         // `_markRecorteLevel`. A generation staged under another level is re-pulled in full.
-        if (this._markRecorteLevel(session, payload?.permission)) {
+        // Without real time the level comes from the same HTTP read as the role.
+        if (this._markRecorteLevel(session, payload?.permission ?? session.permissaoHttp)) {
             this.resync().catch((error) => console.warn('[sync] re-pull after a change of level failed:', error));
         }
+
+        if (!payload) this._entrarSemTempoReal(session);
 
         // Apply the per-atlas config overlay from the snapshot's settings (no extra round-trip).
         await this._applyAtlasSettingsOverlay(atlasId, snapshot?.atlas?.settings, session);
@@ -761,16 +785,16 @@ class SyncEngine {
         // Anonymous read-only visitor: NEVER log ops — there is no token to push them and they would
         // orphan the op queue for a later real login (which would then flush them to the wrong atlas).
         disableOperationLogging();
-        const payload = await wsClient.connect(atlasId, {
-            lastVersion: this._lastVersion,
-            haveSnapshot: this._haveSnapshot,
-        });
+        // The visitor goes on without real time too: a read-only visit that a proxy blocks the
+        // socket of still reads the atlas, and the pull keeps it current.
+        const payload = await this._abrirTempoReal(atlasId, session);
 
         session.assertActive();
 
         // Anonymous read-only visitor: the permission guard blocks editing the remote store, and
         // isAuthenticated() stays false (no account menu).
         sessionContext.setVisitorSession();
+        if (!payload) this._entrarSemTempoReal(session);
 
         // The per-atlas config overlay still applies — a visitor respects 3D/360/basemap availability.
         await this._applyAtlasSettingsOverlay(atlasId, snapshot?.atlas?.settings, session);

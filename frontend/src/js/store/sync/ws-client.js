@@ -356,10 +356,27 @@ export class WsClient {
 
     // ===== INTERNAL: CONNECTION LIFECYCLE =====
 
+    /**
+     * @private Whether the state says the server answers over HTTP while this socket is being
+     * retried in the background (`HTTP_ONLY`, "sem tempo real"). The engine enters it; this client
+     * only has to stay out of its way until a `connected` frame brings ONLINE back.
+     * @returns {boolean}
+     */
+    _semTempoReal() {
+        try {
+            return this._conn.getState() === ConnectionStates.HTTP_ONLY;
+        } catch {
+            return false;
+        }
+    }
+
     /** @private Opens the socket and wires lifecycle handlers. */
     _open() {
         const url = this._api.wsUrl(this._atlasId, { clientId: this._clientId });
-        this._safeTransition(ConnectionStates.CONNECTING);
+        // WITHOUT REAL TIME, a background attempt at the socket does not touch the state: the
+        // badge, the flush and every listener already read HTTP_ONLY, and flipping it to
+        // CONNECTING and back at every backoff step would make all of them flicker for nothing.
+        if (!this._semTempoReal()) this._safeTransition(ConnectionStates.CONNECTING);
 
         return new Promise((resolve, reject) => {
             this._connectResolve = resolve;
@@ -631,10 +648,9 @@ export class WsClient {
             return;
         }
 
-        // Unexpected drop while we want to stay connected → reconnect with backoff.
-        this._safeTransition(
-            this._conn.isOnline() ? ConnectionStates.RECONNECTING : ConnectionStates.RECONNECTING
-        );
+        // Unexpected drop while we want to stay connected → reconnect with backoff. A failed
+        // background attempt WITHOUT REAL TIME keeps HTTP_ONLY: the server still answers over HTTP.
+        if (!this._semTempoReal()) this._safeTransition(ConnectionStates.RECONNECTING);
         this._emit('error', { kind: 'closed', code: event?.code, reason: event?.reason });
 
         // Settle a handshake that never completed. A rejected UPGRADE (403: account or org
