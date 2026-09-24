@@ -252,21 +252,28 @@ describe('sync push — the advisory lock wait is BOUNDED (503, not a hung pool)
       SYNC_PUSH_LOCK_NAMESPACE,
       atlas.id,
     ]);
+    // The pg_locks probes are scoped to THIS database and THIS atlas: the cluster is shared with
+    // other suites and other checkouts, and an unscoped count saw their sync pushes (measured on
+    // 2026-09-24, a red with count 1 after the ROLLBACK).
     // Uma SEGUNDA sessão não consegue o mesmo lock. `db` é uma única conexão, então a
     // sonda precisa ser feita de fora dela: pg_advisory_xact_lock é reentrante na
     // MESMA sessão e devolveria true por engano.
     const { rows } = await db.query(
       `SELECT count(*)::int AS n FROM pg_locks
-        WHERE locktype = 'advisory' AND classid = $1 AND granted`,
-      [SYNC_PUSH_LOCK_NAMESPACE],
+        WHERE locktype = 'advisory' AND classid = $1 AND objid = hashtext($2)::oid
+          AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+          AND granted`,
+      [SYNC_PUSH_LOCK_NAMESPACE, atlas.id],
     );
     assert.ok(rows[0].n >= 1, 'o lock precisa aparecer em pg_locks enquanto está detido');
     await db.query('ROLLBACK');
 
     const { rows: depois } = await db.query(
       `SELECT count(*)::int AS n FROM pg_locks
-        WHERE locktype = 'advisory' AND classid = $1 AND granted`,
-      [SYNC_PUSH_LOCK_NAMESPACE],
+        WHERE locktype = 'advisory' AND classid = $1 AND objid = hashtext($2)::oid
+          AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+          AND granted`,
+      [SYNC_PUSH_LOCK_NAMESPACE, atlas.id],
     );
     assert.equal(depois[0].n, 0, 'e desaparecer no ROLLBACK — o lock é transaction-scoped');
   });
