@@ -76,6 +76,17 @@ vi.mock('@store', async (importOriginal) => {
         getControl: () => null,
         getMapTemporalConfigSync: () => box.config,
         updateFeatureProperty: (...args) => { box.escritas.push(args); },
+        // A TRAJETÓRIA grava por `updateFeature` com `transform` desde 2026-09-24 (a edição é
+        // aplicada ao valor GUARDADO, sob a trava, e não ao array do painel). O livro-razão registra
+        // essa escrita na MESMA forma das outras, com o valor que a transformação produziu, e a
+        // marca de desfazer que a store de fato aplica: `updateFeature` registra desfazer quando o
+        // mapa alvo é o corrente (`shouldRecordUndo`, null = corrente).
+        updateFeature: (tipo, feature, mapa, opcoes = {}) => {
+            const atual = JSON.parse(JSON.stringify(feature));
+            const escrita = typeof opcoes.transform === 'function' ? opcoes.transform(atual) : feature;
+            box.escritas.push([tipo, feature.properties.id, 'trajetoria', escrita.properties.trajetoria,
+                mapa ?? null, { recordUndo: mapa == null }]);
+        },
     };
 });
 

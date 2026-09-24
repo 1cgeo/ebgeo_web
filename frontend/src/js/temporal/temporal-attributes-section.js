@@ -24,7 +24,7 @@
  * trajetória.
  */
 
-import { getControl, getEventBus, updateFeatureProperty, getStorageTypeFromSource, getMapTemporalConfigSync } from '@store';
+import { getControl, getEventBus, updateFeature, updateFeatureProperty, getStorageTypeFromSource, getMapTemporalConfigSync } from '@store';
 import { EventTypes } from '@events/event_types.js';
 import {
     epochToDatetimeLocal,
@@ -675,18 +675,37 @@ export function createTrajectorySection({ feature, featureType, map }) {
     // condições que tornam o desfazer honesto. O primeiro ponto-chave já era
     // desfazível pelo controle dono, então até esta data o MESMO gesto tinha duas
     // regras conforme o ponto arrastado.
-    const persist = () => {
-        const sorted = normalizeTrajectory(feature.properties?.trajetoria);
+    //
+    // THE EDIT IS APPLIED TO THE TRAJECTORY AS STORED WHEN THE WRITE RUNS, not to this panel's
+    // array (2026-09-24). The panel is not redrawn by a colleague's op, so the array it holds can
+    // predate the colleague's edit, and writing it whole gave back a keypoint the colleague had
+    // removed, with an up-to-date base, so the server accepted it
+    // (`frontend/tests/e2e-ui/browser-collab-trajetoria-painel.repro.spec.js`). Each gesture hands
+    // `persist` the edit itself, keyed by the keypoint's VALUE (instant and position), and
+    // `updateFeature({ transform })` applies it under the document lock; the stored result is then
+    // copied back into the shared array, in place, for the map editor. `updateFeature` records
+    // the undo entry for a write to the current map, as the `recordUndo` of the old call did.
+    const persist = async (edit) => {
+        let gravada = null;
+        await updateFeature(getStorageTypeFromSource(featureType), feature, null, {
+            transform: (current) => {
+                gravada = normalizeTrajectory(edit(normalizeTrajectory(current.properties?.trajetoria)));
+                return { ...current, properties: { ...current.properties, trajetoria: gravada } };
+            },
+        });
+        if (!gravada) return;
+        const arr = feature.properties?.trajetoria;
+        if (Array.isArray(arr)) arr.splice(0, arr.length, ...gravada);
+        else if (feature.properties) feature.properties.trajetoria = gravada;
         if (map && sourceId) {
-            updateSourceFeatureProperty(map, sourceId, feature.properties.id, 'trajetoria', sorted);
+            updateSourceFeatureProperty(map, sourceId, feature.properties.id, 'trajetoria', gravada);
         }
-        updateFeatureProperty(
-            getStorageTypeFromSource(featureType), feature.properties.id, 'trajetoria', sorted,
-            null, { recordUndo: true }
-        );
         getControl('TemporalControl')?.sync();
         getControl('TrajectoryEditControl')?.refreshDisplay();
     };
+
+    /** Same keypoint by value: the only identity a keypoint has across two clients. */
+    const mesmoPonto = (a, b) => !!a && !!b && a.t === b.t && a.lng === b.lng && a.lat === b.lat;
 
     const renderList = () => {
         list.replaceChildren();
@@ -757,12 +776,14 @@ export function createTrajectorySection({ feature, featureType, map }) {
                     showWarning(decisao.motivo);
                     return false;
                 }
+                const antes = { ...kp };
                 kp.t = epoch; // mutate the shared keypoint object
-                persist();
                 // Don't renderList() here: re-sorting the rows as the user fills in
                 // each date is disorienting. persist() already sorts the stored array;
                 // the visible order stabilises on the next full render. Refresh stats only.
-                renderStats(normalizeTrajectory(feature.properties?.trajetoria));
+                persist((lista) => lista.map((k) => (mesmoPonto(k, antes) ? { ...k, t: epoch } : k)))
+                    .then(() => renderStats(normalizeTrajectory(feature.properties?.trajetoria)))
+                    .catch((error) => console.error('Error saving trajectory time:', error));
                 return true;
             },
         });
@@ -792,11 +813,13 @@ export function createTrajectorySection({ feature, featureType, map }) {
             del.title = 'Remover ponto';
             del.setAttribute('aria-label', 'Remover ponto');
             del.textContent = '✕';
-            del.addEventListener('click', () => {
+            del.addEventListener('click', async () => {
+                const alvo = { ...kp };
                 const arr = feature.properties?.trajetoria;
                 const i = Array.isArray(arr) ? arr.indexOf(kp) : -1;
                 if (i >= 0) arr.splice(i, 1); // mutate in place, keep array reference
-                persist();
+                renderList();
+                await persist((lista) => lista.filter((k) => !mesmoPonto(k, alvo)));
                 renderList();
             });
             row.appendChild(del);
@@ -841,7 +864,9 @@ export function createTrajectorySection({ feature, featureType, map }) {
         if (Array.isArray(arr)) {
             arr.length = 0; // keep array reference
         }
-        persist();
+        renderList();
+        // "Limpar" is the one whole-value edit: it means no trajectory, whatever is stored.
+        await persist(() => []);
         renderList();
     });
     actions.appendChild(clearBtn);
