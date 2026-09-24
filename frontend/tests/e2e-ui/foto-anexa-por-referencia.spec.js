@@ -182,6 +182,23 @@ collabTest('link lento: a edição espera a foto, e o servidor nunca tem a refer
         await delay(4000);
         expect((await noServidor(collab.db, linha)).foto, 'a edição espera a foto').toBeNull();
 
+        // CLONE COM A FOTO AINDA SUBINDO (revisão, item 6): o clone copia só as linhas de `images` que
+        // já existem. Como a edição espera a foto, o servidor não cita a foto neste instante, então o
+        // clone também não cita uma foto sem linha. Medido pelo transporte real e pelo banco.
+        const clone = await fetch(`${collab.baseUrl}/api/v1/atlas/${collab.atlasId}/clone`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${collab.ownerToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+        });
+        expect(clone.status).toBe(201);
+        const cloneId = (await clone.json()).data.id;
+        const orfas = await collab.db.raw.any(
+            `SELECT f.id FROM features f JOIN maps m ON m.id = f.map_id,
+                    jsonb_array_elements(CASE WHEN jsonb_typeof(f.properties->'images') = 'array' THEN f.properties->'images' ELSE '[]'::jsonb END) AS foto
+              WHERE m.atlas_id = $1 AND NOT (foto ? 'data')
+                AND NOT EXISTS (SELECT 1 FROM images i WHERE i.id::text = foto->>'id' AND i.atlas_id = $1)`, [cloneId]);
+        expect(orfas, 'o clone não cita foto sem linha de images').toEqual([]);
+
         // F5 with the upload on the wire.
         await cdp.detach().catch(() => {});
         await A.reload();
