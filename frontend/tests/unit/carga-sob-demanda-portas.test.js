@@ -59,6 +59,7 @@ const PORTAS = Object.freeze([
     'src/js/sidebar/tabs/kmz-export.section.js',
     'src/js/utilities/luminosidade/carregador.js',
     'src/js/utilities/meteorologia/carregador.js',
+    'src/js/catalog/resource-share-launcher.js',
 ]);
 
 // ================================================================================================

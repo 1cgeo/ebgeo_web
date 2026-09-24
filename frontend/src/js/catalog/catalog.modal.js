@@ -29,7 +29,10 @@ import {
     countByAccessFilter,
     matchesAccessFilter
 } from './access-origin-phrases.js';
-import { showResourceShareModal } from './resource-share.modal.js';
+// The share dialog arrives on the click, through its door: a static import of
+// `resource-share.modal.js` here put the whole dialog in the map's boot payload.
+import { abrirCompartilharRecurso } from './resource-share-launcher.js';
+import { ehFalhaDeCarga } from '@utils/carga-sob-demanda.model.js';
 // Pelo ARQUIVO: a definicao unica da porta de administracao, para o rotulo nao divergir do que
 // a barra da conta usa. Ambos sao folhas de zero imports.
 import { adminAudience } from '@js/admin/admin-audience.js';
@@ -377,17 +380,29 @@ export class CatalogModal extends ModalBase {
      * não leva a lugar nenhum, e fechar a grade obrigaria a reabri-la e a refiltrar
      * para ceder o próximo. Quem decide se a ação existe é o cartão
      * (`canShareResource`); quem decide se ela vale é o servidor.
+     *
+     * The dialog's code arrives here, on the click. A load failure was already announced by
+     * `carregarSobDemanda` (with "Recarregar"), so only a bug goes on up.
      * @private
      * @param {CatalogItem} item
+     * @returns {Promise<void>}
      */
-    _handleShare(item) {
+    async _handleShare(item) {
         const acesso = resourceAccessRefOf(item);
         if (!acesso) return;
-        showResourceShareModal({
-            resourceType: acesso.tipo,
-            resourceId: acesso.id,
-            resourceName: item.name,
-        });
+        try {
+            await abrirCompartilharRecurso({
+                resourceType: acesso.tipo,
+                resourceId: acesso.id,
+                resourceName: item.name,
+            });
+        } catch (erro) {
+            if (ehFalhaDeCarga(erro)) {
+                console.warn('[catalog] o modal de compartilhar não chegou:', erro);
+                return;
+            }
+            throw erro;
+        }
     }
 
     /**

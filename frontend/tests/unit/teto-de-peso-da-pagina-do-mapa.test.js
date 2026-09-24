@@ -357,7 +357,15 @@ const ORCAMENTO = Object.freeze({
     // `map_sig.js` instancia, ou seja, a porta por onde este peso entrou: o painel de pendências
     // (`account/pendencias/`, cinco módulos) já é sob demanda, e um import estático dele passaria
     // despercebido em qualquer outro número deste arquivo.
-    account: 6
+    account: 6,
+    // `catalog`: 16 since 2026-09-23, 18 before, measured by this walker on both sides. The resource
+    // share dialog left the boot: `catalog.modal.js` (eager, through the sidebar chips) imported
+    // `resource-share.modal.js` statically, which carried `resource-share.modal.core.js` and
+    // `grant-tree.js` from this folder (and `admin/group-phrases.js` from outside it). Three left and
+    // the door `resource-share-launcher.js` entered: 18 - 3 + 1 = 16. Same reason as the two lines
+    // above: the dialog only exists after two clicks, and a static import of it coming back fails
+    // here naming the chain.
+    catalog: 16
 });
 
 /**
@@ -859,7 +867,11 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // panel's whole text, and the menu read one string from each. The label moved into each
         // loader; the count here does not move (same files), the eager graph loses the two leaves,
         // and the case "the TEXT of the two point panels" below pins it.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(795);
+        //
+        // 2026-09-23 (night): 796, with `catalog/resource-share-launcher.js`, the on-demand door of the
+        // resource share dialog, which left the map's boot (see the `catalog` line of ORCAMENTO and
+        // the case "the resource share dialog" below). One new file; nothing else moved in this graph.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(796);
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
@@ -988,6 +1000,35 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // loader would leave the four assertions above green and empty.
         expect(tem(ansioso, 'src/js/utilities/luminosidade/carregador.js')).toBe(true);
         expect(tem(ansioso, 'src/js/utilities/meteorologia/carregador.js')).toBe(true);
+    });
+
+    it('the resource share dialog arrives only by `import()`, through its door', () => {
+        // `catalog/catalog.modal.js` rides the boot (the sidebar chips import it statically), and
+        // its static import of `resource-share.modal.js` carried the whole share dialog with it:
+        // the core, the grant tree and the group phrases, for a command that only a producer, a
+        // credenciado or an administrator sees, after two clicks. It is the class of the three
+        // account-menu dialogs above, left out of that lot. Since 2026-09-23 the catalog opens it
+        // through `catalog/resource-share-launcher.js`.
+        //
+        // BOTH SIDES, as above. `admin/group-phrases.js` is in the list because, in the MAP's graph,
+        // the share core was its only reader; `admin.html` reads it statically and is not measured
+        // here.
+        const sobDemanda = [
+            'src/js/catalog/resource-share.modal.js',
+            'src/js/catalog/resource-share.modal.core.js',
+            'src/js/catalog/grant-tree.js',
+            'src/js/admin/group-phrases.js',
+        ];
+        const tem = (grafo, sufixo) => [...grafo.arquivos]
+            .some((f) => f.replace(/\\/g, '/').endsWith(sufixo));
+        for (const modulo of sobDemanda) {
+            expect(tem(ansioso, modulo), `${modulo} voltou para o payload ansioso do mapa`)
+                .toBe(false);
+            expect(tem(completo, modulo), `${modulo} sumiu do grafo: a afirmação virou vazia`)
+                .toBe(true);
+        }
+        // The door is eager and holds the dynamic edge.
+        expect(tem(ansioso, 'src/js/catalog/resource-share-launcher.js')).toBe(true);
     });
 
     for (const pacote of EXTERNOS_SO_DINAMICOS) {
@@ -1322,6 +1363,16 @@ const PAGINAS_DIST = Object.freeze([
     // que perdesse as referências, não registro de conquista. Quem registra a conquista com
     // exatidão é o ORCAMENTO por pasta da metade (a) (`modals: 14`), fechado nos dois sentidos.
     // 4170 deixa 50 kB de folga sobre 4120, pouco de propósito, como as subidas anteriores.
+    //
+    // 2026-09-23 (night): the ceiling WAS BROKEN and did NOT move. Fresh builds, this ruler, one
+    // per commit from `b0a199bc` (4218979 bytes) to `5379fc3e` (4292069, 4191 kB): +73090 bytes
+    // over twelve commits, all static imports of new features, none a lazy chunk leaking through a
+    // `codeSplitting` rule. The first red commit was `e848a09e` (4172 kB); `cd6498d2` was the last
+    // green, 853 bytes under. About 13 kB of the growth is CSS: `main-legacy-*.js` carries the whole
+    // map stylesheet as a string (522 of its 640 kB), so every rule added to `style.css` grows this
+    // sum once. Two static imports that did not belong in the boot were cut instead: the two point
+    // panels' phrase leaves (-8000 bytes) and the resource share dialog (-39508 bytes, see the
+    // `catalog` line of ORCAMENTO). Measured after both: 82 files, 4244561 bytes, 4145 kB.
     { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 86, minKb: 3600, maxKb: 4170 },
     // atlas.html: MEDIDA dos dois lados do mesmo lote, 36 arquivos / 663 kB antes e 40 / 664
     // depois. Os quatro arquivos a mais são repartição de chunk e não conteúdo (os modais que o
