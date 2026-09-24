@@ -45,6 +45,7 @@ import {
     enfileirarBlob,
     registrarBlob,
     enviarBlobRegistrado,
+    descartarBlobRegistrado,
     retomarBlobsPendentes,
     esquecerPendenciasEmMemoria,
     BlobUploadState
@@ -143,7 +144,7 @@ export async function uploadImageBlob(blob, imageId, { origem = 'imagem' } = {})
 }
 
 /**
- * Registers an image blob for upload and STARTS sending it, without waiting for the transfer.
+ * Registers an image blob for upload and hands back the two ways out: send it, or drop it.
  *
  * WHY THE IMAGE TOOL NO LONGER WAITS (2026-09-23, coordinator's approval). It awaited
  * {@link uploadImageBlob} before writing the feature, so on the 40 kbps link the product targets a
@@ -154,24 +155,34 @@ export async function uploadImageBlob(blob, imageId, { origem = 'imagem' } = {})
  * server confirms the bytes, so no peer ever receives the feature before its picture, and an F5 in
  * the middle resumes the upload under the same id on connect.
  *
+ * THE TRANSFER STARTS ONLY WHEN THE CALLER SAYS SO (2026-09-24, review): `enviar()` after the
+ * feature was saved, `descartar()` when the save refused (the map locked by a colleague in between,
+ * a switch of map or atlas). Starting it at registration uploaded bytes for a feature that did not
+ * exist, kept the pendency retrying for minutes, and a refusal told the person about a figure that
+ * was never on the map.
+ *
  * The notice of the outcome is given when the transfer ends: a definitive refusal names the figure
- * ({@link avisoDeFiguraRecusada}) through `nomeDaFigura`, read at that moment because the feature
- * is written after this call returns; a transient failure keeps the sentence the pendency panel
- * shows. In a local atlas nothing is registered and nothing is said.
+ * ({@link avisoDeFiguraRecusada}) through `nomeDaFigura`, read at that moment; a transient failure
+ * keeps the sentence the pendency panel shows. In a local atlas nothing is registered and nothing
+ * is said.
  * @param {Blob} blob - The bytes, already written to the local store by the caller.
  * @param {string} imageId - The id the feature carries.
  * @param {Object} [options]
  * @param {string} [options.origem='imagem'] - Label recorded on the pendency.
  * @param {() => (string|null)} [options.nomeDaFigura] - The figure's name, read when the outcome is known.
- * @returns {Promise<{registrado: boolean, transferencia: Promise<Object>}>} `registrado` resolves
- *   once the hold is in place; `transferencia` settles with the verdict and never rejects.
+ * @returns {Promise<{registrado: boolean, enviar: () => Promise<Object>, descartar: () => Promise<void>}>}
+ *   Resolves once the hold is in place. `enviar` settles with the verdict and never rejects.
  */
-export async function iniciarEnvioDeImagem(blob, imageId, { origem = 'imagem', nomeDaFigura = null } = {}) {
-    const nada = { registrado: false, transferencia: Promise.resolve({ confirmado: false, registrado: false, estado: null }) };
+export async function registrarEnvioDeImagem(blob, imageId, { origem = 'imagem', nomeDaFigura = null } = {}) {
+    const nada = {
+        registrado: false,
+        enviar: async () => ({ confirmado: false, registrado: false, estado: null }),
+        descartar: async () => {},
+    };
     if (!_atlasId || !blob || !imageId) return nada;
     const registrado = await registrarBlob({ imageId, blob, atlasId: _atlasId, origem });
     if (!registrado) return nada;
-    const transferencia = enviarBlobRegistrado(registrado, blob).then((resultado) => {
+    const enviar = () => enviarBlobRegistrado(registrado, blob).then((resultado) => {
         if (!resultado.confirmado) {
             let nome = null;
             try {
@@ -190,7 +201,7 @@ export async function iniciarEnvioDeImagem(blob, imageId, { origem = 'imagem', n
         }
         return resultado;
     });
-    return { registrado: true, transferencia };
+    return { registrado: true, enviar, descartar: () => descartarBlobRegistrado(registrado) };
 }
 
 /**

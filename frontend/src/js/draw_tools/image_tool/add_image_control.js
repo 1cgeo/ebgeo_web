@@ -15,7 +15,7 @@ import {
     validateImageDimensions,
 } from '@utils/image_utils.js';
 import { ImageRefusal, imageRefusalNotice } from '@utils/image-limit-phrases.js';
-import { iniciarEnvioDeImagem } from "../../store/sync/image-sync.js";
+import { registrarEnvioDeImagem } from "../../store/sync/image-sync.js";
 import { addImageAttributesToPanel } from "./image_attributes_panel.js";
 import AddImageGeometry from "./add_image_geometry.js";
 import { BaseControl } from "../../tool_manager";
@@ -464,14 +464,20 @@ class AddImageControl extends BaseControl {
         // (pendency on disk, id held) comes BEFORE the save: the feature's operation is then born
         // held prepared until the server confirms the bytes, so the peer never gets the feature
         // before its picture, and an F5 resumes the upload under the same id. It comes after the
-        // name, so a refusal notice can name the figure whenever it lands.
+        // name, so a refusal notice can name the figure whenever it lands. The TRANSFER starts only
+        // once the save succeeded: a save refused in between (the map locked by a colleague) drops
+        // the registration, so no bytes go up for a feature that does not exist.
         if (!creation.canSave()) return;
-        await iniciarEnvioDeImagem(blob, imageId, {
+        const envio = await registrarEnvioDeImagem(blob, imageId, {
           origem: 'feicao-de-imagem',
           nomeDaFigura: () => feature.properties.nome ?? null,
         });
 
-        if (!(await creation.save("images", feature))) return;
+        if (!(await creation.save("images", feature))) {
+          await envio.descartar();
+          return;
+        }
+        envio.enviar();
         if (!creation.isCurrent()) return;
         await this.loadImageToMap(imageId, blob);
         if (!creation.isCurrent()) return;

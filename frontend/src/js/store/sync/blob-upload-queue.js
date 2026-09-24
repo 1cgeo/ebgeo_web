@@ -143,6 +143,21 @@ let _retomadaAgendada = null;
 let _falhasSeguidas = 0;
 
 /**
+ * Image ids with a transfer IN FLIGHT from this page: one transfer per id at a time.
+ *
+ * WHY (2026-09-24, review of the image tool change). The tool stopped waiting for the upload, so
+ * two pictures in a row go up in parallel, and a resumption (the 15 s timer after one of them
+ * failed, a reconnection) re-reads every PENDENTE record, including one whose FIRST attempt is still
+ * on the wire. On a 40 kbps link that is three streams plus the push sharing 5000 B/s, each under
+ * the 2000 B/s floor `uploadDeadlineMs` is sized for, all cut, and the cycle could repeat. And the
+ * duplicate's verdict was written from the record read before the original ended: a duplicate that
+ * failed AFTER the original confirmed put PENDENTE back on disk over CONFIRMADO, and the feature's
+ * operations stayed held until the next resumption.
+ * @type {Set<string>}
+ */
+const _emVoo = new Set();
+
+/**
  * Schedules one resumption of the pending blobs of `atlasId`, unless one is already scheduled.
  *
  * It does nothing when it fires OFFLINE: the transition back to ONLINE is the trigger that owns that
@@ -495,14 +510,22 @@ const semVeredicto = () => ({
  * @returns {Promise<Object>} The record as it now stands on disk.
  */
 async function tentar(scope, registro, blob) {
-    let desfecho;
+    // ONE TRANSFER PER ID (see {@link _emVoo}). The attempt already on the wire owns the verdict;
+    // this one steps aside and reports the record as it stands.
+    if (_emVoo.has(registro.imageId)) return registro;
+    _emVoo.add(registro.imageId);
     try {
-        const veredictos = await transferirLote(registro.atlasId, [[registro.imageId, blob]]);
-        desfecho = veredictos.get(registro.imageId) ?? semVeredicto();
-    } catch (error) {
-        desfecho = { confirmado: false, ...classificarErro(error) };
+        let desfecho;
+        try {
+            const veredictos = await transferirLote(registro.atlasId, [[registro.imageId, blob]]);
+            desfecho = veredictos.get(registro.imageId) ?? semVeredicto();
+        } catch (error) {
+            desfecho = { confirmado: false, ...classificarErro(error) };
+        }
+        return await assentar(scope, registro, desfecho);
+    } finally {
+        _emVoo.delete(registro.imageId);
     }
-    return assentar(scope, registro, desfecho);
 }
 
 /**
@@ -566,31 +589,39 @@ export async function enfileirarBlobs(pares, { atlasId, origem = 'copia' }) {
     }
     if (registros.length === 0) return vazio;
 
-    let veredictos;
+    // The batch is IN FLIGHT for every id it carries, like a single attempt ({@link _emVoo}): a
+    // resumption that starts meanwhile must not send the same bytes a second time.
+    const meus = registros.map(r => r.imageId).filter(id => !_emVoo.has(id));
+    for (const id of meus) _emVoo.add(id);
     try {
-        veredictos = await transferirLote(
-            atlasId, registros.map(r => [r.imageId, bytesPorId.get(r.imageId)])
-        );
-    } catch (error) {
-        const desfecho = { confirmado: false, ...classificarErro(error) };
-        veredictos = new Map(registros.map(r => [r.imageId, desfecho]));
-    }
-
-    const resultado = {
-        registrados: registros.map(r => r.imageId),
-        confirmados: [], pendentes: [], recusados: []
-    };
-    for (const registro of registros) {
-        const final = await assentar(scope, registro, veredictos.get(registro.imageId) ?? semVeredicto());
-        if (final.estado === BlobUploadState.CONFIRMADO) {
-            resultado.confirmados.push(final.imageId);
-        } else if (final.estado === BlobUploadState.RECUSADO) {
-            resultado.recusados.push({ imageId: final.imageId, motivo: final.ultimoErro });
-        } else {
-            resultado.pendentes.push(final.imageId);
+        let veredictos;
+        try {
+            veredictos = await transferirLote(
+                atlasId, registros.map(r => [r.imageId, bytesPorId.get(r.imageId)])
+            );
+        } catch (error) {
+            const desfecho = { confirmado: false, ...classificarErro(error) };
+            veredictos = new Map(registros.map(r => [r.imageId, desfecho]));
         }
+
+        const resultado = {
+            registrados: registros.map(r => r.imageId),
+            confirmados: [], pendentes: [], recusados: []
+        };
+        for (const registro of registros) {
+            const final = await assentar(scope, registro, veredictos.get(registro.imageId) ?? semVeredicto());
+            if (final.estado === BlobUploadState.CONFIRMADO) {
+                resultado.confirmados.push(final.imageId);
+            } else if (final.estado === BlobUploadState.RECUSADO) {
+                resultado.recusados.push({ imageId: final.imageId, motivo: final.ultimoErro });
+            } else {
+                resultado.pendentes.push(final.imageId);
+            }
+        }
+        return resultado;
+    } finally {
+        for (const id of meus) _emVoo.delete(id);
     }
-    return resultado;
 }
 
 /**
@@ -643,6 +674,23 @@ export async function registrarBlob({ imageId, blob, atlasId, origem = 'imagem' 
 }
 
 /**
+ * Undoes a {@link registrarBlob} whose entity was NOT written after all (the save refused: the map
+ * locked by a colleague in between, a switch of map or atlas). Removes the record and the hold, so
+ * nothing uploads bytes for a feature that does not exist, nothing retries it, and no notice speaks
+ * of a figure that is not there. Called before any transfer started. Never throws.
+ * @param {{scope: object, registro: Object}} registrado
+ * @returns {Promise<void>}
+ */
+export async function descartarBlobRegistrado({ scope, registro }) {
+    try {
+        await loja(scope).removeItem(chaveDe(registro.tentativaId));
+    } catch (error) {
+        console.warn('[blob-upload-queue] could not drop an unused upload record:', error);
+    }
+    _pendentes.delete(registro.imageId);
+}
+
+/**
  * The SECOND half of {@link enfileirarBlob}: one attempt over a record {@link registrarBlob} wrote.
  * Never throws.
  * @param {{scope: object, registro: Object}} registrado
@@ -682,9 +730,22 @@ export async function retomarBlobsPendentes(atlasId) {
         .filter(r => r.estado === BlobUploadState.PENDENTE && r.atlasId === atlasId);
     for (const registro of registros) espelhar(registro);
 
-    for (const registro of registros) {
-        const espera = BACKOFF_MS[Math.min(registro.tentativas ?? 0, BACKOFF_MS.length - 1)];
+    for (const lido of registros) {
+        const espera = BACKOFF_MS[Math.min(lido.tentativas ?? 0, BACKOFF_MS.length - 1)];
         if (espera > 0) await new Promise(resolve => setTimeout(resolve, espera));
+
+        // RE-READ AFTER THE WAIT, and skip what is no longer this loop's to send: an attempt on the
+        // wire for the same id ({@link _emVoo}), or a record another attempt already settled while
+        // this loop was waiting. Trying the copy read at the start would write its verdict over a
+        // newer one (a CONFIRMADO turned back into PENDENTE).
+        if (_emVoo.has(lido.imageId)) continue;
+        let registro = lido;
+        try {
+            registro = (await loja(scope).getItem(chaveDe(lido.tentativaId))) ?? null;
+        } catch (error) {
+            console.warn('[blob-upload-queue] could not re-read a pending upload:', error);
+        }
+        if (!registro || registro.estado !== BlobUploadState.PENDENTE || _emVoo.has(registro.imageId)) continue;
 
         let blob = null;
         try {

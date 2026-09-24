@@ -60,6 +60,7 @@ import {
     enfileirarBlob,
     registrarBlob,
     enviarBlobRegistrado,
+    descartarBlobRegistrado,
     blobUploadRefusal,
     retomarBlobsPendentes,
     listarPendenciasDeBlob,
@@ -353,6 +354,57 @@ describe('fila durável de blobs: registro, retomada e liberação', () => {
         const outra = crypto.randomUUID();
         await registrarOpDaFeicao(outra, scope);
         expect((await operationQueue.peek()).map((op) => op.entityId)).toEqual([outra]);
+    });
+
+    /**
+     * UMA TRANSFERÊNCIA POR ID (2026-09-24, revisão). Com a ferramenta de imagem sem esperar a
+     * subida, uma retomada (o temporizador de 15 s, uma reconexão) podia reenviar o registro cuja
+     * PRIMEIRA tentativa ainda estava no fio: dois fluxos dos mesmos bytes num link de 5000 B/s,
+     * cada um abaixo do piso do prazo, e o veredito da duplicata gravado por cima do da original.
+     * Aqui a duplicata falha DEPOIS de a original confirmar, que é o desfecho que devolvia
+     * PENDENTE ao disco e segurava a op da feição.
+     */
+    it('a retomada não reenvia um id com a primeira tentativa em voo, e o veredito dela vale', async () => {
+        const scope = getActiveScope();
+        const imageId = crypto.randomUUID();
+        const chamadas = [];
+        h.resposta = (atlasId, uploads) => new Promise((resolve) => chamadas.push({ resolve, atlasId, uploads }));
+        await getStoreFor(StoreName.IMAGES, scope).setItem(imageId, blob());
+        const registrado = await registrarBlob({ imageId, blob: blob(), atlasId: scope.atlasId });
+        await registrarOpDaFeicao(imageId, scope);
+
+        const primeira = enviarBlobRegistrado(registrado, blob());
+        await vi.waitFor(() => expect(chamadas).toHaveLength(1));
+        const retomada = retomarBlobsPendentes(scope.atlasId);
+        // Tempo para a retomada chegar ao transporte, se fosse chegar.
+        await new Promise((resolve) => setTimeout(resolve, 150));
+
+        chamadas[0].resolve(aceita()(chamadas[0].atlasId, chamadas[0].uploads));
+        await primeira;
+        if (chamadas[1]) chamadas[1].resolve(redeCaiu()(chamadas[1].atlasId, chamadas[1].uploads));
+        await retomada;
+
+        expect(h.enviados, 'os mesmos bytes não sobem duas vezes ao mesmo tempo').toHaveLength(1);
+        expect((await listarPendenciasDeBlob()).map((r) => r.estado)).toEqual([BlobUploadState.CONFIRMADO]);
+        expect(blobUploadPending(imageId)).toBe(false);
+        expect(await operationQueue.peek()).toHaveLength(1);
+    });
+
+    /**
+     * O SAVE RECUSADO DESCARTA O REGISTRO (2026-09-24, revisão): a ferramenta registra antes de
+     * gravar e só envia depois. Se o save recusa (mapa travado por um colega no meio), nada sobe,
+     * nada fica retentando e nenhum aviso fala de uma figura que não existe.
+     */
+    it('descartar o registro solta a retenção e não deixa pendência nem transferência', async () => {
+        const scope = getActiveScope();
+        const imageId = crypto.randomUUID();
+        const registrado = await registrarBlob({ imageId, blob: blob(), atlasId: scope.atlasId });
+        expect(blobUploadPending(imageId)).toBe(true);
+        await descartarBlobRegistrado(registrado);
+        expect(blobUploadPending(imageId)).toBe(false);
+        expect(await listarPendenciasDeBlob()).toEqual([]);
+        expect((await retomarBlobsPendentes(scope.atlasId)).tentadas).toBe(0);
+        expect(h.enviados).toHaveLength(0);
     });
 
     it('recusa definitiva na RETOMADA marca RECUSADO e vira problema durável na op', async () => {
