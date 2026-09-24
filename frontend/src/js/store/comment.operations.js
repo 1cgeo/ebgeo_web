@@ -206,11 +206,38 @@ export async function updateComment(comment, mapName = null) {
         tx.deferSync(() => emitComment(EventTypes.COMMENT_UPDATED, { comment: next }));
         {
             const mapId = mapManager.getMapId(targetMap);
-            tx.recordOperation(EntityType.COMMENT, OperationType.UPDATE, next.id, mapId, next, previous);
+            tx.recordOperation(EntityType.COMMENT, OperationType.UPDATE, next.id, mapId,
+                commentUpdatePayload(previous, comment, next), previous);
         }
         return async () => { await getRepository().saveMapComments(targetMap, collection); saved = true; };
     }));
     return saved;
+}
+
+/**
+ * The payload an update SENDS: only what this gesture decided, never a copy of what it did not.
+ *
+ * The local document is kept whole; what travels is narrowed on the two fields two people change
+ * independently, because the server writes the status from any payload that carries one, and the
+ * peer applies what arrives over its copy. A text edit (or a pin drag) sent the author's whole copy,
+ * status included, so a text edit written before it learned of a colleague's resolution REOPENED
+ * the thread on the server and on every client (`frontend/tests/e2e-ui/comentario-edicao-depois-do-par.repro.spec.js`);
+ * a moderator's resolution sent the moderator's copy of the TEXT, which every peer then showed over
+ * the author's newer text. So: an edit that did not ask for a status carries none, and a
+ * moderator's status change carries only the status (the server never writes a moderator's body).
+ *
+ * @param {Object} previous - The comment before the edit.
+ * @param {Object} requested - What the caller asked to change.
+ * @param {Object} next - The comment after the edit, as stored locally.
+ * @returns {Object} The operation payload.
+ */
+function commentUpdatePayload(previous, requested, next) {
+    const isAuthor = Boolean(previous.authorId) && previous.authorId === sessionContext.userId;
+    if (!isAuthor) return { id: next.id, status: next.status, updatedAt: next.updatedAt };
+    if (Object.hasOwn(requested, 'status')) return next;
+    const payload = { ...next };
+    delete payload.status;
+    return payload;
 }
 
 /**

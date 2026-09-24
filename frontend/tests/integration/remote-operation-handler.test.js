@@ -103,11 +103,14 @@ vi.mock('../../src/js/store/repositories/index.js', () => ({
 
 // Mock localRepository for briefing operations
 const briefingStore = new Map();
+const commentStore = new Map();
 vi.mock('../../src/js/store/repositories/local.repository.js', () => ({
     localRepository: {
         saveBriefing: vi.fn(async (id, data) => { briefingStore.set(id, data); }),
         getBriefing: vi.fn(async (id) => briefingStore.get(id) || null),
         deleteBriefing: vi.fn(async (id) => { briefingStore.delete(id); }),
+        getMapComments: vi.fn(async (mapId) => ({ ...(commentStore.get(mapId) || {}) })),
+        saveMapComments: vi.fn(async (mapId, collection) => { commentStore.set(mapId, collection); }),
     }
 }));
 
@@ -2093,5 +2096,35 @@ describe('G2 — o DELETE ao vivo do mapa ABERTO anuncia, porque a aba Mapas pod
 
         expect(eventBus.emit).not.toHaveBeenCalledWith(
             EventTypes.CURRENT_MAP_STALE_REMOTELY, expect.anything());
+    });
+});
+
+// UM COMENTARIO QUE CHEGA E' MESCLADO, NAO SUBSTITUIDO (2026-09-24). A op de update leva so' o que o
+// gesto mudou (`commentUpdatePayload`, `store/comment.operations.js`): a resolucao de um moderador
+// leva so' o status, a edicao do autor nao leva status. Substituir a copia devolvia o texto velho
+// do moderador sobre o texto novo do autor (`frontend/tests/e2e-ui/comentario-edicao-depois-do-par.repro.spec.js`).
+describe('Remote comment update merges over the local copy', () => {
+    beforeEach(() => {
+        commentStore.set('map-c', { c1: { id: 'c1', text: 'Texto novo do autor', status: 'open', lng: 1, lat: 2 } });
+    });
+
+    it('a resolucao de um moderador (so status) mantem o texto local', async () => {
+        await applyRemoteOperation({ entityType: EntityType.COMMENT, operationType: OperationType.UPDATE,
+            entityId: 'c1', mapId: 'map-c', data: { id: 'c1', status: 'resolved', updatedAt: 5 } });
+        expect(commentStore.get('map-c').c1).toEqual({ id: 'c1', text: 'Texto novo do autor', status: 'resolved', lng: 1, lat: 2, updatedAt: 5 });
+    });
+
+    it('a edicao do autor sem status mantem a resolucao local', async () => {
+        commentStore.get('map-c').c1.status = 'resolved';
+        await applyRemoteOperation({ entityType: EntityType.COMMENT, operationType: OperationType.UPDATE,
+            entityId: 'c1', mapId: 'map-c', data: { id: 'c1', text: 'Outro texto', lng: 1, lat: 2 } });
+        expect(commentStore.get('map-c').c1.status).toBe('resolved');
+        expect(commentStore.get('map-c').c1.text).toBe('Outro texto');
+    });
+
+    it('um CREATE continua gravando o documento inteiro', async () => {
+        await applyRemoteOperation({ entityType: EntityType.COMMENT, operationType: OperationType.CREATE,
+            entityId: 'c2', mapId: 'map-c', data: { id: 'c2', text: 'novo', status: 'open' } });
+        expect(commentStore.get('map-c').c2).toEqual({ id: 'c2', text: 'novo', status: 'open' });
     });
 });

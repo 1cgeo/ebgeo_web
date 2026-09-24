@@ -1877,9 +1877,14 @@ async function applyRemoteCommentOp(opType, commentId, mapId, data) {
         switch (opType) {
             case OperationType.CREATE:
             case OperationType.UPDATE: {
-                if (data) collection[commentId] = data;
+                // An UPDATE carries only what its gesture changed (`commentUpdatePayload`,
+                // `store/comment.operations.js`), so it is MERGED over the copy here: replacing the
+                // copy put back whatever the sender's copy held, older than this one.
+                const merged = opType === OperationType.UPDATE && data && collection[commentId]
+                    ? { ...collection[commentId], ...data } : data;
+                if (merged) collection[commentId] = merged;
                 await handlerLocalRepository().saveMapComments(mapId, collection);
-                emit(opType === OperationType.CREATE ? EventTypes.COMMENT_CREATED : EventTypes.COMMENT_UPDATED, { comment: data });
+                emit(opType === OperationType.CREATE ? EventTypes.COMMENT_CREATED : EventTypes.COMMENT_UPDATED, { comment: merged });
                 break;
             }
             case OperationType.DELETE:

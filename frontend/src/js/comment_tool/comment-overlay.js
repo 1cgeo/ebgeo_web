@@ -394,7 +394,9 @@ export class CommentOverlay {
             return;
         }
         if (ll.lng === root.lng && ll.lat === root.lat) return;
-        await updateComment({ ...root, lng: ll.lng, lat: ll.lat });
+        // Only the position: the rest of this copy may be older than the store (a colleague's
+        // resolution), and an update that carries a field writes it.
+        await updateComment({ id: root.id, lng: ll.lng, lat: ll.lat });
     }
 
     // ===== MAP CLICK (placement) =====
