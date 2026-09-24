@@ -162,6 +162,13 @@ vi.mock('../../src/js/store/sync/remote-operation-handler.js', async (importOrig
     const actual = await importOriginal();
     return {
         applyRemoteOperation: h.applyRemoteOperation,
+        // The frame path with the single-op contract, over the mocked single op.
+        applyRemoteOperations: async (ops, options) => {
+            for (const op of ops) {
+                if (await h.applyRemoteOperation(op, options) === false) return false;
+            }
+            return true;
+        },
         applyRemoteSnapshot: h.applyRemoteSnapshot,
         setRemoteHandlerEventBus: h.setRemoteHandlerEventBus,
         recordLocalAppliedVersion: h.recordLocalAppliedVersion,

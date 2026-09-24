@@ -1326,9 +1326,10 @@ class SyncEngine {
                     await this.resync();
                     return; // resync() re-reads the version from the snapshot
                 }
-                for (const op of ops) {
-                    if (await applyRemoteOperation(op, { scope: session.scope, signal: session.signal, waitForDeferred: true }) === false) return false;
-                }
+                // THE TAIL GOES THROUGH THE FRAME PATH, like a live frame: same contract (in order, stop
+                // at the first `false`), and consecutive creates on one map share one document write.
+                // A peer back from offline receives a colleague's import here, whole.
+                if (await applyRemoteOperations(ops, { scope: session.scope, signal: session.signal, waitForDeferred: true }) === false) return false;
             }
             session.assertActive();
             const version = msg?.currentVersion;

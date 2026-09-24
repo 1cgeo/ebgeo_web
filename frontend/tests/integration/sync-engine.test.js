@@ -195,6 +195,13 @@ vi.mock('../../src/js/store/sync/remote-operation-handler.js', async (importOrig
     const actual = await importOriginal();
     return {
         applyRemoteOperation: h.applyRemoteOperation,
+        // The frame path with the single-op contract, over the mocked single op.
+        applyRemoteOperations: vi.fn(async (ops, options) => {
+            for (const op of ops) {
+                if (await h.applyRemoteOperation(op, options) === false) return false;
+            }
+            return true;
+        }),
         applyRemoteSnapshot: h.applyRemoteSnapshot,
         setRemoteHandlerEventBus: h.setRemoteHandlerEventBus,
         recordLocalAppliedVersion: h.recordLocalAppliedVersion,
@@ -244,6 +251,7 @@ vi.mock('../../src/js/utilities/toast_service.js', () => ({
 // ============================================================================
 
 import { syncEngine } from '../../src/js/store/sync/sync-engine.js';
+import { applyRemoteOperations } from '../../src/js/store/sync/remote-operation-handler.js';
 import { setTracing, clearTrace, getTrace } from '../../src/js/store/sync/diag/trace-core.js';
 import { IssueClass, classifyIssue } from '../../src/js/store/sync/issue-classes.js';
 // O namespace e o ponteiro de geração vêm dos módulos REAIS: o que se mede é a decisão do
@@ -660,6 +668,18 @@ describe('connect', () => {
         await wsClientMock._handlers.syncResponse({ isSnapshot: false, ops, currentVersion: 3 });
         expect(applyRemoteOperation).toHaveBeenCalledTimes(2);
         expect(syncEngine.lastVersion).toBe(3);
+    });
+
+    // A CAUDA DA RECONEXAO VAI PELO CAMINHO DO QUADRO: a importacao do colega que chega a quem
+    // voltou de offline custava uma leitura e uma escrita do documento do mapa POR op.
+    it('a cauda do syncResponse vai inteira por applyRemoteOperations', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        applyRemoteOperations.mockClear();
+        const ops = [{ entityId: 'a' }, { entityId: 'b' }, { entityId: 'c' }];
+        await wsClientMock._handlers.syncResponse({ isSnapshot: false, ops, currentVersion: 4 });
+        expect(applyRemoteOperations).toHaveBeenCalledTimes(1);
+        expect(applyRemoteOperations).toHaveBeenCalledWith(ops, expect.objectContaining({ waitForDeferred: true }));
+        expect(syncEngine.lastVersion).toBe(4);
     });
 
     // F13, A METADE DO CURSOR, e a decisão está aqui de propósito, porque ela é uma EXCEÇÃO à
