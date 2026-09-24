@@ -42,6 +42,7 @@ vi.mock('../../src/js/store/sync/index.js', () => ({
 }));
 
 const { default: mapManager } = await import('../../src/js/store/store-state-manager.js');
+const { openGestureBatchId } = await import('../../src/js/store/sync/gesture-batch.js');
 
 const N = 1000;
 
@@ -242,5 +243,60 @@ describe('o que é uma corrida', () => {
         expect(exec.updateFeature).toHaveBeenCalledTimes(1);
         expect(exec.addFeatures).not.toHaveBeenCalled();
         expect(exec.updateFeatures).not.toHaveBeenCalled();
+    });
+});
+
+/**
+ * Decisao do dono (2026-09-24, refina o B6.1): o desfazer e o refazer de um gesto em massa sobre
+ * feicoes distintas correm FORA da identidade de gesto, porque a marca `independent` das
+ * operacoes plurais so vale fora de gesto. O composto (remocoes e adicoes juntas) continua dentro.
+ */
+describe('o gesto em massa desfaz fora do gesto; o composto, dentro', () => {
+    function espiao(exec) {
+        const visto = {};
+        for (const nome of ['updateFeatures', 'removeFeatures', 'addFeatures', 'addFeature', 'removeFeature', 'updateFeature']) {
+            const original = exec[nome];
+            exec[nome] = vi.fn(async (...args) => { (visto[nome] ??= []).push(openGestureBatchId()); return original(...args); });
+        }
+        return visto;
+    }
+
+    it('estilo em massa: desfazer e refazer chamam updateFeatures sem gesto aberto', async () => {
+        const exec = comPlurais();
+        const visto = espiao(exec);
+        registrarEmLote(Array.from({ length: 5 }, (_, i) => estilo(i)));
+        await mapManager.undoLastAction(exec);
+        await mapManager.redoLastAction(exec);
+        expect(visto.updateFeatures).toEqual([null, null]);
+    });
+
+    it('exclusao em massa: refazer chama removeFeatures sem gesto; desfazer recria (criacao) numa chamada so', async () => {
+        const exec = comPlurais();
+        const visto = espiao(exec);
+        registrarEmLote(Array.from({ length: 5 }, (_, i) => exclusao(i)));
+        await mapManager.undoLastAction(exec);
+        await mapManager.redoLastAction(exec);
+        expect(visto.addFeatures).toHaveLength(1);
+        expect(visto.removeFeatures).toEqual([null]);
+    });
+
+    it('CONTROLE: um composto (remocoes e adicao juntas, como fundir setas) continua dentro do gesto', async () => {
+        const exec = comPlurais();
+        const visto = espiao(exec);
+        registrarEmLote([exclusao(1), exclusao(2), { type: 'add', featureType: 'points', feature: ponto('fundida') }]);
+        await mapManager.undoLastAction(exec);
+        await mapManager.redoLastAction(exec);
+        const todos = Object.values(visto).flat();
+        expect(todos.length).toBeGreaterThan(0);
+        expect(todos.every((id) => typeof id === 'string')).toBe(true);
+    });
+
+    it('addMultiple (colar) continua dentro do gesto: desfazer uma colagem nao e um gesto em massa de exclusao', async () => {
+        const exec = comPlurais();
+        const visto = espiao(exec);
+        mapManager.recordAction({ type: 'addMultiple', features: { points: [ponto('c1'), ponto('c2')] } });
+        await mapManager.undoLastAction(exec);
+        expect(visto.removeFeatures).toHaveLength(1);
+        expect(typeof visto.removeFeatures[0]).toBe('string');
     });
 });

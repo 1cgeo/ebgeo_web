@@ -18,6 +18,9 @@
  *  3. GRUPO de 450 com a trava depois do primeiro bloco: o grupo e os 199 primeiros membros ficam,
  *     o resto fica nas pendencias, e o servidor nao tem membro nenhum alem desses.
  *  4. O servidor IGNORA `dependsOn`: uma op com um elo para um id que nao existe e aplicada igual.
+ *  5. ESTILO EM MASSA INDEPENDENTE (decisao do dono de 2026-09-24, que refina o B6.1): 250 UPDATEs
+ *     marcados `independent` e UMA feicao apagada por outro cliente antes do envio. O servidor
+ *     aplica 249 e recusa so aquela; nada fica retido atras dela.
  *
  * A trava entra pelo proprio protocolo, pelo `pushOperations` original, entre duas chamadas do
  * flush: e o instante em que a trava de um colega chega no meio do envio.
@@ -102,7 +105,7 @@ describe.skipIf(E2E_SKIP)('e2e: lote acima do teto em blocos encadeados (B6.1)',
 
         const atlas = await apiClient.createAtlas({ name: 'Atlas do lote partido' });
         atlasId = atlas.id;
-        for (const caso of ['importacao', 'grupoRecusado', 'grupoPartido', 'elo']) mapas[caso] = await criarMapa(caso);
+        for (const caso of ['importacao', 'grupoRecusado', 'grupoPartido', 'elo', 'independentes']) mapas[caso] = await criarMapa(caso);
 
         await activateRemoteAtlas(atlasId);
         expect(await syncEngine.connect(atlasId, { initialPull: false })).toBeTruthy();
@@ -214,4 +217,40 @@ describe.skipIf(E2E_SKIP)('e2e: lote acima do teto em blocos encadeados (B6.1)',
         expect(resultado?.success).toBe(true);
         expect(await noServidor(mapId, [id])).toBe(1);
     }, 60000);
+
+    it('5) estilo em massa independente: uma feicao apagada custa so ela, as outras 249 chegam', async () => {
+        await operationQueue.clear();
+        const mapId = mapas.independentes;
+        const ids = await semearPontos(mapId, 250);
+        const vitima = ids[100];
+        // A base confirmada que o servidor exige de toda edição de feição (a versão 1 da criação).
+        const base = (id, i) => { const f = ponto(id, i); return { ...f, properties: { ...f.properties, confirmedVersion: 1 } }; };
+        // O colega apaga uma delas ANTES de o estilo sair.
+        const apagou = await apiClient.pushOperations(atlasId, [createOperation('feature', 'delete', vitima, mapId, null, base(vitima, 100))]);
+        expect((apagou.results ?? apagou.acks ?? [])[0]?.success, 'a exclusao do colega foi aplicada').toBe(true);
+
+        const ops = createBatchOperations(ids.map((id, i) => {
+            const antes = base(id, i);
+            return {
+                entityType: 'feature', operationType: 'update', entityId: id, mapId,
+                data: { ...antes, properties: { ...antes.properties, fillColor: '#00aa00' } },
+                previousData: antes,
+                independent: true,
+            };
+        }));
+        // PISO: independentes de verdade, sem lote e sem elo.
+        expect(ops.filter((op) => op.batchId !== undefined || op.dependsOn)).toEqual([]);
+        await operationQueue.enqueueAll(ops);
+        await syncEngine.flush();
+
+        const mapa = await retratoDoMapa(mapId);
+        const todas = Object.values(mapa?.features ?? {}).filter(Array.isArray).flat();
+        const verdes = todas.filter((f) => ids.includes(f.properties?.id ?? f.id) && f.properties?.fillColor === '#00aa00');
+        expect(verdes).toHaveLength(249);
+        expect(todas.some((f) => (f.properties?.id ?? f.id) === vitima)).toBe(false);
+        const problemas = await operationQueue.getIssues();
+        expect(problemas).toHaveLength(1);
+        expect(problemas[0].operation.entityId).toBe(vitima);
+        expect(await operationQueue.countByState()).toEqual({ pendentes: 0, preparadas: 0, problemas: 1 });
+    }, 180000);
 });

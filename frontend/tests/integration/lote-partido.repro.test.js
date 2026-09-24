@@ -288,3 +288,72 @@ describe('a frase da parte recusada', () => {
         expect(describeRefusedPart(recusada, [...recusada, ...alheio])).toContain('200 de 400 alterações');
     });
 });
+
+/**
+ * DECISAO DO DONO de 2026-09-24, que refina o B6.1: o UPDATE e o DELETE de feicoes DISTINTAS de um
+ * gesto em massa (excluir, estilo, e o desfazer e o refazer deles) saem como ops INDEPENDENTES, sem
+ * lote e sem elo, para que um conflito custe so aquela feicao. O documento continua gravado uma vez
+ * e a transacao continua uma so; o lote atomico e as partes encadeadas ficam para os compostos e
+ * para a criacao. Medido antes: uma feicao apagada pelo colega no meio de 1000 estilos segurava a
+ * parte dela e as seguintes, 599 sem estilo no servidor.
+ *
+ * CONTROLE NEGATIVO: sem a marca `independent` (ou com ela ignorada), o primeiro caso vira
+ * 200 + 200 + 50 encadeadas, que e o segundo caso.
+ */
+describe('a marca independent: estilo e exclusao em massa sem lote (decisao do dono, refina o B6.1)', () => {
+    const estilo = (id) => ({
+        entityType: 'feature', operationType: 'update', entityId: id, mapId: MAP_ID,
+        data: { type: 'Feature', properties: { id, source: 'point', fillColor: '#00aa00' } },
+        previousData: { type: 'Feature', properties: { id, source: 'point' } },
+        independent: true,
+    });
+
+    it('450 estilos marcados: nenhum lote, nenhum elo, e o envio sai 25 por vez', async () => {
+        await transacao(Array.from({ length: 450 }, (_, i) => estilo(`e${i}`)));
+        const ops = await queue.getAll();
+        expect(ops).toHaveLength(450);
+        expect(ops.filter((op) => op.batchId !== undefined || op.batchIndex !== undefined)).toEqual([]);
+        expect(ops.filter((op) => op.dependsOn)).toEqual([]);
+        expect(await queue.peek(25)).toHaveLength(25);
+    });
+
+    it('CONTROLE: as mesmas 450 sem a marca continuam 200 + 200 + 50 encadeadas', async () => {
+        await transacao(Array.from({ length: 450 }, (_, i) => ({ ...estilo(`s${i}`), independent: undefined })));
+        const ops = await queue.getAll();
+        expect(tamanhos(ops)).toEqual([200, 200, 50]);
+        afirmarEncadeado(ops);
+    });
+
+    it('a exclusao em massa com grupos: as ops de grupo formam UM lote contiguo, antes das independentes', async () => {
+        const descricoes = [];
+        for (let i = 0; i < 3; i++) {
+            descricoes.push({ entityType: 'group_feature', operationType: 'delete', entityId: `gf${i}`, mapId: MAP_ID,
+                data: { group_id: 'grupo-1', feature_id: `x${i}`, feature_type: 'point' } });
+            descricoes.push({ ...criacao(`x${i}`), operationType: 'delete', data: null, independent: true });
+        }
+        await transacao(descricoes);
+        const ops = await queue.getAll();
+        expect(ops.map((op) => op.entityType)).toEqual(['group_feature', 'group_feature', 'group_feature', 'feature', 'feature', 'feature']);
+        expect(lotes(ops.slice(0, 3))).toHaveLength(1);
+        expect(ops.slice(3).every((op) => op.batchId === undefined)).toBe(true);
+        // A ordem de cada feicao se mantem: x0, x1, x2.
+        expect(ops.slice(3).map((op) => op.entityId)).toEqual(['x0', 'x1', 'x2']);
+    });
+
+    it('dentro de um gesto (converter, desfazer composto) a marca e ignorada: o gesto continua inteiro', async () => {
+        await withGestureBatch(async () => {
+            await transacao([criacao('nova')]);
+            await transacao([{ ...criacao('velha'), operationType: 'delete', data: null, independent: true }]);
+        });
+        const ops = await queue.getAll();
+        expect(tamanhos(ops)).toEqual([2]);
+        expect(ops.map((op) => op.batchIndex)).toEqual([0, 1]);
+    });
+
+    it('a criacao (importar 450) continua em partes encadeadas', async () => {
+        await transacao(Array.from({ length: 450 }, (_, i) => criacao(`imp${i}`)));
+        const ops = await queue.getAll();
+        expect(tamanhos(ops)).toEqual([200, 200, 50]);
+        afirmarEncadeado(ops);
+    });
+});

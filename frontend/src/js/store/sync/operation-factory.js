@@ -11,7 +11,7 @@ import { StoreScopeKind, getActiveScope, remoteAtlasIdFromDbSuffix } from '@stor
 import { isValidEntityType, isValidOperationType } from './operation-types.js';
 import { noteLocalEdit } from './overwrite-notice.js';
 import { mutationContract } from './mutation-contract.js';
-import { reserveGestureBatchSlots } from './gesture-batch.js';
+import { openGestureBatchId, reserveGestureBatchSlots } from './gesture-batch.js';
 
 // ===== CLIENT IDENTITY =====
 
@@ -558,15 +558,37 @@ export function describeRefusedPart(refusedOps, queuedOps, maxPerBatch = MAX_OPS
  * INTO CHAINED PARTS, a transaction outside a gesture here and a gesture by the ids and links it
  * hands out (`idAt`, `link`). See the section above for why the chain is what makes it safe.
  *
- * @param {Array<{entityType: string, operationType: string, entityId: string, mapId?: string, data?: Object, previousData?: Object}>} operations - Operations to create
+ * AN OPERATION MARKED `independent` LEAVES THE BATCH (owner decision, 2026-09-24, refining B6.1).
+ * The mass gestures over DISTINCT features (delete, restyle, and the undo and redo of those) write
+ * the map document once in one transaction (`removeFeatures`, `updateFeatures`), but each feature's
+ * UPDATE or DELETE travels as a plain operation, with no `batchId`, no `batchIndex` and no part
+ * link, exactly the shape of `createOperation`: the server applies or refuses it alone, so a
+ * conflict on one feature costs that feature. Measured before the change: one feature deleted by a
+ * colleague in the middle of 1000 restyles refused the whole part it was in and held the parts
+ * after it, 599 features unstyled on the server.
+ *
+ * THE MARK IS IGNORED INSIDE A GESTURE, and that is what keeps the composites whole: converting a
+ * feature deletes the old one through a control's mass method, and a transfer or a composite undo
+ * runs its transactions under `withGestureBatch`, whose atomicity the owner kept. The batched
+ * members are emitted FIRST and contiguous, because the queue packs a batch as a consecutive run
+ * of its `batchId`, and a batch interleaved with independent operations would leave in pieces.
+ *
+ * @param {Array<{entityType: string, operationType: string, entityId: string, mapId?: string, data?: Object, previousData?: Object, independent?: boolean}>} operations - Operations to create
  * @returns {Operation[]} Array of created operations
  */
 export function createBatchOperations(operations) {
-    const gesture = reserveGestureBatchSlots(operations.length);
+    const independentAllowed = openGestureBatchId() === null;
+    const isIndependent = (op) => independentAllowed && op?.independent === true;
+    const independents = operations.filter(isIndependent);
+    const batched = independents.length === 0 ? operations : operations.filter(op => !isIndependent(op));
+    const bornIndependent = batched.map(() => false).concat(independents.map(() => true));
+    const ordered = batched.concat(independents);
+
+    const gesture = batched.length > 0 ? reserveGestureBatchSlots(batched.length) : null;
     const batchId = gesture ? gesture.id : generateUUID();
     const firstIndex = gesture ? gesture.startIndex : 0;
-    const partIds = !gesture && operations.length > MAX_OPS_PER_LOGICAL_BATCH
-        ? Array.from({ length: Math.ceil(operations.length / MAX_OPS_PER_LOGICAL_BATCH) },
+    const partIds = !gesture && batched.length > MAX_OPS_PER_LOGICAL_BATCH
+        ? Array.from({ length: Math.ceil(batched.length / MAX_OPS_PER_LOGICAL_BATCH) },
             (_, part) => (part === 0 ? batchId : generateUUID()))
         : null;
     const timestamp = Date.now();
@@ -577,8 +599,30 @@ export function createBatchOperations(operations) {
 
     let previousId = null;
     let partLink = null;
-    return operations.map((op, index) => {
+    return ordered.map((op, index) => {
         const id = generateUUID();
+        if (bornIndependent[index]) {
+            return {
+                id,
+                protocolVersion: 2,
+                entityType: op.entityType,
+                operationType: op.operationType,
+                entityId: op.entityId,
+                mapId: op.mapId || null,
+                data: op.data || null,
+                previousData: op.previousData || null,
+                ...mutationContract(op.entityType, op.operationType, op.data, op.previousData),
+                ...(op.entityType === 'feature' ? {
+                    ...(op.featureIntent ? { featureIntent: op.featureIntent } : {}),
+                    ...(op.sourceMapId ? { sourceMapId: op.sourceMapId } : {}) } : {}),
+                timestamp,
+                lamportTimestamp: ++lamportClock,
+                clientId: client,
+                traceId: actionTraceId,
+                scopeSuffix,
+                atlasId,
+            };
+        }
         const position = firstIndex + index;
         let dependency = null;
         if (gesture) {

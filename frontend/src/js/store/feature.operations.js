@@ -683,9 +683,11 @@ function distinctRefs(refs) {
  * The feature, layer and group locks are client conventions asked by the caller that owns the
  * selection (`deleteSelectedFeatures`), which is where they were asked before.
  *
- * WHAT CHANGES, and it is the price declared by B6.1: the operations are ONE logical batch instead
- * of one per feature. Above `MAX_OPS_PER_LOGICAL_BATCH` it leaves in chained parts, and a part the
- * server refuses holds the parts after it for review; one by one, a refusal cost one feature.
+ * EACH DELETE STILL TRAVELS ALONE (owner decision, 2026-09-24, refining B6.1): the operations are
+ * marked `independent`, so outside a gesture they leave with no batch and no part chain, and a
+ * conflict on one feature costs that feature, as in the one-by-one path. The group operations of
+ * the same transaction stay one batch. Inside a gesture (a conversion, a composite undo) the mark
+ * is ignored and the gesture keeps its atomicity (`createBatchOperations`).
  *
  * @param {Array<{type: string, id: string}>} refs - Storage type and id of each feature.
  * @param {string} [mapName=null] - Target map name
@@ -749,7 +751,9 @@ export async function removeFeatures(refs, mapName = null) {
                 persistGroups = deps.groupManager.removeFeatureFromAllGroups(
                     tx, mainFeature.properties.source, id, targetMap
                 ) ?? persistGroups;
-                tx.recordOperation(EntityType.FEATURE, OperationType.DELETE, id, mapId, null, mainFeature, { storage: type });
+                // INDEPENDENT (owner decision, 2026-09-24): outside a gesture each DELETE travels alone,
+                // so a conflict on one feature costs that feature (`createBatchOperations`).
+                tx.recordOperation(EntityType.FEATURE, OperationType.DELETE, id, mapId, null, mainFeature, { storage: type, independent: true });
             }
 
             if (colors.length > 0) {
@@ -799,7 +803,7 @@ export async function removeFeatures(refs, mapName = null) {
  * INPUT re-derives that input's output in the same write (`replaceDerivedOutput`), so a batch that
  * reaches one (an undo in mass) cannot leave the green and red drawing on the old geometry.
  *
- * The gate and the price are those of {@link removeFeatures}.
+ * The gate, and the independent UPDATE of each feature, are those of {@link removeFeatures}.
  *
  * @param {Array<{type: string, feature: Object, options?: {preserveUserData?: boolean,
  *   revertFrom?: Object, transform?: function(Object): Object}}>} items - One per feature write.
@@ -890,8 +894,9 @@ export async function updateFeatures(items, mapName = null) {
             }
 
             const mapId = mapManager.getMapId(targetMap);
+            // INDEPENDENT, as in `removeFeatures`: one conflict costs one feature.
             for (const { type, oldFeature, cleanedFeature } of written) {
-                tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, cleanedFeature.properties.id, mapId, cleanedFeature, oldFeature, { storage: type });
+                tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, cleanedFeature.properties.id, mapId, cleanedFeature, oldFeature, { storage: type, independent: true });
             }
 
             return () => updateMapDataCompat(targetMap, currentMapData);

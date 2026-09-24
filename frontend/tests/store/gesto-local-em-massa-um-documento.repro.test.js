@@ -96,6 +96,7 @@ vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
             data: op.data,
             previousData: op.previousData,
             storage: op.storage,
+            independent: op.independent,
         })));
     },
 }));
@@ -188,6 +189,8 @@ describe('excluir N feições', () => {
         const [ops] = transacoes.value;
         expect(ops.map(op => op.entityId)).toEqual(refs.map(r => r.id));
         expect(ops.every(op => op.operationType === 'DELETE' && op.data === null && op.storage === 'points')).toBe(true);
+        // Decisao do dono (2026-09-24): cada DELETE sai independente, um conflito custa uma feicao.
+        expect(ops.every(op => op.independent === true)).toBe(true);
         expect(ops[0].previousData).toEqual(antes.get(refs[0].id));
         // One undo entry per feature, as the single path records, for the caller's collector.
         expect(mockMapManager.recordAction).toHaveBeenCalledTimes(N);
@@ -301,6 +304,7 @@ describe('estilo em N feições', () => {
         const [ops] = transacoes.value;
         expect(ops.map(op => op.entityId)).toEqual(pontos.map(f => f.properties.id));
         expect(ops[0]).toMatchObject({ operationType: 'UPDATE', storage: 'points' });
+        expect(ops.every(op => op.independent === true)).toBe(true);
         expect(ops[0].previousData.properties.color).toBe('#ff0000');
         expect(ops[0].data.properties.color).toBe('#00aa00');
         // The same timestamp bump as the single path.

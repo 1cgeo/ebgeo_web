@@ -92,6 +92,29 @@ function countMapColors(mapData) {
 }
 
 /**
+ * Whether a history entry is a MASS GESTURE over distinct features (every member an edit, or every
+ * member a removal), as the Delete key and the panel's "Salvar" over a selection record it.
+ *
+ * Its undo and redo run OUTSIDE the gesture identity (owner decision, 2026-09-24, refining B6.1):
+ * the plural store operation marks each feature UPDATE or DELETE `independent`, and the mark only
+ * holds outside a gesture (`createBatchOperations`), so a conflict on one feature costs that
+ * feature instead of the whole undo. An undone deletion re-creates in one transaction, which is
+ * one batch in chained parts with or without the gesture. A COMPOSITE entry (a conversion, a
+ * merge: removals and additions together) keeps the gesture and stays whole.
+ * @param {Object} action - A history entry
+ * @returns {boolean}
+ */
+function isMassEntry(action) {
+    if (action?.type !== 'batch' || !Array.isArray(action.operations) || action.operations.length < 2) return false;
+    const kinds = new Set(action.operations.map((op) => {
+        if (op?.type === 'update') return 'update';
+        if (op?.type === 'remove' || op?.type === 'removeWithProcessed') return 'remove';
+        return 'other';
+    }));
+    return kinds.size === 1 && !kinds.has('other');
+}
+
+/**
  * @private A removal of one feature by a plural store operation, or null when there is none.
  * @param {string} type - Storage type
  * @param {Object} feature
@@ -739,7 +762,8 @@ class MapManager {
      * shared gesture identity the server would see N independent commands and could apply some
      * and refuse others: half a paste un-pasted, with no way for either side to name what
      * happened. With it, the whole undo is applied or refused together and every operation of it
-     * comes back with the same status. See `store/sync/gesture-batch.js`.
+     * comes back with the same status. See `store/sync/gesture-batch.js`. The one exception is a
+     * mass entry over distinct features, whose members travel independently (`isMassEntry`).
      *
      * WHAT THE WRAPPER DOES NOT CHANGE: undo remains a NEW command, never a restoration of an old
      * document over other people's work. Re-adding a deleted feature carries
@@ -756,7 +780,8 @@ class MapManager {
 
         this.memoryStore.isUndoing = true;
         try {
-            await withGestureBatch(() => this._executeUndoAction(lastAction, executeFunction));
+            const undo = () => this._executeUndoAction(lastAction, executeFunction);
+            await (isMassEntry(lastAction) ? undo() : withGestureBatch(undo));
             this._getRedoStack().push(lastAction);
         } catch (error) {
             undoStack.push(lastAction);
@@ -777,7 +802,9 @@ class MapManager {
         try {
             // Um lote lógico só, pela mesma razão do desfazer: refazer uma colagem de N feições
             // são N transações, e meia colagem é o desfecho que o lote existe para impedir.
-            await withGestureBatch(() => this._executeRedoAction(lastUndoneAction, executeFunction));
+            // A mass entry over distinct features goes outside the gesture, as in undo (`isMassEntry`).
+            const redo = () => this._executeRedoAction(lastUndoneAction, executeFunction);
+            await (isMassEntry(lastUndoneAction) ? redo() : withGestureBatch(redo));
             this._getUndoStack().push(lastUndoneAction);
         } catch (error) {
             redoStack.push(lastUndoneAction);
