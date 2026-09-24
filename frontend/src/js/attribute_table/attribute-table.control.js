@@ -828,19 +828,23 @@ export class AttributeTableControl {
 
         // Headers include user-authored attribute column names, so they need the
         // same formula-injection escaping as the body cells.
-        const headers = ['Tipo', 'Nome', ...this._attributeColumns];
+        // "Descrição" is a column of the table on the screen (`table-renderer.js`), so it is a
+        // column of the file: until 2026-09-24 the export skipped it, and the text the person had
+        // typed in that column was lost from the CSV without a word.
+        const headers = ['Tipo', 'Nome', 'Descrição', ...this._attributeColumns];
         const rows = [headers.map(escapeCsvCell).join(',')];
 
         for (const feature of this._filteredFeatures) {
             const rawType = feature.properties?.source || '';
             const type = FEATURE_DISPLAY_NAMES[rawType] || rawType;
             const name = feature.properties?.nome || '';
+            const description = feature.properties?.descricao || '';
             const attrValues = this._attributeColumns.map(col => {
                 const val = feature.properties?.attributes?.[col];
                 return val != null ? String(val) : '';
             });
 
-            const row = [type, name, ...attrValues];
+            const row = [type, name, description, ...attrValues];
             rows.push(row.map(escapeCsvCell).join(','));
         }
 
