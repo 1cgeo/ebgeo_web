@@ -374,3 +374,30 @@ describe('estilo em N feições', () => {
             expect.objectContaining({ operation: 'updateFeatures', reason: 'map_locked' }));
     });
 });
+
+describe('updateFeatures com duas linhas de visada: o índice do balde de saída não envelhece', () => {
+    // Achado da revisão (2026-09-24): `positions` guardava o índice do balde de SAÍDA, que
+    // `replaceDerivedOutput` substitui por um arranjo novo ao re-derivar uma entrada. Um item seguinte
+    // sobre o balde de saída lia o índice velho e gravava na posição de OUTRA feição.
+    it('item de saída, entrada re-derivada, item de saída: cada metade fica no lugar dela', async () => {
+        const [v1, o1] = derivedOutputIdsOf('los1');
+        const [v2, o2] = derivedOutputIdsOf('los2');
+        const metade = (id, extra = {}) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: [[0, 0], [1, 1]] },
+            properties: { id, source: 'los', ...extra } });
+        mockMapData.value.features.los = [linhaDeVisada('los1'), linhaDeVisada('los2')];
+        mockMapData.value.features.processed_los = [metade(v1), metade(o1), metade(v2), metade(o2)];
+        const los1Nova = linhaDeVisada('los1');
+        los1Nova.geometry = { type: 'MultiLineString', coordinates: [[[5, 5], [6, 6]], [[6, 6], [7, 7]]] };
+
+        await updateFeatures([
+            { type: 'processed_los', feature: metade(v2, { nome: 'v2 editada' }) },
+            { type: 'los', feature: los1Nova },
+            { type: 'processed_los', feature: metade(o2, { nome: 'o2 editada' }) },
+        ]);
+
+        const saida = mockMapData.value.features.processed_los;
+        expect(saida.map((f) => f.properties.id).sort()).toEqual([v1, o1, v2, o2].sort());
+        expect(saida.find((f) => f.properties.id === o2).properties.nome).toBe('o2 editada');
+        expect(saida.find((f) => f.properties.id === o1).geometry.coordinates).toEqual([[6, 6], [7, 7]]);
+    });
+});

@@ -867,7 +867,11 @@ export async function updateFeatures(items, mapName = null) {
             touchUpdatedTimestamp(cleanedFeature);
 
             bucket[index] = cleanedFeature;
-            replaceDerivedOutput(currentMapData.features, type, cleanedFeature.properties.id, cleanedFeature);
+            // Re-deriving REPLACES the output bucket with a new array, so its cached index is stale
+            // from here on: a later item on that bucket would write over another feature's half.
+            if (replaceDerivedOutput(currentMapData.features, type, cleanedFeature.properties.id, cleanedFeature)) {
+                positions.delete(derivedOutputBucketOf(type));
+            }
             written.push({ type, oldFeature, cleanedFeature, oldColor, newColor: mapManager.getFeatureColor(cleanedFeature) });
         }
         if (written.length === 0) return 0;
