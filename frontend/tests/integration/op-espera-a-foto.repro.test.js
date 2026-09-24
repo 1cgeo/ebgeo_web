@@ -217,6 +217,18 @@ describe('a pendência de foto cujos bytes sumiram, na retomada', () => {
     });
 });
 
+// A RECUSA DA REQUISIÇÃO INTEIRA chega à fila como recusa por item COM o status (item 8): o 403
+// fecha a pendência nomeando a permissão, em vez de ficar pendente para sempre.
+describe('a recusa da requisição inteira, na fila', () => {
+    it('403 do lote fecha a pendência como RECUSADO, com a causa de permissão', async () => {
+        const scope = getActiveScope();
+        h.resposta = (_a, uploads) => ({ mapping: {}, failed: uploads.map(u => ({ localId: u.localId, error: 'HTTP 403', permanent: true, status: 403 })), transportErrors: 0 });
+        const registrado = await registrarBlob({ imageId: crypto.randomUUID(), blob: blob(), atlasId: scope.atlasId, origem: 'foto-anexa' });
+        const final = await enviarBlobRegistrado(registrado, blob());
+        expect(final).toMatchObject({ estado: 'recusado', causa: 'permissao', status: 403 });
+    });
+});
+
 describe('uma subida por vez, e o censo de saída conta a que falta', () => {
     it('duas fotos mandadas em seguida vão ao fio UMA de cada vez', async () => {
         const scope = getActiveScope();

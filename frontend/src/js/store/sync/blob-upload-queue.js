@@ -535,8 +535,13 @@ async function transferirLote(atlasId, pares) {
         // retried. `uploadImagesInChunks` folds a chunk that got no answer into `failed` too, with no
         // `permanent`, and the count of such chunks names the network as the cause.
         if (falha?.permanent === true) {
+            // A whole-request refusal carries its status (`uploadImagesInChunks`), which names the
+            // cause: the file (413, 415), the account (403), or the server's answer.
+            const status = Number.isInteger(falha.status) ? falha.status : null;
             veredictos.set(localId, {
-                confirmado: false, definitiva: true, status: null, causa: CausaDeFalha.RECUSA, motivo
+                confirmado: false, definitiva: true, status,
+                causa: status === null ? CausaDeFalha.RECUSA : causaDeErroLancado({ status, definitiva: true }),
+                motivo
             });
         } else {
             veredictos.set(localId, {

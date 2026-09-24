@@ -51,6 +51,48 @@ function clienteQueCaiNoLote(indiceQueCai, erro = new TypeError('Failed to fetch
     };
 }
 
+// A RECUSA DA REQUISIÇÃO INTEIRA É RESPOSTA, NÃO QUEDA (revisão, 2026-09-24, item 8). Um 400, 403 ou
+// 413 do lote caía no ramo de transporte, e a fila de blobs o tentava para sempre, segurando toda op
+// que citava aquelas figuras. Agora ele é definitivo por item, com o status; e 400/413/422 dividem o
+// lote até a recusa nomear o item a que ela se refere.
+describe('recusa da requisição inteira', () => {
+    const recusando = (decidir) => {
+        const chamadas = [];
+        return {
+            chamadas,
+            bulkUploadImages: vi.fn(async (_atlasId, chunk) => {
+                chamadas.push(chunk.map((c) => c.localId));
+                const status = decidir(chunk);
+                if (status) throw Object.assign(new Error(`HTTP ${status}`), { status });
+                return { mapping: Object.fromEntries(chunk.map((c) => [c.localId, c.localId])), failed: [] };
+            }),
+        };
+    };
+
+    it('403: definitivo para os itens, com o status, e não conta como queda', async () => {
+        const cliente = recusando(() => 403);
+        const { failed, transportErrors } = await uploadImagesInChunks(cliente, 'atlas-1', itens(3));
+        expect(transportErrors).toBe(0);
+        expect(failed).toEqual(itens(3).map((i) => ({ localId: i.localId, error: 'HTTP 403', permanent: true, status: 403 })));
+    });
+
+    it('413 num lote de vários: divide até isolar o item grande, e os outros sobem', async () => {
+        const cliente = recusando((chunk) => (chunk.some((c) => c.localId === 'img-002') && chunk.length > 1 ? 413
+            : chunk.length === 1 && chunk[0].localId === 'img-002' ? 413 : null));
+        const { mapping, failed, transportErrors } = await uploadImagesInChunks(cliente, 'atlas-1', itens(4));
+        expect(transportErrors).toBe(0);
+        expect(Object.keys(mapping).sort()).toEqual(['img-000', 'img-001', 'img-003']);
+        expect(failed).toEqual([{ localId: 'img-002', error: 'HTTP 413', permanent: true, status: 413 }]);
+    });
+
+    it('500 continua transitório (queda de servidor, não recusa)', async () => {
+        const cliente = recusando(() => 500);
+        const { failed, transportErrors } = await uploadImagesInChunks(cliente, 'atlas-1', itens(2));
+        expect(transportErrors).toBe(1);
+        expect(failed.every((f) => f.permanent === undefined)).toBe(true);
+    });
+});
+
 describe('B3-6: um lote que cai nao leva embora os lotes seguintes', () => {
     it('tenta os tres lotes, mapeia os dois bons e registra os 50 ids do ruim', async () => {
         const cliente = clienteQueCaiNoLote(1);

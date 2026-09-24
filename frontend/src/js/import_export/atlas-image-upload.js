@@ -149,26 +149,53 @@ export async function buildImageUploads(blobsById, { rasterizeSvg = rasterizeSvg
  * answer, which is the one thing the merged `failed` list cannot say: it separates "the server
  * refused these images" from "the network dropped".
  *
+ * A REFUSAL OF THE WHOLE REQUEST IS AN ANSWER, NOT A LOST NETWORK (2026-09-24, review). A 400, 403,
+ * 404, 413, 415 or 422 used to land here as a transport failure, and the blob queue retried it
+ * forever: a pendency that could never pass, holding every operation that cited it. The server
+ * said no, so each item comes back `permanent: true` with the `status`, the same flag the server
+ * puts on a per-item validation failure. Two statuses are about the REQUEST, not about an image,
+ * and there the chunk is split in halves until the refusal names the item it is about: a 413 on 50
+ * pictures that fit one by one, or a 400 of the schema on one bad item among good ones.
+ *
  * @param {{ bulkUploadImages: Function }} apiClient
  * @param {string} atlasId
  * @param {Array<Object>} uploads
- * @returns {Promise<{ mapping: Object, failed: Array<{localId: string, error: string}>, transportErrors: number }>}
+ * @returns {Promise<{ mapping: Object, failed: Array<{localId: string, error: string, permanent?: boolean, status?: number}>, transportErrors: number }>}
  */
 export async function uploadImagesInChunks(apiClient, atlasId, uploads) {
     const mapping = {};
     const failed = [];
     let transportErrors = 0;
-    for (let i = 0; i < uploads.length; i += CHUNK_SIZE) {
-        const chunk = uploads.slice(i, i + CHUNK_SIZE);
+    const enviar = async (chunk) => {
         try {
             const res = await apiClient.bulkUploadImages(atlasId, chunk);
             Object.assign(mapping, res?.mapping || {});
             if (Array.isArray(res?.failed)) failed.push(...res.failed);
         } catch (error) {
-            transportErrors += 1;
             const message = error?.message || String(error || 'Erro de transporte');
+            const status = error?.status ?? error?.statusCode ?? null;
+            if (status !== null && STATUS_QUE_DIVIDE_O_LOTE.has(status) && chunk.length > 1) {
+                const meio = Math.ceil(chunk.length / 2);
+                await enviar(chunk.slice(0, meio));
+                await enviar(chunk.slice(meio));
+                return;
+            }
+            if (status !== null && STATUS_DE_RECUSA_DO_LOTE.has(status)) {
+                for (const item of chunk) failed.push({ localId: item.localId, error: message, permanent: true, status });
+                return;
+            }
+            transportErrors += 1;
             for (const item of chunk) failed.push({ localId: item.localId, error: message });
         }
+    };
+    for (let i = 0; i < uploads.length; i += CHUNK_SIZE) {
+        await enviar(uploads.slice(i, i + CHUNK_SIZE));
     }
     return { mapping, failed, transportErrors };
 }
+
+/** Statuses of a whole-request refusal that no retry of the same request changes. */
+const STATUS_DE_RECUSA_DO_LOTE = new Set([400, 403, 404, 413, 415, 422]);
+
+/** Of those, the ones that may be about ONE item of the chunk (the body size, the schema). */
+const STATUS_QUE_DIVIDE_O_LOTE = new Set([400, 413, 422]);
