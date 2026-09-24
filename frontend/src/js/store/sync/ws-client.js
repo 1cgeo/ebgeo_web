@@ -37,6 +37,13 @@ import { relatarErro } from '@js/session/erro-telemetria.js';
 import { OrigemDeErro } from '@js/session/origens-de-erro.js';
 
 const DEFAULT_HEARTBEAT_MS = 25000;
+
+/**
+ * The most heartbeat ticks a pong may stay overdue before the socket is closed, once the
+ * tolerance has escalated (see {@link WsClient#_startHeartbeat}): 16 ticks of 25 s is 400 s,
+ * enough for a 2 MB frame at 40 kbps.
+ */
+const HEARTBEAT_MAX_MISSED_TICKS = 16;
 const DEFAULT_RECONNECT_BASE_MS = 1000;
 const DEFAULT_RECONNECT_MAX_MS = 30000;
 
@@ -118,6 +125,14 @@ export class WsClient {
         this._haveSnapshot = false;
         this._reconnectAttempts = 0;
         this._heartbeatTimer = null;
+        /** Heartbeat ticks the pending pong has been overdue on the current socket. */
+        this._missedTicks = 0;
+        /**
+         * Overdue ticks tolerated before closing. Starts at 1 (the historical behaviour), doubles
+         * after each heartbeat close and survives the reconnect, back to 1 on a timely pong or a
+         * new `connect()`. See {@link WsClient#_startHeartbeat}.
+         */
+        this._missedTicksAllowed = 1;
         this._reconnectTimer = null;
         this._connectResolve = null;
         this._connectReject = null;
@@ -180,6 +195,7 @@ export class WsClient {
         this._haveSnapshot = haveSnapshot === true;
         this._wantConnected = true;
         this._reconnectAttempts = 0;
+        this._missedTicksAllowed = 1;
         this._geracao += 1;
         return this._open();
     }
@@ -420,6 +436,10 @@ export class WsClient {
                 });
                 break;
             case 'pong':
+                // Answered within its own tick: the link is not congested, so a later large frame
+                // starts again from the strict tolerance.
+                if (this._missedTicks === 0) this._missedTicksAllowed = 1;
+                this._missedTicks = 0;
                 this._pongPending = false;
                 break;
             case 'cursor':
@@ -683,15 +703,41 @@ export class WsClient {
 
     // ===== INTERNAL: HEARTBEAT =====
 
-    /** @private Starts the heartbeat ping loop. */
+    /**
+     * @private Starts the heartbeat ping loop.
+     *
+     * AN OVERDUE PONG IS NOT A DEAD LINK WHEN A LARGE FRAME IS AHEAD OF IT, and until 2026-09-23 the
+     * loop could not tell the two apart. The browser delivers a WebSocket message only when the whole
+     * frame has arrived, and the server's `pong` travels BEHIND whatever it queued before on the same
+     * TCP stream. On the 40 kbps link the product targets, a 324 KB frame (one detailed feature a
+     * colleague imported, or the `sync_response` replay of what this client missed offline) takes
+     * about 65 s, and the loop closed the socket at its second tick (25 to 50 s). The reconnect asked
+     * `sync_request` from the SAME cursor, the server answered with the SAME frame, and the loop cut
+     * it again, forever: that peer never converged. Measured with
+     * `tests/e2e-ui/ws-quadro-grande-em-link-lento.repro.spec.js`.
+     *
+     * So the tolerance ESCALATES: a heartbeat close doubles the number of overdue ticks the next
+     * socket may wait ({@link HEARTBEAT_MAX_MISSED_TICKS} at most), and a pong answered within its
+     * own tick brings it back to one. A congested link converges on the second or third socket; a
+     * dead one is still closed, only later once it has already been closed for silence.
+     *
+     * WHILE WAITING, THE PING KEEPS GOING UP. The server reaps a socket that sent nothing for a whole
+     * 30 s sweep (`heartbeatSweep`, `backend/src/modules/collab/collab.gateway.js`), and its own
+     * protocol ping is stuck behind the same large frame, so the client's ping is the frame that
+     * keeps the server from killing the download halfway.
+     */
     _startHeartbeat() {
         this._clearHeartbeat();
         this._pongPending = false;
+        this._missedTicks = 0;
         this._heartbeatTimer = setInterval(() => {
-            // If the previous ping was never ponged, treat the link as dead.
             if (this._pongPending && this._socket) {
-                try { this._socket.close(4000, 'heartbeat timeout'); } catch { /* noop */ }
-                return;
+                this._missedTicks += 1;
+                if (this._missedTicks >= this._missedTicksAllowed) {
+                    this._missedTicksAllowed = Math.min(this._missedTicksAllowed * 2, HEARTBEAT_MAX_MISSED_TICKS);
+                    try { this._socket.close(4000, 'heartbeat timeout'); } catch { /* noop */ }
+                    return;
+                }
             }
             this._pongPending = true;
             this._sendRaw({ type: 'ping' });
