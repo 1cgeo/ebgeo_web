@@ -344,7 +344,11 @@ async function restoreMeasurements(features) {
         const aRemedir = [];
         for (const [controlName, featureList] of controlFeaturePairs) {
             const control = getControl(controlName);
-            if (!control || !featureList) continue;
+            // A control without the method has no label to restore. `AddPolygonControl` is one,
+            // and the area that the ruler saves ("Salvar como feição") is a polygon with
+            // `measure: true`: calling it threw a TypeError inside this single loop, and every
+            // line of sight after it in the queue lost its distance label on each reload.
+            if (!control || !featureList || typeof control.updateFeatureMeasurement !== 'function') continue;
 
             for (const feature of featureList) {
                 if (feature.properties?.measure) {
@@ -356,7 +360,12 @@ async function restoreMeasurements(features) {
 
         await ensureTurf();
         for (const [control, feature] of aRemedir) {
-            control.updateFeatureMeasurement(feature);
+            // One feature that fails to remeasure must not take the rest of the map's labels.
+            try {
+                control.updateFeatureMeasurement(feature);
+            } catch (error) {
+                console.warn('Error restoring a measurement:', feature?.properties?.id, error);
+            }
         }
     } catch (error) {
         console.warn('Error restoring measurements:', error);
