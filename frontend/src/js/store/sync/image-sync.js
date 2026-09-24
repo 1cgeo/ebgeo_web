@@ -183,7 +183,9 @@ export async function registrarEnvioDeImagem(blob, imageId, { origem = 'imagem',
     const registrado = await registrarBlob({ imageId, blob, atlasId: _atlasId, origem });
     if (!registrado) return nada;
     const enviar = () => enviarBlobRegistrado(registrado, blob).then((resultado) => {
-        if (!resultado.confirmado) {
+        // `emVoo`: another attempt is already carrying these bytes and owns the verdict; the record
+        // this call got back is not a failed attempt, and saying so would be a false notice.
+        if (!resultado.confirmado && !resultado.emVoo) {
             let nome = null;
             try {
                 nome = typeof nomeDaFigura === 'function' ? nomeDaFigura() : null;

@@ -158,6 +158,21 @@ let _falhasSeguidas = 0;
 const _emVoo = new Set();
 
 /**
+ * Image ids RESERVED by {@link registrarBlob} until the caller says {@link enviarBlobRegistrado} or
+ * {@link descartarBlobRegistrado}: the window in which the entity is being saved.
+ *
+ * WHY (2026-09-24, final review). The record is on disk from the registration on, and a resumption
+ * landing in that window (the 15 s timer, the transition back to ONLINE, a connect) read it as an
+ * ordinary PENDENTE and started the upload before the save had an outcome. A save that then
+ * succeeded found its own id in flight and reported the old record as a failure, with the upload
+ * running; a save that was refused dropped the record, and the in-flight attempt wrote it back.
+ * The resumption skips a reserved id. The reservation lives in memory only: an F5 in the window
+ * drops it, and the record on disk is resumed on connect like any other.
+ * @type {Set<string>}
+ */
+const _reservados = new Set();
+
+/**
  * Schedules one resumption of the pending blobs of `atlasId`, unless one is already scheduled.
  *
  * It does nothing when it fires OFFLINE: the transition back to ONLINE is the trigger that owns that
@@ -460,6 +475,14 @@ async function assentar(scope, registro, desfecho) {
     // build verdicts and each of them would otherwise need to remember to write a pt-BR sentence.
     // `ultimoErro` is what the pendency panel renders; `ultimoErroCru` is the untouched message,
     // kept for diagnosis and read by no screen.
+    // A RECORD DROPPED WHILE THIS ATTEMPT WAS ON THE WIRE STAYS DROPPED ({@link descartarBlobRegistrado}):
+    // writing the verdict would bring back a pendency for an entity that was never saved, retried
+    // forever or left CONFIRMADO as orphan bytes.
+    try {
+        if (!(await loja(scope).getItem(chaveDe(registro.tentativaId)))) return { ...registro, descartado: true };
+    } catch {
+        // Unreadable: fall through and write, which is the behaviour before this check.
+    }
     const atualizado = {
         ...registro,
         tentativas: (registro.tentativas ?? 0) + 1,
@@ -511,8 +534,9 @@ const semVeredicto = () => ({
  */
 async function tentar(scope, registro, blob) {
     // ONE TRANSFER PER ID (see {@link _emVoo}). The attempt already on the wire owns the verdict;
-    // this one steps aside and reports the record as it stands.
-    if (_emVoo.has(registro.imageId)) return registro;
+    // this one steps aside and SAYS so (`emVoo`), so no caller reads the untouched record as a
+    // failed attempt.
+    if (_emVoo.has(registro.imageId)) return { ...registro, emVoo: true };
     _emVoo.add(registro.imageId);
     try {
         let desfecho;
@@ -661,12 +685,16 @@ export async function registrarBlob({ imageId, blob, atlasId, origem = 'imagem' 
 
     const registro = novoRegistro(imageId, atlasId, origem, blob);
 
+    // RESERVED BEFORE THE RECORD EXISTS, so no resumption can read the record without the
+    // reservation ({@link _reservados}).
+    _reservados.add(imageId);
     try {
         await gravar(scope, registro);
     } catch (error) {
         // WITHOUT A RECORD THERE IS NO RETRY, so there must be no hold either: holding an id whose
         // pendency nobody can read would stall the queue with nothing able to release it.
         console.warn('[blob-upload-queue] could not register an upload attempt:', error);
+        _reservados.delete(imageId);
         return null;
     }
     espelhar(registro);
@@ -682,6 +710,7 @@ export async function registrarBlob({ imageId, blob, atlasId, origem = 'imagem' 
  * @returns {Promise<void>}
  */
 export async function descartarBlobRegistrado({ scope, registro }) {
+    _reservados.delete(registro.imageId);
     try {
         await loja(scope).removeItem(chaveDe(registro.tentativaId));
     } catch (error) {
@@ -699,9 +728,11 @@ export async function descartarBlobRegistrado({ scope, registro }) {
  *   causa: (string|null), status: (number|null)}>}
  */
 export async function enviarBlobRegistrado({ scope, registro }, blob) {
+    _reservados.delete(registro.imageId);
     const final = await tentar(scope, registro, blob);
     return {
         registrado: true,
+        emVoo: final.emVoo === true,
         confirmado: final.estado === BlobUploadState.CONFIRMADO,
         estado: final.estado,
         motivo: final.ultimoErro || '',
@@ -738,14 +769,15 @@ export async function retomarBlobsPendentes(atlasId) {
         // wire for the same id ({@link _emVoo}), or a record another attempt already settled while
         // this loop was waiting. Trying the copy read at the start would write its verdict over a
         // newer one (a CONFIRMADO turned back into PENDENTE).
-        if (_emVoo.has(lido.imageId)) continue;
+        if (_emVoo.has(lido.imageId) || _reservados.has(lido.imageId)) continue;
         let registro = lido;
         try {
             registro = (await loja(scope).getItem(chaveDe(lido.tentativaId))) ?? null;
         } catch (error) {
             console.warn('[blob-upload-queue] could not re-read a pending upload:', error);
         }
-        if (!registro || registro.estado !== BlobUploadState.PENDENTE || _emVoo.has(registro.imageId)) continue;
+        if (!registro || registro.estado !== BlobUploadState.PENDENTE
+            || _emVoo.has(registro.imageId) || _reservados.has(registro.imageId)) continue;
 
         let blob = null;
         try {
@@ -790,6 +822,7 @@ export async function retomarBlobsPendentes(atlasId) {
 export function esquecerPendenciasEmMemoria() {
     _pendentes.clear();
     _recusados.clear();
+    _reservados.clear();
     if (_retomadaAgendada) clearTimeout(_retomadaAgendada);
     _retomadaAgendada = null;
     _falhasSeguidas = 0;

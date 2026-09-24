@@ -407,6 +407,69 @@ describe('fila durável de blobs: registro, retomada e liberação', () => {
         expect(h.enviados).toHaveLength(0);
     });
 
+    /**
+     * A JANELA ENTRE REGISTRAR E ENVIAR (2026-09-24, revisão final). A ferramenta registra, grava a
+     * feição e só então envia ou descarta; uma retomada (o temporizador de 15 s, a volta a ONLINE,
+     * um connect) que caía nessa janela lia o registro PENDENTE novo e subia antes de o save ter
+     * desfecho. O id fica RESERVADO do registro até enviar ou descartar, e a retomada o pula.
+     */
+    it('retomada na janela do save não sobe nada; o envio depois do save sobe uma vez e confirma', async () => {
+        const scope = getActiveScope();
+        const imageId = crypto.randomUUID();
+        await getStoreFor(StoreName.IMAGES, scope).setItem(imageId, blob());
+        const registrado = await registrarBlob({ imageId, blob: blob(), atlasId: scope.atlasId });
+
+        const resumo = await retomarBlobsPendentes(scope.atlasId);
+        expect(resumo.tentadas, 'a retomada pula o id reservado').toBe(0);
+        expect(h.enviados).toHaveLength(0);
+
+        const resultado = await enviarBlobRegistrado(registrado, blob());
+        expect(resultado).toMatchObject({ confirmado: true, emVoo: false });
+        expect(h.enviados).toHaveLength(1);
+    });
+
+    it('retomada na janela e save recusado: nada sobe e o registro descartado não volta', async () => {
+        const scope = getActiveScope();
+        const imageId = crypto.randomUUID();
+        await getStoreFor(StoreName.IMAGES, scope).setItem(imageId, blob());
+        const registrado = await registrarBlob({ imageId, blob: blob(), atlasId: scope.atlasId });
+        await retomarBlobsPendentes(scope.atlasId);
+        await descartarBlobRegistrado(registrado);
+        expect(h.enviados).toHaveLength(0);
+        expect(await listarPendenciasDeBlob()).toEqual([]);
+        expect(blobUploadPending(imageId)).toBe(false);
+    });
+
+    it('um veredito que chega depois do descarte não recria o registro', async () => {
+        const scope = getActiveScope();
+        const imageId = crypto.randomUUID();
+        const chamadas = [];
+        h.resposta = (atlasId, uploads) => new Promise((resolve) => chamadas.push({ resolve, atlasId, uploads }));
+        const registrado = await registrarBlob({ imageId, blob: blob(), atlasId: scope.atlasId });
+        const envio = enviarBlobRegistrado(registrado, blob());
+        await vi.waitFor(() => expect(chamadas).toHaveLength(1));
+        await descartarBlobRegistrado(registrado);
+        chamadas[0].resolve(redeCaiu()(chamadas[0].atlasId, chamadas[0].uploads));
+        await envio;
+        expect(await listarPendenciasDeBlob(), 'nada retenta uma figura que não existe').toEqual([]);
+        expect(blobUploadPending(imageId)).toBe(false);
+    });
+
+    it('um envio que acha o id em voo diz isso, em vez de devolver o registro como falha', async () => {
+        const scope = getActiveScope();
+        const imageId = crypto.randomUUID();
+        const chamadas = [];
+        h.resposta = (atlasId, uploads) => new Promise((resolve) => chamadas.push({ resolve, atlasId, uploads }));
+        const registrado = await registrarBlob({ imageId, blob: blob(), atlasId: scope.atlasId });
+        const primeiro = enviarBlobRegistrado(registrado, blob());
+        await vi.waitFor(() => expect(chamadas).toHaveLength(1));
+        const segundo = await enviarBlobRegistrado(registrado, blob());
+        expect(segundo).toMatchObject({ confirmado: false, emVoo: true });
+        chamadas[0].resolve(aceita()(chamadas[0].atlasId, chamadas[0].uploads));
+        expect((await primeiro).confirmado).toBe(true);
+        expect(h.enviados).toHaveLength(1);
+    });
+
     it('recusa definitiva na RETOMADA marca RECUSADO e vira problema durável na op', async () => {
         // A ORDEM AQUI É A DO DEFEITO ANTIGO DA REDE: a primeira tentativa cai na rede (a op da
         // feição nasce depois dela e fica retida), e é na retomada que o servidor recusa de vez. A
