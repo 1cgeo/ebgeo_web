@@ -948,7 +948,15 @@ export function setupCleanupHandlers(destroyables) {
         console.error('JavaScript error:', event.error);
     });
 
-    window.addEventListener('beforeunload', async () => {
+    // `pagehide`, NUNCA `beforeunload`, e a diferenca e o que faz a confirmacao de saida funcionar.
+    // O `beforeunload` pode ser CANCELADO (o editor de briefing e o painel de feicao pedem
+    // confirmacao com edicao pendente, e o painel de estilo de camada tambem, por
+    // `DebouncedPersist`): desmontar ali deixava quem escolhe "Ficar na pagina" com a barra lateral,
+    // a barra de ferramentas e o painel destruidos, e ainda tirava da tela o painel cuja edicao a
+    // confirmacao queria salvar (medido em 2026-09-24). `pagehide` so dispara quando a pagina sai de
+    // fato; entrando no bfcache (`persisted`) ela pode voltar, e nada e desmontado.
+    window.addEventListener('pagehide', async (event) => {
+        if (event?.persisted) return;
         destroyables.keyboardShortcuts.destroy();
         destroyables.snappingService.destroy();
         destroyables.chipsComponent.destroy();

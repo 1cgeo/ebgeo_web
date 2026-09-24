@@ -8,6 +8,52 @@ import { startBatchUndo, commitBatchUndo, discardBatchUndo } from '../../store';
 import { discardTargets } from './discard-targets.helpers.js';
 
 /**
+ * Whether a property bag differs from its snapshot. The snapshot is a SHALLOW copy
+ * (`createInitialPropertiesMap`), so a nested value compares by content, never by reference.
+ * @param {Object|undefined} props - The live properties the panel edits.
+ * @param {Object|undefined} initial - The snapshot taken when the panel opened.
+ * @returns {boolean}
+ */
+function propriedadesMudaram(props, initial) {
+    if (!props || !initial) return false;
+    const chaves = new Set([...Object.keys(props), ...Object.keys(initial)]);
+    for (const chave of chaves) {
+        const a = props[chave];
+        const b = initial[chave];
+        if (Object.is(a, b)) continue;
+        if (typeof a === 'object' && typeof b === 'object' && JSON.stringify(a) === JSON.stringify(b)) continue;
+        return true;
+    }
+    return false;
+}
+
+/**
+ * THE PAGE GOING AWAY WITH A FEATURE PANEL EDIT THAT WAS NEVER SAVED.
+ *
+ * The panel edits the selected features in memory and persists them on "Salvar" or on DESELECT
+ * (`deselectAllFeatures` saves by default). A reload or a closed tab is neither, so an edit the
+ * person already sees on the map (a point grown to 37 px) came back from F5 as it was, in both
+ * browsers, with nothing said. Measured on 2026-09-24. Same answer as the briefing editor
+ * (`_wireAutosaveFlushTriggers`): fire the save, and while there is a pending change ask the
+ * browser to confirm the exit, which is the time the save needs. With nothing pending nothing is
+ * asked. ONE listener for the page, reading the panel that is open when the page leaves, because
+ * the buttons are rebuilt on every selection and have no teardown hook of their own. Repro:
+ * `tests/e2e-ui/painel-de-feicao-sobrevive-ao-f5.repro.spec.js`.
+ */
+let guardaDeSaidaInstalada = false;
+function instalarGuardaDeSaida() {
+    if (guardaDeSaidaInstalada || typeof window === 'undefined') return;
+    guardaDeSaidaInstalada = true;
+    window.addEventListener('beforeunload', (event) => {
+        const botao = document.querySelector('.feature-panel[data-expanded="true"] .attr-modern-btn-save');
+        if (!botao?._hasPendingChanges?.()) return;
+        botao._saveOnly?.()?.catch?.(() => {});
+        event?.preventDefault?.();
+        if (event) event.returnValue = '';
+    });
+}
+
+/**
  * @typedef {Object} StandardButtonsConfig
  * @property {Array} selectedFeatures - Selected features
  * @property {Object} control - Feature control instance
@@ -85,6 +131,11 @@ export function createModernButtons(config) {
 
     // Expose save-only function for programmatic use (feature switching)
     saveButton._saveOnly = doSave;
+    // And whether there is anything to save, for the page-exit guard above.
+    saveButton._hasPendingChanges = () => selectedFeatures.some(
+        f => propriedadesMudaram(f?.properties, initialPropertiesMap?.get?.(f?.properties?.id))
+    );
+    instalarGuardaDeSaida();
 
     saveButton.addEventListener('click', async () => {
         await doSave();
