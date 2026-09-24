@@ -142,8 +142,13 @@ export function wireRemoteFeatureRender(refresh, {
             if (watchdogHandle === watchdog) watchdogHandle = null;
             if (activeRun === runId) {
                 release(runId, Math.max(0, now() - started));
-            } else {
-                // Superseded: it may have just painted a list older than the store. Repaint.
+            } else if (lastRunId !== runId) {
+                // Superseded by a newer refresh: it may have just painted a list older than the
+                // one that refresh drew. Repaint. A refresh released by the watchdog and NOT
+                // superseded painted what it read, and no event arrived after the read (an event
+                // during the stall marks dirty, and the release then starts a newer refresh), so
+                // repainting there would only chain another refresh behind the same slow download,
+                // forever, with no remote event at all.
                 schedule();
             }
         });

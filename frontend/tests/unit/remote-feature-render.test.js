@@ -293,6 +293,32 @@ describe('wireRemoteFeatureRender: rajada longa', () => {
         aviso.mockRestore();
     });
 
+    it('a reconstrucao liberada pelo vigia e NAO superada nao encadeia outra ao terminar tarde', async () => {
+        // Revisao final da caca noturna: uma imagem cujo download falha devagar (mais que o vigia)
+        // fazia cada reconstrucao terminar tarde e agendar a seguinte, que travava de novo no
+        // mesmo download: laco sem fim de setData e de pedido de rede, sem evento remoto nenhum.
+        // Sem reconstrucao mais nova, a tardia pintou o que leu, e nada chegou depois da leitura.
+        const primeira = deferred();
+        const refresh = vi.fn().mockReturnValueOnce(primeira.promise).mockReturnValue(undefined);
+        const armed = [];
+        const vigias = [];
+        const aviso = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        wireRemoteFeatureRender(refresh, {
+            scheduler: (fn, ms) => { armed.push({ fn, ms }); return armed.length; },
+            watchdogScheduler: (fn, ms) => { vigias.push({ fn, ms }); return vigias.length; },
+            cancelWatchdog: () => {},
+        });
+        fire(EventTypes.FEATURE_CREATED);
+        armed[0].fn();
+        await settle();
+        vigias[0].fn();
+        primeira.resolve();
+        await settle();
+        expect(refresh).toHaveBeenCalledTimes(1);
+        expect(armed).toHaveLength(1);
+        aviso.mockRestore();
+    });
+
     it('desligar cancela o timer pendente e o vigia da reconstrucao em curso', async () => {
         const pending = deferred();
         const refresh = vi.fn(() => pending.promise);
