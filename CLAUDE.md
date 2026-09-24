@@ -6,6 +6,14 @@ Este arquivo carrega **método, armadilha e convenção que diverge do default**
 
 **DOIS arquivos se chamam "constituição", e não são o mesmo documento.** Este, que se intitula assim, é o **método**: como se trabalha, como se verifica, o que não se mexe. [`CONSTITUICAO.md`](CONSTITUICAO.md), na raiz ao lado dele, é o **estatuto do produto**: as cláusulas sobre quem pode o quê (papéis, escopo de produção, concessão, poda, princípio de acesso), escritas em 2026-08-20 a partir do texto do dono e conferidas cláusula a cláusula contra o código. A autoridade dele é maior que a do código no domínio dele, e isso está declarado lá: onde as duas divergem, o texto é a especificação e o código é que muda. Consulte-o **antes** de escrever qualquer gate, papel ou regra de acesso, e mude o estado da cláusula (vigente / em obra / pendente) no mesmo commit em que o código muda. Ele é vigiado por [`frontend/tests/unit/docs-integridade.test.js`](frontend/tests/unit/docs-integridade.test.js) (caminho, link e símbolo) e por [`frontend/tests/unit/constituicao-estado-das-clausulas.test.js`](frontend/tests/unit/constituicao-estado-das-clausulas.test.js) (a lista do que ainda não é vigente). Nenhum dos dois verifica que uma cláusula seja VERDADE.
 
+## Como responder e delegar
+
+Keep responses focused, brief, and concise. Keep disclaimers and caveats short, and spend most of the response on the main answer. When asked to explain something, give a high-level summary unless an in-depth explanation is specifically requested.
+
+Before your first tool call, say in one sentence what you're about to do. While working, give a brief update only when you find something important or change direction. When you finish, lead with the outcome: your first sentence should answer "what happened" or "what did you find," with supporting detail after it for readers who want it.
+
+Delegate to a subagent only for large tasks that are genuinely independent and parallelizable, such as a wide multi-file investigation. Do not delegate work you can finish yourself in a handful of tool calls, and do not use subagents to verify or double-check your own work. If one subagent can complete the task, use one rather than several, and keep spawn counts low.
+
 ## Os seis princípios (condensados)
 
 1. **Competência só compõe se for codificada, nunca lembrada.** O que não virou teste, regra ou learning considera-se perdido.
