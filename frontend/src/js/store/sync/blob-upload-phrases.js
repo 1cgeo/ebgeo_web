@@ -153,6 +153,40 @@ export function fraseDeFalhaDeBlob({ causa, motivo = null, status = null } = {})
 }
 
 /**
+ * The notice of a figure the server refused, NAMING it and saying what the person can do.
+ *
+ * WHY A SECOND SENTENCE (2026-09-23). Since the image tool writes the feature while its bytes are
+ * still going up, the refusal can arrive seconds or minutes after the gesture, when the person is
+ * already doing something else: "esta figura" no longer points at anything on the screen. The name
+ * is the handle the attribute table and the pendency panel also show. The pendency panel keeps
+ * {@link fraseDeFalhaDeBlob}, which is written for a row that already sits next to the picture.
+ *
+ * Short on purpose (house rule of 2026-09-22): what happened, then the action.
+ * @param {Object} params
+ * @param {string|null} [params.nome] - The feature's name; a generic handle when there is none.
+ * @param {string} [params.causa] - A value of {@link CausaDeFalha}.
+ * @param {number|null} [params.status] - HTTP status, when there was an answer.
+ * @returns {string}
+ */
+export function avisoDeFiguraRecusada({ nome = null, causa, status = null } = {}) {
+    const rotulo = textoOuNulo(nome);
+    const qual = rotulo ? `A figura "${rotulo}"` : 'Uma figura';
+    const inicio = `${qual} não foi enviada ao servidor e aparece só para você.`;
+    switch (causa) {
+        case CausaDeFalha.ARQUIVO:
+            return status === 413
+                ? `${inicio} Ela é grande demais: insira uma versão menor.`
+                : `${inicio} O formato não é aceito: insira a figura em outro formato.`;
+        case CausaDeFalha.PERMISSAO:
+            return `${inicio} Seu acesso a este atlas não permite enviar figuras: peça ao gestor do atlas.`;
+        case CausaDeFalha.SEM_BYTES:
+            return `${inicio} O arquivo não está mais neste computador: insira a figura de novo.`;
+        default:
+            return `${inicio} Ela está nas pendências para revisão.`;
+    }
+}
+
+/**
  * The raw message, kept for diagnosis and never rendered.
  *
  * IT IS A SEPARATE FIELD ON PURPOSE. Folding it into the phrase would put an English transport

@@ -15,7 +15,7 @@ import { generateUUID, isValidUUID } from '../../utilities/uuid.js';
 import { record } from './diag/trace-core.js';
 import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
 import { markLocalEditPending, CONVERGENCE_GUARDED } from './remote-operation-handler.js';
-import { blobUploadPending } from './blob-upload-queue.js';
+import { blobUploadPending, blobUploadRefusal } from './blob-upload-queue.js';
 import { checkPermission, GuardAction } from './permission-guard.js';
 import { isDerivedOutputBucket } from '../analysis-output.js';
 
@@ -219,8 +219,20 @@ export async function persistOperationIntents(allDescriptions, { scope, traceId 
         // queue's existing way of saying "this intention is not complete yet": it is durable, the
         // census counts it, and `blob-upload-queue.js` clears it when the server confirms the
         // bytes, or converts it into a durable issue when the server refuses them for good.
+        //
+        // AND ONE WHOSE BLOB THE SERVER ALREADY REFUSED BECOMES A DURABLE ISSUE AT BIRTH (2026-09-23).
+        // Since the image tool writes the feature while its bytes are still going up, a refusal can
+        // land BEFORE the operation exists, and then `marcarProblema` had nothing to mark. Releasing
+        // the operation would send a feature whose picture the server will never have (the peer draws
+        // the error placeholder); holding it prepared would stop the queue behind it for good.
+        const recusadas = created.filter(op => op.entityType === EntityType.FEATURE && blobUploadRefusal(op.entityId));
+        for (const op of recusadas) {
+            const recusa = blobUploadRefusal(op.entityId);
+            await queue.recordIssue(op, { rejected: true, reason: recusa.motivo, status: recusa.status });
+        }
         const prontas = created.filter(op => !(
-            op.entityType === EntityType.FEATURE && blobUploadPending(op.entityId)
+            op.entityType === EntityType.FEATURE
+            && (blobUploadPending(op.entityId) || blobUploadRefusal(op.entityId))
         ));
         await queue.markMaterialized(prontas);
         for (const op of created) {

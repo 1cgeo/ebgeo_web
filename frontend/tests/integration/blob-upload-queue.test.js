@@ -58,6 +58,9 @@ vi.mock('@js/import_export/atlas-image-upload.js', () => ({
 
 import {
     enfileirarBlob,
+    registrarBlob,
+    enviarBlobRegistrado,
+    blobUploadRefusal,
     retomarBlobsPendentes,
     listarPendenciasDeBlob,
     blobUploadPending,
@@ -309,11 +312,53 @@ describe('fila durável de blobs: registro, retomada e liberação', () => {
         expect(h.enviados).toEqual([]);
     });
 
+    /**
+     * A ORDEM NOVA DA FERRAMENTA DE IMAGEM (2026-09-23): registrar (com espera), gravar a feição e
+     * só então a transferência terminar. A op nasce RETIDA pelo registro, e a confirmação a solta.
+     */
+    it('registrar retém a op que nasce depois, e a transferência confirmada a solta', async () => {
+        const scope = getActiveScope();
+        const imageId = crypto.randomUUID();
+        const registrado = await registrarBlob({ imageId, blob: blob(), atlasId: scope.atlasId });
+        expect(registrado).not.toBeNull();
+        expect(blobUploadPending(imageId)).toBe(true);
+        await registrarOpDaFeicao(imageId, scope);
+        expect(await operationQueue.peek()).toEqual([]);
+
+        const resultado = await enviarBlobRegistrado(registrado, blob());
+        expect(resultado.confirmado).toBe(true);
+        expect(await operationQueue.peek()).toHaveLength(1);
+    });
+
+    /**
+     * A LACUNA QUE ESTAVA DECLARADA, FECHADA: a recusa definitiva chega ANTES de a op nascer. A op
+     * não pode sair (o par desenharia o marcador de erro sob um id que o servidor recusou) nem
+     * ficar retida (seguraria a fila para sempre): ela nasce como problema durável.
+     */
+    it('recusa na PRIMEIRA tentativa, antes de a op existir: a op nasce como problema, e a fila anda', async () => {
+        const scope = getActiveScope();
+        const imageId = crypto.randomUUID();
+        h.resposta = recusa('Invalid file type: image/gif');
+        const registrado = await registrarBlob({ imageId, blob: blob(), atlasId: scope.atlasId });
+        const resultado = await enviarBlobRegistrado(registrado, blob());
+        expect(resultado.estado).toBe(BlobUploadState.RECUSADO);
+        expect(blobUploadRefusal(imageId)?.motivo).toContain('Invalid file type');
+
+        await registrarOpDaFeicao(imageId, scope);
+        const problemas = await operationQueue.getIssues();
+        expect(problemas.map((p) => p.operation.entityId)).toEqual([imageId]);
+        expect(problemas[0].result.reason).toContain('Invalid file type');
+        expect(await operationQueue.peek()).toEqual([]);
+        // A fila anda: uma op de outra entidade, nascida depois, sai.
+        const outra = crypto.randomUUID();
+        await registrarOpDaFeicao(outra, scope);
+        expect((await operationQueue.peek()).map((op) => op.entityId)).toEqual([outra]);
+    });
+
     it('recusa definitiva na RETOMADA marca RECUSADO e vira problema durável na op', async () => {
-        // A ORDEM AQUI É A REAL, e é o que este caso mede: a primeira tentativa cai na rede (a op
-        // da feição nasce depois dela e fica retida), e é na retomada que o servidor recusa de
-        // vez. Uma recusa na PRIMEIRA tentativa acontece antes de a op existir, então não há o que
-        // marcar: o chamador é avisado, a figura fica local e o par desenha o marcador de erro.
+        // A ORDEM AQUI É A DO DEFEITO ANTIGO DA REDE: a primeira tentativa cai na rede (a op da
+        // feição nasce depois dela e fica retida), e é na retomada que o servidor recusa de vez. A
+        // recusa na PRIMEIRA tentativa, antes de a op existir, tem caso próprio acima.
         const scope = getActiveScope();
         const imageId = crypto.randomUUID();
         h.resposta = redeCaiu();

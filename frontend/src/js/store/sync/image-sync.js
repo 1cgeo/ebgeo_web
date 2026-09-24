@@ -43,10 +43,13 @@ import { showWarning } from '@utils/toast_service.js';
 import { connectionState, ConnectionStates } from './connection-state.js';
 import {
     enfileirarBlob,
+    registrarBlob,
+    enviarBlobRegistrado,
     retomarBlobsPendentes,
-    esquecerPendenciasEmMemoria
+    esquecerPendenciasEmMemoria,
+    BlobUploadState
 } from './blob-upload-queue.js';
-import { fraseDeFalhaDeBlob } from './blob-upload-phrases.js';
+import { fraseDeFalhaDeBlob, avisoDeFiguraRecusada } from './blob-upload-phrases.js';
 
 /** @type {string|null} The connected atlas id (null when offline). */
 let _atlasId = null;
@@ -137,6 +140,57 @@ export async function uploadImageBlob(blob, imageId, { origem = 'imagem' } = {})
         // Headless (tests, worker): no UI to tell.
     }
     return { confirmado: false, registrado: true, estado: resultado.estado };
+}
+
+/**
+ * Registers an image blob for upload and STARTS sending it, without waiting for the transfer.
+ *
+ * WHY THE IMAGE TOOL NO LONGER WAITS (2026-09-23, coordinator's approval). It awaited
+ * {@link uploadImageBlob} before writing the feature, so on the 40 kbps link the product targets a
+ * 138 KB picture appeared for its author 38.7 s after the gesture, with nothing on screen meanwhile
+ * (the person tends to insert it again), and a request that never got an answer meant a picture
+ * that never appeared. The durable queue was already built for the other order: once the pendency
+ * is REGISTERED (awaited here, on disk, id held), an operation of that id stays prepared until the
+ * server confirms the bytes, so no peer ever receives the feature before its picture, and an F5 in
+ * the middle resumes the upload under the same id on connect.
+ *
+ * The notice of the outcome is given when the transfer ends: a definitive refusal names the figure
+ * ({@link avisoDeFiguraRecusada}) through `nomeDaFigura`, read at that moment because the feature
+ * is written after this call returns; a transient failure keeps the sentence the pendency panel
+ * shows. In a local atlas nothing is registered and nothing is said.
+ * @param {Blob} blob - The bytes, already written to the local store by the caller.
+ * @param {string} imageId - The id the feature carries.
+ * @param {Object} [options]
+ * @param {string} [options.origem='imagem'] - Label recorded on the pendency.
+ * @param {() => (string|null)} [options.nomeDaFigura] - The figure's name, read when the outcome is known.
+ * @returns {Promise<{registrado: boolean, transferencia: Promise<Object>}>} `registrado` resolves
+ *   once the hold is in place; `transferencia` settles with the verdict and never rejects.
+ */
+export async function iniciarEnvioDeImagem(blob, imageId, { origem = 'imagem', nomeDaFigura = null } = {}) {
+    const nada = { registrado: false, transferencia: Promise.resolve({ confirmado: false, registrado: false, estado: null }) };
+    if (!_atlasId || !blob || !imageId) return nada;
+    const registrado = await registrarBlob({ imageId, blob, atlasId: _atlasId, origem });
+    if (!registrado) return nada;
+    const transferencia = enviarBlobRegistrado(registrado, blob).then((resultado) => {
+        if (!resultado.confirmado) {
+            let nome = null;
+            try {
+                nome = typeof nomeDaFigura === 'function' ? nomeDaFigura() : null;
+            } catch {
+                nome = null;
+            }
+            const aviso = resultado.estado === BlobUploadState.RECUSADO
+                ? avisoDeFiguraRecusada({ nome, causa: resultado.causa, status: resultado.status })
+                : (resultado.motivo || fraseDeFalhaDeBlob({}));
+            try {
+                showWarning(aviso, { duration: 8000 });
+            } catch {
+                // Headless (tests, worker): no UI to tell.
+            }
+        }
+        return resultado;
+    });
+    return { registrado: true, transferencia };
 }
 
 /**

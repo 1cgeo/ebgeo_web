@@ -15,7 +15,7 @@ import {
     validateImageDimensions,
 } from '@utils/image_utils.js';
 import { ImageRefusal, imageRefusalNotice } from '@utils/image-limit-phrases.js';
-import { uploadImageBlob } from "../../store/sync/image-sync.js";
+import { iniciarEnvioDeImagem } from "../../store/sync/image-sync.js";
 import { addImageAttributesToPanel } from "./image_attributes_panel.js";
 import AddImageGeometry from "./add_image_geometry.js";
 import { BaseControl } from "../../tool_manager";
@@ -429,11 +429,11 @@ class AddImageControl extends BaseControl {
         // keeps the id), so the same id is valid whether the transfer lands now, after a
         // reconnection, or never. The blob goes to the LOCAL store first: it is what the
         // resumption reads back, and what draws the picture in the meantime.
+        //
         const imageId = IDUtils.generateUniqueId();
         if (!creation.canSave()) return;
         await storeImage(imageId, blob);
         if (!creation.canSave()) return;
-        await uploadImageBlob(blob, imageId, { origem: 'feicao-de-imagem' });
 
         const feature = this.createImageFeature(lngLat, imageId, width, height);
 
@@ -457,6 +457,19 @@ class AddImageControl extends BaseControl {
           "image",
           this.map
         );
+
+        // ONLY THE REGISTRATION IS AWAITED, NOT THE TRANSFER (2026-09-23). Waiting for the upload
+        // kept the picture off the author's screen for the whole transfer (38.7 s for 138 KB at
+        // 40 kbps, measured), and forever when the request never got an answer. The registration
+        // (pendency on disk, id held) comes BEFORE the save: the feature's operation is then born
+        // held prepared until the server confirms the bytes, so the peer never gets the feature
+        // before its picture, and an F5 resumes the upload under the same id. It comes after the
+        // name, so a refusal notice can name the figure whenever it lands.
+        if (!creation.canSave()) return;
+        await iniciarEnvioDeImagem(blob, imageId, {
+          origem: 'feicao-de-imagem',
+          nomeDaFigura: () => feature.properties.nome ?? null,
+        });
 
         if (!(await creation.save("images", feature))) return;
         if (!creation.isCurrent()) return;

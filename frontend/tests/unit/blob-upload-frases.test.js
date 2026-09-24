@@ -19,6 +19,7 @@ import {
     causaDeErroLancado,
     fraseDeFalhaDeBlob,
     mensagemCrua,
+    avisoDeFiguraRecusada,
 } from '@store/sync/blob-upload-phrases.js';
 
 const ARQUIVO = fileURLToPath(
@@ -137,5 +138,36 @@ describe('a mensagem crua é guardada, nunca desenhada', () => {
 describe('a propriedade estrutural que a função pura não prova', () => {
     it('o módulo é FOLHA: zero imports, porque a fila é alcançada pelo despachante', () => {
         expect(/^\s*import\s/m.test(readFileSync(ARQUIVO, 'utf8'))).toBe(false);
+    });
+});
+
+describe('o aviso da figura recusada nomeia a figura e diz o que fazer (2026-09-23)', () => {
+    it('nomeia a figura pelo nome da feição, e cai para um rótulo genérico sem ele', () => {
+        const comNome = avisoDeFiguraRecusada({ nome: 'Imagem 3', causa: CausaDeFalha.RECUSA });
+        expect(comNome.startsWith('A figura "Imagem 3" não foi enviada ao servidor')).toBe(true);
+        for (const vazio of [null, undefined, '', '   ', 42]) {
+            expect(avisoDeFiguraRecusada({ nome: vazio, causa: CausaDeFalha.RECUSA }).startsWith('Uma figura')).toBe(true);
+        }
+    });
+
+    it('cada causa diz uma ação diferente, e nenhuma cita código HTTP', () => {
+        const frases = [
+            avisoDeFiguraRecusada({ causa: CausaDeFalha.ARQUIVO, status: 413 }),
+            avisoDeFiguraRecusada({ causa: CausaDeFalha.ARQUIVO, status: 415 }),
+            avisoDeFiguraRecusada({ causa: CausaDeFalha.PERMISSAO, status: 403 }),
+            avisoDeFiguraRecusada({ causa: CausaDeFalha.SEM_BYTES }),
+            avisoDeFiguraRecusada({ causa: CausaDeFalha.RECUSA }),
+            avisoDeFiguraRecusada({}),
+        ];
+        expect(frases[0]).toContain('versão menor');
+        expect(frases[1]).toContain('outro formato');
+        expect(frases[2]).toContain('gestor');
+        expect(frases[3]).toContain('de novo');
+        expect(frases[4]).toContain('pendências');
+        expect(frases[5]).toContain('pendências');
+        for (const f of frases) {
+            expect(f).toContain('aparece só para você');
+            expect(f).not.toMatch(/\b\d{3}\b/);
+        }
     });
 });

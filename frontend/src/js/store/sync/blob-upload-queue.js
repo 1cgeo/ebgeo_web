@@ -56,12 +56,17 @@
  * NOTHING HERE THROWS. A failed upload costs a picture; a gesture aborted by a network error costs
  * the drawing. The callers get a verdict object and decide what to say.
  *
- * ONE GAP, DECLARED. A definitive refusal on the FIRST attempt happens before the feature's
- * operation exists (the caller uploads and only then writes the feature), so there is nothing to
- * mark with an issue: the caller is told, the picture stays local, and the peer draws the error
- * placeholder under an id the server refused. The refusal that the operation DOES hear about is the
- * one that arrives on a resumption, which is the case the retry produces. Closing the first one
- * needs the dispatcher to ask about refused ids too, and that question has no home yet.
+ * THE GAP THAT WAS DECLARED HERE IS CLOSED (2026-09-23). A definitive refusal on the FIRST attempt
+ * used to happen before the feature's operation existed, because the image tool awaited the whole
+ * upload and only then wrote the feature: there was nothing to mark, and the peer drew the error
+ * placeholder under an id the server refused. It also meant that on a slow link the picture
+ * appeared for its author only when the upload ended (38.7 s for 138 KB at 40 kbps, measured), with
+ * nothing on screen meanwhile. Now the tool REGISTERS the pendency ({@link registrarBlob}, awaited:
+ * the record on disk and the id held) and writes the feature at once, while the transfer
+ * ({@link enviarBlobRegistrado}) runs behind it. A refusal can then land on either side of the
+ * operation's birth, and both are covered: after it, {@link marcarProblema} finds the operation;
+ * before it, the id stays in the refused set ({@link blobUploadRefusal}) and the dispatcher turns the
+ * operation into a durable issue at birth instead of releasing it.
  */
 
 import {
@@ -173,6 +178,17 @@ function agendarRetomada(atlasId) {
 const _pendentes = new Set();
 
 /**
+ * Image ids whose bytes the server refused for good, with the reason, mirrored in memory.
+ *
+ * The other half of {@link _pendentes}: an operation born AFTER its blob was refused must not be
+ * released either, and the dispatcher asks synchronously, while it builds the batch. Only the
+ * current page needs it: an operation that already existed at the refusal got its issue from
+ * {@link marcarProblema}, on disk.
+ * @type {Map<string, {motivo: string, status: (number|null)}>}
+ */
+const _recusados = new Map();
+
+/**
  * @returns {{kind: string, dbSuffix: string}|null} The active scope when it is a SERVER atlas, else
  *   null. A local atlas has nowhere to upload to, and asking costs no read.
  */
@@ -274,6 +290,21 @@ async function gravar(scope, registro) {
 function espelhar(registro) {
     if (registro.estado === BlobUploadState.PENDENTE) _pendentes.add(registro.imageId);
     else _pendentes.delete(registro.imageId);
+    if (registro.estado === BlobUploadState.RECUSADO) {
+        _recusados.set(registro.imageId, { motivo: registro.ultimoErro, status: registro.ultimoStatus ?? null });
+    } else {
+        _recusados.delete(registro.imageId);
+    }
+}
+
+/**
+ * Why the server refused the bytes of an image id for good, or null. Synchronous by contract, like
+ * {@link blobUploadPending}: the dispatcher asks while it builds the batch.
+ * @param {string} imageId
+ * @returns {{motivo: string, status: (number|null)}|null}
+ */
+export function blobUploadRefusal(imageId) {
+    return (typeof imageId === 'string' && _recusados.get(imageId)) || null;
 }
 
 /**
@@ -422,7 +453,11 @@ async function assentar(scope, registro, desfecho) {
             ? BlobUploadState.CONFIRMADO
             : (desfecho.definitiva ? BlobUploadState.RECUSADO : BlobUploadState.PENDENTE),
         ultimoErro: desfecho.confirmado ? null : fraseDeFalhaDeBlob(desfecho),
-        ultimoErroCru: desfecho.confirmado ? null : mensagemCrua(desfecho.motivo)
+        ultimoErroCru: desfecho.confirmado ? null : mensagemCrua(desfecho.motivo),
+        // The cause and the status travel on the record so the caller of the first attempt can
+        // word its notice from them (`avisoDeFiguraRecusada`), instead of parsing the sentence.
+        ultimaCausa: desfecho.confirmado ? null : (desfecho.causa ?? null),
+        ultimoStatus: desfecho.confirmado ? null : (desfecho.status ?? null)
     };
 
     try {
@@ -570,10 +605,28 @@ export async function enfileirarBlobs(pares, { atlasId, origem = 'copia' }) {
  *   `registrado: false` means a local atlas (nothing to upload and nothing recorded).
  */
 export async function enfileirarBlob({ imageId, blob, atlasId, origem = 'imagem' }) {
+    const registrado = await registrarBlob({ imageId, blob, atlasId, origem });
+    if (!registrado) return { registrado: false, confirmado: false, estado: null, motivo: '' };
+    return enviarBlobRegistrado(registrado, blob);
+}
+
+/**
+ * The FIRST half of {@link enfileirarBlob}: the pendency on disk and the id held, nothing sent.
+ *
+ * After it resolves, an operation of this id is kept prepared by the dispatcher, and an F5 finds
+ * the record on disk and resumes it on connect. That is what lets a caller write the entity at once
+ * and send the bytes behind it ({@link enviarBlobRegistrado}).
+ * @param {Object} params
+ * @param {string} params.imageId
+ * @param {Blob} params.blob
+ * @param {string} params.atlasId
+ * @param {string} [params.origem]
+ * @returns {Promise<{scope: object, registro: Object}|null>} Null in a local atlas and when the
+ *   record could not be written (then nothing is held either).
+ */
+export async function registrarBlob({ imageId, blob, atlasId, origem = 'imagem' }) {
     const scope = escopoRemoto();
-    if (!scope || !atlasId || !imageId || !blob) {
-        return { registrado: false, confirmado: false, estado: null, motivo: '' };
-    }
+    if (!scope || !atlasId || !imageId || !blob) return null;
 
     const registro = novoRegistro(imageId, atlasId, origem, blob);
 
@@ -583,16 +636,29 @@ export async function enfileirarBlob({ imageId, blob, atlasId, origem = 'imagem'
         // WITHOUT A RECORD THERE IS NO RETRY, so there must be no hold either: holding an id whose
         // pendency nobody can read would stall the queue with nothing able to release it.
         console.warn('[blob-upload-queue] could not register an upload attempt:', error);
-        return { registrado: false, confirmado: false, estado: null, motivo: '' };
+        return null;
     }
     espelhar(registro);
+    return { scope, registro };
+}
 
+/**
+ * The SECOND half of {@link enfileirarBlob}: one attempt over a record {@link registrarBlob} wrote.
+ * Never throws.
+ * @param {{scope: object, registro: Object}} registrado
+ * @param {Blob} blob
+ * @returns {Promise<{registrado: boolean, confirmado: boolean, estado: string|null, motivo: string,
+ *   causa: (string|null), status: (number|null)}>}
+ */
+export async function enviarBlobRegistrado({ scope, registro }, blob) {
     const final = await tentar(scope, registro, blob);
     return {
         registrado: true,
         confirmado: final.estado === BlobUploadState.CONFIRMADO,
         estado: final.estado,
-        motivo: final.ultimoErro || ''
+        motivo: final.ultimoErro || '',
+        causa: final.ultimaCausa ?? null,
+        status: final.ultimoStatus ?? null
     };
 }
 
@@ -662,6 +728,7 @@ export async function retomarBlobsPendentes(atlasId) {
  */
 export function esquecerPendenciasEmMemoria() {
     _pendentes.clear();
+    _recusados.clear();
     if (_retomadaAgendada) clearTimeout(_retomadaAgendada);
     _retomadaAgendada = null;
     _falhasSeguidas = 0;
