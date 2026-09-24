@@ -902,7 +902,7 @@ async function applyRemoteOperationInner(operation, guarded) {
             entityPersisted = await applyRemoteGroupFeatureOp(operationType, mapId, data);
             break;
         case EntityType.BRIEFING:
-            await applyRemoteBriefingOp(operationType, entityId, data);
+            await applyRemoteBriefingOp(operationType, entityId, data, operation.localRepair === true);
             break;
         case EntityType.COMMENT:
             await applyRemoteCommentOp(operationType, entityId, mapId, data);
@@ -946,7 +946,7 @@ async function applyRemoteOperationInner(operation, guarded) {
             entityPersisted = await applyLocalSlideIntent(operationType, entityId,
                 mapId ?? data?.briefingId ?? data?.briefing_id ?? null,
                 operation.localRepair ? data : clientSlideShape(data),
-                { keepPosition: !operation.localRepair });
+                { keepPosition: !operation.localRepair, localRepair: operation.localRepair === true });
             break;
         default:
             // AN ENTITY TYPE THIS BUILD DOES NOT KNOW IS IGNORED, NOT FAILED, and F13 is what the
@@ -1782,21 +1782,29 @@ async function forgetConfirmedMapRevision(repo, mapId) {
  * slides' content (see {@link mergeEnvelopeSlides}). A CREATE, or an update for a briefing this
  * client does not have, still takes the document whole: there is nothing here to protect.
  *
+ * THE CONFIRMED REVISION FOLLOWS `inboundSideEntity`, the rule the 3D/360 entities got on
+ * 2026-09-22 and the briefing did not: the envelope is the AUTHOR's document, so the
+ * `confirmedVersion` inside it is the base observed before the edit. Stored verbatim on the
+ * author's ack-time repair it threw away the stamp `confirmEntityVersion` had just written, and
+ * the second consecutive rename (or the second slide appended, which moves the order) declared
+ * the pre-edit base and was refused; stored on a peer it became a base the server had passed.
+ *
  * @param {string} opType - Operation type
  * @param {string} briefingId - Briefing UUID
  * @param {Object} data - Briefing data
+ * @param {boolean} [localRepair=false] - The author's own op re-applied
  */
-async function applyRemoteBriefingOp(opType, briefingId, data) {
+async function applyRemoteBriefingOp(opType, briefingId, data, localRepair = false) {
     return withDocumentLock(`briefing:${briefingId}`, 'applyRemoteBriefingOp', async () => {
         switch (opType) {
             case OperationType.CREATE:
             case OperationType.UPDATE: {
                 if (data) {
-                    const existing = opType === OperationType.UPDATE
-                        ? await handlerLocalRepository().getBriefing(briefingId) : null;
-                    if (existing) {
+                    const existing = await handlerLocalRepository().getBriefing(briefingId);
+                    if (existing && opType === OperationType.UPDATE) {
                         data = { ...data, slides: mergeEnvelopeSlides(existing.slides, data.slides) };
                     }
+                    data = inboundSideEntity(data, existing, localRepair);
                     await handlerLocalRepository().saveBriefing(briefingId, data);
                 }
                 const eventType = opType === OperationType.CREATE
@@ -1819,8 +1827,14 @@ async function applyRemoteBriefingOp(opType, briefingId, data) {
  *
  * `keepPosition` (live ops): an existing slide is replaced where it is, because the order is the
  * envelope's to decide; only a slide this client does not have yet is placed by its `order`.
+ *
+ * `localRepair`: the confirmed revision of the stored slide is the one to keep, and a peer's slide
+ * carries none (`inboundSideEntity`). The payload's own `confirmedVersion` is the author's
+ * pre-edit base in both cases: kept, it made the author's second consecutive slide edit (and, on a
+ * create, the first one) declare a base the server had passed, or none, and the peer's next edit
+ * of a colleague's slide be refused.
  */
-async function applyLocalSlideIntent(opType, slideId, briefingId, data, { keepPosition = false } = {}) {
+async function applyLocalSlideIntent(opType, slideId, briefingId, data, { keepPosition = false, localRepair = false } = {}) {
     if (!briefingId) return false;
     return withDocumentLock(`briefing:${briefingId}`, 'recoverLocalSlide', async () => {
         const repo = handlerLocalRepository();
@@ -1829,12 +1843,13 @@ async function applyLocalSlideIntent(opType, slideId, briefingId, data, { keepPo
         const slides = [...(briefing.slides || [])];
         const previousIndex = slides.findIndex(slide => slide.id === slideId);
         if (opType !== OperationType.DELETE && (!data || typeof data !== 'object')) return false;
+        const stored = previousIndex !== -1 ? slides[previousIndex] : null;
         if (previousIndex !== -1) slides.splice(previousIndex, 1);
         if (opType !== OperationType.DELETE) {
             const position = keepPosition && previousIndex !== -1 ? previousIndex
                 : Number.isInteger(data.order) ? Math.max(0, Math.min(data.order, slides.length))
                     : previousIndex === -1 ? slides.length : previousIndex;
-            slides.splice(position, 0, { ...data, id: slideId });
+            slides.splice(position, 0, inboundSideEntity({ ...data, id: slideId }, stored, localRepair));
         }
         const updated = { ...briefing, slides };
         await repo.saveBriefing(briefingId, updated);
