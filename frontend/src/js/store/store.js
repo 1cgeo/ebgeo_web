@@ -843,6 +843,12 @@ export async function clearAllDataStore({ markLocal = true, clearQueue = markLoc
         const defaultMap = reinitialize
             ? await initializeRepository()
             : await seedBlankDefaultMap();
+        // `unmountCurrentAtlas` cleared the resolver, and this was the only path that clears it
+        // without rebuilding it (`resetAtlasView` and `adoptMountedLocalAtlas` both do). Left
+        // empty, `mapResolver.isKnown` answered false for the blank map, and every drawing tool
+        // refused to save with "O mapa de origem não está mais aberto" after "Limpar tudo".
+        // Repro: `tests/integration/limpar-tudo-esquece-o-mapa.repro.test.js`.
+        await mapResolver.initialize(getRepository());
         await mapManager.setCurrentMap(defaultMap);
         await loadMapDataToMemory(defaultMap);
     }
