@@ -426,6 +426,13 @@ async function enforceLocalStoreWhenLoggedOut() {
     // session that really died reaches this guard with the pair cleared. Repro:
     // `tests/e2e-ui/boot-com-sessao-adiada-preserva-fila.repro.spec.js`.
     if (apiClient.hasStoredTokens()) {
+        // BUT THE MARKER IS ALIGNED WITH WHAT THIS BOOT MOUNTS, which is a LOCAL slot: without a
+        // session `initLocalAtlases` never mounts the server namespace. Left REMOTE, the marker read
+        // by every `isRemoteStoreSync()` of the page contradicted the mounted atlas for the whole
+        // page: the chip said "servidor", the map lock answered read-only (no per-atlas role) and
+        // the actions of a server atlas were offered over a local one. The logged-out path below
+        // ends with the same write; only the sweep is skipped here.
+        if (isRemoteStoreSync()) await markStoreLocal();
         return;
     }
     // THE WORK THE SERVER NEVER RECEIVED IS RESCUED BEFORE THE SWEEP, like at every other

@@ -117,6 +117,41 @@ describeOrSkip('o boot com a sessão não verificada', () => {
         expect(depois.ops, 'o boot com a sessão adiada apagou a fila do atlas').toBe(antes.ops);
         expect(resgatado, 'a fila não foi desviada para um atlas local').toBe(false);
 
+        // A PÁGINA NÃO PODE MENTIR SOBRE O QUE MONTOU (revisão de 2026-09-23): sem sessão o boot
+        // monta um slot LOCAL, então o marcador tem de dizer local, o mapa não pode ficar somente
+        // leitura, e desenhar tem de gravar no slot. Com o marcador REMOTE a página inteira lia
+        // "servidor" sobre um atlas local.
+        const tela = await page.evaluate(async () => {
+            const { isRemoteStoreSync } = await import('/src/js/store/store-origin.js');
+            const { mapLockController } = await import('/src/js/locking/map-lock.controller.js');
+            const ns = await import('/src/js/store/atlas-namespace.js');
+            const store = await import('/src/js/store/index.js');
+            const nome = 'DESENHO NO SLOT LOCAL';
+            let gravou = false;
+            try {
+                await store.addFeature('points', {
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: [-43.3, -22.8] },
+                    properties: { id: crypto.randomUUID(), source: 'point', nome },
+                });
+                const nomes = [];
+                await ns.getStore(ns.StoreName.MAPS).iterate((mapa) => {
+                    for (const p of mapa?.features?.points ?? []) nomes.push(p?.properties?.nome);
+                });
+                gravou = nomes.includes(nome);
+            } catch { /* recusada */ }
+            return {
+                escopo: ns.getActiveScope()?.kind,
+                remoto: isRemoteStoreSync(),
+                somenteLeitura: mapLockController.isReadOnly(),
+                gravou,
+            };
+        });
+        process.stdout.write(`[sessao-adiada] tela ${JSON.stringify(tela)}\n`);
+        expect(tela, 'o marcador, a trava e a escrita concordam com o slot local montado').toEqual({
+            escopo: 'local', remoto: false, somenteLeitura: false, gravou: true,
+        });
+
         // O SERVIDOR VOLTA: o recarregamento restaura a MESMA sessão e a edição chega a A.
         await page.unroute('**/auth/me');
         await page.unroute('**/atlas/*/sync');
