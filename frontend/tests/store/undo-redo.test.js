@@ -166,7 +166,9 @@ describe('undoLastAction', () => {
 
         await mapManager.undoLastAction(executeFn);
 
-        expect(executeFn.updateFeature).toHaveBeenCalledWith('points', oldFeature);
+        // `revertFrom` makes the store keep what a peer changed after the edit (P8, see
+        // `keepLaterEdits` in `store/feature.operations.js`).
+        expect(executeFn.updateFeature).toHaveBeenCalledWith('points', oldFeature, null, { revertFrom: newFeature });
     });
 
     it('moves action to redoStack on success', async () => {
@@ -267,7 +269,7 @@ describe('redoLastAction', () => {
         sessionContext.getUserId.mockReturnValue(TEST_USER);
         await mapManager.redoLastAction(executeFn);
 
-        expect(executeFn.updateFeature).toHaveBeenCalledWith('points', newFeature);
+        expect(executeFn.updateFeature).toHaveBeenCalledWith('points', newFeature, null, { revertFrom: oldFeature });
     });
 
     it('moves action back to undoStack on success', async () => {

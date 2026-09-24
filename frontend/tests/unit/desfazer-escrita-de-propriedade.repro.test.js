@@ -182,11 +182,13 @@ describe('a forma da ação é a que o executor de desfazer consome', () => {
     const fonte = readFileSync(new URL('../../src/js/store/store-state-manager.js', import.meta.url), 'utf8')
         .replace(/\r\n/g, '\n');
 
-    it("o ramo 'update' inverte por `updateFeature(featureType, oldFeature)`", () => {
+    it("o ramo 'update' inverte por `updateFeature(featureType, oldFeature, ..., { revertFrom })`", () => {
         // A ação acima seria inerte se o executor lesse outros nomes de campo. Este caso é o
         // único elo entre os dois arquivos que não passa por uma rodada de store inteira.
-        expect(fonte).toContain("case 'update':\n                await executeFunction.updateFeature(action.featureType, action.oldFeature);");
-        expect(fonte).toContain("case 'update':\n                await executeFunction.updateFeature(action.featureType, action.newFeature);");
+        // `revertFrom` (2026-09-23) faz o desfazer devolver so' o que a edicao mudou, nunca o que
+        // um colega mudou depois dela (`desfazer-preserva-edicao-do-par.repro.spec.js`).
+        expect(fonte).toContain('await executeFunction.updateFeature(action.featureType, action.oldFeature, null, { revertFrom: action.newFeature });');
+        expect(fonte).toContain('await executeFunction.updateFeature(action.featureType, action.newFeature, null, { revertFrom: action.oldFeature });');
     });
 
     it('a pilha agrupa por `batchCollector`, que é o que dá uma entrada a um gesto composto', () => {

@@ -224,6 +224,42 @@ function preserveSyncMetadata(oldFeature, cleanedFeature) {
     }
 }
 
+/**
+ * Undo and redo of a feature edit: the target is `to`, EXCEPT where somebody changed the feature
+ * after the edit being reverted.
+ *
+ * An undo entry holds the WHOLE feature before and after the edit, and writing the whole "before"
+ * back also rewrote every field a peer had changed since: a colleague renames a line, I undo my
+ * recolor, and the line gets its old name back, on every client and on the server (the op leaves
+ * with an up-to-date base, so the server has nothing to call disputed). Measured with two real
+ * browsers in `frontend/tests/e2e-ui/desfazer-preserva-edicao-do-par.repro.spec.js`. Undo is local
+ * to each person (P8), so it may only take back what THIS edit did: a field whose current value is
+ * no longer what the edit left there (`from`) was written by someone after it, and stays.
+ *
+ * The unit is the geometry as a whole and each top-level property. Bookkeeping properties
+ * (`confirmedVersion`, `updatedAt`, ...) always differ from the recorded snapshot, so they keep
+ * the current value, which is also what `preserveSyncMetadata` does.
+ *
+ * @param {Object} current - The feature as stored now.
+ * @param {Object} from - The feature as the edit being reverted left it.
+ * @param {Object} to - The feature the revert wants to restore.
+ * @returns {Object} A new feature: `to`, with every field changed since `from` taken from `current`.
+ */
+export function keepLaterEdits(current, from, to) {
+    const result = deepClone(to);
+    if (!current || !from) return result;
+    if (!deepEqual(current.geometry, from.geometry)) result.geometry = deepClone(current.geometry);
+    const now = current.properties ?? {};
+    const then = from.properties ?? {};
+    result.properties = result.properties ?? {};
+    for (const key of new Set([...Object.keys(now), ...Object.keys(then), ...Object.keys(result.properties)])) {
+        if (deepEqual(now[key], then[key])) continue;
+        if (now[key] === undefined) delete result.properties[key];
+        else result.properties[key] = deepClone(now[key]);
+    }
+    return result;
+}
+
 // ===== CRUD OPERATIONS =====
 
 /**
@@ -299,12 +335,16 @@ export async function addFeature(type, feature, mapName = null, options = {}) {
  * @param {string} type - Storage type
  * @param {Object} feature - Feature with updated properties
  * @param {string} [mapName=null] - Target map name
+ * @param {Object} [options]
+ * @param {boolean} [options.preserveUserData=true] - Restore user data the incoming feature lacks.
+ * @param {Object} [options.revertFrom] - Undo/redo only: the feature as the reverted edit left it.
+ *   Fields changed since then keep their current value (see {@link keepLaterEdits}).
  */
-export async function updateFeature(type, feature, mapName = null, { preserveUserData: keepUserData = true } = {}) {
+export async function updateFeature(type, feature, mapName = null, { preserveUserData: keepUserData = true, revertFrom = null } = {}) {
     const targetMap = resolveMap(mapName);
     if (guardWrite(GuardAction.UPDATE_FEATURE, 'updateFeature', targetMap).blocked) return;
 
-    const cleanedFeature = cleanFeature(feature);
+    let cleanedFeature = cleanFeature(feature);
     if (!cleanedFeature) {
         console.warn('Feature ignored after cleanup:', feature);
         return;
@@ -320,6 +360,9 @@ export async function updateFeature(type, feature, mapName = null, { preserveUse
 
         const oldFeature = currentMapData.features[type][index];
         const oldColor = mapManager.getFeatureColor(oldFeature);
+        // Read under the document lock, like `oldFeature`: a peer's op applied between a read
+        // outside it and this write would be exactly the edit the revert must not take back.
+        if (revertFrom) cleanedFeature = cleanFeature(keepLaterEdits(oldFeature, cleanFeature(revertFrom), cleanedFeature));
 
         // Skip for authoritative user-data writes: UserDataManager passes a full clone, so an
         // intentionally-emptied attributes/images collection must NOT be restored from the old value.

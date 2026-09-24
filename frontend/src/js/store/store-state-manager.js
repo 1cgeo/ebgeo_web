@@ -686,7 +686,8 @@ class MapManager {
                 await executeFunction.removeFeature(action.featureType, action.feature.properties.id);
                 break;
             case 'update':
-                await executeFunction.updateFeature(action.featureType, action.oldFeature);
+                // Only what this edit changed, never what a peer changed after it (P8).
+                await executeFunction.updateFeature(action.featureType, action.oldFeature, null, { revertFrom: action.newFeature });
                 break;
             case 'remove':
                 await executeFunction.addFeature(action.featureType, action.feature);
@@ -700,7 +701,7 @@ class MapManager {
                 }
                 break;
             case 'updateWithProcessed':
-                await executeFunction.updateFeature(action.mainFeatureType, action.oldFeature);
+                await executeFunction.updateFeature(action.mainFeatureType, action.oldFeature, null, { revertFrom: action.newFeature });
                 if (action.newProcessedFeatures) {
                     for (const pf of action.newProcessedFeatures.features) {
                         await executeFunction.removeFeature(action.newProcessedFeatures.type, pf.properties.id);
@@ -747,7 +748,7 @@ class MapManager {
                 await executeFunction.addFeature(action.featureType, action.feature);
                 break;
             case 'update':
-                await executeFunction.updateFeature(action.featureType, action.newFeature);
+                await executeFunction.updateFeature(action.featureType, action.newFeature, null, { revertFrom: action.oldFeature });
                 break;
             case 'remove':
                 await executeFunction.removeFeature(action.featureType, action.feature.properties.id);
@@ -756,7 +757,7 @@ class MapManager {
                 await executeFunction.removeFeature(action.mainFeatureType, action.mainFeature.properties.id);
                 break;
             case 'updateWithProcessed':
-                await executeFunction.updateFeature(action.mainFeatureType, action.newFeature);
+                await executeFunction.updateFeature(action.mainFeatureType, action.newFeature, null, { revertFrom: action.oldFeature });
                 if (action.oldProcessedFeatures) {
                     for (const pf of action.oldProcessedFeatures.features) {
                         await executeFunction.removeFeature(action.oldProcessedFeatures.type, pf.properties.id);
