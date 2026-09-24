@@ -1125,8 +1125,9 @@
     display: none;
 }
 
+/* The attribute-table button is NOT here: reading the table is not a write, and the table opens
+   read-only on its own (`attribute_table/attribute-table.control.js`). */
 .features-tab-content.map-locked .layer-delete-btn,
-.features-tab-content.map-locked .table-toggle,
 .features-tab-content.map-locked .layer-drag-handle {
     display: none;
 }

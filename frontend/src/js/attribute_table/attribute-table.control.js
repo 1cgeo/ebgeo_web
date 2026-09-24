@@ -14,16 +14,17 @@ import {
     getFiltersContainer,
     updateLayerName,
     updateFeatureCount,
+    setPanelReadOnly,
 } from './components/table-panel.js';
 import { createFiltersBar } from './components/table-filters.js';
-import { renderTable, updateRowSelections } from './components/table-renderer.js';
-import { showColumnContextMenu } from './components/column-context-menu.js';
+import { renderTable, updateRowSelections, discardOpenEdit } from './components/table-renderer.js';
+import { showColumnContextMenu, hideColumnContextMenu } from './components/column-context-menu.js';
 import { EventTypes } from '@events';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { ensureTurf } from '@utils/turf-loader.js';
 import { getLayers, getCurrentMapNameSync, FEATURE_TYPE_MAPPINGS, FEATURE_DISPLAY_NAMES, updateFeatureProperty, featureLockState } from '@store';
-import { featureLockNotice } from '@store/denial-phrases.js';
-import { semEdicaoSync } from '@store/edicao-indisponivel.js';
+import { featureLockNotice, unavailableEditNotice } from '@store/denial-phrases.js';
+import { semEdicaoSync, edicaoIndisponivelSync, assinarEdicaoIndisponivel } from '@store/edicao-indisponivel.js';
 import { showPrompt } from '@modals';
 import userDataManager from '@js/user_data/user_data_manager.js';
 import { showWarning, showError, showSuccess } from '@utils';
@@ -77,6 +78,9 @@ export class AttributeTableControl {
 
         // Selection state
         this._selectedIds = new Set();
+
+        // Whether the table is drawn read-only (role or map lock); see _handleEditAvailabilityChanged.
+        this._readOnly = false;
 
         // Event unsubscribers
         this._unsubscribers = [];
@@ -259,6 +263,9 @@ export class AttributeTableControl {
 
         filtersContainer.replaceWith(filtersBar);
 
+        this._readOnly = semEdicaoSync();
+        setPanelReadOnly(this._panel, this._readOnly);
+
         // Add to DOM
         document.body.appendChild(this._panel);
         this._panelState = ATTRIBUTE_TABLE.STATES.EXPANDED;
@@ -406,6 +413,8 @@ export class AttributeTableControl {
                     if (aviso) showWarning(aviso);
                     return aviso !== null;
                 },
+                isReadOnly: () => semEdicaoSync(),
+                onEditRefused: () => this._warnEditRefused(),
                 onCheckboxChange: (featureId, checked) =>
                     this._handleCheckboxChange(featureId, checked),
                 onSelectAll: (checked) => this._handleSelectAll(checked),
@@ -444,6 +453,15 @@ export class AttributeTableControl {
             this._eventBus.on(EventTypes.FEATURE_UPDATED, this._handleFeatureUpdated)
         );
 
+        // READING THE TABLE IS NOT A WRITE, so it stays open for whoever cannot edit, and what changes
+        // with the role or the map lock is only its write commands. The lock that arrives with the
+        // table open used to leave them all alive: the open cell painted a value nothing saved,
+        // "Adicionar atributo" and "Remover atributo" did nothing, all in silence (measured on
+        // 2026-09-24, `tests/e2e-ui/tabela-de-atributos-somente-leitura.repro.spec.js`).
+        this._unsubscribers.push(
+            assinarEdicaoIndisponivel(() => this._handleEditAvailabilityChanged())
+        );
+
         // Subscribe to selection changes via StateManager
         if (this._stateManager) {
             const unsubscribe = this._stateManager.subscribe(
@@ -466,6 +484,34 @@ export class AttributeTableControl {
             }
         });
         this._unsubscribers = [];
+    }
+
+    /**
+     * Redraws the table read-only, or editable again, when the role or the map lock changes.
+     *
+     * The open cell is closed WITHOUT saving before the redraw, and the person is told: the redraw
+     * alone would commit it in Chromium (removing the focused input fires `blur`) and drop it in
+     * silence in Firefox.
+     */
+    _handleEditAvailabilityChanged() {
+        if (!this._isOpen || !this._panel) return;
+        const readOnly = semEdicaoSync();
+        setPanelReadOnly(this._panel, readOnly);
+        if (readOnly === this._readOnly) return;
+        this._readOnly = readOnly;
+        if (readOnly) {
+            hideColumnContextMenu();
+            if (discardOpenEdit(getTableContainer(this._panel))) this._warnEditRefused();
+        }
+        this._renderTable();
+    }
+
+    /**
+     * Tells the person that a changed cell was not saved, and why (the lock or the level).
+     */
+    _warnEditRefused() {
+        const motivo = unavailableEditNotice(edicaoIndisponivelSync());
+        showWarning(motivo ? `A edição da célula não foi gravada. ${motivo}` : 'A edição da célula não foi gravada.');
     }
 
     /**
@@ -668,7 +714,11 @@ export class AttributeTableControl {
      * @param {string} newValue - New value
      */
     async _handleCellEdit(featureId, featureType, columnKey, newValue) {
-        if (semEdicaoSync()) return;
+        if (semEdicaoSync()) {
+            this._warnEditRefused();
+            await this.refresh();
+            return;
+        }
 
         try {
             if (columnKey === 'nome' || columnKey === 'descricao') {
@@ -794,6 +844,8 @@ export class AttributeTableControl {
      * @param {MouseEvent} event - Event
      */
     _handleColumnContextMenu(columnKey, event) {
+        // The menu has one item, and it writes: without editing there is no menu.
+        if (semEdicaoSync()) return;
         showColumnContextMenu(columnKey, event, {
             onRemoveColumn: (key) => this._handleRemoveColumn(key),
         });
@@ -804,7 +856,12 @@ export class AttributeTableControl {
      * @param {string} columnKey - Column key
      */
     async _handleRemoveColumn(columnKey) {
-        if (semEdicaoSync()) return;
+        // The lock can arrive while the confirmation is open: the removal is refused out loud.
+        const refusal = unavailableEditNotice(edicaoIndisponivelSync());
+        if (refusal) {
+            showWarning(refusal);
+            return;
+        }
         try {
             // Remove attribute from all features in this layer
             for (const feature of this._allFeatures) {

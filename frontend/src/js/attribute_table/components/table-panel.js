@@ -252,6 +252,20 @@ export function setPanelState(panel, state) {
 }
 
 /**
+ * Marks the panel read-only, or editable again.
+ *
+ * Read-only is the answer of `semEdicaoSync` (role OR map lock), and it hides the WRITE commands of
+ * the toolbar ("Adicionar atributo") while keeping the ones that do not write to the atlas (CSV,
+ * minimize, close). The command disappears instead of refusing the click because the table follows
+ * the layers tab, which hides its edit commands on both axes (owner decision, 2026-09-16).
+ * @param {HTMLElement|null} panel - Panel element
+ * @param {boolean} readOnly - Whether editing is unavailable now
+ */
+export function setPanelReadOnly(panel, readOnly) {
+    panel?.classList.toggle(ATTRIBUTE_TABLE.CSS_CLASSES.PANEL_READ_ONLY, readOnly === true);
+}
+
+/**
  * Gets the table container element from the panel.
  * @param {HTMLElement} panel - Panel element
  * @returns {HTMLElement|null} Table container element
