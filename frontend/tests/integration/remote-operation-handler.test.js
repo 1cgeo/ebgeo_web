@@ -905,6 +905,25 @@ describe('Remote 3D / 360 operations — persistence (P9)', () => {
 });
 
 describe('Remote map-setting operations', () => {
+    // A op de ajuste de mapa do PAR move a revisao do mapa no servidor; a revisao confirmada que
+    // este cliente guardava vira base velha, e a proxima edicao do mesmo ajuste era recusada como
+    // conflito (`frontend/tests/e2e-ui/notas-do-colega.repro.spec.js`). Sem base e a resposta
+    // honesta; a op do PROPRIO autor reaplicada guarda a revisao que o recibo carimbou.
+    it.each([
+        [EntityType.MAP_NOTES, { title: 't', description: 'd' }],
+        [EntityType.GRID_STYLE, { color: '#000000' }],
+        [EntityType.MAP_POSITION, { center_lat: 1, center_long: 2, zoom: 3, bearing: 0, pitch: 0 }],
+        [EntityType.BASE_LAYER, { baseLayer: 'osm' }],
+    ])('%s do PAR apaga a revisao confirmada do mapa; a do proprio autor reaplicada a guarda', async (entityType, data) => {
+        mapDataStore.set('map-rev', { ...createTestMapData(), confirmedVersion: 7 });
+        await applyRemoteOperation({ entityType, operationType: OperationType.UPDATE, entityId: 'map-rev', mapId: 'map-rev', data });
+        expect(mapDataStore.get('map-rev').confirmedVersion).toBeUndefined();
+
+        mapDataStore.set('map-rev', { ...createTestMapData(), confirmedVersion: 8 });
+        await applyRemoteOperation({ entityType, operationType: OperationType.UPDATE, entityId: 'map-rev', mapId: 'map-rev', data, localRepair: true });
+        expect(mapDataStore.get('map-rev').confirmedVersion).toBe(8);
+    });
+
     it('emits MAP_MODIFIED for mapPosition', async () => {
         await applyRemoteOperation({
             entityType: EntityType.MAP_POSITION,

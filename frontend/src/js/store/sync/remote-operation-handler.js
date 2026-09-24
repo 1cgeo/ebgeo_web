@@ -930,7 +930,7 @@ async function applyRemoteOperationInner(operation, guarded) {
         case EntityType.MAP_NOTES:
         case EntityType.GRID_STYLE:
         case EntityType.MAP_TEMPORAL:
-            await applyRemoteMapSettingOp(entityType, mapId, data);
+            await applyRemoteMapSettingOp(entityType, mapId, data, operation.localRepair === true);
             break;
         case EntityType.CATALOG_LAYER:
             await applyRemoteCatalogLayerOp(operationType, entityId, mapId, data);
@@ -1761,6 +1761,21 @@ function clientSlideShape(data) {
 }
 
 /**
+ * Drops the confirmed revision of a map document, if it carries one (see the caller).
+ * @param {Object} repo - The handler repository.
+ * @param {string} mapId - Map UUID.
+ */
+async function forgetConfirmedMapRevision(repo, mapId) {
+    if (!mapId) return;
+    await withMapDocument(mapId, 'applyRemoteMapSettingOp:revision', async () => {
+        const document = await repo.getMap?.(mapId);
+        if (!document || readConfirmedVersion(document) === null) return;
+        clearConfirmedVersion(document);
+        await repo.saveMap?.(mapId, document);
+    });
+}
+
+/**
  * Applies a remote briefing operation.
  *
  * An UPDATE takes the briefing's own fields and the slide ORDER from the envelope, never the
@@ -2109,8 +2124,16 @@ async function resolveMapNameForSideStore(repo, mapId) {
  * @param {string} mapId - Map UUID
  * @param {Object} [data] - Setting data
  */
-async function applyRemoteMapSettingOp(entityType, mapId, data) {
+async function applyRemoteMapSettingOp(entityType, mapId, data, localRepair = false) {
     const repo = handlerRepository();
+    // A peer's setting moved the MAP's revision on the server, and this client has just been shown
+    // the change: keeping the confirmed revision it had would make its next edit of the same
+    // setting declare a base the server has passed, and the server refuses it ("Os mesmos campos
+    // foram alterados no servidor"), a race lost against a change already on screen
+    // (`notas-do-colega.repro.spec.js`). No base is the honest answer, the rule
+    // `mergeRemoteMapUpdate` already follows for a plain map op. The author's own op re-applied
+    // keeps the revision its receipt stamped.
+    if (!localRepair) await forgetConfirmedMapRevision(repo, mapId);
     switch (entityType) {
         case EntityType.BASE_LAYER: {
             // Persist the base layer onto the map record so a peer receiving a LIVE op
