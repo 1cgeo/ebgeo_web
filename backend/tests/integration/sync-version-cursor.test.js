@@ -103,7 +103,9 @@ describe('atlas.current_version como cursor de sync (item 24)', () => {
       let pulling;
       await db.query('BEGIN');
       try {
-        // The cursor SELECT runs freely, but the log SELECT must wait here.
+        // The cursor SELECT runs freely, but the FIRST read of the log must wait here. Since
+        // 2026-09-23 that read is the tail measurement (`MEASURE_OPERATIONS_TAIL`) and not the tail
+        // itself, hence the pattern below matches any read of `operations`.
         await db.query('LOCK TABLE operations IN ACCESS EXCLUSIVE MODE');
         // Prime the statistics snapshot before the pull exists, making a stale poll deterministic.
         await db.query('SELECT query FROM pg_stat_activity');
@@ -116,7 +118,7 @@ describe('atlas.current_version como cursor de sync (item 24)', () => {
           await db.query('SELECT pg_stat_clear_snapshot()');
           const { rows } = await db.query(`SELECT 1 FROM pg_stat_activity
             WHERE datname = current_database() AND pid <> pg_backend_pid()
-              AND wait_event_type = 'Lock' AND query ILIKE '%SELECT * FROM operations%'`);
+              AND wait_event_type = 'Lock' AND query ILIKE '%FROM operations%'`);
           if (rows.length) { blocked = true; break; }
           await delay(10);
         }

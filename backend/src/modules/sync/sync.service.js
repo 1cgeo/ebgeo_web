@@ -2856,10 +2856,41 @@ export async function pushOperations(atlasId, operations, userId, permission = '
 }
 
 /**
+ * THE CAP ON THE NUMBER OF OPERATIONS AN INCREMENTAL PULL HANDS BACK; above it the caller gets the
+ * snapshot instead. Every snapshot-capable caller already handles that answer (`isSnapshot` is part
+ * of the contract on both doors: the REST pull of the connect and the WS `sync_request`).
+ *
+ * WHY A COUNT. The client applies a tail ONE OPERATION AT A TIME, each a read-modify-write of a whole
+ * map document under its lock and its own IndexedDB transaction, so the cost of a tail grows with the
+ * number of ops times the size of the maps they touch; a snapshot is staged in one pass over the
+ * atlas. Five hundred is the order of magnitude where a tail stops being the cheap path for an atlas
+ * of ordinary size (a working day of a small team produces thousands of ops); it is a tuning choice,
+ * not a measured knee, and it is the knob to move if a measurement says otherwise.
+ * @type {number}
+ */
+export const PULL_TAIL_MAX_OPS = 500;
+
+/**
+ * THE CAP ON THE STORED SIZE OF THE TAIL, in bytes of `pg_column_size` (compressed, as stored), the
+ * other half of the same decision.
+ *
+ * WHY BYTES AS WELL. The count alone misses the case that motivated the cap: every feature op carries
+ * the WHOLE canonical feature, twice (`data` and `changes`), so 300 edits of ONE 300-vertex polygon
+ * were a 7.5 MB tail against a 14 KB snapshot (measured 2026-09-23, 527x), under any sensible count.
+ * Stored bytes were ~55% of the JSON for that feature (1.43 MB stored for 2.61 MB of text over 100
+ * ops), so 2 MiB stored is roughly 4 MB on the wire. Above that, the snapshot is almost always the
+ * smaller download too; for an atlas whose own content is larger than that it is still the cheaper
+ * apply, for the reason in `PULL_TAIL_MAX_OPS`.
+ * @type {number}
+ */
+export const PULL_TAIL_MAX_STORED_BYTES = 2 * 1024 * 1024;
+
+/**
  * Pulls operations since a given version.
  * Uses hybrid approach:
  * - If sinceVersion < min_version → returns full snapshot (the log no longer reaches that far)
  * - If sinceVersion == 0 and the caller cannot vouch for a complete local state → full snapshot
+ * - If the tail is longer than `PULL_TAIL_MAX_OPS` or heavier than `PULL_TAIL_MAX_STORED_BYTES` → full snapshot
  * - Otherwise → returns incremental operations
  *
  * THE ZERO SAID TWO THINGS AT ONCE, and `haveSnapshot` is what tells them apart. "I hold nothing"
@@ -2913,6 +2944,16 @@ export async function pullOperations(atlasId, sinceVersion, permission = 'owner'
       currentVersion: snapshot.currentVersion,
       isSnapshot: true,
     };
+  }
+
+  // A TAIL TOO LONG OR TOO HEAVY IS ANSWERED WITH THE SNAPSHOT (see `PULL_TAIL_MAX_OPS` and
+  // `PULL_TAIL_MAX_STORED_BYTES`). Measured BEFORE the tail is read, over at most the cap plus one
+  // row, so the decision itself never costs a long read.
+  const medida = (await query(Q.MEASURE_OPERATIONS_TAIL, [atlasId, sinceVersion, PULL_TAIL_MAX_OPS + 1])).rows[0];
+  if (medida.ops > PULL_TAIL_MAX_OPS || Number(medida.bytes) > PULL_TAIL_MAX_STORED_BYTES) {
+    const snapshot = await getAtlasSnapshot(atlasId, permission, userId);
+    return snapshot ? { snapshot, currentVersion: snapshot.currentVersion, isSnapshot: true }
+      : { operations: [], currentVersion: 0, isSnapshot: false };
   }
 
   // Otherwise return incremental operations (converted to frontend format). Read-only viewers

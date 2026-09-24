@@ -63,7 +63,10 @@ const h = vi.hoisted(() => {
         /** @type {() => Object} Posto pelo `beforeEach`, que é quem conhece o escopo montado. */
         montarRetrato: () => ({}),
         responder(desde, temRetrato = false) {
-            if ((desde === 0 && temRetrato !== true) || desde < this.versaoMinima) {
+            // O TETO DA CAUDA (`PULL_TAIL_MAX_OPS`, 500, desde 2026-09-23) entra no espelho por
+            // contagem; os casos deste arquivo usam caudas de uma op, entao ele nao muda nenhum. O
+            // arquivo que o exercita e `cauda-longa-vira-retrato.repro.test.js`.
+            if ((desde === 0 && temRetrato !== true) || desde < this.versaoMinima || this.cauda.length > 500) {
                 this.retratosServidos += 1;
                 return { isSnapshot: true, snapshot: this.montarRetrato(), currentVersion: this.versao };
             }

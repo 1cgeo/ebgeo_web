@@ -26,6 +26,23 @@ export const GET_OPERATIONS_SINCE_VERSION = `
   ORDER BY server_version
 `;
 
+// THE SIZE OF A TAIL, measured before reading it (`pullOperations` decides tail or snapshot on it).
+// BOUNDED by `$3` (the op cap plus one), so the decision never reads more rows than the cap even
+// when the tail is huge, and it walks `idx_operations_atlas_version`. `pg_column_size` is the
+// STORED size of each payload, compressed or out of line, read from the tuple without detoasting
+// the value: cheap, and an underestimate of the JSON on the wire (measured at ~55% for a polygon
+// feature, see `PULL_TAIL_MAX_STORED_BYTES`).
+export const MEASURE_OPERATIONS_TAIL = `
+  SELECT count(*)::int AS ops,
+         COALESCE(sum(COALESCE(pg_column_size(data), 0) + COALESCE(pg_column_size(changes), 0)), 0)::bigint AS bytes
+  FROM (
+    SELECT data, changes FROM operations
+    WHERE atlas_id = $1 AND server_version > $2
+    ORDER BY server_version
+    LIMIT $3
+  ) cauda
+`;
+
 export const GET_CURRENT_VERSION = `
   SELECT current_version FROM atlas WHERE id = $1
 `;
