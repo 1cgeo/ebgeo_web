@@ -48,6 +48,7 @@ import {
 import { IDUtils, showSuccess, showWarning, showToast } from '@utils';
 import { EventTypes } from '@events';
 import { ensureTurf } from '@utils/turf-loader.js';
+import { withGestureBatch } from '@store/sync/gesture-batch.js';
 import { resolveSpineCoordinates } from '@tools/helpers/linear-conversion.model.js';
 import { computeBoundaryZoomSizes } from '@tools/helpers/boundary-zoom.model.js';
 import {
@@ -224,20 +225,28 @@ export async function splitBoundaryAtPoint(boundaryFeature, clickLngLat, map, se
         selectionManager.deselectAllFeatures();
 
         let stored = false;
+        // ONE LOGICAL BATCH ON THE SERVER (`withGestureBatch`, as the linear conversion does): the two halves and the removal of the original, applied or refused whole.
+        // Written as separate transactions, each write was its own batch, and a refused part did not
+        // stop the others: when the server refused the DELETE of the original (a colleague edited it
+        // after this client's last receipt), the new features landed anyway and the original stayed,
+        // overlapping, in Postgres and on both clients
+        // (`frontend/tests/e2e-ui/browser-collab-corte-atomico.repro.spec.js`).
         startBatchUndo();
         try {
-            // A blocked write returns undefined instead of throwing; reading the
-            // return is what stops the cut from painting halves the store never
-            // accepted and then deleting the original.
-            const storedFirst = await addFeature('boundarys', first);
-            const storedSecond = storedFirst ? await addFeature('boundarys', second) : null;
+            await withGestureBatch(async () => {
+                // A blocked write returns undefined instead of throwing; reading the
+                // return is what stops the cut from painting halves the store never
+                // accepted and then deleting the original.
+                const storedFirst = await addFeature('boundarys', first);
+                const storedSecond = storedFirst ? await addFeature('boundarys', second) : null;
 
-            if (storedFirst && storedSecond) {
-                await removeFeature('boundarys', originalId);
-                stored = true;
-            } else if (storedFirst) {
-                await removeFeature('boundarys', first.properties.id);
-            }
+                if (storedFirst && storedSecond) {
+                    await removeFeature('boundarys', originalId);
+                    stored = true;
+                } else if (storedFirst) {
+                    await removeFeature('boundarys', first.properties.id);
+                }
+            });
         } finally {
             commitBatchUndo();
         }

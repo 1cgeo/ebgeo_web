@@ -5,6 +5,7 @@ import { IDUtils, showSuccess, showWarning } from '@utils';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import AddArrowGeometry from './add_arrow_geometry.js';
 import { ensureTurf } from '@utils/turf-loader.js';
+import { withGestureBatch } from '@store/sync/gesture-batch.js';
 
 /**
  * Per-branch geometric properties extracted from an arrow feature
@@ -190,16 +191,24 @@ export async function mergeArrows(features, map, selectionManager) {
         const dispatcher = getGeoJsonDispatcher(map, 'arrows');
 
         // Batch so a single Ctrl+Z undoes the whole merge as one unit.
+        // ONE LOGICAL BATCH ON THE SERVER (`withGestureBatch`, as the linear conversion does): the merged arrow and the removal of the sources, applied or refused whole.
+        // Written as separate transactions, each write was its own batch, and a refused part did not
+        // stop the others: when the server refused the DELETE of the original (a colleague edited it
+        // after this client's last receipt), the new features landed anyway and the original stayed,
+        // overlapping, in Postgres and on both clients
+        // (`frontend/tests/e2e-ui/browser-collab-corte-atomico.repro.spec.js`).
         startBatchUndo();
         try {
-            // Add the merged arrow FIRST so a persist failure cannot lose the
-            // source arrows (worst case is a recoverable extra feature).
-            await addFeature('arrows', mergedFeature);
+            await withGestureBatch(async () => {
+                // Add the merged arrow FIRST so a persist failure cannot lose the
+                // source arrows (worst case is a recoverable extra feature).
+                await addFeature('arrows', mergedFeature);
 
-            // Only after the add succeeded do we remove the originals.
-            for (const feature of features) {
-                await removeFeature('arrows', feature.properties.id);
-            }
+                // Only after the add succeeded do we remove the originals.
+                for (const feature of features) {
+                    await removeFeature('arrows', feature.properties.id);
+                }
+            });
         } finally {
             commitBatchUndo();
         }
@@ -304,12 +313,15 @@ export async function splitArrows(mergedFeature, map, selectionManager) {
 
         // Batch so a single Ctrl+Z undoes the whole split as one unit. Add the branches FIRST
         // so a persist failure cannot lose the merged arrow (worst case is recoverable extras).
+        // One logical batch on the server, like the merge above.
         startBatchUndo();
         try {
-            for (const newFeature of createdFeatures) {
-                await addFeature('arrows', newFeature);
-            }
-            await removeFeature('arrows', props.id);
+            await withGestureBatch(async () => {
+                for (const newFeature of createdFeatures) {
+                    await addFeature('arrows', newFeature);
+                }
+                await removeFeature('arrows', props.id);
+            });
         } finally {
             commitBatchUndo();
         }

@@ -19,6 +19,7 @@ import { removeMeasurement, updateFeatureMeasurement } from './line_measurement.
 import { calculateProfile } from './line_profile.js';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { ensureTurf } from '@utils/turf-loader.js';
+import { withGestureBatch } from '@store/sync/gesture-batch.js';
 
 /** Minimum distance (meters) from endpoints to allow a split */
 const MIN_ENDPOINT_DISTANCE = 1;
@@ -159,20 +160,28 @@ export async function splitLineAtPoint(lineFeature, clickLngLat, map, selectionM
         const originalId = originalProps.id;
         removeMeasurement(originalId);
 
-        // Remove original from store
-        await removeFeature('lines', originalId);
-
-        // Update map source. One remove plus two adds is the diff a split IS, and it needs no
-        // collection read: `lines` has no derived label source. Same dispatcher instance the line
-        // control uses, since the registry is keyed by (map, sourceId).
+        // ONE LOGICAL BATCH ON THE SERVER (`withGestureBatch`, as the linear conversion does): the cut is the removal of the original and the two halves, applied or refused whole.
+        // Written as separate transactions, each write was its own batch, and a refused part did not
+        // stop the others: when the server refused the DELETE of the original (a colleague edited it
+        // after this client's last receipt), the new features landed anyway and the original stayed,
+        // overlapping, in Postgres and on both clients
+        // (`frontend/tests/e2e-ui/browser-collab-corte-atomico.repro.spec.js`).
         const dispatcher = getGeoJsonDispatcher(map, 'lines');
-        dispatcher.remove(originalId);
-        dispatcher.add([feature1, feature2]);
-        await dispatcher.flush();
+        await withGestureBatch(async () => {
+            // Remove original from store
+            await removeFeature('lines', originalId);
 
-        // Add new features to store
-        await addFeature('lines', feature1);
-        await addFeature('lines', feature2);
+            // Update map source. One remove plus two adds is the diff a split IS, and it needs no
+            // collection read: `lines` has no derived label source. Same dispatcher instance the
+            // line control uses, since the registry is keyed by (map, sourceId).
+            dispatcher.remove(originalId);
+            dispatcher.add([feature1, feature2]);
+            await dispatcher.flush();
+
+            // Add new features to store
+            await addFeature('lines', feature1);
+            await addFeature('lines', feature2);
+        });
 
         // Recreate measurement labels if measure was enabled
         if (originalProps.measure) {
