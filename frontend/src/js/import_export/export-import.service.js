@@ -337,7 +337,20 @@ export class ExportImportService {
         };
 
         for (const mapName of mapsToExport) {
-            const mapData = await getCurrentMapFeatures(mapName);
+            // A map whose document cannot be read is a READ FAILURE of that map, like any other
+            // section, and not the end of the export: the partial copy exists to rescue the rest.
+            // Until 2026-09-24 the read threw straight out of this loop, so one unreadable map
+            // made every other map impossible to export, and the `!mapData` branch below was dead
+            // (the repository fabricates an empty document instead of returning nothing).
+            // Its optional sections are skipped: without the map they would be orphans in the file.
+            // (tests/e2e-ui/cobertura-copia-parcial-ebgeo.spec.js)
+            let mapData = null;
+            try {
+                mapData = await getCurrentMapFeatures(mapName);
+            } catch (error) {
+                if (strict) throw error;
+                console.warn(`Could not export map ${mapName}:`, error);
+            }
             if (mapData) {
                 const position = await getMapPosition(mapName);
                 // The `.ebgeo` carries the REFERENCE, never the catalog row: an exported file
@@ -358,7 +371,10 @@ export class ExportImportService {
                 data.maps[mapName] = this.optimizeMapData(fullMapData);
             }
             if (strict && !mapData) throw new Error('Um mapa não pôde ser lido. Nenhum atlas foi publicado.');
-            if (!mapData) readFailures.push({ section: 'maps', mapName });
+            if (!mapData) {
+                readFailures.push({ section: 'maps', mapName });
+                continue;
+            }
             await this._exportOptionalMapData(data, mapName, strict, readFailures);
         }
 
