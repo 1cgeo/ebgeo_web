@@ -345,6 +345,28 @@ describe('C4 — salvar não fecha a tela quando a escrita é recusada nem quand
         expect(aberto()).toBe(false);
     });
 
+    it('durante a releitura do Salvar, um segundo Salvar e um Escape nao fazem nada', async () => {
+        // O Salvar rele a config antes de gravar. Com `_busy` posto so' depois dessa leitura, um
+        // segundo Enter salvava DUAS vezes (op duplicada) e um Escape fechava a tela enquanto a
+        // gravacao acontecia depois.
+        await abrir({ inicio: D, fim: D + DIA_MS });
+        trocarUnidade(overlay, 'SEMANA');
+        let soltar;
+        getMapTemporalConfig.mockImplementationOnce(() => new Promise((resolve) => {
+            soltar = () => resolve({ ativo: false, unidade: 'DIA', inicio: D, fim: D + DIA_MS, modo: 'absoluto', origem: D });
+        }));
+
+        disparar(botao(overlay, 'Salvar'), 'click');
+        disparar(botao(overlay, 'Salvar'), 'click');
+        escape();
+        expect(aberto(), 'o Escape durante a releitura nao fecha').toBe(true);
+        soltar();
+        await vi.runAllTimersAsync();
+
+        expect(setMapTemporalConfig).toHaveBeenCalledTimes(1);
+        expect(aberto()).toBe(false);
+    });
+
     it('Salvar sem mudanca nenhuma nao escreve e fecha', async () => {
         await abrir({ inicio: D, fim: D + DIA_MS });
 

@@ -476,29 +476,33 @@ class TemporalSettingsModal {
 
     async _save() {
         if (this._busy) return;
-        // Rebased over the config as stored NOW: the fields the person did not touch take a
-        // colleague's value saved while this dialog was open (`pendenteSobreAAtual`).
-        const atual = await getMapTemporalConfig(this._mapName);
-        const p = pendenteSobreAAtual(this._pending, this._opened, atual);
-
-        // A JANELA É VALIDADA NOS DOIS MODOS, E A INVERSÃO É RECUSADA, NÃO CONSERTADA. O relativo
-        // empurrava o fim para `inicio + unidade` em silêncio (a pessoa salvava uma janela que
-        // nunca tinha pedido) e o absoluto gravava cru, e uma janela invertida gravada faz a
-        // feição sumir do 3D, do 360 e da legenda do PDF, porque nenhum cursor passa no predicado.
-        const veredito = resolverPatchDaConfig(p, {
-            origemFallback: Number.isFinite(atual?.origem)
-                ? atual.origem
-                : this._defaultOrigin(),
-            unitMs: unitToMs(p.unidade),
-        });
-        if (!veredito.ok) {
-            showWarning(veredito.mensagem);
-            this._focusField(veredito.campo);
-            return;
-        }
-
+        // BUSY FROM THE FIRST AWAIT, the reread included: set after it, a second Enter during the
+        // read saved twice (a duplicated op) and an Escape closed the dialog while the write still
+        // happened afterwards.
         this._busy = true;
+        let salvo = false;
         try {
+            // Rebased over the config as stored NOW: the fields the person did not touch take a
+            // colleague's value saved while this dialog was open (`pendenteSobreAAtual`).
+            const atual = await getMapTemporalConfig(this._mapName);
+            const p = pendenteSobreAAtual(this._pending, this._opened, atual);
+
+            // A JANELA É VALIDADA NOS DOIS MODOS, E A INVERSÃO É RECUSADA, NÃO CONSERTADA. O relativo
+            // empurrava o fim para `inicio + unidade` em silêncio (a pessoa salvava uma janela que
+            // nunca tinha pedido) e o absoluto gravava cru, e uma janela invertida gravada faz a
+            // feição sumir do 3D, do 360 e da legenda do PDF, porque nenhum cursor passa no predicado.
+            const veredito = resolverPatchDaConfig(p, {
+                origemFallback: Number.isFinite(atual?.origem)
+                    ? atual.origem
+                    : this._defaultOrigin(),
+                unitMs: unitToMs(p.unidade),
+            });
+            if (!veredito.ok) {
+                showWarning(veredito.mensagem);
+                this._focusField(veredito.campo);
+                return;
+            }
+
             // `null` É RECUSA ESPERADA, NÃO EXCEÇÃO (papel insuficiente, ou mapa travado desde
             // 2026-09-21): a frase já vem do ouvinte global de `STORE_OPERATION_BLOCKED`, e o que
             // falta é não fechar a tela como se tivesse salvo.
@@ -507,6 +511,7 @@ class TemporalSettingsModal {
                 const config = await setMapTemporalConfig(this._mapName, patch);
                 if (config === null) return;
             }
+            salvo = true;
         } catch (error) {
             console.warn('Failed to persist temporal settings:', error);
             showWarning('Não foi possível salvar a linha do tempo. Tente de novo.');
@@ -514,7 +519,7 @@ class TemporalSettingsModal {
         } finally {
             this._busy = false;
         }
-        this._close();
+        if (salvo) this._close();
     }
 
     /**
