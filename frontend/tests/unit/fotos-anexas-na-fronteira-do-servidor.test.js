@@ -156,14 +156,16 @@ describe('buildServerImportPayload: a foto anexa na fronteira do servidor', () =
 
     it('foto inline acima do teto de imagem do servidor fica inline', () => {
         const id = generateUUID();
-        const grande = `data:image/jpeg;base64,${'A'.repeat(Math.ceil((10 * 1024 * 1024 + 3) * 4 / 3))}`;
+        // A cabeça é JPEG de verdade (o tipo vem dos bytes); o resto é enchimento.
+        const cabeca = btoa(String.fromCharCode(0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1));
+        const grande = `data:image/jpeg;base64,${cabeca}${'A'.repeat(Math.ceil((10 * 1024 * 1024 + 3) * 4 / 3))}`;
         const dados = { maps: { M: { features: { points: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: { id: generateUUID(), source: 'point', images: [{ id, data: grande, thumbnail: MINIATURA }] } }] } } } };
         const built = buildServerImportPayload(dados, { name: 'A' });
         expect(built.imageIds).toEqual([]);
         expect(built.inlineImages.size).toBe(0);
         expect(built.payload.maps[0].features[0].properties.images[0].data).toBe(grande);
         // Controle do próprio caso: um byte abaixo do teto, a mesma foto sobe.
-        const cabe = `data:image/jpeg;base64,${'A'.repeat(Math.floor(10 * 1024 * 1024 * 4 / 3))}`;
+        const cabe = `data:image/jpeg;base64,${cabeca}${'A'.repeat(Math.floor((10 * 1024 * 1024 - 12) * 4 / 3))}`;
         dados.maps.M.features.points[0].properties.images[0].data = cabe;
         expect(buildServerImportPayload(dados, { name: 'A' }).imageIds).toEqual([id]);
     });

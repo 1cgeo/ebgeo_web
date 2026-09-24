@@ -159,7 +159,13 @@ const CABECA_DE_DATA_URL = /^data:([^;,]+)(?:;[^,]*)*;base64,/;
  * the server allowlist (an old GIF would be refused by the upload), or bytes above the server's
  * image cap. A photo attached through the gate never falls in the last two.
  *
- * Only the head of the string is matched: the data URL of a large photo is megabytes long.
+ * THE TYPE IS THE ONE THE BYTES SAY ({@link mimeDosBytes}), never the one the data URL declares
+ * (2026-09-24, review). The server sniffs the bytes and refuses a declared type that does not match
+ * them, and the atomic import refuses the WHOLE atlas for one such picture; the acervo of the
+ * previous line has photos whose header says one format over bytes of another (a PNG saved under a
+ * `.jpg` name). Bytes of no allowed format stay inline.
+ *
+ * Only the head of the string is read: the data URL of a large photo is megabytes long.
  *
  * @param {*} foto - An item of an `images` array
  * @returns {string|null}
@@ -169,18 +175,36 @@ export function mimeDeFotoInlineQueSobe(foto) {
     if (typeof foto.thumbnail !== 'string' || foto.thumbnail.length === 0) return null;
     const cabeca = CABECA_DE_DATA_URL.exec(foto.data.slice(0, 256));
     if (!cabeca) return null;
-    const mime = cabeca[1].toLowerCase();
-    if (!IMAGE_CONFIG.allowedTypes.includes(mime)) return null;
+    const mime = mimeDosBytes(bytesDoBase64(foto.data.slice(cabeca[0].length, cabeca[0].length + 44)));
+    if (!mime || !IMAGE_CONFIG.allowedTypes.includes(mime)) return null;
     const bytes = Math.floor((foto.data.length - cabeca[0].length) * 3 / 4);
     return bytes > IMAGE_CONFIG.maxSizeBytes ? null : mime;
 }
 
 /**
- * The bytes of a base64 data URL as a typed Blob, or null when it is not one or does not decode.
+ * Decodes base64 to bytes, or null when it does not decode.
+ * @param {string} base64
+ * @returns {Uint8Array|null}
+ */
+function bytesDoBase64(base64) {
+    try {
+        const binario = atob(base64);
+        const bytes = new Uint8Array(binario.length);
+        for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+        return bytes;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * The bytes of a base64 data URL as a Blob typed BY ITS BYTES, or null when it is not one or does
+ * not decode.
  *
  * It exists for the inline photo that becomes a blob (see {@link mimeDeFotoInlineQueSobe}): its bytes
  * are in no store. A data URL that does not decode is answered with null, which the send ports count
- * as a missing picture and the edit keeps inline, because the photo could not be drawn either.
+ * as a missing picture and the edit keeps inline, because the photo could not be drawn either. The
+ * declared type is used only when the bytes are of no format {@link mimeDosBytes} knows.
  *
  * @param {string} dataUrl
  * @returns {Blob|null}
@@ -188,14 +212,44 @@ export function mimeDeFotoInlineQueSobe(foto) {
 export function blobDeDataUrl(dataUrl) {
     const cabeca = CABECA_DE_DATA_URL.exec(String(dataUrl ?? '').slice(0, 256));
     if (!cabeca) return null;
-    try {
-        const binario = atob(dataUrl.slice(cabeca[0].length));
-        const bytes = new Uint8Array(binario.length);
-        for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
-        return new Blob([bytes], { type: cabeca[1].toLowerCase() });
-    } catch {
-        return null;
-    }
+    const bytes = bytesDoBase64(dataUrl.slice(cabeca[0].length));
+    if (!bytes) return null;
+    return new Blob([bytes], { type: mimeDosBytes(bytes) ?? cabeca[1].toLowerCase() });
+}
+
+/**
+ * The image format the first bytes are, by signature, or null.
+ *
+ * The one answer to "what is this picture" that the server agrees with: it sniffs the bytes itself
+ * (`fileTypeFromBuffer`, `backend/src/modules/images/images.service.js`) and refuses a declared type
+ * that does not match. PNG `89 50 4E 47`, JPEG `FF D8 FF`, WebP `RIFF....WEBP`, GIF `GIF8`, BMP `BM`,
+ * and SVG by its opening text.
+ *
+ * @param {Uint8Array|null} bytes - At least the first 12 bytes
+ * @returns {string|null}
+ */
+export function mimeDosBytes(bytes) {
+    if (!bytes || bytes.length < 2) return null;
+    const b = bytes;
+    if (b.length >= 4 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';
+    if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+    if (b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46
+        && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp';
+    if (b.length >= 4 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return 'image/gif';
+    if (b[0] === 0x42 && b[1] === 0x4d) return 'image/bmp';
+    const texto = new TextDecoder('utf-8', { fatal: false }).decode(b.subarray(0, 32)).trim().toLowerCase();
+    if (texto.startsWith('<svg') || texto.startsWith('<?xml')) return 'image/svg+xml';
+    return null;
+}
+
+/**
+ * {@link mimeDosBytes} of a Blob, reading only its head.
+ * @param {Blob} blob
+ * @returns {Promise<string|null>}
+ */
+export async function mimeDoBlob(blob) {
+    if (!blob || typeof blob.slice !== 'function') return null;
+    return mimeDosBytes(new Uint8Array(await blob.slice(0, 32).arrayBuffer()));
 }
 
 /** Formats that can carry an alpha channel among the accepted ones. */
@@ -521,34 +575,39 @@ export async function createThumbnail(base64Data, options = {}) {
  * @returns {Promise<{blob: Blob, thumbnail: string}>} The photo, and the data URL of its thumbnail
  */
 export async function processImageFile(file) {
+    // THE BYTES NAME THE TYPE, not the file (2026-09-24, review): a PNG saved as `.jpg` reaches here
+    // declared `image/jpeg`, and the server refuses a declared type the bytes contradict. The
+    // original is re-labelled when it is kept, and every decision below reads the real type.
+    const tipo = (await mimeDoBlob(file).catch(() => null)) ?? file.type;
+    const original = tipo && tipo !== file.type ? new Blob([file], { type: tipo }) : file;
     let url = null;
     let blob;
     try {
         url = URL.createObjectURL(file);
         const img = await loadImage(url);
         const plano = planPhotoEncoding({
-            type: file.type, size: file.size, width: img.naturalWidth, height: img.naturalHeight,
+            type: tipo, size: file.size, width: img.naturalWidth, height: img.naturalHeight,
         });
         if (plano.keep) {
-            blob = file;
+            blob = original;
         } else {
             const canvas = document.createElement('canvas');
             canvas.width = plano.width;
             canvas.height = plano.height;
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, plano.width, plano.height);
-            const alfa = TIPOS_COM_ALFA.has(file.type) && temTransparencia(ctx, plano.width, plano.height);
+            const alfa = TIPOS_COM_ALFA.has(tipo) && temTransparencia(ctx, plano.width, plano.height);
             const paraBlob = (mime, qualidade) => new Promise((resolve) => canvas.toBlob(resolve, mime, qualidade));
             let codificada = await paraBlob(alfa ? 'image/webp' : 'image/jpeg', PHOTO_CONFIG.quality);
             if (alfa && codificada?.type !== 'image/webp') codificada = await paraBlob('image/png');
             // Never INFLATE a photo that already fit.
             blob = !codificada
-                || (plano.fits && IMAGE_CONFIG.allowedTypes.includes(file.type) && codificada.size > file.size)
-                ? file
+                || (plano.fits && IMAGE_CONFIG.allowedTypes.includes(tipo) && codificada.size > file.size)
+                ? original
                 : codificada;
         }
     } catch {
-        blob = file;
+        blob = original;
     } finally {
         if (url) URL.revokeObjectURL(url);
     }

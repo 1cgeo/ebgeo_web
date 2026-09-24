@@ -223,6 +223,39 @@ collabTest('recusa: o aviso nomeia a foto, a edição sai com a referência e o 
     await expect(B.locator('.toast', { hasText: 'ainda não chegou ao servidor' })).toBeVisible({ timeout: 15000 });
 });
 
+/**
+ * O TIPO É O DOS BYTES (revisão das fases 2b e 2c, 2026-09-24, item 3). Um PNG com nome e tipo de JPEG
+ * (o acervo da linha anterior tem esse caso) é pequeno o bastante para ser guardado como veio, e
+ * `processImageFile` o guardava declarado `image/jpeg`: o servidor fareja os bytes e recusa de vez o
+ * tipo que eles contradizem. Agora o blob sai rotulado pelos bytes, e o item da feição diz PNG.
+ */
+collabTest('tipo mentiroso: um PNG com nome e tipo de JPEG chega ao servidor como PNG', async ({ collab }) => {
+    const A = collab.author;
+    const linha = await linhaSincronizada(collab);
+    const base64 = await A.evaluate(async () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 320;
+        canvas.height = 240;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#3c6a8a';
+        ctx.fillRect(0, 0, 320, 240);
+        ctx.fillStyle = '#e0c040';
+        ctx.fillRect(40, 40, 120, 80);
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        let bin = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        return btoa(bin);
+    });
+    await anexarPelaGaleria(A, { name: 'croqui.jpg', mimeType: 'image/jpeg', buffer: B64.from(base64, 'base64') });
+    await expect.poll(() => fotoNaFeicao(A, linha), { timeout: 20000 }).not.toBeNull();
+    const foto = await fotoNaFeicao(A, linha);
+    expect(foto.type, 'o item diz o tipo dos bytes').toBe('image/png');
+    await expect.poll(async () => (await noServidor(collab.db, linha)).imagem?.id ?? null, { timeout: 30000 }).toBe(foto.id);
+    const linhaDaImagem = await collab.db.raw.one('SELECT mime_type FROM images WHERE id = $1', [foto.id]);
+    expect(linhaDaImagem.mime_type).toBe('image/png');
+});
+
 const state = readState();
 (state.skip ? test.describe.skip : test.describe)('as outras duas portas (3D e 360), num atlas local', () => {
     test('a foto de item 3D e de marcador 360 é guardada por referência, com os bytes no armazém', async ({ page }) => {

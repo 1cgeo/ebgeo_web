@@ -10,6 +10,8 @@
  * has no map. Keep this file store-free — that property is the reason it exists.
  */
 
+import { mimeDoBlob } from '@utils/image_utils.js';
+
 /**
  * The SVG to PNG conversion, loaded ON DEMAND.
  *
@@ -48,7 +50,8 @@ export function blobToBase64(blob) {
 }
 
 /**
- * Reads the MIME type out of the FIRST BYTES of a blob, for the blobs that carry no `type`.
+ * Reads the MIME type out of the FIRST BYTES of a blob. Since 2026-09-24 it answers FIRST, and the
+ * declared `type` only when the bytes are of no known format (see {@link buildImageUploads}).
  *
  * WHY THIS EXISTS. A blob restored from a `.ebgeo` used to reach here with an empty `type`, and
  * `blob.type || 'image/png'` then declared PNG over JPEG bytes. The server sniffs the bytes
@@ -59,32 +62,27 @@ export function blobToBase64(blob) {
  * this sniff is the belt for every other typeless source (an older store written before that fix,
  * a canvas export, a blob rebuilt by a browser that dropped the type).
  *
- * SIGNATURES, not guesses: PNG `89 50 4E 47`, JPEG `FF D8 FF`, WebP the `RIFF....WEBP` container,
- * and SVG by its opening text. Anything else keeps the historical `image/png` default, so the
- * server stays the last word on what it accepts.
+ * SIGNATURES, not guesses, and ONE list of them for the whole client: `mimeDosBytes`
+ * (`utilities/image_utils.js`), which the photo conversion reads too. Anything unknown keeps the
+ * declared type or the historical `image/png` default, so the server stays the last word on what
+ * it accepts.
  *
  * @param {Blob} blob
  * @returns {Promise<string|null>} The detected MIME type, or `null` when nothing matched.
  */
-async function sniffImageMime(blob) {
-    const head = new Uint8Array(await blob.slice(0, 32).arrayBuffer());
-    if (head.length >= 4 && head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47) return 'image/png';
-    if (head.length >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return 'image/jpeg';
-    if (head.length >= 12
-        && head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46
-        && head[8] === 0x57 && head[9] === 0x45 && head[10] === 0x42 && head[11] === 0x50) return 'image/webp';
-    const text = new TextDecoder('utf-8', { fatal: false }).decode(head).trim().toLowerCase();
-    if (text.startsWith('<svg') || text.startsWith('<?xml')) return 'image/svg+xml';
-    return null;
+function sniffImageMime(blob) {
+    return mimeDoBlob(blob);
 }
 
 /**
  * Turns `{ id: Blob }` into bulk-upload items, reporting ids outside the server allowlist as
  * skipped rather than failing the whole batch.
  *
- * The declared `blob.type` always wins; the byte sniff only answers for a blob that has none.
- * The filename extension follows the type that was actually decided, so the server never gets a
- * `.png` holding JPEG bytes.
+ * THE BYTES WIN OVER THE DECLARED `blob.type` (2026-09-24, review). The server sniffs the bytes and
+ * refuses a declared type they contradict, and the atomic import refuses the WHOLE atlas for one such
+ * picture; a PNG saved as `.jpg` by the previous line arrives declared `image/jpeg`. The declared
+ * type answers only for bytes of no known format. The filename extension follows the type that was
+ * actually decided, so the server never gets a `.png` holding JPEG bytes.
  *
  * SVG IS CONVERTED HERE, NOT REFUSED (owner's decision, 2026-09-19). The server allowlist stays
  * png/jpeg/webp and SVG will never be added to it, but a custom point icon saved as SVG used to
@@ -116,10 +114,10 @@ export async function buildImageUploads(blobsById, { rasterizeSvg = rasterizeSvg
         try {
             if (!blob) continue;
             let bytes = blob;
-            let mimeType = blob.type || (await sniffImageMime(blob)) || 'image/png';
+            let mimeType = (await sniffImageMime(blob)) || blob.type || 'image/png';
             if (mimeType === 'image/svg+xml' && typeof rasterizeSvg === 'function') {
                 bytes = await rasterizeSvg(blob);
-                mimeType = bytes?.type || (await sniffImageMime(bytes)) || 'image/png';
+                mimeType = (bytes ? await sniffImageMime(bytes) : null) || bytes?.type || 'image/png';
             }
             if (!ALLOWED_IMAGE_MIME.has(mimeType)) {
                 skip(id, `O servidor não aceita imagens do tipo ${mimeType}.`);
