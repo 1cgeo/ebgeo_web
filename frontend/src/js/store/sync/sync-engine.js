@@ -129,9 +129,17 @@ const LINK_PUBLICO_VENCIDO = 'O acesso por link expirou nesta aba. Recarregue a 
  * perdida; a op ainda pode valer quando ela voltar), 409/429/5xx (transitórios). Numa
  * dúvida a fila espera, porque descartar op boa é perda de dado irreversível e a fila
  * travada não é.
+ *
+ * 413 belongs here too: it is a function of the SIZE of the bytes against a fixed body limit
+ * (the backend's `express.json` cap on `/sync`, plus every proxy's `client_max_body_size`), so
+ * the same batch is refused the same way forever. Outside this set it fell to the transient
+ * branch: the whole queue stopped behind one oversized batch, resent with backoff for good,
+ * while the warning blamed the connection. Here the isolation mode shrinks the batch, so a
+ * batch that only overflows as a SUM drains op by op and nothing is discarded; only a piece
+ * that is too large on its own becomes a durable issue.
  * @type {ReadonlySet<number>}
  */
-const PERMANENT_PUSH_REJECTIONS = new Set([400, 422]);
+const PERMANENT_PUSH_REJECTIONS = new Set([400, 413, 422]);
 
 /**
  * HTTP statuses that mean "the atlas this queue is aimed at is not there any more":

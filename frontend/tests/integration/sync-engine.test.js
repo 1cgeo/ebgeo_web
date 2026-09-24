@@ -1387,6 +1387,45 @@ describe('lote envenenado: isolamento e descarte da op ofensora', () => {
         expect(motivos).toContain('atlas_gone');
     });
 
+    // 413 É FUNÇÃO DO TAMANHO DOS BYTES, e o limite do corpo do `/sync` é fixo (10 MB no
+    // `express.json` do backend, mais o `client_max_body_size` de cada proxy do caminho). Fora
+    // da lista de recusas permanentes ele caía no ramo transitório: o MESMO lote era reenviado
+    // para sempre (com recuo até 60 s), a fila inteira da pessoa parava atrás dele, e o aviso
+    // dizia que era a conexão. Um lote grande (importar um arquivo vetorial detalhado) é o
+    // caminho comum até ele.
+    it('413 pelo TAMANHO DO LOTE: encolhe e drena tudo, sem descartar nada', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        queueState.ops = [{ id: 'op-1' }, { id: 'op-2' }, { id: 'op-3' }];
+        // Cada op cabe sozinha; só a soma passa do limite.
+        apiClientMock.pushOperations.mockImplementation(async (_atlasId, ops) => {
+            if (ops.length > 1) throw httpError(413);
+            return { results: ops.map(op => ({ operationId: op.id, success: true, currentVersion: 1 })), serverVersion: 1 };
+        });
+
+        const result = await syncEngine.flush();
+
+        expect(queueState.dequeued).toEqual(['op-1', 'op-2', 'op-3']);
+        expect(queueState.issues).toEqual([]);
+        expect(result).toEqual({ pushed: 3 });
+    });
+
+    it('413 de UMA op sozinha: ela vai para as pendências e as irmãs seguem', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        queueState.ops = [{ id: 'op-boa-1' }, { id: 'op-enorme' }, { id: 'op-boa-2' }];
+        apiClientMock.pushOperations.mockImplementation(async (_atlasId, ops) => {
+            if (ops.some((o) => o.id === 'op-enorme')) throw httpError(413);
+            return { results: ops.map(op => ({ operationId: op.id, success: true, currentVersion: 1 })), serverVersion: 1 };
+        });
+
+        const result = await syncEngine.flush();
+
+        expect(queueState.dequeued).toEqual(['op-boa-1', 'op-boa-2']);
+        expect(queueState.issues.map(issue => issue.operation.id)).toEqual(['op-enorme']);
+        expect(queueState.issues[0].result.status).toBe(413);
+        expect(result).toEqual({ pushed: 2 });
+        expect(h.showWarningMock).toHaveBeenCalledTimes(1);
+    });
+
     it('não gira em vazio quando a fila não avança (dequeue removeu 0)', async () => {
         // Se o descarte não remover nada, repetir o mesmo peek é laço infinito. O erro
         // sobe — fila parada, que é recuperável, nunca um giro sem fim.
