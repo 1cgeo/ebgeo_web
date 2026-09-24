@@ -896,14 +896,12 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // placed a second earlier is not left out of it.
         // 806: `store/sync/slide-shape.js`, which strips the server's snake_case columns from a
         // slide coming back, so a later edit of its base layer, timeline or map reaches the server.
-        // 807: `bottom-controls/my-location-phrases.js` (zero imports), the phrases and options of
-        // the new "Ir para minha localização" button; a `-phrases.js` of its own so the notice-style
-        // census scans it. (The zoom-to-selection extent of the same day went into
-        // `utilities/geometry-utils.js` instead of a file of its own, and cost nothing here.)
-        // 808: `baselayers/style-ready.js` (zero imports), the wait for MapLibre's style that
+        // 807: `baselayers/style-ready.js` (zero imports), the wait for MapLibre's style that
         // counts only visible time, so a map booted in a hidden tab waits for the tab instead of
-        // mounting the application's layers over a style that never loaded.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(808);
+        // mounting the application's layers over a style that never loaded. (The "Ir para minha
+        // localização" button of the same afternoon came and went with its phrases file: the
+        // intranet gives the browser no position.)
+        expect(completo.arquivos.size).toBeLessThanOrEqual(807);
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
@@ -952,7 +950,8 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // slide shape leaf and the batched remote runs. Still wide on purpose until the lot closes.
         // 12060 -> 12100 in the afternoon: 12069 kB measured with the owner's interface round (one
         // framing shared by "Zoom para Seleção", the layers tab and search; the text rotation handle
-        // fixed on the ground; the "Ir para minha localização" button), no new package.
+        // fixed on the ground; a "Ir para minha localização" button, removed the same day), no new
+        // package.
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(12100);
     });
 

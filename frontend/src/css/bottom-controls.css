@@ -141,58 +141,6 @@
     color: var(--primary);
 }
 
-/* Waiting on the browser ("Ir para minha localização"): the icon pulses. Opacity only. */
-.nav-btn[aria-busy="true"] svg {
-    animation: nav-btn-busy 1s ease-in-out infinite;
-}
-
-@keyframes nav-btn-busy {
-    50% {
-        opacity: 0.35;
-    }
-}
-
-/* "Você está aqui": the position the browser gave. No `position` here on purpose: MapLibre
-   places the marker element with its own absolute positioning, which the pulse below uses as
-   its containing block. Blue, the usual colour of "you are here" on a map. */
-.my-location-marker {
-    width: 14px;
-    height: 14px;
-    border: 2px solid white;
-    border-radius: var(--radius-full);
-    background: var(--blue-600);
-    box-shadow: var(--shadow-control);
-}
-
-.my-location-marker::after {
-    content: '';
-    position: absolute;
-    inset: -2px;
-    border-radius: var(--radius-full);
-    background: var(--blue-600);
-    pointer-events: none;
-    animation: my-location-pulse 2s ease-out infinite;
-}
-
-@keyframes my-location-pulse {
-    from {
-        transform: scale(1);
-        opacity: 0.45;
-    }
-
-    to {
-        transform: scale(3);
-        opacity: 0;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .nav-btn[aria-busy="true"] svg,
-    .my-location-marker::after {
-        animation: none;
-    }
-}
-
 /* Nav button group (zoom +/-) */
 .nav-btn-group {
     display: flex;

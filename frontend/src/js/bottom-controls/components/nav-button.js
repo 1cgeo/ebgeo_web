@@ -71,18 +71,6 @@ export class NavButton {
     }
 
     /**
-     * Marks the button as working (for actions that wait on the browser, like the location).
-     * `aria-busy`, never `disabled`: the click stays alive, and the caller decides what a second
-     * click during the wait does.
-     * @param {boolean} busy
-     */
-    setBusy(busy) {
-        if (!this._button) return;
-        if (busy) this._button.setAttribute('aria-busy', 'true');
-        else this._button.removeAttribute('aria-busy');
-    }
-
-    /**
      * Sets rotation transform (for compass).
      * Rotates only the inner SVG, not the button container.
      * @param {number} degrees - Rotation in degrees
