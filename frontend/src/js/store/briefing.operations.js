@@ -272,8 +272,9 @@ export async function applyBriefingEdits(briefingId, { fields = {}, slides = {} 
             value.slides = existing.slides.map(slide => {
                 const patch = slides[slide.id];
                 if (!patch) return slide;
-                const { id: _id, order: _order, sync: _sync, ...changed } = patch;
-                return { ...slide, ...deepClone(changed), id: slide.id, order: slide.order,
+                const changed = deepClone(patch);
+                for (const key of SLIDE_FIXED_KEYS) delete changed[key];
+                return { ...slide, ...changed, id: slide.id, order: slide.order,
                     sync: touchSyncMetadata(slide.sync || createSyncMetadata(null)) };
             });
             return { value };
@@ -574,7 +575,9 @@ function setOrDelete(target, key, value) {
  * @param {Object} memory - The editor's working copy (mutated).
  * @param {Object} baseline - The store document `memory` was last reconciled with.
  * @param {Object} fresh - The store document now.
- * @returns {{changed: boolean, removedSlideIds: string[], addedSlideIds: string[], updatedSlideIds: string[], updatedFields: string[]}}
+ * @returns {{changed: boolean, removedSlideIds: string[], addedSlideIds: string[], updatedSlideIds: string[],
+ *   updatedSlideFields: Object<string, string[]>, updatedFields: string[]}} `updatedSlideFields` names,
+ *   per updated slide, the keys adopted from the store, so the editor refreshes just those widgets.
  */
 export function rebaseBriefingEdits(memory, baseline, fresh) {
     const updatedFields = adoptAll(memory, baseline, fresh,
@@ -587,6 +590,7 @@ export function rebaseBriefingEdits(memory, baseline, fresh) {
     const next = [];
     const addedSlideIds = [];
     const updatedSlideIds = [];
+    const updatedSlideFields = {};
     for (const freshSlide of fresh?.slides ?? []) {
         const mine = memoryById.get(freshSlide.id);
         if (!mine) {
@@ -597,7 +601,11 @@ export function rebaseBriefingEdits(memory, baseline, fresh) {
         memoryById.delete(freshSlide.id);
         const touched = adoptAll(mine, baseById.get(freshSlide.id), freshSlide,
             { skip: new Set(['id']), always: new Set(['order', 'sync']) });
-        if (touched.some((key) => !SLIDE_FIXED_KEYS.has(key))) updatedSlideIds.push(freshSlide.id);
+        const adopted = touched.filter((key) => !SLIDE_FIXED_KEYS.has(key));
+        if (adopted.length) {
+            updatedSlideIds.push(freshSlide.id);
+            updatedSlideFields[freshSlide.id] = adopted;
+        }
         next.push(mine);
     }
     const removedSlideIds = [...memoryById.keys()];
@@ -609,6 +617,7 @@ export function rebaseBriefingEdits(memory, baseline, fresh) {
         removedSlideIds,
         addedSlideIds,
         updatedSlideIds,
+        updatedSlideFields,
         updatedFields,
     };
 }

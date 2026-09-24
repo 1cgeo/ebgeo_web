@@ -149,7 +149,7 @@ describe('rebaseBriefingEdits', () => {
         const memory = deepClone(base);
         memory.slides[0].title = 'Um (meu)';
         const out = rebaseBriefingEdits(memory, base, deepClone(base));
-        expect(out).toEqual({ changed: false, removedSlideIds: [], addedSlideIds: [], updatedSlideIds: [], updatedFields: [] });
+        expect(out).toEqual({ changed: false, removedSlideIds: [], addedSlideIds: [], updatedSlideIds: [], updatedSlideFields: {}, updatedFields: [] });
         expect(memory.slides[0].title).toBe('Um (meu)');
     });
 

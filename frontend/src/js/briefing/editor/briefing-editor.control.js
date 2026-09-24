@@ -83,6 +83,24 @@ import { createTransitionService } from '../presentation/transition.service.js';
 // CONSTANTS
 // ============================================================================
 
+/**
+ * Writes `value` into a text input, keeping the caret where it was when the input has the focus.
+ *
+ * Used for a field whose value came from the store (a peer's edit): it is only adopted when the
+ * person has nothing unsaved in it (`rebaseBriefingEdits`), so nothing typed is lost, and a
+ * focused input left showing the OLD text would turn the next keystroke into "old text + key",
+ * which the autosave then writes over the peer's value.
+ * @param {HTMLInputElement} input
+ * @param {string} value
+ */
+function setFieldKeepingCaret(input, value) {
+    if (input.value === value) return;
+    const focused = document.activeElement === input;
+    const { selectionStart: start, selectionEnd: end } = input;
+    input.value = value;
+    if (focused && start !== null) input.setSelectionRange(Math.min(start, value.length), Math.min(end, value.length));
+}
+
 const EDITOR_CONFIG = {
     AUTOSAVE_DELAY: 1500,
     MIN_PANEL_WIDTH: 280,
@@ -473,6 +491,16 @@ export class BriefingEditorControl {
         this._slideEditorEl = document.createElement('div');
         this._slideEditorEl.className = 'briefing-editor-slide-editor';
         scrollableContent.appendChild(this._slideEditorEl);
+        // A peer changed a non-text field of the selected slide while the focus was in this form:
+        // the repaint waits until the focus leaves it (`_refreshSlideForm`).
+        this._slideFormStale = false;
+        addDomListener(this, this._slideEditorEl, 'focusout', (event) => {
+            if (!this._slideFormStale || this._slideEditorEl?.contains(event.relatedTarget)) return;
+            this._slideFormStale = false;
+            this._renderSlideEditor().catch((error) => {
+                console.error('Error repainting the slide form:', error);
+            });
+        });
 
         this._container.appendChild(scrollableContent);
 
@@ -661,6 +689,7 @@ export class BriefingEditorControl {
      * @private
      */
     async _renderSlideEditor() {
+        this._slideFormStale = false;
         // Preserve scroll position before re-render
         const scrollable = this._slideEditorEl?.closest('.briefing-editor-scrollable');
         const savedScrollTop = scrollable ? scrollable.scrollTop : 0;
@@ -2103,9 +2132,9 @@ export class BriefingEditorControl {
     /**
      * Reconciles the working copy with `fresh`, moves the baseline, and repaints what changed.
      *
-     * The slide form is repainted only when the SELECTED slide changed underneath and the person
-     * is not typing in it: repainting recreates the inputs and the rich-text editor, and doing it
-     * mid-keystroke would steal the caret. The name input follows the same rule.
+     * Every widget whose field was adopted from the store shows the new value, focused or not
+     * (`_refreshSlideForm`): a widget left with the old text turns the next keystroke into "old
+     * text + key", and the autosave writes that over the peer's value.
      * @private
      * @param {Object} fresh - The briefing as stored now.
      */
@@ -2114,9 +2143,8 @@ export class BriefingEditorControl {
         this._baseline = deepClone(fresh);
         if (!this._slideListEl) return;
 
-        if (outcome.updatedFields.includes('name') && this._nameInput
-            && document.activeElement !== this._nameInput) {
-            this._nameInput.value = this._briefing.name || '';
+        if (outcome.updatedFields.includes('name') && this._nameInput) {
+            setFieldKeepingCaret(this._nameInput, this._briefing.name || '');
         }
         if (!outcome.changed) return;
 
@@ -2131,9 +2159,46 @@ export class BriefingEditorControl {
             } else {
                 this._renderSlideEditor();
             }
-        } else if (selected && outcome.updatedSlideIds.includes(selected)
-            && !this._slideEditorEl?.contains(document.activeElement)) {
-            this._renderSlideEditor();
+        } else if (selected && outcome.updatedSlideIds.includes(selected)) {
+            this._refreshSlideForm(outcome.updatedSlideFields[selected] ?? []);
+        }
+    }
+
+    /**
+     * Shows in the selected slide's form the fields a peer changed (`keys`).
+     *
+     * The two TEXT widgets are updated in place, focused or not: the title keeps its caret and the
+     * rich text keeps its selection, and the rich-text update is silent, so it writes nothing back
+     * into the slide. Any other field is a select or a button: with the focus outside the form it
+     * is repainted now, with the focus inside it the repaint waits for the focus to leave, because
+     * repainting recreates every input of the form.
+     * @private
+     * @param {string[]} keys - Slide fields adopted from the store.
+     */
+    _refreshSlideForm(keys) {
+        const slide = this._getSelectedSlide();
+        if (!slide || !this._slideEditorEl) return;
+        let others = false;
+        for (const key of keys) {
+            if (key === 'title') {
+                const input = this._slideEditorEl.querySelector('.briefing-editor-slide-title-input');
+                if (input) setFieldKeepingCaret(input, slide.title || '');
+            } else if (key === 'content' && this._quillEditor) {
+                const quill = this._quillEditor;
+                const selection = quill.getSelection();
+                quill.setContents(quill.clipboard.convert({ html: sanitizeQuillHtml(slide.content || '') }), 'silent');
+                if (selection) quill.setSelection(Math.min(selection.index, Math.max(0, quill.getLength() - 1)), 0, 'silent');
+            } else {
+                others = true;
+            }
+        }
+        if (!others) return;
+        if (this._slideEditorEl.contains(document.activeElement)) {
+            this._slideFormStale = true;
+        } else {
+            this._renderSlideEditor().catch((error) => {
+                console.error('Error repainting the slide form:', error);
+            });
         }
     }
 
