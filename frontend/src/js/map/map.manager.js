@@ -45,6 +45,25 @@ import { connectionState } from '@store/sync/connection-state.js';
 
 const MAP_LIMIT = 100;
 
+/**
+ * The refusal for a name that already belongs to ANOTHER map of the atlas. In a local atlas the
+ * map document is stored under its NAME, so creating, duplicating or renaming onto a taken name
+ * overwrote that map with the new document and its features were gone; in a server atlas it left
+ * two maps with one name, and the name-to-id resolver points at only one of them.
+ */
+const NAME_TAKEN = 'Já existe um mapa com esse nome neste atlas. Escolha outro nome.';
+
+/**
+ * True when `name` (already trimmed) is the name of a map other than `except`.
+ * @param {string[]} allMapNames
+ * @param {string} name
+ * @param {string} [except] - The map being renamed, which may keep its own name.
+ * @returns {boolean}
+ */
+function nameTakenByAnotherMap(allMapNames, name, except) {
+    return allMapNames.some((existing) => existing === name && existing !== except);
+}
+
 class MapManager {
     constructor(baseLayerControl, selectionManager) {
         this.baseLayerControl = baseLayerControl;
@@ -69,6 +88,9 @@ class MapManager {
             }
 
             const trimmed = mapName.trim();
+            if (nameTakenByAnotherMap(allMapNames, trimmed)) {
+                return { success: false, message: NAME_TAKEN };
+            }
             await addMap(trimmed);
             await setCurrentMap(trimmed);
             await this._switchBaseLayer();
@@ -127,6 +149,9 @@ class MapManager {
             }
 
             const trimmed = newName.trim();
+            if (nameTakenByAnotherMap(await getAllMapNamesStore(), trimmed, oldName)) {
+                return { success: false, message: NAME_TAKEN };
+            }
             // The store REFUSES the rename when the map is locked or permission is missing, and
             // the refusal is not an exception. Switching the current map before checking pointed
             // it at a name that does not exist, which is worse than the false success message.
@@ -156,6 +181,9 @@ class MapManager {
             const allMapNames = await getAllMapNamesStore();
             if (allMapNames.length >= MAP_LIMIT) {
                 return { success: false, message: 'Este atlas já tem 100 mapas, o limite. Exclua um para criar outro.' };
+            }
+            if (nameTakenByAnotherMap(allMapNames, newMapName.trim())) {
+                return { success: false, message: NAME_TAKEN };
             }
 
             const originalMapData = await getMapDataStore(mapName);
