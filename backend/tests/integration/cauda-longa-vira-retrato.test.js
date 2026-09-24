@@ -5,7 +5,7 @@
 // 300 edicoes de UM poligono de 300 vertices eram 7,5 MB de cauda contra 14 KB de retrato
 // (medido em 2026-09-23), aplicados pelo cliente uma op por vez. Acima de `PULL_TAIL_MAX_OPS` ops
 // OU de `PULL_TAIL_MAX_STORED_BYTES` guardados, `pullOperations` responde o retrato, que os dois
-// caminhos do cliente ja tratam (REST do connect e WS `sync_request`; a prova do cliente esta em
+// caminhos do cliente ja tratam (REST do connect; pelo socket vira o aviso de re-puxar pelo HTTP; a prova do cliente esta em
 // `frontend/tests/integration/cauda-longa-vira-retrato.repro.test.js`).
 //
 // As caudas aqui sao escritas direto em `operations`: o pull so LE o log, e escrever centenas de
@@ -105,13 +105,18 @@ describe('pull incremental: cauda longa ou pesada vira retrato', () => {
     assert.equal(r.operations.length, 5);
   });
 
-  it('o sync_request pelo socket segue a mesma regra (a funcao e a mesma)', async () => {
-    // O WS chama `pullOperations` com `haveSnapshot`, e o teto vale para ele tambem: o caminho do
-    // socket no cliente trata `isSnapshot` (sync-engine, `syncResponse`).
+  it('o socket pede `longTail: resync`: a mesma medida, e NENHUM retrato montado', async () => {
+    // O WS nao manda o retrato pelo socket (quadro sem compressao, laco no enlace lento): ele pede
+    // `resyncRequired` e o cliente re-puxa pelo HTTP. A regra que decide e a mesma; o que muda e
+    // a resposta. O socket e cobrado em `tests/ws/sync-request-cauda-longa-pede-http.test.js`.
     const { pullOperations } = await import('../../src/modules/sync/sync.service.js');
     const { atlas, mapa, cursor } = await cenario();
     await escrever(atlas.id, mapa.id, PULL_TAIL_MAX_OPS + 1, 'null');
-    const r = await pullOperations(atlas.id, cursor, 'owner', dono.id, { haveSnapshot: true });
-    assert.equal(r.isSnapshot, true);
+    const pelo = await pullOperations(atlas.id, cursor, 'owner', dono.id, { haveSnapshot: true, longTail: 'resync' });
+    assert.equal(pelo.isSnapshot, false);
+    assert.equal(pelo.resyncRequired, true);
+    assert.equal(pelo.snapshot, undefined);
+    const rest = await pullOperations(atlas.id, cursor, 'owner', dono.id, { haveSnapshot: true });
+    assert.equal(rest.isSnapshot, true, 'o padrao (REST) continua respondendo o retrato');
   });
 });

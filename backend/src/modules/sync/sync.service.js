@@ -2936,9 +2936,15 @@ export const PULL_TAIL_MAX_STORED_BYTES = 2 * 1024 * 1024;
  * @param {Object} [options]
  * @param {boolean} [options.haveSnapshot=false] - The caller states it already holds a complete
  *   local state AT `sinceVersion`, so version 0 means "up to date", not "send me everything".
+ * @param {'snapshot'|'resync'} [options.longTail='snapshot'] - What a tail over the cap becomes.
+ *   `'snapshot'` (the REST pull) answers the snapshot in place of the tail. `'resync'` (the WS
+ *   `sync_request`) answers `{ resyncRequired: true }` and NO snapshot: the socket then tells the
+ *   client to take the snapshot over HTTP, which is compressed and bounded by silence, while a
+ *   socket frame is neither, and on a slow link a multi-megabyte frame outlives the heartbeat,
+ *   the reconnect asks from the same cursor and gets the same frame again, in a loop.
  */
 export async function pullOperations(atlasId, sinceVersion, permission = 'owner', userId = null,
-  { haveSnapshot = false } = {}) {
+  { haveSnapshot = false, longTail = 'snapshot' } = {}) {
   // Get sync info to check min_version
   const syncInfo = await getAtlasSyncInfo(atlasId);
   if (!syncInfo) {
@@ -2969,6 +2975,9 @@ export async function pullOperations(atlasId, sinceVersion, permission = 'owner'
   // row, so the decision itself never costs a long read.
   const medida = (await query(Q.MEASURE_OPERATIONS_TAIL, [atlasId, sinceVersion, PULL_TAIL_MAX_OPS + 1])).rows[0];
   if (medida.ops > PULL_TAIL_MAX_OPS || Number(medida.bytes) > PULL_TAIL_MAX_STORED_BYTES) {
+    if (longTail === 'resync') {
+      return { operations: [], currentVersion, isSnapshot: false, resyncRequired: true };
+    }
     const snapshot = await getAtlasSnapshot(atlasId, permission, userId);
     return snapshot ? { snapshot, currentVersion: snapshot.currentVersion, isSnapshot: true }
       : { operations: [], currentVersion: 0, isSnapshot: false };

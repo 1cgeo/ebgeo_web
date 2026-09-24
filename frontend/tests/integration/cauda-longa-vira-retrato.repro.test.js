@@ -26,9 +26,10 @@ const h = vi.hoisted(() => {
     /**
      * ESPELHO de `pullOperations`, com o TETO da cauda: retrato quando o pedido é zero sem
      * afirmação de retrato, quando está abaixo de `min_version`, ou quando a cauda desde o pedido
-     * passa de `PULL_TAIL_MAX_OPS` (500). O teto de bytes não é modelado: o cliente não distingue
-     * por que o servidor respondeu retrato, e o do backend é cobrado lá
-     * (`backend/tests/integration/cauda-longa-vira-retrato.test.js`).
+     * passa de `PULL_TAIL_MAX_OPS` (500). PELO SOCKET a cauda acima do teto NÃO vira retrato: vira o
+     * quadro `atlas_updated` (o aviso de re-puxar pelo HTTP), como em `handleSyncRequest`. O teto
+     * de bytes não é modelado: o cliente não distingue por que o servidor respondeu retrato, e o do
+     * backend é cobrado lá (`backend/tests/integration/cauda-longa-vira-retrato.test.js`).
      */
     const TETO_DA_CAUDA = 500;
     const servidor = {
@@ -36,11 +37,16 @@ const h = vi.hoisted(() => {
         versaoMinima: 0,
         retratosServidos: 0,
         caudasServidas: 0,
+        avisosDeRePuxar: 0,
         /** @type {Object[]} O log, cada op com `serverVersion`. */
         cauda: [],
         montarRetrato: () => ({}),
-        responder(desde, temRetrato = false) {
+        responder(desde, temRetrato = false, canal = 'http') {
             const pendentes = this.cauda.filter(op => op.serverVersion > desde);
+            if (canal === 'ws' && pendentes.length > TETO_DA_CAUDA && !(desde === 0 && temRetrato !== true)) {
+                this.avisosDeRePuxar += 1;
+                return { resync: true };
+            }
             if ((desde === 0 && temRetrato !== true) || desde < this.versaoMinima
                 || pendentes.length > TETO_DA_CAUDA) {
                 this.retratosServidos += 1;
@@ -70,7 +76,11 @@ const h = vi.hoisted(() => {
             this.sent.push(msg);
             if (msg.type !== 'sync_request') return;
             pedidosWs.push({ desde: msg.lastVersion, temRetrato: msg.haveSnapshot ?? null });
-            const resposta = servidor.responder(msg.lastVersion, msg.haveSnapshot);
+            const resposta = servidor.responder(msg.lastVersion, msg.haveSnapshot, 'ws');
+            if (resposta.resync) {
+                queueMicrotask(() => this.entregar({ type: 'atlas_updated', resync: 'cauda-longa' }));
+                return;
+            }
             queueMicrotask(() => this.entregar({
                 type: 'sync_response',
                 isSnapshot: resposta.isSnapshot,
@@ -241,6 +251,7 @@ beforeEach(async () => {
     h.servidor.versaoMinima = 0;
     h.servidor.retratosServidos = 0;
     h.servidor.caudasServidas = 0;
+    h.servidor.avisosDeRePuxar = 0;
     h.servidor.cauda = [];
     h.servidor.montarRetrato = () => ({
         atlas: { ...createAtlas('Atlas remoto'), id: atlasId, settings: {} },
@@ -304,7 +315,7 @@ describe('cauda acima do teto: o servidor responde retrato e a edição local so
         expect(h.empurradas, 'e sobe no flush').toEqual([minha.id]);
     });
 
-    it('WS, no sync_request do meio da sessão', async () => {
+    it('WS, no sync_request do meio da sessão: o aviso de re-puxar leva ao retrato pelo HTTP', async () => {
         await syncEngine.connect(atlasId);
         await assentar();
         const primeira = readGeneration(escopo);
@@ -315,13 +326,16 @@ describe('cauda acima do teto: o servidor responde retrato e a edição local so
         const doColega = crypto.randomUUID();
         servidorAndou(doColega);
         h.pedidosWs.length = 0;
+        h.pedidosHttp.length = 0;
 
         // O reconectar do socket pede a cauda desde o que já aplicou.
         h.ws.requestSync(7);
         await assentar();
 
         expect(h.pedidosWs).toEqual([{ desde: 7, temRetrato: true }]);
-        expect(h.servidor.retratosServidos, 'o sync_request recebeu retrato').toBe(2);
+        expect(h.servidor.avisosDeRePuxar, 'o socket respondeu o aviso, e não o retrato').toBe(1);
+        expect(h.pedidosHttp, 'o retrato veio pelo HTTP, pedido do zero pelo resync').toEqual([0]);
+        expect(h.servidor.retratosServidos).toBe(2);
 
         const geracao = readGeneration(escopo);
         expect(geracao.active).not.toBe(primeira.active);

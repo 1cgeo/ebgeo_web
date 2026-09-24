@@ -558,6 +558,8 @@ const CENSO_ENVIO_WS = [
   { arquivo: 'src/modules/collab/collab.handlers.js', texto: 'ws.send(JSON.stringify(frameDeErro(err, ops.map((op) => op.id))));', n: 1, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
   { arquivo: 'src/modules/collab/collab.handlers.js', texto: 'ws.send(JSON.stringify({ type: \'pong\' }));', n: 1, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
   { arquivo: 'src/modules/collab/collab.handlers.js', texto: 'ws.send({', n: 2, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
+  { arquivo: 'src/modules/collab/collab.handlers.js', texto: "ws.send({ type: 'atlas_updated', resync: 'cauda-longa' });", n: 1, classe: W_EMBRULHADO,
+    motivo: `${SOCKET_DA_SALA} Resposta do sync_request cuja cauda passou do teto: so o aviso de re-puxar o atlas pelo HTTP, sem entidade nenhuma.` },
 
   { arquivo: 'src/modules/collab/collab.rooms.js', texto: 'client.send(payload);', n: 2, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
   { arquivo: 'src/modules/collab/collab.rooms.js', texto: 'client.send(fullPayload);', n: 1, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },

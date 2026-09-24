@@ -524,8 +524,22 @@ export async function handleSyncRequest(ws, data) {
     // by `tests/ws/collab-error-leak.repro.test.js`).
     const result = await syncService.pullOperations(
       ws.atlasId, data.lastVersion || 0, ws.permission, ws.userId ?? null,
-      { haveSnapshot: data.haveSnapshot === true },
+      { haveSnapshot: data.haveSnapshot === true, longTail: 'resync' },
     );
+
+    // A TAIL OVER THE CAP IS NOT ANSWERED THROUGH THE SOCKET. The REST pull answers it with the
+    // snapshot (`PULL_TAIL_MAX_OPS`); here that snapshot would be one uncompressed frame, and on a
+    // slow downlink a frame that takes longer than the client's heartbeat tolerance is cut, the
+    // reconnect asks from the same cursor, and the same frame is queued again, forever. The client
+    // is sent instead the frame it already reads as "re-pull the atlas over HTTP" (`atlas_updated`
+    // routes to `serverResync`, which runs `resync()`: compressed, bounded by silence), and every
+    // held operation frame is dropped, because the snapshot that HTTP pull brings is read after
+    // this point and therefore covers all of them.
+    if (result.resyncRequired) {
+      coveredVersion = Infinity;
+      ws.send({ type: 'atlas_updated', resync: 'cauda-longa' });
+      return;
+    }
 
     // THE OBJECT, NOT THE STRING, and this is the one place in the module where the difference is
     // load-bearing. The outbound boundary (`collab.send.js`) prunes catalog-resource definitions,
