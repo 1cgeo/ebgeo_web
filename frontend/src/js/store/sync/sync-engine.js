@@ -1407,6 +1407,26 @@ class SyncEngine {
             }
         });
 
+        // The server closed the socket because THIS person's access to the atlas ended (4003
+        // "access revoked": a share revoked, a group left). Asked once over HTTP before acting, so a
+        // close that the next reconnect would survive (the access came back, a public atlas still
+        // reads) keeps the reconnect loop. When the server confirms (403/404), the atlas is gone
+        // for this person exactly as a deleted one is, and the UI takes the same exit, which is the
+        // one that rescues unsent work (`_handleRemoteAtlasDeleted`, account.control.js).
+        wsClient.on('accessRevoked', () => {
+            const atlasId = this._atlasId;
+            if (!atlasId) return;
+            apiClient.getAtlas(atlasId).then(() => {}, (error) => {
+                if (this._atlasId !== atlasId || ![403, 404].includes(error?.status)) return;
+                this.disconnect();
+                try {
+                    getEventBus().emit(EventTypes.ATLAS_DELETED_REMOTE, { atlasId, motivo: 'sem-acesso' });
+                } catch {
+                    // No UI bus (headless).
+                }
+            });
+        });
+
         // Ownership changed server-side (`atlas_owner_changed`). Re-resolve THIS client's role
         // locally from the broadcast (it carries the new owner id) so the UI re-gates immediately;
         // the WS heartbeat reconcile is the server-side fallback that adjusts ws.permission.

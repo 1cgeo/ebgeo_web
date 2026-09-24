@@ -449,7 +449,9 @@ export class AccountControl {
             this._updateDeleteAtlasVisibility();
         });
         // The connected atlas was deleted (by this user or another owner) — tear down + redirect.
-        subscribe(this, getEventBus(), EventTypes.ATLAS_DELETED_REMOTE, () => this._handleRemoteAtlasDeleted());
+        // The same exit when the atlas is gone for THIS person only (access revoked, `motivo`).
+        subscribe(this, getEventBus(), EventTypes.ATLAS_DELETED_REMOTE, (payload) => this._handleRemoteAtlasDeleted(
+            payload?.motivo === 'sem-acesso' ? 'sem-acesso' : 'excluido-por-outro'));
         // Ownership changed (this user gained/lost ownership, or a peer did) — re-gate the menu:
         // Excluir/Compartilhar visibility depend on the role, which the sync engine already updated.
         subscribe(this, getEventBus(), EventTypes.ATLAS_OWNER_CHANGED, () => {
@@ -1128,7 +1130,16 @@ export class AccountControl {
      * Tears down after the connected atlas was deleted (by this user or another owner): stop
      * flushing, disconnect, wipe the remote store, return to a blank LOCAL atlas, and reopen the
      * picker. Idempotent — both the direct delete and the WS `atlas_deleted` broadcast can call it.
-     * @param {'excluido'|'excluido-por-outro'} [notice] - Which explanation the chooser should show.
+     *
+     * WORK THE SERVER NEVER RECEIVED IS RESCUED, NOT WIPED (2026-09-24). When the atlas goes away
+     * under a COLLABORATOR (the owner sent it to the bin, or revoked this person's access), what
+     * this tab drew and had not sent yet exists nowhere else: the bin gives the owner back the
+     * server's atlas, never this machine's queue. The wipe below emptied data and queue alike, so
+     * the collaborator lost that work without a word. Now a non-empty (or unknown) queue takes the
+     * rescue the session-loss exit already uses (`preserveUnsyncedWorkAsLocal`), and the chooser
+     * says where the work went. The owner's OWN delete keeps the wipe: they confirmed twice.
+     * @param {'excluido'|'excluido-por-outro'|'sem-acesso'} [notice] - Which explanation the
+     *   chooser should show; `-resgatado` / `-sem-resgate` is appended when there was work.
      * @private
      */
     async _handleRemoteAtlasDeleted(notice = 'excluido-por-outro') {
@@ -1140,7 +1151,21 @@ export class AccountControl {
         this._tearingDownDeletedAtlas = true;
         try {
             stopAutoFlush();
+            // Read BEFORE the teardown: which atlas, under which name, and what it still owes the
+            // server. NaN (unknown) counts as work, as it does on the session-loss exit.
+            const atlasId = mountedRemoteAtlasId();
+            const atlasName = this._atlasCache?.id === atlasId ? this._atlasCache?.name : null;
+            const pendentes = notice === 'excluido' ? 0 : await countPendingOperations();
             syncEngine.disconnect();
+            if (pendentes !== 0) {
+                const resgatado = await preserveUnsyncedWorkAsLocal(atlasId, atlasName);
+                this._atlasCache = null;
+                this._render();
+                // A FAILED rescue does not wipe either: `preserveUnsyncedWorkAsLocal` has retained
+                // the namespace, and the chooser says the work could not be kept as an atlas.
+                await this.openProjectPicker({ notice: `${notice}-${resgatado ? 'resgatado' : 'sem-resgate'}` });
+                return;
+            }
             await clearAllDataStore();
             await markStoreLocal();
             this._render();

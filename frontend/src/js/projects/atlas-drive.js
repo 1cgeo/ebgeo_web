@@ -2326,6 +2326,20 @@ export function localCountLabel({ count, max } = {}) {
 const ARRIVAL_NOTICES = Object.freeze({
     excluido: 'Atlas excluído.',
     'excluido-por-outro': 'Este atlas foi excluído pelo proprietário.',
+    // O ATLAS SUMIU COM TRABALHO DESTA MÁQUINA AINDA NÃO ENVIADO (2026-09-24): o resgate o guardou
+    // como atlas local, que é o cartão novo em "Neste computador". Ver `_handleRemoteAtlasDeleted`.
+    'excluido-por-outro-resgatado': 'Este atlas foi excluído pelo proprietário. O que você ainda não '
+        + 'tinha enviado foi guardado neste computador como um atlas local, nesta lista.',
+    'excluido-por-outro-sem-resgate': 'Este atlas foi excluído pelo proprietário, e não foi possível '
+        + 'guardar como atlas local o que você ainda não tinha enviado. Não limpe os dados do '
+        + 'navegador e avise o administrador.',
+    // O ACESSO DESTA PESSOA ACABOU com o atlas aberto (compartilhamento revogado).
+    'sem-acesso': 'Seu acesso a este atlas foi removido.',
+    'sem-acesso-resgatado': 'Seu acesso a este atlas foi removido. O que você ainda não tinha enviado '
+        + 'foi guardado neste computador como um atlas local, nesta lista.',
+    'sem-acesso-sem-resgate': 'Seu acesso a este atlas foi removido, e não foi possível guardar como '
+        + 'atlas local o que você ainda não tinha enviado. Não limpe os dados do navegador e avise o '
+        + 'administrador.',
     // A ABERTURA POR `?atlas=` QUE FALHOU NO MAPA (2026-09-23). O toast de lá morre com a navegação
     // até aqui, então o desfecho viaja como código e a frase é esta. As duas de acesso repetem as
     // do mapa palavra por palavra.

@@ -658,6 +658,15 @@ export class WsClient {
             ), { code: WS_HANDSHAKE_CLOSED }));
         }
 
+        // THE SERVER SAID THE ACCESS ENDED, and that is not a network drop. The collab gateway
+        // closes a live socket with 4003 "access revoked" when the share that reached this person is
+        // gone (`reconcileAuthorization`), and until 2026-09-24 this path reconnected forever: the
+        // badge said "reconnecting" over edits that would never be sent. The reconnect is still
+        // scheduled (the engine decides, after asking the server over HTTP, whether it is final).
+        if (event?.code === 4003 && event?.reason === 'access revoked') {
+            this._emit('accessRevoked', { code: event.code, reason: event.reason });
+        }
+
         this._scheduleReconnect();
     }
 

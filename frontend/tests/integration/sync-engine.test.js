@@ -50,6 +50,7 @@ const h = vi.hoisted(() => {
             pullSync: vi.fn(async () => ({ currentVersion: 0, isSnapshot: false })),
             pushOperations: vi.fn(async (_atlasId, ops) => ({ results: ops.map(op => ({ operationId: op.id, success: true, currentVersion: 1 })), serverVersion: 1 })),
             createAtlas: vi.fn(async (p) => ({ id: 'atlas-1', ...p })),
+            getAtlas: vi.fn(async (id) => ({ id })),
             setTokens: vi.fn(),
             wsUrl: vi.fn(() => 'ws://test/collab'),
         },
@@ -309,6 +310,8 @@ beforeEach(() => {
 const HANDLERS_FIADOS = Object.freeze([
     'operation', 'syncResponse', 'atlasDeleted', 'atlasOwnerChanged', 'sharingUpdated',
     'atlasSettings', 'atlasResources', 'serverResync', 'credentialExpired', 'operationBatch',
+    // 2026-09-24: the server closed the socket with 4003 "access revoked" (see the case below).
+    'accessRevoked',
 ]);
 
 /** @returns {string[]} the event names passed to `wsClient.on`, sorted, duplicates kept. */
@@ -641,6 +644,29 @@ describe('connect', () => {
         await wsClientMock._handlers.atlasDeleted({ atlasId: 'atlas-1' });
         // disconnect() closes the socket + stops the auto-reconnect backoff.
         expect(wsClientMock.disconnect).toHaveBeenCalled();
+    });
+
+    // THE ACCESS OF THIS PERSON ENDED with the atlas open (2026-09-24). Until then the 4003 close
+    // was a network drop to the client, which reconnected forever over edits that would never be
+    // sent. The engine asks the server once before acting, and acts only on a 403/404.
+    it('on "accessRevoked" confirmed by the server, the engine disconnects and says why', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        wsClientMock.disconnect.mockClear();
+        h.eventBusMock.emit.mockClear?.();
+        h.apiClientMock.getAtlas.mockRejectedValueOnce(Object.assign(new Error('Forbidden'), { status: 403 }));
+        wsClientMock._handlers.accessRevoked({ code: 4003, reason: 'access revoked' });
+        await vi.waitFor(() => expect(wsClientMock.disconnect).toHaveBeenCalled());
+        expect(h.eventBusMock.emit).toHaveBeenCalledWith(EventTypes.ATLAS_DELETED_REMOTE,
+            { atlasId: 'atlas-1', motivo: 'sem-acesso' });
+    });
+
+    it('on "accessRevoked" that the server does NOT confirm, the reconnect loop is left alone', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        wsClientMock.disconnect.mockClear();
+        h.apiClientMock.getAtlas.mockResolvedValueOnce({ id: 'atlas-1' });
+        wsClientMock._handlers.accessRevoked({ code: 4003, reason: 'access revoked' });
+        await new Promise((resolve) => { setTimeout(resolve, 20); });
+        expect(wsClientMock.disconnect).not.toHaveBeenCalled();
     });
 
     it('routes inbound "operation" frames through the sync gateway', async () => {
