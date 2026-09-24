@@ -4157,10 +4157,12 @@ body:has(.sidebar-container) .unified-attributes-panel {
    MULTI-SELECTION ACTIONS (Lock / Hide batch buttons)
    ========================================================================= */
 
+/* Space above too: with 0 the Ocultar/Bloquear buttons sat flush against the
+   identification card above them. */
 .multi-selection-actions {
     display: flex;
     gap: var(--space-2);
-    padding: 0 var(--space-4) var(--space-3);
+    padding: var(--space-3) var(--space-4);
 }
 
 .multi-selection-actions__btn {
@@ -4199,6 +4201,18 @@ body:has(.sidebar-container) .unified-attributes-panel {
 
 .feature-panel-delete-section {
     padding: var(--space-4);
+}
+
+/* In the multi-selection panel the delete button follows Salvar/Descartar directly, and three
+   spacings stacked between them: the row's own bottom margin (shared with the attributes panel),
+   the block's bottom padding and the section's top padding, 36px in all. What is left is the
+   block's padding, 12px, the same rhythm as the header to Ocultar/Bloquear. */
+.group-type-global-buttons .attr-modern-buttons-row {
+    margin-bottom: 0;
+}
+
+.group-type-global-buttons + .feature-panel-delete-section {
+    padding-top: 0;
 }
 
 .feature-panel-delete-btn {
