@@ -78,6 +78,13 @@ const EXCECOES = new Map([
         motivo: 'o caso (i) é o controle do instrumento: a forma crua, com o boot parado na trava do '
             + 'portão, TEM de levar a página para `atlas.html`.',
     }],
+    ['tests/e2e-ui/offline-longo-e-reabertura.spec.js', {
+        sitios: 1,
+        motivo: 'o sujeito é o VENCIMENTO do token durante um offline longo: a sessão já existe (o '
+            + 'mapa bootou pela conta), e o que se grava é uma cópia VENCIDA do token de acesso do '
+            + 'mesmo sujeito, para que a reabertura da aba encontre no disco o que um laptop fechado '
+            + 'por horas encontra. Não é login e não troca de conta.',
+    }],
 ]);
 
 /** Métodos do Playwright cuja função roda NA PÁGINA, e o índice do argumento que a carrega. */
