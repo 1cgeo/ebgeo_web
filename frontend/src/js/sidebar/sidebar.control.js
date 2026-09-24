@@ -1087,7 +1087,12 @@ export class SidebarControl {
                         briefingPresenter.setOnExit(() => {
                             this._stateManager.expandSidebar(SIDEBAR_TABS.BRIEFINGS);
                         });
-                        briefingPresenter.start(briefingId);
+                        // A REFUSED start (no slides, a slide without a saved position, a missing
+                        // map or resource) never reaches onExit: the sidebar stayed collapsed and the
+                        // list the person has to fix disappeared with the warning.
+                        Promise.resolve(briefingPresenter.start(briefingId)).then((started) => {
+                            if (started === false) this._stateManager.expandSidebar(SIDEBAR_TABS.BRIEFINGS);
+                        }, () => this._stateManager.expandSidebar(SIDEBAR_TABS.BRIEFINGS));
                     } else {
                         console.warn('Briefing presenter control not found');
                     }
