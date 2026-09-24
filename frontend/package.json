@@ -42,7 +42,7 @@
     "jspdf": "^4.2.0",
     "jszip": "^3.10.1",
     "localforage": "^1.10.0",
-    "maplibre-gl": "6.9.1",
+    "maplibre-gl": "6.11.2",
     "mgrs": "^2.1.0",
     "milsymbol": "3.0.4",
     "proj4": "^2.20.2",

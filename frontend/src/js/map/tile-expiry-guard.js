@@ -14,8 +14,9 @@
  * NOTHING IN THIS APPLICATION ASKED FOR THEM AGAIN. Read on 2026-09-22: no `setTiles`, `setUrl`,
  * `refreshTiles` or `reload` touches a 360 source; the only demolition of one
  * (`rebuildScopedSource`, `street_view_tool/tile-scope.js`) runs on an atlas change compared by
- * value; and nothing re-adds the mini-map's source. The loop is MapLibre's own (6.9.1, the version
- * in the lockfile), and it needs three facts that each sit in the installed bundle:
+ * value; and nothing re-adds the mini-map's source. The loop is MapLibre's own (measured on 6.9.1,
+ * and the three facts were re-read unchanged in 6.11.2 on 2026-09-24), and it needs three facts
+ * that each sit in the installed bundle:
  *
  *   1. The 360 MVT route answers `Cache-Control: max-age=60` (`MVT_MAX_AGE`, in
  *      `backend/src/modules/streetview360/sv360.controller.js`). Every tile therefore carries an

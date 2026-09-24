@@ -6,7 +6,7 @@
  * girar o mapa? Hoje o botão direito é menu, e para inclinar ou girar é shift e ctrl, mas queria
  * tb uma versão sem shift e ctrl com o botão do meio".
  *
- * NÃO HÁ OPÇÃO NO MAPLIBRE. Na 6.9.1 instalada, o botão de cada gesto é um literal dentro da
+ * NÃO HÁ OPÇÃO NO MAPLIBRE. Na 6.9.1, e ainda na 6.11.2 (relida em 2026-09-24), o botão de cada gesto é um literal dentro da
  * fábrica do handler (`generateMouseRotationHandler`: `checkCorrectEvent: (e) => e.button ===
  * LEFT_BUTTON && e.ctrlKey || e.button === RIGHT_BUTTON && !e.ctrlKey`), sem nada configurável por
  * fora, e o `HandlerManager` só expõe `_handlers`. A decisão é do app porque ele declara
