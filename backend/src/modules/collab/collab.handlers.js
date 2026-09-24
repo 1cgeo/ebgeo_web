@@ -21,6 +21,7 @@ import {
 } from './collab.schemas.js';
 import { anunciarContextoDoVisualizador } from './collab.viewer.js';
 import { classifyConnectionQuality, adaptiveSettingsFor } from './collab.quality.js';
+import { holdOperationFrames, releaseOperationFrames } from './collab.send.js';
 import logger from '../../utils/logger.js';
 import { safeErrorMessage } from '../../utils/safe-error-message.js';
 
@@ -501,6 +502,11 @@ export function handleBriefingEditEnd(ws, data) {
  * Handles sync requests (pull operations since version).
  */
 export async function handleSyncRequest(ws, data) {
+  // THE ANSWER MUST REACH THE PEER BEFORE ANY OP IT DOES NOT CARRY. Operation frames addressed to
+  // this socket are held from here until the answer is out, then released minus what it covered.
+  // See `holdOperationFrames` in `collab.send.js`.
+  holdOperationFrames(ws);
+  let coveredVersion = -Infinity;
   try {
     // `ws.userId` travels for the same reason the HTTP pull threads `req.user.id`: since F11 the
     // snapshot embeds catalog-layer definitions filtered by what THIS principal may see, and the
@@ -529,6 +535,11 @@ export async function handleSyncRequest(ws, data) {
     // `JSON.stringify` done here — serialising before the boundary would strip the very
     // definitions the rehydration just earned, and the layers would arrive as "camada
     // indisponível" for someone who holds the grant. Handing the object over keeps identity.
+    // A reduce, not a spread into Math.max: a long tail would overflow the argument list.
+    coveredVersion = (result.operations ?? []).reduce(
+      (maior, op) => Math.max(maior, Number(op?.serverVersion) || 0),
+      Number(result.currentVersion) || 0,
+    );
     if (result.isSnapshot) {
       ws.send({
         type: 'sync_response',
@@ -551,5 +562,7 @@ export async function handleSyncRequest(ws, data) {
       code: 'SYNC_FAILED',
       message: safeErrorMessage(err, 'A sincronização falhou.'),
     }));
+  } finally {
+    releaseOperationFrames(ws, coveredVersion);
   }
 }
