@@ -38,7 +38,10 @@ import { getActiveScope } from '@store/atlas-namespace.js';
 import { ConnectionStates } from '@store/sync/connection-state.js';
 import {
     getBriefingById,
-    updateBriefing,
+    applyBriefingEdits,
+    appendSlides,
+    diffBriefingEdits,
+    rebaseBriefingEdits,
     addSlide,
     removeSlide,
     reorderSlides,
@@ -159,6 +162,19 @@ export class BriefingEditorControl {
 
         // State
         this._briefing = null;
+        /**
+         * The store document `_briefing` was last reconciled with. A field of `_briefing` that
+         * differs from it is the person's edit; everything else belongs to the store (see
+         * `store/briefing.operations.js`).
+         * @type {?Object}
+         */
+        this._baseline = null;
+        /**
+         * Serializes saves and refreshes: each one reads or writes the baseline across an await,
+         * and two interleaved would reconcile against a baseline the other already moved.
+         * @type {Promise<void>}
+         */
+        this._editChain = Promise.resolve();
         this._selectedSlideId = null;
         this._hasUnsavedChanges = false;
         this._isOpen = false;
@@ -211,6 +227,7 @@ export class BriefingEditorControl {
                 showError('Briefing n\u00E3o encontrado');
                 return;
             }
+            this._baseline = deepClone(this._briefing);
 
             // Ensure default settings (position=left, color=white)
             this._ensureDefaultSettings();
@@ -238,6 +255,7 @@ export class BriefingEditorControl {
             this._transitionService = createTransitionService(this._map);
 
             this._wireAutosaveFlushTriggers();
+            this._wireRemoteRefresh();
 
             this._isOpen = true;
 
@@ -339,6 +357,7 @@ export class BriefingEditorControl {
         removeElement(this._container);
         this._container = null;
         this._briefing = null;
+        this._baseline = null;
         this._selectedSlideId = null;
         this._hasUnsavedChanges = false;
         this._isOpen = false;
@@ -1152,7 +1171,7 @@ export class BriefingEditorControl {
                         await reorderSlides(this._briefing.id, newOrder);
                         if (!this._briefing) return;
 
-                        this._briefing = await getBriefingById(this._briefing.id);
+                        await this._refreshFromStore();
                         this._renderSlideList();
                     } catch (error) {
                         console.error('Error reordering slides:', error);
@@ -1753,7 +1772,8 @@ export class BriefingEditorControl {
             const newSlide = await addSlide(this._briefing.id, emptySlide);
             if (!this._briefing) return;
 
-            this._briefing = await getBriefingById(this._briefing.id);
+            await this._refreshFromStore();
+            if (!this._briefing) return;
             this._renderSlideList();
 
             if (newSlide) {
@@ -1787,7 +1807,8 @@ export class BriefingEditorControl {
             await removeSlide(this._briefing.id, slideId);
             if (!this._briefing) return;
 
-            this._briefing = await getBriefingById(this._briefing.id);
+            await this._refreshFromStore();
+            if (!this._briefing) return;
             this._renderSlideList();
 
             if (this._selectedSlideId === slideId) {
@@ -1869,16 +1890,16 @@ export class BriefingEditorControl {
             }
 
             if (!this._briefing) return; // editor closed during the await above
-            const existingSlides = this._briefing.slides.map(s => ({ ...s }));
-            const allSlides = [...existingSlides, ...newSlides];
-            for (let i = 0; i < allSlides.length; i++) {
-                allSlides[i].order = i;
-            }
-
-            await updateBriefing(this._briefing.id, { slides: allSlides });
+            // Appended to the list as it is in the store NOW, never to this editor's copy of it:
+            // the picker stays open for as long as the person wants, and a peer may add slides
+            // meanwhile (see `store/briefing.operations.js`).
+            await this._flushAutosave();
+            if (!this._briefing) return;
+            await appendSlides(this._briefing.id, newSlides);
             if (!this._briefing) return;
 
-            this._briefing = await getBriefingById(this._briefing.id);
+            await this._refreshFromStore();
+            if (!this._briefing) return;
             this._renderSlideList();
 
             showSuccess(newSlides.length === 1 ? '1 slide importado' : `${newSlides.length} slides importados`);
@@ -1998,26 +2019,45 @@ export class BriefingEditorControl {
     }
 
     /**
-     * Saves the briefing.
+     * Saves what the person changed in this editor, and only that.
+     *
+     * The patch is the difference between the working copy and the baseline, applied by the store
+     * over the document as it is NOW (`applyBriefingEdits`). Saving the whole copy was a two-way
+     * merge: a slide a peer created after this editor opened became a DELETE, and a field a peer
+     * rewrote went back to the old value (`briefing-editor-copia-velha.repro.spec.js`).
      * @private
      * @param {boolean} [showFeedback=false] - Show success message
+     * @returns {Promise<void>}
      */
-    async _save(showFeedback = false) {
+    _save(showFeedback = false) {
+        return this._enqueueEdit(() => this._saveNow(showFeedback));
+    }
+
+    /**
+     * Body of {@link _save}, run inside the edit chain.
+     * @private
+     * @param {boolean} showFeedback - Show success message
+     */
+    async _saveNow(showFeedback) {
         if (!this._briefing) return;
+        const briefing = this._briefing;
 
         try {
-            await updateBriefing(this._briefing.id, {
-                name: this._briefing.name,
-                slides: this._briefing.slides,
-                settings: this._briefing.settings
-            });
+            const patch = diffBriefingEdits(briefing, this._baseline);
+            if (!patch.empty) {
+                const stored = await applyBriefingEdits(briefing.id, patch);
+                if (this._briefing !== briefing) return; // closed or reopened during the await
+                // Blocked (permission) or gone: the edit stays in memory, as it always did.
+                if (!stored) return;
+                this._applyFresh(stored);
+
+                this._eventBus.emit(EventTypes.BRIEFING_UPDATED, {
+                    briefingId: briefing.id,
+                    briefing
+                });
+            }
 
             this._hasUnsavedChanges = false;
-
-            this._eventBus.emit(EventTypes.BRIEFING_UPDATED, {
-                briefingId: this._briefing.id,
-                briefing: this._briefing
-            });
 
             if (showFeedback) {
                 showSuccess('Briefing salvo');
@@ -2028,6 +2068,91 @@ export class BriefingEditorControl {
                 showError('Erro ao salvar briefing');
             }
         }
+    }
+
+    /**
+     * Runs `task` after every save and refresh already queued, so they never interleave.
+     * @private
+     * @param {Function} task
+     * @returns {Promise<void>}
+     */
+    _enqueueEdit(task) {
+        const run = this._editChain.then(task);
+        this._editChain = run.catch((error) => {
+            console.error('Briefing editor task failed:', error);
+        });
+        return run;
+    }
+
+    /**
+     * Rereads the briefing and reconciles the working copy with it, keeping the person's
+     * unsaved edits and every slide object alive (the slide form closes over them).
+     * @private
+     * @returns {Promise<void>}
+     */
+    _refreshFromStore() {
+        return this._enqueueEdit(async () => {
+            const briefing = this._briefing;
+            if (!briefing) return;
+            const fresh = await getBriefingById(briefing.id);
+            if (this._briefing !== briefing || !fresh) return;
+            this._applyFresh(fresh);
+        });
+    }
+
+    /**
+     * Reconciles the working copy with `fresh`, moves the baseline, and repaints what changed.
+     *
+     * The slide form is repainted only when the SELECTED slide changed underneath and the person
+     * is not typing in it: repainting recreates the inputs and the rich-text editor, and doing it
+     * mid-keystroke would steal the caret. The name input follows the same rule.
+     * @private
+     * @param {Object} fresh - The briefing as stored now.
+     */
+    _applyFresh(fresh) {
+        const outcome = rebaseBriefingEdits(this._briefing, this._baseline, fresh);
+        this._baseline = deepClone(fresh);
+        if (!this._slideListEl) return;
+
+        if (outcome.updatedFields.includes('name') && this._nameInput
+            && document.activeElement !== this._nameInput) {
+            this._nameInput.value = this._briefing.name || '';
+        }
+        if (!outcome.changed) return;
+
+        this._renderSlideList();
+        const selected = this._selectedSlideId;
+        if (selected && outcome.removedSlideIds.includes(selected)) {
+            this._selectedSlideId = null;
+            if (this._briefing.slides.length > 0) {
+                this._selectSlide(this._briefing.slides[0].id).catch((error) => {
+                    console.error('Error selecting slide after a remote change:', error);
+                });
+            } else {
+                this._renderSlideEditor();
+            }
+        } else if (selected && outcome.updatedSlideIds.includes(selected)
+            && !this._slideEditorEl?.contains(document.activeElement)) {
+            this._renderSlideEditor();
+        }
+    }
+
+    /**
+     * Follows what peers (and the ack repair of this client's own operations) write to the open
+     * briefing. Without it the working copy never learned of a peer's slide, and the editor kept
+     * showing, and saving, a list without it.
+     *
+     * The editor's own `_save` also emits `BRIEFING_UPDATED`, with THIS working copy as the
+     * payload; that echo is skipped, since the save already reconciled.
+     * @private
+     */
+    _wireRemoteRefresh() {
+        subscribe(this, this._eventBus, EventTypes.BRIEFING_UPDATED, ({ briefingId, briefing } = {}) => {
+            if (!this._briefing || briefingId !== this._briefing.id || briefing === this._briefing) return;
+            this._refreshFromStore().catch((error) => {
+                console.error('Error refreshing the briefing editor:', error);
+            });
+        });
     }
 
     // =========================================================================

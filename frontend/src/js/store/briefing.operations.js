@@ -244,6 +244,62 @@ export async function updateBriefing(briefingId, data) {
 }
 
 /**
+ * Applies an editor's PATCH on top of the briefing as it is in the store NOW.
+ *
+ * The editor keeps its own copy of the briefing and used to save it whole, which is a two-way
+ * merge against a document a peer may have changed since: every slide the peer created became a
+ * DELETE and every field the peer rewrote went back to the old value. The patch carries only what
+ * the person changed ({@link diffBriefingEdits}, below), and it is
+ * applied inside the transaction, over the document read there, so what a peer wrote meanwhile
+ * survives. A patched slide the store no longer has (a peer deleted it) is skipped: resurrecting
+ * it would undo the peer's deletion.
+ *
+ * @param {string} briefingId - Briefing UUID
+ * @param {{fields?: Object, slides?: Object<string, Object>}} patch - Changed briefing fields
+ *   (`settings` merged key by key) and changed fields per slide id.
+ * @returns {Promise<Object|null>} The briefing as stored, or null if not found or blocked
+ */
+export async function applyBriefingEdits(briefingId, { fields = {}, slides = {} } = {}) {
+    return writeBriefing(briefingId, OperationType.UPDATE, GuardAction.UPDATE_BRIEFING,
+        'updateBriefing', existing => {
+            const value = { ...existing };
+            for (const [key, fieldValue] of Object.entries(fields)) {
+                if (BRIEFING_FIXED_KEYS.has(key)) continue;
+                value[key] = key === 'settings'
+                    ? { ...(existing.settings || {}), ...deepClone(fieldValue) }
+                    : deepClone(fieldValue);
+            }
+            value.slides = existing.slides.map(slide => {
+                const patch = slides[slide.id];
+                if (!patch) return slide;
+                const { id: _id, order: _order, sync: _sync, ...changed } = patch;
+                return { ...slide, ...deepClone(changed), id: slide.id, order: slide.order,
+                    sync: touchSyncMetadata(slide.sync || createSyncMetadata(null)) };
+            });
+            return { value };
+        });
+}
+
+/**
+ * Appends copies of slides at the end of the briefing as it is in the store NOW.
+ *
+ * Same reason as {@link applyBriefingEdits}: the slide import used to save the editor's copy of
+ * the list plus the new slides, erasing whatever a peer had added while the picker was open.
+ *
+ * @param {string} briefingId - Briefing UUID
+ * @param {Object[]} newSlides - Slides to append (ids are kept; order is assigned here)
+ * @returns {Promise<boolean>} True if appended
+ */
+export async function appendSlides(briefingId, newSlides) {
+    const result = await editSlides(briefingId, briefing => {
+        briefing.slides.push(...deepClone(newSlides).map(slide => ({ ...slide, sync: createSyncMetadata(null) })));
+        reindexSlides(briefing.slides);
+        return { value: briefing, result: true };
+    });
+    return result === true;
+}
+
+/**
  * Deletes a briefing.
  *
  * @param {string} briefingId - Briefing UUID
@@ -369,6 +425,192 @@ export async function reorderSlides(briefingId, slideIds) {
         return { value: briefing, result: true };
     });
     return result === true;
+}
+
+// ============================================================================
+// EDITOR MERGE (the briefing editor's working copy against the store)
+// ============================================================================
+
+/*
+ * THE THREE-WAY MERGE between the briefing editor's in-memory copy and the store.
+ *
+ * WHY THE EDITOR CANNOT SAVE ITS COPY. The editor reads the briefing ONCE when it opens and
+ * edits that object in memory. Saving the whole object (the whole `slides` array included) is a
+ * two-way merge against a document that a peer may have changed in the meantime: the store
+ * derives one slide operation per difference (`writeBriefing`), so a slide the peer created
+ * becomes a DELETE and a title the peer rewrote goes back to the old text, and both reach the
+ * server. Measured on 2026-09-23 with two real browsers
+ * (`frontend/tests/e2e-ui/briefing-editor-copia-velha.repro.spec.js`).
+ *
+ * THE RULE. The editor keeps a BASELINE: a deep copy of the store document its memory was last
+ * reconciled with. A field is the editor's to write only when memory differs from the baseline
+ * (the person changed it here). Everything else belongs to whoever wrote the store last, and is
+ * adopted from there. Slides are compared field by field, and settings key by key, so an edit to
+ * a slide title never carries a stale copy of that slide's content along.
+ *
+ * `rebaseBriefingEdits` MUTATES the memory copy IN PLACE and keeps every slide object alive. The
+ * slide form's input handlers close over the slide OBJECT (`slide.title = input.value`), so
+ * replacing it with a fresh one detaches the form: the next keystroke writes into an object that
+ * nothing saves. Every refresh of the editor goes through here for that reason.
+ */
+
+/** Briefing keys the editor never edits: identity, bookkeeping and the slides (handled apart). */
+const BRIEFING_FIXED_KEYS = new Set(['id', 'slides', 'sync', 'createdAt', 'updatedAt']);
+
+/** Slide keys the editor never edits directly: identity, position in the list, bookkeeping. */
+const SLIDE_FIXED_KEYS = new Set(['id', 'order', 'sync']);
+
+/** Keys whose value is a flat record merged key by key instead of replaced whole. */
+const KEYED_RECORDS = new Set(['settings']);
+
+const keysOf = (...objects) => new Set(objects.flatMap((object) => Object.keys(object ?? {})));
+
+/**
+ * The keys of `current` that differ from `base`, with their current values (deep copies).
+ *
+ * @param {Object|undefined} current
+ * @param {Object|undefined} base
+ * @param {Set<string>} fixed - Keys never reported.
+ * @returns {Object} Changed keys only.
+ */
+function changedFields(current, base, fixed) {
+    const changed = {};
+    for (const key of keysOf(current, base)) {
+        if (fixed.has(key) || deepEqual(current?.[key], base?.[key])) continue;
+        if (KEYED_RECORDS.has(key) && isRecord(current?.[key]) && isRecord(base?.[key])) {
+            changed[key] = changedFields(current[key], base[key], new Set());
+        } else {
+            changed[key] = deepClone(current?.[key]);
+        }
+    }
+    return changed;
+}
+
+const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+/**
+ * What the person changed in the editor since the baseline, as a patch the store applies on top
+ * of its CURRENT document.
+ *
+ * Slides are keyed by id and carry only their changed fields. A memory slide absent from the
+ * baseline cannot come from the editor (adding goes through the store), so it is not reported.
+ *
+ * @param {Object} memory - The editor's working copy.
+ * @param {Object} baseline - The store document that copy was last reconciled with.
+ * @returns {{fields: Object, slides: Object<string, Object>, empty: boolean}}
+ */
+export function diffBriefingEdits(memory, baseline) {
+    const fields = changedFields(memory, baseline, BRIEFING_FIXED_KEYS);
+    const baseSlides = new Map((baseline?.slides ?? []).map((slide) => [slide.id, slide]));
+    const slides = {};
+    for (const slide of memory?.slides ?? []) {
+        const base = baseSlides.get(slide?.id);
+        if (!base) continue;
+        const patch = changedFields(slide, base, SLIDE_FIXED_KEYS);
+        if (Object.keys(patch).length) slides[slide.id] = patch;
+    }
+    return { fields, slides, empty: !Object.keys(fields).length && !Object.keys(slides).length };
+}
+
+/**
+ * Adopts `fresh[key]` into `target` when the key is NOT dirty (equal to `base`), in place. A dirty
+ * keyed record still adopts, key by key, the entries the person did not touch here.
+ *
+ * @returns {boolean} Whether `target[key]` changed.
+ */
+function adoptKey(target, base, fresh, key) {
+    const dirty = !deepEqual(target[key], base?.[key]);
+    if (!dirty) {
+        if (deepEqual(target[key], fresh?.[key])) return false;
+        setOrDelete(target, key, fresh?.[key]);
+        return true;
+    }
+    if (KEYED_RECORDS.has(key) && isRecord(target[key]) && isRecord(fresh?.[key])) {
+        const subBase = isRecord(base?.[key]) ? base[key] : {};
+        let changed = false;
+        for (const sub of keysOf(target[key], fresh[key])) {
+            changed = adoptKey(target[key], subBase, fresh[key], sub) || changed;
+        }
+        return changed;
+    }
+    return false;
+}
+
+/**
+ * Runs {@link adoptKey} over every key of `target` and `fresh`, except `skip`; the `always` keys
+ * are bookkeeping the editor never edits, so they take the store's value unconditionally.
+ *
+ * @returns {string[]} The keys that changed in `target`.
+ */
+function adoptAll(target, base, fresh, { skip, always }) {
+    const changed = [];
+    for (const key of keysOf(target, fresh)) {
+        if (skip.has(key)) continue;
+        if (always.has(key)) {
+            if (!deepEqual(target[key], fresh?.[key])) {
+                setOrDelete(target, key, fresh?.[key]);
+                changed.push(key);
+            }
+            continue;
+        }
+        if (adoptKey(target, base, fresh, key)) changed.push(key);
+    }
+    return changed;
+}
+
+function setOrDelete(target, key, value) {
+    if (value === undefined) delete target[key];
+    else target[key] = deepClone(value);
+}
+
+/**
+ * Reconciles the editor's working copy with a fresh store document, IN PLACE.
+ *
+ * Clean fields (equal to the baseline) take the store's value; dirty ones keep the person's. The
+ * slide list takes the store's membership and order: a slide a peer deleted leaves, a slide a peer
+ * created enters as a copy, and every surviving slide keeps its OBJECT identity (see the module
+ * note). The caller must replace its baseline with a copy of `fresh` afterwards.
+ *
+ * @param {Object} memory - The editor's working copy (mutated).
+ * @param {Object} baseline - The store document `memory` was last reconciled with.
+ * @param {Object} fresh - The store document now.
+ * @returns {{changed: boolean, removedSlideIds: string[], addedSlideIds: string[], updatedSlideIds: string[], updatedFields: string[]}}
+ */
+export function rebaseBriefingEdits(memory, baseline, fresh) {
+    const updatedFields = adoptAll(memory, baseline, fresh,
+        { skip: new Set(['id', 'slides']), always: new Set(['sync', 'createdAt', 'updatedAt']) })
+        .filter((key) => !BRIEFING_FIXED_KEYS.has(key));
+
+    const memoryById = new Map((memory.slides ?? []).map((slide) => [slide.id, slide]));
+    const baseById = new Map((baseline?.slides ?? []).map((slide) => [slide.id, slide]));
+    const orderBefore = (memory.slides ?? []).map((slide) => slide.id);
+    const next = [];
+    const addedSlideIds = [];
+    const updatedSlideIds = [];
+    for (const freshSlide of fresh?.slides ?? []) {
+        const mine = memoryById.get(freshSlide.id);
+        if (!mine) {
+            next.push(deepClone(freshSlide));
+            addedSlideIds.push(freshSlide.id);
+            continue;
+        }
+        memoryById.delete(freshSlide.id);
+        const touched = adoptAll(mine, baseById.get(freshSlide.id), freshSlide,
+            { skip: new Set(['id']), always: new Set(['order', 'sync']) });
+        if (touched.some((key) => !SLIDE_FIXED_KEYS.has(key))) updatedSlideIds.push(freshSlide.id);
+        next.push(mine);
+    }
+    const removedSlideIds = [...memoryById.keys()];
+    memory.slides = next;
+    const reordered = orderBefore.join('|') !== next.map((slide) => slide.id).join('|');
+
+    return {
+        changed: reordered || updatedFields.length > 0 || updatedSlideIds.length > 0,
+        removedSlideIds,
+        addedSlideIds,
+        updatedSlideIds,
+        updatedFields,
+    };
 }
 
 // ============================================================================
