@@ -1401,8 +1401,26 @@ function operationDenialReason(op, permission) {
   return null;
 }
 
-/** Refuse foreign text edits before logging or fanout, using the stored author. */
+/**
+ * Refuse foreign text edits AND foreign deletes before logging or fanout, using the stored author.
+ *
+ * THE DELETE HALF was missing: a Comentarista's delete of someone else's comment matched nothing in
+ * the UPDATE of `applyCommentOp` (author or editor+ only), but it was still logged, acked `applied`
+ * and broadcast, so every peer hid a comment the server kept, until a full snapshot, and the sender
+ * dequeued it believing it was gone. Same rule as the SQL gate: the author, or editor and above
+ * (moderation). A comment that does not exist is not refused: the log is expurgable, so absence
+ * proves nothing, and deleting nothing is harmless.
+ */
 async function commentEditDenialReason(t, atlasId, op, userId, permission) {
+  if (op.target === 'comment' && op.type === 'delete') {
+    if (PERMISSION_LEVELS[permission] >= PERMISSION_LEVELS.write) return null;
+    const alvo = await t.oneOrNone(
+      'SELECT author_id FROM comments WHERE id = $1 AND atlas_id = $2 AND deleted_at IS NULL',
+      [asUuidOrNull(op.targetId), atlasId]
+    );
+    if (!alvo || (alvo.author_id && alvo.author_id === userId)) return null;
+    return 'Somente o autor pode excluir o comentário.';
+  }
   if (op.target !== 'comment' || op.type !== 'update') return null;
   const existing = await t.oneOrNone(
     'SELECT id, map_id, parent_id, author_id, data FROM comments WHERE id = $1 AND atlas_id = $2 AND deleted_at IS NULL',
