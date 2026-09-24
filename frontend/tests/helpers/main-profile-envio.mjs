@@ -9,7 +9,7 @@ import { chromium, firefox, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
 import { createServer, request } from 'node:http';
 import { readFile, mkdir, writeFile, stat } from 'node:fs/promises';
-import { resolve, join, extname, sep } from 'node:path';
+import { resolve, join, extname, sep, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import setup from '../e2e-ui/global-setup.js';
 import teardown from '../e2e-ui/global-teardown.js';
@@ -271,7 +271,7 @@ try {
     await page.getByRole('button', { name: 'Mapas', exact: true }).click();
     const chooser = page.waitForEvent('filechooser');
     await page.getByTitle('Abrir projeto (substitui atual)', { exact: true }).click();
-    await (await chooser).setFiles(join(dataRoot, FIXTURE));
+    await (await chooser).setFiles((isAbsolute(FIXTURE) ? FIXTURE : join(dataRoot, FIXTURE)));
     await expect(page.getByText(/mapas? carregados?!/)).toBeVisible({ timeout: 120000 });
     await page.waitForTimeout(3000);
     const before = await disk();
