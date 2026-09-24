@@ -771,6 +771,9 @@ async function applyRemoteCreateRun(run, options) {
                     // Idempotent by id, as in the single path: an echoed CREATE replaces.
                     features[index] = operation.data;
                 }
+                // The analysis output is derived here too, as in the single path: a line of sight
+                // or a viewshed inside a run would otherwise land without its visible halves.
+                replaceDerivedOutput(mapData.features, storageType, operation.entityId, operation.data);
             }
             await repo.saveMap(mapId, mapData);
             for (const operation of run) {

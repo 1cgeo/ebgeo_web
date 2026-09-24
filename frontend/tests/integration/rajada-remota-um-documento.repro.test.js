@@ -191,6 +191,28 @@ describe('applyRemoteOperations: criacoes do mesmo quadro', () => {
         expect(calls.saveMap).toBe(2);
     });
 
+    it('uma visada dentro da rajada chega com a saida DERIVADA, como no caminho unico', async () => {
+        // A camada da entrada (`los`) pinta com opacidade zero: sem as metades derivadas a visada
+        // do colega fica invisivel. O caminho unico deriva em `replaceDerivedOutput`; a rajada
+        // precisa fazer o mesmo, senao colar ou importar varias feicoes com uma visada no meio
+        // entrega ao par uma analise que ninguem ve.
+        const losId = '11111111-1111-4111-8111-111111111111';
+        const visada = create(losId, {
+            data: {
+                type: 'Feature',
+                geometry: { type: 'MultiLineString', coordinates: [[[0, 0], [1, 1]], [[1, 1], [2, 2]]] },
+                properties: { id: losId, source: 'los', nome: 'Linha de Visada #1', width: 5, opacity: 1 },
+            },
+        });
+        expect(await applyRemoteOperations([create('antes'), visada, create('depois')])).toBe(true);
+
+        expect(calls.saveMap).toBe(1);
+        const doc = mapDataStore.get('map-1').features;
+        expect(doc.los.map((f) => f.properties.id)).toEqual([losId]);
+        expect((doc.processed_los ?? []).map((f) => f.properties?.id ?? f.id).sort())
+            .toEqual([`${losId}-obstructed`, `${losId}-visible`]);
+    });
+
     it('a falha de gravacao sobe, como no caminho unico', async () => {
         const { getRepository } = await import('../../src/js/store/repositories/index.js');
         getRepository.mockImplementationOnce(() => ({
