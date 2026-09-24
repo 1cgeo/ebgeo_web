@@ -7,6 +7,7 @@
 
 import { showError } from '@utils/toast_service.js';
 import { maplibregl } from '@js/map/maplibre.js';
+import { credencialDeTile } from '@js/map/credencial-de-tile.js';
 
 class ScreenshotControl {
     /**
@@ -180,6 +181,9 @@ class ScreenshotControl {
                 // padrão novo (4) fatia os tiles e desloca o rótulo de centro de polígono, e a
                 // imagem capturada deixaria de bater com a da tela.
                 zoomLevelsToOverscale: undefined,
+                // The SAME credential as the live map whose style this copies: without it a
+                // private layer lent by the atlas or read with the token is refused here.
+                transformRequest: credencialDeTile,
             });
 
             const cleanupTempMap = () => {
@@ -381,6 +385,8 @@ class ScreenshotControl {
                     // padrão novo (4) fatia os tiles e desloca o rótulo de centro de polígono, e a
                     // imagem capturada deixaria de bater com a da tela.
                     zoomLevelsToOverscale: undefined,
+                    // The SAME credential as the live map: see the constructor above.
+                    transformRequest: credencialDeTile,
                 });
 
                 failsafe = setTimeout(() => {

@@ -195,6 +195,37 @@ describe('(b) todo construtor de mapa declara `zoomLevelsToOverscale`', () => {
     });
 });
 
+/**
+ * (d) UM MAPA QUE COPIA O ESTILO DO MAPA VIVO PEDE COM A MESMA CREDENCIAL (2026-09-24).
+ *
+ * As exportações e a captura desenham um mapa fora da tela a partir do estilo do mapa vivo, e esse
+ * estilo carrega as fontes privadas que a pessoa vê por empréstimo do atlas ou pelo token. Sem o
+ * `transformRequest` de `map/credencial-de-tile.js` o mapa fora da tela as pede sem carimbo e sem
+ * `Bearer`, o servidor recusa, e o arquivo sai sem a camada. Foi o estado dos três exportadores
+ * até a revisão de 2026-09-23 e o das duas capturas de `screenshot.control.js` até esta régua.
+ */
+const ESTILO_COPIADO = /getStyle\(\)|getCleanMapStyle\(|getCleanStyle\(|\bcleanStyle\b/;
+
+describe('(d) mapa que copia o estilo do mapa vivo declara `transformRequest: credencialDeTile`', () => {
+    const copias = COM_CONSTRUTOR.flatMap(({ rel, literais }) => literais
+        .map((literal, i) => ({ rel, i, literal }))
+        .filter(({ literal }) => ESTILO_COPIADO.test(literal)));
+
+    it('o inventário das cópias é o esperado (arquivo novo decide aqui)', () => {
+        expect(copias.map(({ rel }) => rel)).toEqual([
+            'src/js/import_export/garmin-kmz-export.js',
+            'src/js/import_export/pdf-export.tab.js',
+            'src/js/import_export/pdf-mosaic-export.js',
+            'src/js/import_export/screenshot.control.js',
+            'src/js/import_export/screenshot.control.js',
+        ]);
+    });
+
+    it.each(copias.map((c) => [`${c.rel} #${c.i + 1}`, c]))('%s', (_nome, { literal }) => {
+        expect(literal).toMatch(/transformRequest\s*:\s*credencialDeTile\b/);
+    });
+});
+
 describe('(c) a régua que proíbe o global está LIGADA no lint', () => {
     /**
      * A regra `ebgeo/no-maplibre-global` tem controle negativo próprio (`eslint-rules/probe.js`,
