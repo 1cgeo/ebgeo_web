@@ -308,7 +308,8 @@ describe('Snapshot generation commit with native IndexedDB', () => {
         expect(await new LocalRepository(isolated).getMap(mapId)).toBeNull();
 
         expect(await reconcileDurablePointers(isolated)).toMatchObject({ generation: 'restored' });
-        expect(readGeneration(isolated)).toEqual({ active, known: [active], cursor: 51 });
+        // O PRINCIPAL viaja com o cursor desde 2026-09-23 (o retrato é recortado por quem pede).
+        expect(readGeneration(isolated)).toEqual({ active, known: [active], cursor: 51, principal: null });
         expect((await new LocalRepository(isolated).getMap(mapId)).name).toBe('Servidor');
     });
 

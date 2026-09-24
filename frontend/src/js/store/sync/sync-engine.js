@@ -665,6 +665,15 @@ class SyncEngine {
             return 0;
         }
         if (!record.active || !Number.isSafeInteger(record.cursor) || record.cursor <= 0) return 0;
+        // THE CURSOR VOUCHES FOR A RECORTE, AND THE RECORTE IS PER CALLER. The server cuts the
+        // snapshot by who asks (`getAtlasSnapshot`: a `read` snapshot has no comment, and catalog
+        // definitions pass the caller's access predicate), so a generation staged for a public-link
+        // visitor is complete FOR THE VISITOR only. Until 2026-09-23 the account that logged in
+        // afterwards on the same machine got a tail over it and never saw what the visit had not
+        // received. Repro: `tests/e2e-ui/visita-publica-depois-conta-ve-tudo.repro.spec.js`.
+        // A record written before the principal was recorded carries none and is trusted: this build
+        // launches with the field, so such a record only exists on a development machine.
+        if (Object.hasOwn(record, 'principal') && record.principal !== (session.principalId ?? null)) return 0;
 
         const atlas = await getStoreFor(StoreName.ATLAS, { ...session.scope, dataGeneration: record.active })
             .getItem(ATLAS_RECORD_KEY);

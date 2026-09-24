@@ -2249,9 +2249,15 @@ export function applyRemoteSnapshot(snapshot, options = {}) {
         // not yet pushed (they do not move the server version, so they cannot raise it either).
         // The catalog repair the server answers with a snapshot for cannot land here: it only
         // triggers on rows newer than the asked cursor, which puts `currentVersion` above it.
+        //
+        // AND ONLY FOR THE SAME PRINCIPAL. The server cuts the snapshot BY WHO ASKS (a `read`
+        // snapshot carries no comment, and catalog definitions pass the caller's access predicate),
+        // so an active generation staged for a public-link visitor holds LESS than the owner's
+        // snapshot at the very same version. `principal` is the SyncSession's (null for a visitor).
+        const principal = options.principalId ?? null;
         const queue = operationQueue.forScope(context.scope);
         const hasPrepared = (await queue.countByState()).preparadas > 0;
-        if (!hasPrepared && await activeGenerationHolds(context.scope, snapshot.currentVersion)) return;
+        if (!hasPrepared && await activeGenerationHolds(context.scope, snapshot.currentVersion, principal)) return;
         context.assertActive();
         const pause = pauseStoreWrites(context.scope);
         // Which side of the durable commit a failure lands on: before it, the preparation is disk
@@ -2301,7 +2307,12 @@ export function applyRemoteSnapshot(snapshot, options = {}) {
             // operation application is serialized. Check again at the publication boundary.
             assertSnapshotCurrent(snapshot.currentVersion, context.scope);
             if (latest.active !== record.active) throw new Error('Outra aba atualizou o atlas durante a recuperação. Tente novamente.');
-            writeGeneration(context.scope, { ...latest, active: generation, cursor: snapshot.currentVersion });
+            // THE PRINCIPAL GOES WITH THE CURSOR: the cursor vouches for a recorte, and the recorte
+            // is per caller. See `_durablePullCursor` (`sync-engine.js`), which refuses a tail over
+            // a generation staged for someone else.
+            writeGeneration(context.scope, {
+                ...latest, active: generation, cursor: snapshot.currentVersion, principal,
+            });
             activated = true;
             // This tab now READS the new generation, and says so with a lock, so that the pruning
             // below (and another tab's) can tell "superseded" from "still being read".
@@ -2413,7 +2424,7 @@ function anuncioDeMapaCorrente(oldName, mapId, maps) {
  * @param {number} currentVersion - The snapshot's server version.
  * @returns {Promise<boolean>}
  */
-async function activeGenerationHolds(scope, currentVersion) {
+async function activeGenerationHolds(scope, currentVersion, principal = null) {
     let record;
     try {
         record = readGeneration(scope);
@@ -2421,6 +2432,9 @@ async function activeGenerationHolds(scope, currentVersion) {
         return false;
     }
     if (!record.active || record.cursor !== currentVersion) return false;
+    // A generation staged for another principal holds another recorte (a record written before the
+    // principal was recorded carries none, and is trusted, as in `_durablePullCursor`).
+    if (Object.hasOwn(record, 'principal') && record.principal !== principal) return false;
 
     try {
         const atlas = await getStoreFor(StoreName.ATLAS, { ...scope, dataGeneration: record.active })

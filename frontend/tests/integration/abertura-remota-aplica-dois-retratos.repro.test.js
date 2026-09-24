@@ -271,7 +271,8 @@ describe('abertura de atlas remoto: quantos retratos completos ela encena', () =
         expect(ativacoes).toHaveLength(1);
         expect(geracoesCunhadas.size).toBe(1);
         expect(readGeneration(escopo)).toEqual({
-            active: ativacoes[0], known: [ativacoes[0]], cursor: 0,
+            // O PRINCIPAL viaja com o cursor desde 2026-09-23 (o retrato é recortado por quem pede).
+            active: ativacoes[0], known: [ativacoes[0]], cursor: 0, principal: null,
         });
     });
 
@@ -359,7 +360,7 @@ describe('abertura de atlas remoto: quantos retratos completos ela encena', () =
         // O WIPE DE ENTRADA, e só ele: os bancos esvaziam, o ponteiro fica.
         await clearAtlasDatabases(escopo);
         expect(readGeneration(escopo), 'o ponteiro sobrevive ao wipe, que é a premissa do caso')
-            .toEqual({ active: primeira, known: [primeira], cursor: 7 });
+            .toEqual({ active: primeira, known: [primeira], cursor: 7, principal: 'user-1' });
 
         syncEngine.disconnect();
         h.ws.disconnect();
@@ -446,7 +447,7 @@ describe('o cursor durável anda com a cauda aplicada', () => {
         await abrirEFechar();
 
         expect(h.servidor.retratosServidos, 'nenhum retrato novo foi servido').toBe(1);
-        expect(readGeneration(escopo)).toEqual({ active: geracao, known: [geracao], cursor: 12 });
+        expect(readGeneration(escopo)).toEqual({ active: geracao, known: [geracao], cursor: 12, principal: 'user-1' });
         // A operação está MESMO no disco: o cursor andou sobre dado gravado, não sobre promessa.
         const mapa = await localRepository.getMap(MAPA);
         expect((mapa?.features?.points ?? []).map(f => f.properties.id)).toContain(id);
@@ -490,7 +491,7 @@ describe('o cursor durável anda com a cauda aplicada', () => {
         expect(readGeneration(escopo).cursor, 'nada disso escreveu').toBe(7);
 
         expect(syncEngine._advanceDurableCursor(sessao, 9, geracao)).toBe(true);
-        expect(readGeneration(escopo)).toEqual({ active: geracao, known: [geracao], cursor: 9 });
+        expect(readGeneration(escopo)).toEqual({ active: geracao, known: [geracao], cursor: 9, principal: 'user-1' });
     });
 
     it('abertura de PRIMEIRA vez (retrato) não passa por aqui: o cursor é o do retrato', async () => {
