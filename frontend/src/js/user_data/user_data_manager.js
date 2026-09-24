@@ -12,14 +12,13 @@
  */
 
 import { getMapData, updateFeature, getCurrentMapNameSync, getStorageTypeFromSource, getEventBus } from '@store';
-import { IDUtils } from '@utils';
 import { EventTypes, FeatureUpdateProperty } from '@events';
 import {
     IMAGE_CONFIG,
     PHOTO_CONFIG,
-    validateImageFile,
-    processImageFile
+    validateImageFile
 } from '@utils/image_utils.js';
+import { prepararFotoAnexa } from '@store/photo-attach.js';
 import { photoStillLargeNotice, photoNotArrivedNotice } from '@utils/image-limit-phrases.js';
 import { urlDaFoto } from './photo-source.js';
 import { showWarning } from '@utils/toast_service.js';
@@ -467,32 +466,34 @@ const userDataManager = {
         }
 
         try {
-            // Use shared processing utility
-            const processedImage = await processImageFile(file);
-            const imageId = IDUtils.generateUniqueId();
-            // Bytes of the stored photo, from its data URL: 3/4 of the base64 after the comma.
-            const guardados = Math.floor((processedImage.data.length - processedImage.data.indexOf(',') - 1) * 3 / 4);
-            if (guardados > PHOTO_CONFIG.warnBytes) {
-                showWarning(photoStillLargeNotice({ nome: file.name, bytes: guardados }));
+            // THE PHOTO IS A BLOB WITH A REFERENCE since phase 2b (`store/photo-attach.js`): the
+            // feature carries `{ id, name, type, size, thumbnail, addedAt }` and the bytes go up once,
+            // on their own, after the feature was saved. A save that did not happen drops them.
+            const foto = await prepararFotoAnexa(file, { origem: 'foto-anexa' });
+            const imageData = foto.item;
+            const imageId = imageData.id;
+
+            let salvo = null;
+            try {
+                salvo = await this._updateFeature(featureId, featureType, (feature) => {
+                    if (!feature.properties.images) {
+                        feature.properties.images = [];
+                    }
+                    feature.properties.images.push(imageData);
+                    return feature;
+                });
+            } catch (error) {
+                await foto.descartar();
+                throw error;
             }
-
-            const imageData = {
-                id: imageId,
-                name: file.name,
-                type: file.type,
-                size: file.size,
-                data: processedImage.data,
-                thumbnail: processedImage.thumbnail,
-                addedAt: Date.now(),
-            };
-
-            await this._updateFeature(featureId, featureType, (feature) => {
-                if (!feature.properties.images) {
-                    feature.properties.images = [];
-                }
-                feature.properties.images.push(imageData);
-                return feature;
-            });
+            if (!salvo) {
+                await foto.descartar();
+                return null;
+            }
+            foto.confirmar();
+            if (foto.bytes > PHOTO_CONFIG.warnBytes) {
+                showWarning(photoStillLargeNotice({ nome: file.name, bytes: foto.bytes }));
+            }
 
             this._emitUpdate(featureId, featureType, FeatureUpdateProperty.IMAGES, {
                 imageId,

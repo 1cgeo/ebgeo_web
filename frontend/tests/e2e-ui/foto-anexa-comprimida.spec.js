@@ -55,11 +55,15 @@ async function anexar(page, featureId) {
         const { default: userDataManager } = await import('/src/js/user_data/user_data_manager.js');
         const img = await userDataManager.addImage(id, 'line', window.__foto);
         if (!img) return null;
+        // Since phase 2b the item carries the reference only: the bytes are read like any reader.
+        const { blobDaFoto } = await import('/src/js/user_data/photo-source.js');
+        const blob = await blobDaFoto(img);
+        const url = URL.createObjectURL(blob);
         const decodificada = await new Promise((resolve) => {
             const el = new Image();
             el.onload = () => resolve({ w: el.naturalWidth, h: el.naturalHeight });
             el.onerror = () => resolve(null);
-            el.src = img.data;
+            el.src = url;
         });
         const alfa = await new Promise((resolve) => {
             const el = new Image();
@@ -72,11 +76,13 @@ async function anexar(page, featureId) {
                 resolve(cx.getImageData(0, 0, 1, 1).data[3]);
             };
             el.onerror = () => resolve(null);
-            el.src = img.data;
+            el.src = url;
         });
+        URL.revokeObjectURL(url);
         return {
-            dataUrlBytes: img.data.length,
-            mime: img.data.slice(5, img.data.indexOf(';')),
+            bytes: blob.size,
+            temData: 'data' in img,
+            mime: blob.type,
             thumbBytes: img.thumbnail?.length ?? 0,
             dims: decodificada,
             alfaNoCantoEsquerdo: alfa,
@@ -108,7 +114,8 @@ collabTest('uma foto de câmera anexada fica em poucas centenas de KB, no disco,
     expect(original, 'a foto de teste tem tamanho de câmera').toBeGreaterThan(2 * 1024 * 1024);
     expect(anexada.mime).toBe('image/jpeg');
     expect(Math.max(anexada.dims.w, anexada.dims.h)).toBeLessThanOrEqual(1600);
-    expect(anexada.dataUrlBytes, 'poucas centenas de KB no disco').toBeLessThan(700 * 1024);
+    expect(anexada.bytes, 'poucas centenas de KB no disco').toBeLessThan(500 * 1024);
+    expect(anexada.temData, 'a feição guarda a referência, não os bytes').toBe(false);
     expect(corpoDoPush, 'a edição que leva a foto cabe folgada no teto do servidor').toBeLessThan(1.5 * 1024 * 1024);
 });
 
@@ -128,9 +135,9 @@ collabTest('uma foto já pequena é guardada como veio', async ({ collab }) => {
     const linha = await drawLineUI(A, [[-43.2, -22.9], [-43.15, -22.85]]);
     const original = await fotoDeCamera(A, { largura: 800, altura: 600 });
     const anexada = await anexar(A, linha);
-    const esperado = Math.ceil(original / 3) * 4 + 'data:image/jpeg;base64,'.length;
+
     console.log(`FOTO_ANEXA_PEQUENA original=${original} guardada=${JSON.stringify(anexada)}`);
-    expect(anexada.dataUrlBytes, 'os bytes originais, sem re-codificar').toBe(esperado);
+    expect(anexada.bytes, 'os bytes originais, sem re-codificar').toBe(original);
     expect(anexada.dims).toEqual({ w: 800, h: 600 });
 });
 
@@ -150,7 +157,7 @@ collabTest('uma foto que continua grande depois de reduzida avisa, nomeando a fo
         window.__foto = new File([blob], 'ruido.jpg', { type: 'image/jpeg' });
     });
     const anexada = await anexar(A, linha);
-    const guardados = Math.floor((anexada.dataUrlBytes - 'data:image/jpeg;base64,'.length) * 3 / 4);
+    const guardados = anexada.bytes;
     console.log(`FOTO_ANEXA_RUIDO guardada=${JSON.stringify(anexada)} bytes=${guardados}`);
     expect(guardados, 'o caso de teste produz uma foto acima do limiar de aviso').toBeGreaterThan(600 * 1024);
     const toast = A.locator('.toast', { hasText: 'mesmo depois de reduzida' });

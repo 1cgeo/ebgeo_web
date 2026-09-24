@@ -12,7 +12,8 @@ import { getCesium3dCompat, setCesium3dCompat } from './repositories/index.js';
 import { mapExistsForGesture } from './mapa-inexistente.js';
 import mapManager from './store-state-manager.js';
 import { EventTypes } from '../events';
-import { validateImageFile, processImageFile } from '../utilities/image_utils.js';
+import { validateImageFile } from '../utilities/image_utils.js';
+import { prepararFotoAnexa } from './photo-attach.js';
 import { createSyncMetadata, touchSyncMetadata, isActive } from './sync/sync-metadata.js';
 import { generateUUID } from '../utilities/uuid.js';
 import { deepClone } from '../utilities/deep-utils.js';
@@ -260,9 +261,10 @@ function getUserDefaultStyle(storageKey) {
  * @param {string} collectionKey - Key in cesium3d data ('markers', 'measurements', 'viewsheds')
  * @param {string} changeEvent - Event type to emit
  * @param {string|null} mapName
- * @param {string} entityType - The entity's EntityType (e.g. EntityType.MARKER_3D). The image
- *   lives INLINE in the entity's `images[]`, so attaching it is an entity UPDATE that must
- *   propagate to peers (the `data` carries the new `images[]`); without this it stayed local.
+ * @param {string} entityType - The entity's EntityType (e.g. EntityType.MARKER_3D). The photo's
+ *   REFERENCE lives in the entity's `images[]` (its bytes are a blob, see `photo-attach.js`), so
+ *   attaching it is an entity UPDATE that must propagate to peers (the `data` carries the new
+ *   `images[]`); without this it stayed local.
  * @returns {Promise<Object|null>}
  */
 async function addEntityImage(entityId, file, collectionKey, changeEvent, mapName, entityType) {
@@ -284,46 +286,52 @@ async function addEntityImage(entityId, file, collectionKey, changeEvent, mapNam
     }
 
     const targetMap = getTargetMapName(mapName);
+    // THE PHOTO IS A BLOB WITH A REFERENCE since phase 2b (`photo-attach.js`): stored and its upload
+    // registered BEFORE the entity is written, sent only after, dropped when the write did not happen.
+    const foto = await prepararFotoAnexa(file, { origem: 'foto-anexa-3d' });
     // The `catch` that used to wrap this whole body turned a quota failure into a silent null.
     // With the journal ahead of the entity the failure has to reach the caller, or an intention
     // already on disk would be reported to the user as "nothing happened".
-    return editCesium3d(targetMap, `addImage:${collectionKey}`, async data => {
-        if (!data[collectionKey]) return null;
+    let resultado;
+    try {
+        resultado = await editCesium3d(targetMap, `addImage:${collectionKey}`, async data => {
+            if (!data[collectionKey]) return null;
 
-        const entityIndex = data[collectionKey].findIndex(e => e.id === entityId);
-        if (entityIndex === -1) {
-            console.warn(`Entity not found: ${entityId}`);
-            return null;
-        }
+            const entityIndex = data[collectionKey].findIndex(e => e.id === entityId);
+            if (entityIndex === -1) {
+                console.warn(`Entity not found: ${entityId}`);
+                return null;
+            }
 
-        const processedImage = await processImageFile(file);
-        const imageData = {
-            id: generateUUID(),
-            name: file.name,
-            type: file.type,
-            size: file.size,
-            data: processedImage.data,
-            thumbnail: processedImage.thumbnail,
-            addedAt: Date.now()
-        };
+            const imageData = foto.item;
 
-        const entity = data[collectionKey][entityIndex];
-        // Snapshot the pre-image state (shallow + a copy of images) for the op's oldData.
-        const previousEntity = { ...entity, images: entity.images ? [...entity.images] : [] };
-        if (!entity.images) entity.images = [];
-        entity.images.push(imageData);
-        entity.updatedAt = Date.now();
-        entity.sync = touchSyncMetadata(entity.sync);
+            const entity = data[collectionKey][entityIndex];
+            // Snapshot the pre-image state (shallow + a copy of images) for the op's oldData.
+            const previousEntity = { ...entity, images: entity.images ? [...entity.images] : [] };
+            if (!entity.images) entity.images = [];
+            entity.images.push(imageData);
+            entity.updatedAt = Date.now();
+            entity.sync = touchSyncMetadata(entity.sync);
 
-        return {
-            operations: [{
-                entityType, type: OperationType.UPDATE, id: entityId,
-                data: entity, previous: previousEntity
-            }],
-            result: imageData,
-            effect: () => emit(changeEvent, { mapName: targetMap })
-        };
-    }, null);
+            return {
+                operations: [{
+                    entityType, type: OperationType.UPDATE, id: entityId,
+                    data: entity, previous: previousEntity
+                }],
+                result: imageData,
+                effect: () => emit(changeEvent, { mapName: targetMap })
+            };
+        }, null);
+    } catch (error) {
+        await foto.descartar();
+        throw error;
+    }
+    if (!resultado) {
+        await foto.descartar();
+        return null;
+    }
+    foto.confirmar();
+    return resultado;
 }
 
 /**

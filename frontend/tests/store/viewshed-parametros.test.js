@@ -55,6 +55,26 @@ vi.mock('../../src/js/store/repositories/index.js', () => ({
     })
 }));
 
+// A FOTO É BLOB COM REFERÊNCIA desde a fase 2b (`store/photo-attach.js`, 2026-09-24): o item que a
+// entidade guarda não tem `data`. O preparo é dublado aqui porque ele grava no armazém de imagens e
+// registra a subida, que esta suíte não monta; ele tem suíte própria. A miniatura vem do
+// `processImageFile` dublado acima, para que as asserções de miniatura sigam valendo.
+vi.mock('../../src/js/store/photo-attach.js', async () => {
+    const { generateUUID } = await import('../../src/js/utilities/uuid.js');
+    const { processImageFile } = await import('../../src/js/utilities/image_utils.js');
+    return {
+        prepararFotoAnexa: vi.fn(async (file) => {
+            const { thumbnail } = (await processImageFile(file)) ?? {};
+            return {
+                item: { id: generateUUID(), name: file.name, type: file.type, size: file.size, thumbnail, addedAt: Date.now() },
+                bytes: file.size,
+                confirmar: vi.fn(),
+                descartar: vi.fn(async () => {}),
+            };
+        }),
+    };
+});
+
 vi.mock('../../src/js/store/store-state-manager.js', () => ({
     default: h.mapManager
 }));

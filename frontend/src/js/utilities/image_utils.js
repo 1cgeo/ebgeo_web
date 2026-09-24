@@ -4,7 +4,6 @@
  * Provides compression, thumbnail generation, and validation for images.
  */
 
-import { blobToDataUrl } from './blob-to-data-url.js';
 import { ImageRefusal, imageRefusalNotice } from './image-limit-phrases.js';
 
 /**
@@ -456,12 +455,16 @@ export async function createThumbnail(base64Data, options = {}) {
  * string built on the main thread before decoding even starts. A file the browser cannot decode
  * is stored as it came, which is what the old path did below its threshold.
  *
+ * THE PHOTO COMES BACK AS A BLOB since phase 2b (2026-09-24): it is stored in the atlas image store
+ * and uploaded by the durable blob queue (`store/photo-attach.js`), and no data URL of the whole
+ * photo is built anywhere. Only the thumbnail is a data URL, because it travels inside the entity.
+ *
  * @param {File} file - Image file, already accepted by {@link validateImageFile}
- * @returns {Promise<{data: string, thumbnail: string}>} Data URLs of the photo and of its thumbnail
+ * @returns {Promise<{blob: Blob, thumbnail: string}>} The photo, and the data URL of its thumbnail
  */
 export async function processImageFile(file) {
     let url = null;
-    let data;
+    let blob;
     try {
         url = URL.createObjectURL(file);
         const img = await loadImage(url);
@@ -469,7 +472,7 @@ export async function processImageFile(file) {
             type: file.type, size: file.size, width: img.naturalWidth, height: img.naturalHeight,
         });
         if (plano.keep) {
-            data = await blobToDataUrl(file);
+            blob = file;
         } else {
             const canvas = document.createElement('canvas');
             canvas.width = plano.width;
@@ -477,21 +480,31 @@ export async function processImageFile(file) {
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, plano.width, plano.height);
             const alfa = TIPOS_COM_ALFA.has(file.type) && temTransparencia(ctx, plano.width, plano.height);
-            let codificada = canvas.toDataURL(alfa ? 'image/webp' : 'image/jpeg', PHOTO_CONFIG.quality);
-            if (alfa && !codificada.startsWith('data:image/webp')) codificada = canvas.toDataURL('image/png');
-            // Never INFLATE a photo that already fit: the original's data URL is 4/3 of its bytes.
-            const original = Math.ceil(file.size / 3) * 4;
-            data = plano.fits && IMAGE_CONFIG.allowedTypes.includes(file.type) && codificada.length > original
-                ? await blobToDataUrl(file)
+            const paraBlob = (mime, qualidade) => new Promise((resolve) => canvas.toBlob(resolve, mime, qualidade));
+            let codificada = await paraBlob(alfa ? 'image/webp' : 'image/jpeg', PHOTO_CONFIG.quality);
+            if (alfa && codificada?.type !== 'image/webp') codificada = await paraBlob('image/png');
+            // Never INFLATE a photo that already fit.
+            blob = !codificada
+                || (plano.fits && IMAGE_CONFIG.allowedTypes.includes(file.type) && codificada.size > file.size)
+                ? file
                 : codificada;
         }
     } catch {
-        data = await blobToDataUrl(file);
+        blob = file;
     } finally {
         if (url) URL.revokeObjectURL(url);
     }
 
-    const thumbnail = await createThumbnail(data);
+    let urlDaMiniatura = null;
+    let thumbnail;
+    try {
+        urlDaMiniatura = URL.createObjectURL(blob);
+        thumbnail = await createThumbnail(urlDaMiniatura);
+        // `createThumbnail` falls back to its input, here an object URL revoked below: no thumbnail.
+        if (typeof thumbnail !== 'string' || !thumbnail.startsWith('data:')) thumbnail = null;
+    } finally {
+        if (urlDaMiniatura) URL.revokeObjectURL(urlDaMiniatura);
+    }
 
-    return { data, thumbnail };
+    return { blob, thumbnail };
 }

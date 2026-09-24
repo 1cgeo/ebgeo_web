@@ -115,6 +115,26 @@ vi.mock('../../src/js/utilities/image_utils.js', () => ({
     processImageFile: vi.fn(async () => ({ data: 'base64-data', thumbnail: 'base64-thumb' }))
 }));
 
+// A FOTO É BLOB COM REFERÊNCIA desde a fase 2b (`store/photo-attach.js`, 2026-09-24): o item que a
+// entidade guarda não tem `data`. O preparo é dublado aqui porque ele grava no armazém de imagens e
+// registra a subida, que esta suíte não monta; ele tem suíte própria. A miniatura vem do
+// `processImageFile` dublado acima, para que as asserções de miniatura sigam valendo.
+vi.mock('../../src/js/store/photo-attach.js', async () => {
+    const { generateUUID } = await import('../../src/js/utilities/uuid.js');
+    const { processImageFile } = await import('../../src/js/utilities/image_utils.js');
+    return {
+        prepararFotoAnexa: vi.fn(async (file) => {
+            const { thumbnail } = (await processImageFile(file)) ?? {};
+            return {
+                item: { id: generateUUID(), name: file.name, type: file.type, size: file.size, thumbnail, addedAt: Date.now() },
+                bytes: file.size,
+                confirmar: vi.fn(),
+                descartar: vi.fn(async () => {}),
+            };
+        }),
+    };
+});
+
 vi.mock('../../src/js/utilities/uuid.js', () => ({
     generateUUID: vi.fn(() => `uuid-${++h.uuidCounter}`)
 }));
@@ -781,10 +801,11 @@ describe('marker image operations', () => {
             name: 'shot.png',
             type: 'image/png',
             size: 1234,
-            data: 'base64-data',
             thumbnail: 'base64-thumb'
         });
         expect(typeof image.addedAt).toBe('number');
+        // Phase 2b: the marker keeps the reference and the thumbnail, never the bytes.
+        expect(image.data).toBeUndefined();
 
         const stored = h.store.get('TestMap').markers[0];
         expect(stored.images).toHaveLength(1);

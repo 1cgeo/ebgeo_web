@@ -13,7 +13,8 @@ import { getStreetview360Compat, setStreetview360Compat } from './repositories/i
 import { mapExistsForGesture } from './mapa-inexistente.js';
 import mapManager from './store-state-manager.js';
 import { EventTypes } from '../events';
-import { validateImageFile, processImageFile } from '../utilities/image_utils.js';
+import { validateImageFile } from '../utilities/image_utils.js';
+import { prepararFotoAnexa } from './photo-attach.js';
 import { createSyncMetadata, touchSyncMetadata, markDeleted, isActive } from './sync/sync-metadata.js';
 import { generateUUID } from '../utilities/uuid.js';
 // The leaf module, never the `sync/index.js` barrel: five store suites mock that barrel
@@ -670,44 +671,50 @@ export async function addMarker360Image(markerId, file, mapName = null) {
     }
 
     const targetMap = resolveMapName(mapName);
-    return editStreetview360(targetMap, 'addMarker360Image', async data => {
-        const marker = data.markers.find(m => m.id === markerId);
-        if (!marker || !isActive(marker.sync)) {
-            return null;
-        }
-
-        const imageData = await processImageFile(file);
-        const image = {
-            id: generateUUID(),
-            name: file.name,
-            type: file.type,
-            size: file.size,
-            data: imageData.data,
-            thumbnail: imageData.thumbnail,
-            addedAt: Date.now()
-        };
-
-        const previousData = deepClone(marker);
-        marker.images.push(image);
-        marker.updatedAt = Date.now();
-        marker.sync = touchSyncMetadata(marker.sync);
-
-        // The image is inline in the marker's data → attaching it is a marker UPDATE that must sync to peers.
-        return {
-            operations: [{
-                entityType: EntityType.MARKER_360,
-                type: OperationType.UPDATE,
-                id: markerId,
-                data: marker,
-                previous: previousData
-            }],
-            result: image,
-            effect: () => {
-                mirrorMarkerImages(targetMap, markerId, marker);
-                deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
+    // THE PHOTO IS A BLOB WITH A REFERENCE since phase 2b (`photo-attach.js`): stored and its upload
+    // registered BEFORE the marker is written, sent only after, dropped when the write did not happen.
+    const foto = await prepararFotoAnexa(file, { origem: 'foto-anexa-360' });
+    let resultado;
+    try {
+        resultado = await editStreetview360(targetMap, 'addMarker360Image', async data => {
+            const marker = data.markers.find(m => m.id === markerId);
+            if (!marker || !isActive(marker.sync)) {
+                return null;
             }
-        };
-    }, null);
+
+            const image = foto.item;
+
+            const previousData = deepClone(marker);
+            marker.images.push(image);
+            marker.updatedAt = Date.now();
+            marker.sync = touchSyncMetadata(marker.sync);
+
+            // The photo's reference is in the marker's data → attaching it is a marker UPDATE that must sync to peers.
+            return {
+                operations: [{
+                    entityType: EntityType.MARKER_360,
+                    type: OperationType.UPDATE,
+                    id: markerId,
+                    data: marker,
+                    previous: previousData
+                }],
+                result: image,
+                effect: () => {
+                    mirrorMarkerImages(targetMap, markerId, marker);
+                    deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
+                }
+            };
+        }, null);
+    } catch (error) {
+        await foto.descartar();
+        throw error;
+    }
+    if (!resultado) {
+        await foto.descartar();
+        return null;
+    }
+    foto.confirmar();
+    return resultado;
 }
 
 /**

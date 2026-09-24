@@ -96,6 +96,26 @@ vi.mock('../../src/js/utilities/image_utils.js', () => ({
     processImageFile: vi.fn(async () => ({ data: 'data:image/png;base64,AAAA', thumbnail: 'data:image/png;base64,TTTT' }))
 }));
 
+// A FOTO É BLOB COM REFERÊNCIA desde a fase 2b (`store/photo-attach.js`, 2026-09-24): o item que a
+// entidade guarda não tem `data`. O preparo é dublado aqui porque ele grava no armazém de imagens e
+// registra a subida, que esta suíte não monta; ele tem suíte própria. A miniatura vem do
+// `processImageFile` dublado acima, para que as asserções de miniatura sigam valendo.
+vi.mock('../../src/js/store/photo-attach.js', async () => {
+    const { generateUUID } = await import('../../src/js/utilities/uuid.js');
+    const { processImageFile } = await import('../../src/js/utilities/image_utils.js');
+    return {
+        prepararFotoAnexa: vi.fn(async (file) => {
+            const { thumbnail } = (await processImageFile(file)) ?? {};
+            return {
+                item: { id: generateUUID(), name: file.name, type: file.type, size: file.size, thumbnail, addedAt: Date.now() },
+                bytes: file.size,
+                confirmar: vi.fn(),
+                descartar: vi.fn(async () => {}),
+            };
+        }),
+    };
+});
+
 // Os valores são os REAIS de `sync/operation-types.js`, minúsculos: desde o write-ahead de
 // 2026-09-13 a fonte importa o módulo folha e é ele que viaja no envelope. Este mock ficou
 // existindo só pelos espiões de logger, que o espelho abaixo alimenta.
@@ -520,7 +540,8 @@ describe('marker images', () => {
         expect(img.name).toBe('photo.png');
         expect(img.type).toBe('image/png');
         expect(img.size).toBe(4096);
-        expect(img.data).toBe('data:image/png;base64,AAAA');
+        // Phase 2b: the entity keeps the reference and the thumbnail, never the bytes.
+        expect(img.data).toBeUndefined();
         expect(img.thumbnail).toBe('data:image/png;base64,TTTT');
 
         // persisted onto the marker
