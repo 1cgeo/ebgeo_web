@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Path: dev/testes-tocados.mjs
 
 /**
