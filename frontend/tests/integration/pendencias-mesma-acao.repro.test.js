@@ -57,6 +57,8 @@ describe('as recusas da mesma ação e do mesmo motivo são um grupo, com uma a�
         expect(linha(outroMotivo.id).mesmaAcao).toBeFalsy();
         // O motivo de cada uma continua o dela, que é verdadeiro para todas.
         expect(linha(daAcao[7].id).motivo).toBe(TRAVADO);
+        // Uma exclusão se nomeia pelo que foi excluído, nunca pelo id.
+        expect(linha(daAcao[7].id).entidade.nome).toBe('F7');
     });
 
     it('o resumo diz quantas foram recusadas pelo mesmo motivo, e o que fazer', async () => {
@@ -65,6 +67,11 @@ describe('as recusas da mesma ação e do mesmo motivo são um grupo, com uma a�
         expect(frases).toHaveLength(2);
         expect(frases[0]).toBe(`300 alterações da mesma ação foram recusadas pelo mesmo motivo: ${TRAVADO} `
             + 'Aceitar o servidor ou Exportar em qualquer uma delas vale para todas.');
+    });
+
+    it('o motivo do servidor sem ponto final não emenda na frase seguinte', () => {
+        const [frase] = mesmaAcaoResumo([{ total: 3, motivo: 'O mapa está bloqueado e não aceita edições' }]);
+        expect(frase).toContain('edições. Aceitar o servidor');
     });
 
     it('"Aceitar o servidor" em qualquer uma leva as 300, e só elas', async () => {

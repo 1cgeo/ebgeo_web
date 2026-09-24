@@ -273,6 +273,17 @@ export function juntoResumo(juntos) {
 }
 
 /**
+ * A frase do servidor com ponto final, para que a frase seguinte não emende nela (o servidor devolve
+ * "O mapa está bloqueado e não aceita edições", sem ponto).
+ * @param {string} frase
+ * @returns {string}
+ */
+function fechaFrase(frase) {
+    const texto = String(frase ?? '').trim();
+    return /[.!?…]$/.test(texto) ? texto : `${texto}.`;
+}
+
+/**
  * O que uma linha de um grupo "mesma ação, mesmo motivo" acrescenta: quantas outras estão com ela.
  * @param {number} total - Tamanho do grupo, esta inclusive.
  * @returns {string|null}
@@ -300,7 +311,7 @@ export function mesmaAcaoResumo(grupos) {
     return grupos
         .filter((grupo) => Number.isFinite(grupo?.total) && grupo.total >= 2)
         .map((grupo) => `${Math.trunc(grupo.total)} alterações da mesma ação foram recusadas pelo mesmo `
-            + `motivo: ${grupo.motivo} Aceitar o servidor ou Exportar em qualquer uma delas vale para todas.`);
+            + `motivo: ${fechaFrase(grupo.motivo)} Aceitar o servidor ou Exportar em qualquer uma delas vale para todas.`);
 }
 
 /** A lista vazia HONESTA: nada guardado, nada a caminho, e a leitura funcionou. */

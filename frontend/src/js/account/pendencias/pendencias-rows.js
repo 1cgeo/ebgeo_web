@@ -119,11 +119,14 @@ export function mapIdsCitados({ problemas = [], quarentena = [] } = {}) {
  * @returns {string|null}
  */
 function nomeDaEntidade(operation) {
-    const data = operation?.data;
-    if (!data || typeof data !== 'object') return null;
-    const candidatos = [data.name, data.nome, data.title, data.titulo, data.properties?.nome];
-    for (const candidato of candidatos) {
-        if (typeof candidato === 'string' && candidato.trim() !== '') return candidato.trim();
+    // Uma EXCLUSÃO não tem conteúdo (`data` nulo): o nome está no que foi excluído. Sem isto, as
+    // mil linhas de uma exclusão em massa recusada mostravam mil ids.
+    for (const data of [operation?.data, operation?.previousData]) {
+        if (!data || typeof data !== 'object') continue;
+        const candidatos = [data.name, data.nome, data.title, data.titulo, data.properties?.nome];
+        for (const candidato of candidatos) {
+            if (typeof candidato === 'string' && candidato.trim() !== '') return candidato.trim();
+        }
     }
     return null;
 }
