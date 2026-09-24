@@ -565,6 +565,14 @@ const CENSO_ENVIO_WS = [
   { arquivo: 'src/modules/collab/collab.rooms.js', texto: 'client.send(fullPayload);', n: 1, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
   { arquivo: 'src/modules/collab/collab.rooms.js', texto: 'client.send(readPayload);', n: 1, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
 
+  // O CONTROLE DE FLUXO DE PRESENÇA POR DESTINATÁRIO (2026-09-24): o quadro de presença que
+  // `broadcastToRoom` entregaria ao socket sai daqui, na hora ou retido e coalescido até o pong do
+  // marcador anterior. É o MESMO socket da sala e o MESMO quadro já recortado para ele (a retenção
+  // é por destinatário, depois do recorte), então nada de novo atravessa.
+  { arquivo: 'src/modules/collab/collab.fluxo.js', texto: 'ws.send(payload);', n: 2, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
+  { arquivo: 'src/modules/collab/collab.fluxo.js', texto: "if (lote.length > 0) ws.send(JSON.stringify({ type: 'cursors', lote }));", n: 1, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
+  { arquivo: 'src/modules/collab/collab.fluxo.js', texto: 'for (const quadro of quadros) ws.send(JSON.stringify(quadro));', n: 1, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
+
   // O CONTEXTO DE VISUALIZADOR (2026-09-22): o nome de um recurso PRIVADO só vai a quem
   // `fn_can_see_resource` responde sim no escopo do atlas da sala, e o resto recebe o mesmo quadro
   // com o recurso nulo. Os dois sítios são o leque da sala e o COMPLEMENTO do retrato de entrada,

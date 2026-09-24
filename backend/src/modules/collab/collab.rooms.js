@@ -7,16 +7,21 @@ import { pruneResourcePayload } from '../catalog/resource-payload.prune.js';
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
 import { quemPodeVer, escopoLivre, chaveDoRecurso, redigirCursor } from './collab.recorte.js';
+import {
+  TIPOS_DE_PRESENCA, fluxoLigado, entregarPresenca, esquecerRemetente,
+} from './collab.fluxo.js';
 
 const rooms = new Map(); // atlasId -> Set<WebSocket>
 
 // Backpressure thresholds (bytes of un-drained outbound buffer per socket). One slow client must
-// not back up the whole room. Coalescable presence frames (cursor/selection) are dropped
-// to a backed-up client — the next frame supersedes them, so the drop self-heals. A socket past the
+// not back up the whole room. Coalescable presence frames (cursor/selection) go through the
+// per-recipient flow control of `collab.fluxo.js`, which retains the latest one per sender while
+// the recipient has not received the previous one; the buffer threshold below only closes that
+// window early (it alone never fired behind a real slow link, see that file). A socket past the
 // hard ceiling is terminated so it reconnects and replays via sync_request; dropping a durable op
 // would silently diverge that peer instead.
-const COALESCABLE_TYPES = new Set(['cursor', 'cursors', 'selection']);
-const BACKPRESSURE_DROP_BYTES = 1 << 20; // 1 MiB — drop coalescable presence frames
+const COALESCABLE_TYPES = TIPOS_DE_PRESENCA;
+const BACKPRESSURE_DROP_BYTES = 1 << 20; // 1 MiB — hold coalescable presence frames
 const BACKPRESSURE_KILL_BYTES = 8 << 20; // 8 MiB — terminate a hopelessly backed-up socket
 
 /**
@@ -98,6 +103,7 @@ export function broadcastToRoom(
     ? message
     : JSON.stringify(pruneResourcePayload(message));
 
+  const fluxo = coalescable && fluxoLigado();
   const recipients = [];
   for (const client of room) {
     if (client === excludeWs || client.readyState !== 1) continue; // WebSocket.OPEN = 1
@@ -112,6 +118,15 @@ export function broadcastToRoom(
     }
     const buffered = client.bufferedAmount || 0;
     if (buffered > BACKPRESSURE_KILL_BYTES) { client.terminate?.(); continue; } // drowning → reconnect+replay
+    if (fluxo) {
+      // Sent now, or retained and delivered coalesced once this recipient caught up: either way it
+      // receives the latest state, so it counts as a recipient.
+      const bufferAlto = buffered > BACKPRESSURE_DROP_BYTES;
+      if (entregarPresenca(client, message, payload, { bufferAlto }) || typeof client.ping === 'function') {
+        recipients.push(client.clientId || client.userId);
+      }
+      continue;
+    }
     if (coalescable && buffered > BACKPRESSURE_DROP_BYTES) continue; // superseded by the next frame
     client.send(payload);
     recipients.push(client.clientId || client.userId);
@@ -510,6 +525,9 @@ export async function difundirRecortado(remetente, mensagem, recurso, redigir) {
 export function descartarCursorPendente(atlasId, chave) {
   if (chave == null) return;
   cursoresPendentes.get(atlasId)?.delete(chave);
+  // The SAME phantom one level down: what the per-recipient flow control retained from this sender
+  // for a recipient on a slow link would go out after the `user_left` too (`collab.fluxo.js`).
+  for (const client of getRoomClients(atlasId)) esquecerRemetente(client, chave);
 }
 
 /** Descarta o que estiver pendente. Usado no encerramento e pelos testes. */
