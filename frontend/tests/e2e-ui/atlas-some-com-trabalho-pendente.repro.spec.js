@@ -91,7 +91,22 @@ describeOrSkip('o atlas some com trabalho não enviado do colega', () => {
         const texto = await aviso.innerText();
         console.info('LIXEIRA', texto);
         expect(texto, 'a frase diz onde foi parar o trabalho').toMatch(/guardad[ao]s? neste computador/);
-        expect(await pontoEmAtlasLocal(pageB, id), 'o ponto não enviado está num atlas local').toHaveLength(1);
+        // O ATLAS LOCAL LEVA O NOME DO PROJETO, e não "Trabalho recuperado em <data>": o colega nunca
+        // abriu o menu da conta, então o nome vem do registro do atlas montado.
+        expect(await pontoEmAtlasLocal(pageB, id), 'o ponto não enviado está num atlas local com o nome do projeto')
+            .toEqual(['Atlas Colaborativo']);
+
+        // O DONO RESTAURA, e o colega que volta ao atlas lê a pergunta do resgate com a causa certa.
+        expect(await acaoDoDono(browser, seed.userA, 'POST', `/atlas/${seed.atlasId}/restore`)).toBe(200);
+        await pageB.unroute(`**/api/v1/atlas/${seed.atlasId}/sync`);
+        await pageB.reload();
+        await pageB.locator(`[data-testid="project-picker-item"][data-atlas-id="${seed.atlasId}"]`).click();
+        const pergunta = pageB.locator('.confirm-modal-overlay, .choice-modal-overlay, [role="dialog"]', { hasText: 'trabalho guardado' });
+        await expect(pergunta).toBeVisible({ timeout: 30000 });
+        const frase = await pergunta.innerText();
+        console.info('PERGUNTA', frase);
+        expect(frase, 'a pergunta não conta uma sessão que não caiu').not.toMatch(/sessão caiu/);
+        expect(frase).toContain('Atlas Colaborativo');
         await pageB.context().close();
     });
 

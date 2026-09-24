@@ -56,6 +56,7 @@ import {
 } from '@js/session/unsynced-work-phrases.js';
 import { getControl } from '@store';
 import { getCurrentLocalAtlasId, getLocalAtlas } from '@store/local-atlas.api.js';
+import { ATLAS_RECORD_KEY, StoreName, getStore } from '@store/atlas-namespace.js';
 import { saveLocalAtlasToServer } from '@js/import_export/save-local-atlas.service.js';
 // Pelo ARQUIVO: `projects/` não tem barril, e a folha não tem imports (as frases das duas portas do envio).
 import { avisosDoServidor, fraseDeEnvioGrandeDemais } from '@js/projects/server-send-phrases.js';
@@ -1153,7 +1154,11 @@ export class AccountControl {
             // Read BEFORE the teardown: which atlas, under which name, and what it still owes the
             // server. NaN (unknown) counts as work, as it does on the session-loss exit.
             const atlasId = mountedRemoteAtlasId();
-            const atlasName = this._atlasCache?.id === atlasId ? this._atlasCache?.name : null;
+            // THE NAME FROM THE MOUNTED ATLAS RECORD when the menu never loaded the cache, which is
+            // the ordinary state of a collaborator: without it the rescued atlas was called
+            // "Trabalho recuperado em <data>" and the person could not tell which project it was.
+            const atlasName = (this._atlasCache?.id === atlasId ? this._atlasCache?.name : null)
+                ?? await getStore(StoreName.ATLAS).getItem(ATLAS_RECORD_KEY).then((r) => r?.name ?? null, () => null);
             const pendentes = notice === 'excluido' ? 0 : await countPendingOperations();
             syncEngine.disconnect();
             if (pendentes !== 0) {

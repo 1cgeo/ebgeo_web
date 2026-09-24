@@ -577,8 +577,11 @@ export async function enterLocalAtlasOnBoot() {
  */
 export async function confirmDiscardingRescuedWork(rescued) {
     const choice = await showChoice('Este atlas tem trabalho guardado neste computador', {
+        // SEM A CAUSA, desde 2026-09-24: o resgate deixou de ser só da sessão que caiu (entra também
+        // quando o atlas vai para a lixeira ou o acesso é revogado com trabalho não enviado), e
+        // "quando sua sessão caiu" passou a contar o motivo errado.
         message:
-            `Quando sua sessão caiu, as alterações não enviadas foram guardadas aqui como o atlas `
+            `As alterações que não chegaram ao servidor foram guardadas aqui como o atlas `
             + `local "${rescued.name}". Abrir este atlas do servidor agora apaga esse trabalho.\n\n`
             + `Para não perder nada: cancele, abra o atlas local e use "Enviar ao servidor".`,
         choices: [
