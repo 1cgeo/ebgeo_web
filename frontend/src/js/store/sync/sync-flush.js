@@ -111,7 +111,22 @@ const state = {
     engine: null,
     /** @type {{ failures: number, notifiedKind: string|null }} Consecutive-failure tracking. */
     alert: { failures: 0, notifiedKind: null },
+    /** @type {string|null} Kind of the LAST flush failure (`classifyFlushFailure`); null after a success. */
+    lastFailureKind: null,
 };
+
+/**
+ * The kind of the last failed flush of this loop, or null when the last one succeeded (or none ran).
+ *
+ * READ BY THE SYNC BADGE (`account/sync-status.control.js`), and it is the only way the badge
+ * can know that the queue is not "being sent": a Leitor (demoted with work in the queue) gets a
+ * 403 on EVERY push, since the push route needs `comment`, and the badge, which knew only the
+ * queue and the connection, said "Enviando 1…" for as long as the tab lived.
+ * @returns {string|null} One of the kinds of {@link classifyFlushFailure}, or null.
+ */
+export function ultimaFalhaDeEnvio() {
+    return state.lastFailureKind;
+}
 
 /**
  * Classifies a failed flush into what the user needs to hear. A lost permission
@@ -230,11 +245,13 @@ async function flushOnce() {
         if (!current()) return;
         registrarUso(EventoDeUso.SYNC_RESULTADO, PropDeUso.SYNC_SUCESSO);
         state.alert = { failures: 0, notifiedKind: null };
+        state.lastFailureKind = null;
         state.retryAt = 0;
     } catch (error) {
         if (!current()) return;
         registrarUso(EventoDeUso.SYNC_RESULTADO, PropDeUso.SYNC_FALHA);
         console.warn('Auto-flush error:', error);
+        state.lastFailureKind = classifyFlushFailure(error).kind;
         const next = nextFlushAlertState(state.alert, error, error?.status === 426 ? 1 : FLUSH_ALERT_THRESHOLD);
         state.alert = { failures: next.failures, notifiedKind: next.notifiedKind };
         const delay = Math.min(60000, 1500 * 2 ** Math.min(next.failures - 1, 6));
@@ -293,6 +310,7 @@ export function startAutoFlush(engine = syncEngine, { intervalMs = 1500 } = {}) 
     state.inFlight = false;
     state.retryAt = 0;
     state.alert = { failures: 0, notifiedKind: null };
+    state.lastFailureKind = null;
     state.timer = setInterval(() => { flushOnce(); }, intervalMs);
 
     subscribeToChanges();
@@ -328,4 +346,5 @@ export function stopAutoFlush() {
     state.inFlight = false;
     state.retryAt = 0;
     state.alert = { failures: 0, notifiedKind: null };
+    state.lastFailureKind = null;
 }

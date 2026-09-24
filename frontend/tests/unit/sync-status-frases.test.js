@@ -301,7 +301,28 @@ describe('invariantes sobre a grade inteira', () => {
             describeSyncWork({ remote: true, connection: SYNC_CONNECTION.ONLINE, pending: 0, quarentena: 1 }).state,
             describeSyncWork({ remote: true, connection: SYNC_CONNECTION.ONLINE, pending: 0, problemas: 1 }).state,
             describeSyncWork({ remote: true, connection: SYNC_CONNECTION.ONLINE, pending: 0, uploads: 1 }).state,
+            // 2026-09-24: quem foi rebaixado a Leitor recebe 403 em todo envio.
+            describeSyncWork({ remote: true, connection: SYNC_CONNECTION.ONLINE, pending: 1, recusaDoEnvio: 'permission' }).state,
         ]);
         expect([...alcancados].sort()).toEqual([...Object.values(SYNC_WORK_STATE)].sort());
+    });
+});
+
+describe('rebaixado a Leitor: o envio volta 403 a cada tentativa', () => {
+    it('com trabalho na fila, o selo diz que o nível atual não permite enviar, nunca "Enviando"', () => {
+        const saida = describeSyncWork({
+            remote: true, connection: SYNC_CONNECTION.ONLINE, pending: 1, recusaDoEnvio: 'permission',
+        });
+        expect(saida.state).toBe(SYNC_WORK_STATE.NO_PERMISSION);
+        expect(saida.tone).toBe(SYNC_TONE.WARN);
+        expect(saida.label).toBe('Sem permissão');
+        expect(saida.detail).toBe('1 alteração continua neste computador e não pode ser enviada com o seu nível atual neste atlas. Peça permissão de edição ao gestor do atlas.');
+    });
+
+    it('sem trabalho na fila a recusa não muda nada, e outra falha também não', () => {
+        expect(describeSyncWork({ remote: true, connection: SYNC_CONNECTION.ONLINE, pending: 0, recusaDoEnvio: 'permission' }).state)
+            .toBe(SYNC_WORK_STATE.SYNCED);
+        expect(describeSyncWork({ remote: true, connection: SYNC_CONNECTION.ONLINE, pending: 2, recusaDoEnvio: 'network' }).state)
+            .toBe(SYNC_WORK_STATE.SENDING);
     });
 });

@@ -95,6 +95,9 @@ vi.mock('@store/sync/quarantine-registry.js', () => ({
 }));
 
 vi.mock('@store/remote-atlas.api.js', () => ({ listRemoteAtlases: async () => [] }));
+// A última falha do envio (2026-09-24): o controle a lê na pintura. Dublada sem falha, porque o
+// módulo real arrasta o motor de sync inteiro; a regra dela é medida em `sync-status-frases.test.js`.
+vi.mock('@store/sync/sync-flush.js', () => ({ ultimaFalhaDeEnvio: () => null }));
 
 vi.mock('@js/session/presenca.js', () => ({ configurarPendenciasDePresenca() {} }));
 

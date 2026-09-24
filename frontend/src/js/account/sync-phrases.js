@@ -124,6 +124,8 @@ export const SYNC_WORK_STATE = Object.freeze({
     REFUSED: 'recusa',
     /** Os bytes de uma ou mais figuras não chegaram ao servidor. */
     BLOB_PENDING: 'upload-pendente',
+    /** Há trabalho na fila e o nível atual da pessoa neste atlas não permite enviá-lo (403). */
+    NO_PERMISSION: 'sem-permissao',
 });
 
 /**
@@ -228,6 +230,9 @@ export function pendingShortLabel(value) {
  *   definitivo. Está CONTIDO em `uploads`, e só decide o tom: recusa não se resolve
  *   esperando a rede.
  * @param {boolean} [entrada.recuperando] - um retrato ou replay sendo aplicado agora.
+ * @param {string|null} [entrada.recusaDoEnvio] - o tipo da última falha do envio
+ *   (`ultimaFalhaDeEnvio`, `store/sync/sync-flush.js`). Só `'permission'` muda a resposta: com
+ *   trabalho na fila, a promessa de envio vira a frase de que o nível atual não permite enviar.
  * @returns {{ state: string, tone: string, label: string, resumo: string, detail: string,
  *   pending: number|null }} `resumo` é a frase CURTA do mouseover; `detail` é a longa, que o
  *   painel de pendências mostra. Foram separadas em 2026-09-17, a pedido do dono: o `title`
@@ -242,6 +247,7 @@ export function describeSyncWork({
     uploads = 0,
     uploadsRecusados = 0,
     recuperando = false,
+    recusaDoEnvio = null,
 } = {}) {
     if (remote !== true) {
         return {
@@ -355,6 +361,23 @@ export function describeSyncWork({
                 + `${conforme(recusadas, 'está parada', 'estão paradas')} neste computador à espera `
                 + `de uma decisão sua. Se a recusa não fizer sentido, fale com quem administra o `
                 + `atlas.${restante}`,
+            pending: n,
+        };
+    }
+
+    // O NÍVEL ATUAL NÃO PERMITE ENVIAR (403 em todo envio: um Leitor). Não é problema de rede, e
+    // "Enviando" seria uma promessa que o servidor recusa a cada tentativa. O trabalho continua
+    // neste computador; quem resolve é o gestor do atlas.
+    if (recusaDoEnvio === 'permission' && (n > 0 || figuras > 0)) {
+        const quantas = n > 0 ? n : figuras;
+        return {
+            state: SYNC_WORK_STATE.NO_PERMISSION,
+            tone: SYNC_TONE.WARN,
+            label: 'Sem permissão',
+            resumo: 'Seu nível neste atlas não permite enviar alterações.',
+            detail: `${pendingLabel(quantas)} ${conforme(quantas, 'continua', 'continuam')} neste `
+                + `computador e não ${conforme(quantas, 'pode ser enviada', 'podem ser enviadas')} com o `
+                + 'seu nível atual neste atlas. Peça permissão de edição ao gestor do atlas.',
             pending: n,
         };
     }

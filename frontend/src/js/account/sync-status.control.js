@@ -25,6 +25,7 @@ import {
 // `feature_navigation_utils`, and this control is mounted inside the map bar.
 import { showError } from '@utils/toast_service.js';
 import { describeSyncWork, SYNC_TONE, SYNC_WORK_STATE } from './sync-phrases.js';
+import { ultimaFalhaDeEnvio } from '@store/sync/sync-flush.js';
 
 /**
  * O que a pessoa lê quando o clique em "Pendências" não consegue trazer o painel.
@@ -652,6 +653,9 @@ export class SyncStatusControl {
             // progress, which is the exact defect. The scope has to be the same OBJECT the pauser
             // used, which is why it comes from `getActiveScope()`.
             recuperando: storeWritesPaused(getActiveScope()),
+            // A ÚLTIMA FALHA DO ENVIO, lida na pintura pelo mesmo motivo: um Leitor recebe 403 em
+            // todo envio, e sem ela o selo prometia "Enviando" para sempre.
+            recusaDoEnvio: ultimaFalhaDeEnvio(),
         });
         this._command.setAttribute('data-work', work.state);
         this._command.setAttribute('data-tone', work.tone);
