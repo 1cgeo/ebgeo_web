@@ -223,3 +223,4 @@ que envelheceu na decisão seguinte.)
 - 2026-09-23: a importação de arquivo preserva o nome e as colunas reservadas e não inventa atributos de estilo, [registro](decisions-2026.md).
 - 2026-09-23: polyfill local de `toReversed` para Chrome e Edge 105 a 109, e o navegador mínimo passa a ser Chrome/Edge 109 e Firefox ESR 115 (decisão do dono), [registro](decisions-2026.md).
 - 2026-09-24: gestos do mesmo verbo sobre feições independentes acima de 200 (importar, colar, mover para camada, desfazer em massa) sobem em partes de até 200; os compostos seguem atômicos e recusados acima do teto (decisão do dono, B6.1), [registro](decisions-2026.md).
+- 2026-09-24: as regras de agente ganham escopo por caminho (`paths:`) e o núcleo que carrega sempre tem teto de 60k caracteres; a história da correção vai para o livro-razão, [registro](decisions-2026.md).

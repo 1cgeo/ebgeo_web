@@ -4447,3 +4447,11 @@ instável, e cada uma foi atribuída antes de ser tocada.
 - **O que supera:** a metade de D4 (2026-09-13) que dizia que um gesto acima do teto "não pode ser partido para caber", e o item B6.1 da entrada de 2026-09-19. O lote lógico continua resolvido por savepoint no servidor, e o teto continua 200.
 - **Guardas:** `frontend/tests/e2e-ui/importar-mais-de-200-no-servidor.repro.spec.js` (importar 450, mover 250, desfazer um estilo em massa de 300: Postgres, par e fila vazia), `frontend/tests/e2e/lote-partido-parte-recusada.e2e.test.js` (a parte recusada pelo servidor real e a frase) e `frontend/tests/integration/lote-partido.repro.test.js` (o recorte, os gestos e o espelho do teto contra o backend).
 - **Status:** aceita pelo dono em 2026-09-24.
+
+### 2026-09-24: as regras de agente ganham escopo por caminho e teto, e a história da correção sai delas
+
+- **Contexto:** o Claude Code avisou que `CLAUDE.md` mais as três regras de `.claude/rules/` somavam 226,6k caracteres carregados em toda sessão e em todo subagente, contra 150k recomendados. O conteúdo era quase todo de área (sync, catálogo privado, chunks, 360, Playwright) e boa parte era história da própria linha.
+- **Decisão (dono, 2026-09-24):** o núcleo que carrega sempre é `CLAUDE.md`, `.claude/rules/architecture.md` e `.claude/rules/testing.md`, com teto somado de 60k caracteres; todo o resto mora em arquivos com `paths:`, que o Claude Code carrega quando um arquivo da área é lido. Os três nomes antigos ficaram (`common-tasks.md` passou a ser só o 360) porque código, testes e esta própria decisão os citam; o núcleo tem um índice das seções que saíram. A história de cada correção vai para o livro-razão, nunca para a regra.
+- **O preço, declarado:** regra com escopo só entra quando um arquivo que casa é LIDO (grep não dispara) e sai na compactação, então o que precisa valer antes de abrir qualquer arquivo tem de caber no núcleo. O volume total das regras quase não mudou (de 225,5k para 223,5k): o ganho é no que carrega sempre (54,4k), e a poda do resto é trabalho futuro. `backend/CLAUDE.md` (50k) segue fora do teto, porque carrega sob demanda ao ler o backend.
+- **Guarda:** `frontend/tests/unit/instrucoes-do-agente-teto.test.js`.
+- **Status:** aceita pelo dono em 2026-09-24.
