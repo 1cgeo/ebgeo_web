@@ -16,7 +16,9 @@ A alternativa recusada foi a do texto do dono: preparação durável no servidor
 
 Ou seja, **o custo por op é plano e o savepoint único sai mais barato que N savepoints**. O teto não existe para conter custo: ele limita o tempo de posse do lock de push do atlas, e 0,45 s deixa uma ordem de grandeza de folga dentro do `lock_timeout` de 5 s daquele lock (ver [[modelo-conflito-lww]]). Quem for mexer no número mexe nessa folga, não em desempenho.
 
-Acima do teto **a recusa é LOCAL**, sem viagem: a resposta do servidor seria a mesma em toda rodada seguinte, para sempre, e o lote não pode ser partido para caber.
+Acima do teto **a recusa é LOCAL**, sem viagem: a resposta do servidor seria a mesma em toda rodada seguinte, para sempre. Isso vale hoje só para o gesto COMPOSTO (transferir camada, converter, grupo com os membros): transferir uma camada de mais de 200 feições continua falhando inteiro.
+
+**O mesmo verbo sobre feições independentes É partido, desde a decisão do dono de 2026-09-24 (B6.1)**, registrada em [`decisions-2026.md`](../decisions/decisions-2026.md). Importar, colar, gravar saída de processamento, mover para camada e o desfazer de uma exclusão ou de um estilo em massa acima de 200 deixavam zero no servidor (e, nos três últimos, o retrato de recuperação revertia a ação na tela). Agora sobem em partes de até 200, cada parte um lote próprio, com o `batchIndex` contínuo e sem transação partida entre duas partes; quem decide é `isIndependentFeatureSet` (`frontend/src/js/store/sync/operation-factory.js`) fora de gesto e o `splittable` de `withGestureBatch` no desfazer e no refazer. O preço é o que o savepoint evitava: esses gestos deixam de ser tudo-ou-nada no servidor, e uma parte recusada fica nas pendências com a frase de `describeRefusedPart` dizendo qual parte e quanto já chegou.
 
 ## O recorte do envio é parte do contrato
 

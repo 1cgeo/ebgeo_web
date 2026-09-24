@@ -22,6 +22,37 @@ import { carryRememberedMapViewAcrossRename, rememberedMapView } from './vista-d
 import { LRUCache } from '../utilities/lru-cache.js';
 import { IMAGE_RESOURCE_FEATURE_TYPES } from './store.constants.js';
 
+/**
+ * B6.1 (owner decision, 2026-09-24): whether undoing or redoing `action` is THE SAME VERB OVER
+ * DISTINCT FEATURES, and may therefore travel in parts of up to 200 (`withGestureBatch` with
+ * `splittable`). True for a paste or import (`addMultiple`) and for a batch whose entries are all
+ * `add`, all removals (`remove`, and `removeWithProcessed`, which is what `removeFeature` records:
+ * inverting it creates the feature and its processed outputs, all distinct) or all `update`, each
+ * on a different feature (a mass delete, a mass style change). Anything else (moves between maps,
+ * `updateWithProcessed`, mixed batches) stays one atomic batch, which above the server ceiling is
+ * still refused whole.
+ * @param {Object} action - An undo stack entry.
+ * @returns {boolean}
+ */
+export function isSameVerbOverDistinctFeatures(action) {
+    if (action?.type === 'addMultiple') return true;
+    if (action?.type !== 'batch' || !Array.isArray(action.operations) || action.operations.length === 0) return false;
+    const verbOf = (entry) => (entry?.type === 'removeWithProcessed' ? 'remove' : entry?.type);
+    const verb = verbOf(action.operations[0]);
+    if (!['add', 'remove', 'update'].includes(verb)) return false;
+    const ids = new Set();
+    for (const entry of action.operations) {
+        if (verbOf(entry) !== verb) return false;
+        const touched = [(entry.feature ?? entry.oldFeature ?? entry.mainFeature)?.properties?.id,
+            ...(entry.processedFeatures?.features ?? []).map((f) => f?.properties?.id)];
+        for (const id of touched) {
+            if (!id || ids.has(id)) return false;
+            ids.add(id);
+        }
+    }
+    return true;
+}
+
 /** @type {string[]} All feature properties that hold color values */
 const COLOR_PROPERTIES = [
     'color',
@@ -647,7 +678,8 @@ class MapManager {
 
         this.memoryStore.isUndoing = true;
         try {
-            await withGestureBatch(() => this._executeUndoAction(lastAction, executeFunction));
+            await withGestureBatch(() => this._executeUndoAction(lastAction, executeFunction),
+                { splittable: isSameVerbOverDistinctFeatures(lastAction) });
             this._getRedoStack().push(lastAction);
         } catch (error) {
             undoStack.push(lastAction);
@@ -668,7 +700,8 @@ class MapManager {
         try {
             // Um lote lógico só, pela mesma razão do desfazer: refazer uma colagem de N feições
             // são N transações, e meia colagem é o desfecho que o lote existe para impedir.
-            await withGestureBatch(() => this._executeRedoAction(lastUndoneAction, executeFunction));
+            await withGestureBatch(() => this._executeRedoAction(lastUndoneAction, executeFunction),
+                { splittable: isSameVerbOverDistinctFeatures(lastUndoneAction) });
             this._getUndoStack().push(lastUndoneAction);
         } catch (error) {
             redoStack.push(lastUndoneAction);

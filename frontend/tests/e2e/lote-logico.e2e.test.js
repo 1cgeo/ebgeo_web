@@ -406,7 +406,7 @@ describe.skipIf(E2E_SKIP)('e2e: o lote lógico aplica ou recusa inteiro', () => 
         const mapId = await createMap(api, atlasId, { name: 'Mapa do lote gigante' });
         const versaoAntes = await versaoDoAtlas();
 
-        const ops = createBatchOperations(
+        const partes = createBatchOperations(
             Array.from({ length: TAMANHO_ACIMA_DO_TETO }, (_, i) => {
                 const featureId = generateUUID();
                 return {
@@ -418,6 +418,9 @@ describe.skipIf(E2E_SKIP)('e2e: o lote lógico aplica ou recusa inteiro', () => 
                 };
             })
         );
+        // UM LOTE SO, CARIMBADO A MAO: a fabrica passou a partir criacoes independentes acima do
+        // teto (B6.1, `createBatchOperations`), e este caso mede a recusa do SERVIDOR.
+        const ops = partes.map((op, i) => ({ ...op, batchId: partes[0].batchId, batchIndex: i }));
         afirmarLoteBemFormado(ops);
 
         const res = await api.pushOperations(atlasId, ops);

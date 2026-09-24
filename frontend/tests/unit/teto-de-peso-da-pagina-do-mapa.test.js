@@ -918,7 +918,13 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
 
         // named in the module count above, and the lazy side gained no package. Headroom of about 30 kB.
 
-        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11930);
+        // 11930 -> 11960 on 2026-09-24 for the owner's decision B6.1 (split the same verb over
+        // independent features above LOTE_MAX_OPS): 11941 kB measured by this case's failure, 11 kB
+        // over the ceiling, all of it in files already eager (`store/sync/operation-factory.js`,
+        // `store/sync/gesture-batch.js`, `store/store-state-manager.js`, `store/sync/sync-engine.js`),
+        // no new module and no new package. The rule was kept in existing files on purpose: a new
+        // leaf module also crossed the module-count ceilings when it was tried.
+        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11960);
     });
 
     it('seguir `import()` de fato acrescenta grafo, e é isso que prova a regex dinâmica', () => {
@@ -1452,7 +1458,11 @@ const PAGINAS_DIST = Object.freeze([
     // medidas delas ficaram idênticas (521 e 673 kB) do outro lado da migração.
     // 1980 -> 2020 em 2026-09-21, pela MESMA causa do admin acima: 1955 kB em 2026-09-13, 1977 na
     // manha e 1987 a tarde, com os mesmos modulos de migracao tardia entrando pelo portao.
-    { html: 'calibracao.html', entrada: 'calibracao', minArq: 12, maxArq: 38, minKb: 1700, maxKb: 2020 },
+    // 2020 -> 2040 em 2026-09-24, pela decisao B6.1 do dono (partir o mesmo verbo sobre feicoes
+    // independentes acima de LOTE_MAX_OPS): 2022 kB medidos por este caso num build fresco. A pagina
+    // alcanca `store/sync/operation-factory.js` e `store/sync/gesture-batch.js` por chunks
+    // compartilhados (conferido pelo sourcemap), e a regra mora nesses dois arquivos. Folga de ~18 kB.
+    { html: 'calibracao.html', entrada: 'calibracao', minArq: 12, maxArq: 38, minKb: 1700, maxKb: 2040 },
     // tutorial.html: a QUINTA página, medida na estreia, 2026-09-15, build fresco: 7 arquivos e
     // 499 kB. Ela é a mais LEVE das cinco por uma margem grande, e vale entender de que os 499 são
     // feitos, porque a leitura ingênua é que uma página de documentação deveria custar dezenas de

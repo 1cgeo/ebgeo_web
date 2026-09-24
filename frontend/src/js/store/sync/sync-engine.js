@@ -58,6 +58,7 @@ import { EventTypes } from '../../events/event_types.js';
 import { record } from './diag/trace-core.js';
 import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
 import { showWarning } from '../../utilities/toast_service.js';
+import { MAX_OPS_PER_LOGICAL_BATCH, describeRefusedPart } from './operation-factory.js';
 
 /**
  * Max operations pushed per HTTP batch when flushing the queue.
@@ -102,7 +103,7 @@ const FLUSH_BATCH_SIZE = 25;
  * endless 1,5 s knock into one problem the queue census names and the person can act on.
  * @type {number}
  */
-const LOTE_MAX_OPS = 200;
+const LOTE_MAX_OPS = MAX_OPS_PER_LOGICAL_BATCH;
 
 /**
  * The pt-BR reason stored on every operation of a batch too large to be sent.
@@ -1065,6 +1066,9 @@ class SyncEngine {
             }
             const ackedIds = acknowledgedOperationIds(resp, ops);
             const removed = await session.queue.dequeue(ackedIds);
+            // B6.1 (owner decision, 2026-09-24): a refused PART of a split transaction says which part
+            // and how much already arrived, read from the queue as it is now (`describeRefusedPart`).
+            if (refusedBatches.size > 0) await this._announceRefusedParts(session, ops, refusedBatches);
             if (removed === 0 && issues === 0) {
                 // Nada saiu da fila: o próximo peek devolve exatamente estas ops e o laço
                 // gira em vazio para sempre. Falhar alto é a saída que preserva o dado E
@@ -1086,6 +1090,30 @@ class SyncEngine {
         session.assertActive();
         await this._reconcileConvergenceGuard(session);
         return { pushed };
+    }
+
+    /**
+     * @private B6.1 (owner decision, 2026-09-24): tells the person which part of a split transaction
+     * the server refused and how many of its features already arrived. Best-effort: a failure
+     * here must not stop the flush, and the refused operations are already durable problems.
+     * @param {import('./sync-session.js').SyncSession} session
+     * @param {Object[]} ops - The operations of the push.
+     * @param {Set<string>} refusedBatches - Batch ids the server refused.
+     * @returns {Promise<void>}
+     */
+    async _announceRefusedParts(session, ops, refusedBatches) {
+        try {
+            let queued = null;
+            for (const batchId of refusedBatches) {
+                const members = ops.filter(op => op.batchId === batchId);
+                if (members.length === 0) continue;
+                queued ??= await session.queue.getAll();
+                const message = describeRefusedPart(members, queued);
+                if (message) showWarning(message, { duration: 10000 });
+            }
+        } catch {
+            // Headless (no toast) or a queue read that failed: the pending list still names them.
+        }
     }
 
     /**

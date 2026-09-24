@@ -63,7 +63,7 @@ Reconecta o socket primeiro com backoff exponencial, só então pede o pull via 
 
 ## Gestos de interface com fan-out alto
 
-Cada item vira uma op, e a tabela continua valendo para o TAMANHO. O que mudou desde 2026-09-13 é a atomicidade: as ops nascidas na mesma transação, e as nascidas dentro do mesmo gesto ambiente, compartilham um `batchId` e o servidor as aplica ou recusa inteiras. Ver [[lote-logico-de-gesto]], inclusive para o teto de 200 acima do qual o gesto é recusado sem viajar.
+Cada item vira uma op, e a tabela continua valendo para o TAMANHO. O que mudou desde 2026-09-13 é a atomicidade: as ops nascidas na mesma transação, e as nascidas dentro do mesmo gesto ambiente, compartilham um `batchId` e o servidor as aplica ou recusa inteiras. Ver [[lote-logico-de-gesto]], inclusive para o teto de 200: acima dele o gesto COMPOSTO é recusado sem viajar, e o mesmo verbo sobre feições independentes (importar, colar, mover para camada, desfazer em massa) sobe em partes de até 200 desde a decisão do dono de 2026-09-24.
 
 | Ação na interface | Fan-out | Nota |
 |---|---|---|

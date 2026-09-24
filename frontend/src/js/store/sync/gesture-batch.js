@@ -43,8 +43,31 @@
 
 import { generateUUID } from '../../utilities/uuid.js';
 
-/** @type {{id: string, nextIndex: number, depth: number}|null} */
+/**
+ * B6.1 (owner decision, 2026-09-24): part size of a SPLITTABLE gesture. Mirror of
+ * `MAX_OPS_PER_LOGICAL_BATCH` (`operation-factory.js`, itself the mirror of the server's
+ * `LOTE_MAX_OPS`), copied because this module imports nothing of the queue side; the equality is
+ * asserted by `tests/integration/lote-partido.repro.test.js`.
+ * @type {number}
+ */
+export const GESTURE_PART_SIZE = 200;
+
+/** @type {{id: string, nextIndex: number, depth: number, splittable: boolean, partIds: string[]}|null} */
 let aberto = null;
+
+/**
+ * The `batchId` of the operation at `index` of a gesture. One id for the whole gesture, unless it
+ * was opened as SPLITTABLE: then one id per part of {@link GESTURE_PART_SIZE}.
+ * @param {{id: string, splittable: boolean, partIds: string[]}} gesto
+ * @param {number} index - Absolute `batchIndex` inside the gesture.
+ * @returns {string}
+ */
+function partIdOf(gesto, index) {
+    if (!gesto.splittable) return gesto.id;
+    const part = Math.floor(index / GESTURE_PART_SIZE);
+    while (gesto.partIds.length <= part) gesto.partIds.push(generateUUID());
+    return gesto.partIds[part];
+}
 
 /**
  * Roda `fn` dentro de um lote lógico único.
@@ -52,15 +75,25 @@ let aberto = null;
  * Reentrante: um gesto aberto dentro de outro (uma conversão feita durante uma transferência)
  * ADERE ao de fora em vez de abrir o seu, porque o de fora é o gesto que a pessoa pediu.
  *
+ * B6.1 (owner decision, 2026-09-24): `splittable` declara que o gesto e O MESMO VERBO SOBRE N
+ * FEICOES INDEPENDENTES (desfazer uma colagem, uma exclusao em massa, um estilo em massa). Ele
+ * continua um lote so ate {@link GESTURE_PART_SIZE} operacoes e, dali em diante, cada parte desse
+ * tamanho ganha o seu `batchId`, com o `batchIndex` continuo: acima do teto do servidor um lote so
+ * era recusado inteiro no cliente. Um gesto de dentro que NAO se declare assim desliga a divisao
+ * do de fora (o composto vence), e os compostos (transferir camada, converter) nunca a pedem.
+ *
  * @template T
  * @param {function(): Promise<T>} fn - O corpo do gesto.
+ * @param {{ splittable?: boolean }} [options]
  * @returns {Promise<T>} O que `fn` devolveu.
  */
-export async function withGestureBatch(fn) {
+export async function withGestureBatch(fn, { splittable = false } = {}) {
     if (aberto) {
         aberto.depth += 1;
+        if (!splittable) aberto.splittable = false;
     } else {
-        aberto = { id: generateUUID(), nextIndex: 0, depth: 1 };
+        const id = generateUUID();
+        aberto = { id, nextIndex: 0, depth: 1, splittable, partIds: [id] };
     }
     try {
         return await fn();
@@ -77,7 +110,9 @@ export async function withGestureBatch(fn) {
  * @returns {string|null} O `batchId` aberto, ou null.
  */
 export function openGestureBatchId() {
-    return aberto ? aberto.id : null;
+    // A SPLITTABLE gesture holds only the part still being written: a finished part of the same
+    // verb over independent features is sendable, which is the point of splitting it.
+    return aberto ? partIdOf(aberto, aberto.nextIndex) : null;
 }
 
 /**
@@ -87,11 +122,24 @@ export function openGestureBatchId() {
  * aberto, e nesse caso a transação é um lote em si mesma, como sempre foi.
  *
  * @param {number} count - Quantas operações a transação vai criar.
- * @returns {{id: string, startIndex: number}|null} A identidade e o índice inicial.
+ * @returns {{id: string, startIndex: number, idAt: function(number): string}|null} A identidade,
+ *   o índice inicial e o `batchId` de cada posição (igual a `id` fora de gesto divisível).
  */
 export function reserveGestureBatchSlots(count) {
     if (!aberto) return null;
-    const startIndex = aberto.nextIndex;
-    aberto.nextIndex += count;
-    return { id: aberto.id, startIndex };
+    let startIndex = aberto.nextIndex;
+    // A TRANSACTION NEVER STRADDLES TWO PARTS: its operations (a feature delete and the membership
+    // deletes it records, say) belong together. It starts the next part instead, leaving a gap in
+    // `batchIndex`, which only orders and does not need to be contiguous.
+    if (aberto.splittable && count <= GESTURE_PART_SIZE) {
+        const lastPart = Math.floor((startIndex + count - 1) / GESTURE_PART_SIZE);
+        if (lastPart !== Math.floor(startIndex / GESTURE_PART_SIZE)) startIndex = lastPart * GESTURE_PART_SIZE;
+    }
+    aberto.nextIndex = startIndex + count;
+    const gesto = aberto;
+    return {
+        id: gesto.id,
+        startIndex,
+        idAt: (index) => partIdOf(gesto, index),
+    };
 }
