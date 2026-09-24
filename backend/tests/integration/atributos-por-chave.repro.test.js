@@ -127,6 +127,41 @@ describe('atributos personalizados: a unidade de disputa é a chave', () => {
     assert.deepEqual((await linha(id)).attributes, { x: 'A', y: 'um' });
   });
 
+  // A BASE ENCADEADA NÃO PODE ESCONDER UMA CHAVE QUE O AUTOR NUNCA VIU. Uma op que depende de outra do
+  // MESMO autor (`baseOperationId`) adota a revisão que a antecessora commitou (`resolveObservedBase`),
+  // e essa revisão já inclui o que um colega escreveu ENTRE a base declarada e a antecessora. Para uma
+  // chave que o autor escreve, isso é a regra de sempre; para a bolsa INTEIRA, que substitui chaves que
+  // o autor nem tocou, era perda muda: a chave "z" do colega, gravada em v6, não passava de v7 e sumia.
+  it('REPRO: a bolsa inteira encadeada é disputada pela chave que um colega gravou depois da base DECLARADA', async () => {
+    const { id, base } = await ponto({ x: 'um' });
+    // B, sem rede, enfileira op1 (nome) e op2 (a bolsa inteira, formato antigo), as duas na base velha.
+    const op1Id = randomUUID();
+    // A grava a chave "z" antes de B voltar.
+    assert.equal((await uma(edicao(id, base, [chave('set', 'z', 'do colega')]))).rejected, undefined);
+    const op1 = await uma({ ...edicao(id, base, [{ op: 'set', path: ['properties', 'nome'], value: 'Nome de B' }]), id: op1Id });
+    assert.equal(op1.rejected, undefined, `op1 grava (motivo: ${op1.reason})`);
+    const op2 = await uma({
+      ...edicao(id, base, [{ op: 'set', path: ['properties', 'attributes'], value: { x: 'dois' } }]),
+      baseOperationId: op1Id,
+    });
+    assert.equal(op2.rejected, true, 'a bolsa inteira apagaria a chave "z" do colega');
+    assert.equal(op2.reason, DISPUTADOS);
+    assert.deepEqual((await linha(id)).attributes, { x: 'um', z: 'do colega' });
+  });
+
+  it('CONTROLE: a bolsa inteira encadeada à própria escrita de chave do autor não se disputa com ela', async () => {
+    const { id, base } = await ponto({ x: 'um' });
+    const op1Id = randomUUID();
+    const op1 = await uma({ ...edicao(id, base, [chave('set', 'y', 'meu')]), id: op1Id });
+    assert.equal(op1.rejected, undefined, `op1 grava (motivo: ${op1.reason})`);
+    const op2 = await uma({
+      ...edicao(id, base, [{ op: 'set', path: ['properties', 'attributes'], value: { x: 'um', y: 'meu', w: 'novo' } }]),
+      baseOperationId: op1Id,
+    });
+    assert.equal(op2.rejected, undefined, `a chave da própria antecessora não disputa (motivo: ${op2.reason})`);
+    assert.deepEqual((await linha(id)).attributes, { x: 'um', y: 'meu', w: 'novo' });
+  });
+
   it('a chave escrita depois de a bolsa inteira ter sido substituída é disputada pela bolsa', async () => {
     const { id, base } = await ponto({ x: 'um' });
     assert.equal((await uma(edicao(id, base, [{ op: 'set', path: ['properties', 'attributes'], value: { x: 'dois' } }]))).rejected, undefined);

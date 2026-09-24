@@ -84,30 +84,37 @@ function validPatchEntry(entry) {
 }
 
 /**
- * The revision at which a unit was last written, as the dispute check reads it.
+ * Whether a unit named by the patch was written after the base this operation observed.
  *
  * The frontier stores what each write named, and an attribute key and the whole bag overlap: a key
  * is disputed by a later write of its key OR of the whole bag, and the whole bag by a later write
  * of itself OR of any of its keys. Every other path reads exactly as before (its own entry, then
- * `'*'`).
+ * `'*'`, against the resolved base).
+ *
+ * THE WHOLE BAG READS ITS KEYS AGAINST THE DECLARED BASE, not the chained one. A dependent edit
+ * (`baseOperationId`) adopts the revision its predecessor committed, and that revision already
+ * holds what a colleague wrote between the declared base and the predecessor. For a unit the author
+ * writes, that is the usual rule; for the whole bag, which replaces keys the author never saw, it
+ * erased a colleague's key without a word. A key written by the predecessor ITSELF is the author's
+ * own and is not a dispute; a key written by an earlier link of a longer chain is (the receipt names
+ * only the immediate predecessor), which fails closed into a reviewable conflict.
  * @param {Object} versions - The frontier, unit → version.
  * @param {string} key - `fieldKey` of the path.
- * @returns {number}
+ * @param {{base: number, declared: (number|null), predecessor: (number|undefined)}} observed
+ * @returns {boolean}
  */
-function writtenAt(versions, key) {
+function writtenAfter(versions, key, { base, declared, predecessor }) {
   const own = versions[key];
   if (key.startsWith(ATTRIBUTE_KEY_PREFIX)) {
     const bag = versions[ATTRIBUTES_PATH_KEY];
-    if (own === undefined && bag === undefined) return Number(versions['*'] ?? 0);
-    return Math.max(Number(own ?? 0), Number(bag ?? 0));
+    if (own === undefined && bag === undefined) return Number(versions['*'] ?? 0) > base;
+    return Math.max(Number(own ?? 0), Number(bag ?? 0)) > base;
   }
-  let at = Number(own ?? versions['*'] ?? 0);
-  if (key === ATTRIBUTES_PATH_KEY) {
-    for (const [unit, version] of Object.entries(versions)) {
-      if (unit.startsWith(ATTRIBUTE_KEY_PREFIX)) at = Math.max(at, Number(version));
-    }
-  }
-  return at;
+  if (Number(own ?? versions['*'] ?? 0) > base) return true;
+  if (key !== ATTRIBUTES_PATH_KEY) return false;
+  const keysBase = declared ?? base;
+  return Object.entries(versions).some(([unit, version]) => unit.startsWith(ATTRIBUTE_KEY_PREFIX)
+    && Number(version) > keysBase && Number(version) !== predecessor);
 }
 
 /** The attribute bag of the merged feature as an OWN copy, created when absent or malformed. */
@@ -171,7 +178,12 @@ export async function prepareFeatureMutation(t, atlasId, op, rawOp, userId) {
   if (keys.includes(ATTRIBUTES_PATH_KEY) && keys.some(key => key.startsWith(ATTRIBUTE_KEY_PREFIX))) {
     return conflict('O patch altera o mesmo campo mais de uma vez.');
   }
-  const disputed = keys.filter(key => writtenAt(versions, key) > base);
+  const observed = {
+    base,
+    declared: Number.isSafeInteger(rawOp.baseVersion) ? rawOp.baseVersion : null,
+    predecessor: resolved.predecessorVersion,
+  };
+  const disputed = keys.filter(key => writtenAfter(versions, key, observed));
   if (disputed.length) return conflict(RAZAO_CAMPOS_DISPUTADOS, disputed.map(key => JSON.parse(key)));
   const merged = canonicalFeature(current);
   for (const entry of patch) {

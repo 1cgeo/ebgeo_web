@@ -288,24 +288,27 @@ export function columnsForUnits(target, units) {
  * @param {string} userId
  * @param {string} entityId - The row the base is claimed about (see `revisionKeyOf`).
  * @param {number} currentVersion - The row's version right now, under the atlas write lock.
- * @returns {Promise<{base: number}|{reason: string}>}
+ * @returns {Promise<{base: number, predecessorVersion?: number}|{reason: string}>}
+ *   `predecessorVersion` is the revision the named predecessor committed, when there is one: the
+ *   whole attribute bag of a feature needs it apart from `base` (`prepareFeatureMutation`).
  */
 export async function resolveObservedBase(t, atlasId, rawOp, userId, entityId, currentVersion) {
   let base = rawOp.baseVersion;
+  let predecessorVersion;
   if (rawOp.baseOperationId) {
     const receipt = await findReceipt(t, atlasId, rawOp.baseOperationId);
     if (!receipt || String(receipt.user_id) !== String(userId)
         || String(receipt.entity_id) !== String(entityId) || receipt.result.rejected) {
       return { reason: RAZAO_BASE_NAO_CONFIRMADA };
     }
-    const predecessorVersion = receipt.result.entityVersion;
+    predecessorVersion = receipt.result.entityVersion;
     if (!Number.isSafeInteger(predecessorVersion)) return { reason: RAZAO_RECIBO_SEM_VERSAO };
     base = Number.isSafeInteger(base) ? Math.max(base, predecessorVersion) : predecessorVersion;
   }
   if (!Number.isSafeInteger(base) || base < 1 || base > currentVersion) {
     return { reason: RAZAO_SEM_BASE };
   }
-  return { base };
+  return predecessorVersion === undefined ? { base } : { base, predecessorVersion };
 }
 
 /**
