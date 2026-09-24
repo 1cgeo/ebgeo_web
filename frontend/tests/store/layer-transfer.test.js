@@ -78,6 +78,9 @@ const {
 // Mock dependencies
 // ============================================================================
 
+const { relatarErro } = vi.hoisted(() => ({ relatarErro: vi.fn() }));
+vi.mock('@js/session/erro-telemetria.js', () => ({ relatarErro }));
+
 vi.mock('../../src/js/store/store-errors.js', () => ({
     StoreErrorEvents: {
         STORE_PERSIST_ERROR: 'store:persistError',
@@ -1059,9 +1062,16 @@ describe('transferLayerToMap - falha de gravação no destino', () => {
         });
         expect(featuresOf('MapA')).toHaveLength(1);
         expect(layerManager.deleteLayer).not.toHaveBeenCalled();
-        expect(emitStoreError).toHaveBeenCalledWith(
-            'store:persistError',
-            expect.objectContaining({ operation: 'transferLayerToMap' })
+        // NOT a persistence error, changed on 2026-09-24. This case pinned `STORE_PERSIST_ERROR`,
+        // whose listener says "Não foi possível salvar neste computador. Verifique o espaço
+        // disponível no navegador.": a cause the code does not know. A silent refusal is by
+        // definition not an IndexedDB failure (that one THROWS, and is the case above), and the
+        // person read a disk warning next to the transfer's own sentence. The defect is still
+        // reported, as what it is.
+        expect(emitStoreError).not.toHaveBeenCalledWith('store:persistError', expect.anything());
+        expect(relatarErro).toHaveBeenCalledWith(
+            expect.stringContaining('destination accepted 0 of 1'),
+            expect.objectContaining({ contexto: expect.objectContaining({ causa: 'target_write_incomplete' }) })
         );
 
         // Mesmo rollback do ramo que lança: sem camada vazia deixada para trás.

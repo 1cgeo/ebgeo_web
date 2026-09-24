@@ -115,6 +115,8 @@ import { OperationType } from './sync/index.js';
 import { EntityType } from './sync/operation-types.js';
 import { withGestureBatch } from './sync/gesture-batch.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
+import { relatarErro } from '@js/session/erro-telemetria.js';
+import { OrigemDeErro } from '@js/session/origens-de-erro.js';
 import { runTransaction } from './store-transaction.js';
 import {
     TransferMode,
@@ -574,10 +576,15 @@ async function transferirDentroDoLote({
         const landed = await countFeaturesInLayer(targetMapName, newLayer.id);
         if (landed < total) {
             await rollbackTargetLayer(targetMapName, targetLayers, newLayer, duplicatedImageIds);
-            emitStoreError(StoreErrorEvents.STORE_PERSIST_ERROR, {
-                operation: 'transferLayerToMap',
-                error: `destination accepted ${landed} of ${total} features; source left untouched`,
-                timestamp: Date.now()
+            // REPORTED, NOT ANNOUNCED AS A PERSISTENCE ERROR (2026-09-24). `STORE_PERSIST_ERROR`
+            // reaches the person as "Verifique o espaço disponível no navegador", a cause this
+            // branch does not know: an IndexedDB failure THROWS and is the branch above, so a
+            // short count here is a silent refusal or a read that disagrees. The person reads the
+            // transfer's own sentence (`target_write_incomplete`); the defect goes to the log.
+            relatarErro(`transferLayerToMap: destination accepted ${landed} of ${total} features; `
+                + 'source left untouched', {
+                origem: OrigemDeErro.STORE,
+                contexto: { causa: 'target_write_incomplete' },
             });
             return { success: false, reason: 'target_write_incomplete', mode };
         }

@@ -97,7 +97,12 @@ const TRANSFER_REFUSAL_PHRASES = Object.freeze({
     map_locked: 'Mapa bloqueado. Desbloqueie-o para mover a camada, ou copie-a.',
     layer_locked: 'Camada bloqueada. Desbloqueie-a para movê-la, ou copie-a.',
     layer_not_found: 'A camada não existe mais neste mapa.',
-    target_write_incomplete: 'Não foi possível gravar no mapa de destino. Nada saiu da origem.'
+    // No cause and no "nothing left the source": the store knows only that it could not CONFIRM
+    // the destination, and in a server atlas the intents it had already recorded may still move
+    // the layer when the server answers (measured 2026-09-23: 100 at the destination, 0 at the
+    // source). What the person can do is look before trying again.
+    target_write_incomplete: 'Não foi possível confirmar a camada no mapa de destino. '
+        + 'Confira os dois mapas antes de tentar de novo.'
 });
 
 /**
