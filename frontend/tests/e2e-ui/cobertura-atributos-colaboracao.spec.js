@@ -12,7 +12,8 @@
  *      de um F5 do colega.
  *   2. EXCLUIR um atributo pela lixeira chega ao servidor e ao colega.
  *   3. EDIÇÕES CRUZADAS na mesma feição: A exclui uma chave enquanto B, com o envio represado, muda
- *      o valor de OUTRA chave. As duas intenções têm de sobreviver.
+ *      o valor de OUTRA chave. As duas intenções têm de sobreviver (a disputa é por chave desde
+ *      2026-09-24); e a MESMA chave pelos dois lados continua disputa guardada para revisão.
  *
  * A LEITURA É DO SERVIDOR E DA STORE; a aba do colega entra só onde ela é o sujeito (ela redesenha
  * a partir da store ao abrir).
@@ -109,13 +110,14 @@ collabTest('excluir pela lixeira chega ao servidor e ao colega', async ({ collab
     await expect.poll(() => atributosNaStore(B, id), { timeout: 30000 }).toEqual({ cota: '10' });
 });
 
-// A UNIDADE DE DISPUTA DE UMA FEIÇÃO É O CAMPO DE `properties`, e `attributes` é UM campo: duas
-// pessoas mudando CHAVES DIFERENTES da mesma feição disputam o mesmo campo (`validPatchEntry`,
-// `backend/src/modules/sync/feature-conflicts.js`, caminho de profundidade 2). Medido em 2026-09-24:
-// a edição que chega depois vira DISPUTA guardada para revisão, e não perda silenciosa. O caso
-// afirma essa promessa: a exclusão de A vale no servidor, e a edição de B não some, fica no painel
-// de pendências dele com o selo avisando.
-collabTest('A exclui uma chave enquanto B, com o envio represado, muda OUTRA: a de A vale e a de B fica para revisão', async ({ collab }) => {
+// OS ATRIBUTOS SÃO DISPUTADOS POR CHAVE (decisão do dono em 2026-09-24). Este caso afirmava o
+// contrário até aquela data: `attributes` era UM campo da fronteira de disputa (`validPatchEntry`,
+// `backend/src/modules/sync/feature-conflicts.js`, caminho de profundidade 2), e a edição de B, que
+// chegava depois da exclusão de A, virava disputa guardada para revisão. Hoje a unidade é a chave:
+// a exclusão de A e a edição de B são duas chaves diferentes, as duas valem no servidor e nos dois
+// clientes, e a fila de B termina sem problema. A disputa continua existindo, só para a MESMA chave,
+// e é o caso seguinte que a afirma.
+collabTest('A exclui uma chave enquanto B, com o envio represado, muda OUTRA: as duas valem', async ({ collab }) => {
     collabTest.setTimeout(240000);
     const A = collab.author;
     const B = collab.peers[0];
@@ -141,7 +143,47 @@ collabTest('A exclui uma chave enquanto B, com o envio represado, muda OUTRA: a 
     await abaA.locator('.feature-attribute-row', { hasText: 'setor' }).locator('.feature-attribute-delete').click();
     await expect.poll(() => atributosNoServidor(collab, id), { timeout: 30000 }).toEqual({ cota: '10' });
 
-    // B volta a enviar: a edição dele disputa o mesmo campo e é guardada para revisão.
+    // B volta a enviar: a edição dele é de outra chave, e as duas mudanças se fundem.
+    await B.unroute('**/atlas/*/sync');
+    await expect.poll(() => atributosNoServidor(collab, id), {
+        timeout: 40000, message: 'o servidor não guardou as duas mudanças',
+    }).toEqual({ cota: '20' });
+    await expect.poll(() => atributosNaStore(B, id), { timeout: 30000 }).toEqual({ cota: '20' });
+    await expect.poll(() => atributosNaStore(A, id), { timeout: 30000 }).toEqual({ cota: '20' });
+    expect(await B.evaluate(async () => {
+        const { operationQueue } = await import('/src/js/store/sync/operation-queue.js');
+        return (await operationQueue.countByState()).problemas;
+    }), 'a edição de B virou problema na fila').toBe(0);
+});
+
+// A MESMA chave pelos dois lados continua DISPUTA, como qualquer outra propriedade de feição: a
+// edição que chega depois é guardada para revisão, não some e não apaga a que chegou antes.
+collabTest('A e B mudam a MESMA chave: a de A vale e a de B fica para revisão', async ({ collab }) => {
+    collabTest.setTimeout(240000);
+    const A = collab.author;
+    const B = collab.peers[0];
+
+    const id = await drawPointUI(A, [-43.225, -22.925]);
+    await A.keyboard.press('Escape');
+    const abaA = await abrirAbaAtributos(A, id);
+    await criarAtributo(abaA, 'cota', '10');
+    await expect.poll(() => atributosNaStore(B, id), { timeout: 30000 }).toEqual({ cota: '10' });
+
+    await B.route('**/atlas/*/sync', (route) => (route.request().method() === 'POST'
+        ? route.abort('connectionfailed') : route.continue()));
+    const abaB = await abrirAbaAtributos(B, id);
+    await abaB.locator('.feature-attribute-row', { hasText: 'cota' }).locator('.feature-attribute-value').click();
+    const campoB = abaB.locator('.feature-attribute-value-input');
+    await campoB.fill('20');
+    await campoB.press('Enter');
+    await expect.poll(() => atributosNaStore(B, id), { timeout: 10000 }).toEqual({ cota: '20' });
+
+    await abaA.locator('.feature-attribute-row', { hasText: 'cota' }).locator('.feature-attribute-value').click();
+    const campoA = abaA.locator('.feature-attribute-value-input');
+    await campoA.fill('30');
+    await campoA.press('Enter');
+    await expect.poll(() => atributosNoServidor(collab, id), { timeout: 30000 }).toEqual({ cota: '30' });
+
     await B.unroute('**/atlas/*/sync');
     await expect.poll(() => B.evaluate(async () => {
         const { operationQueue } = await import('/src/js/store/sync/operation-queue.js');
@@ -149,8 +191,8 @@ collabTest('A exclui uma chave enquanto B, com o envio represado, muda OUTRA: a 
     }), { timeout: 40000, message: 'a edição de B sumiu em vez de ficar para revisão' }).toBeGreaterThan(0);
     await expect.poll(() => B.locator('[data-testid="sync-status-badge"]').getAttribute('data-work'), { timeout: 20000 })
         .toMatch(/^(recusa|conflito)$/);
-    expect(await atributosNoServidor(collab, id), 'a exclusão de A foi desfeita').toEqual({ cota: '10' });
-    await expect.poll(() => atributosNaStore(A, id), { timeout: 30000 }).toEqual({ cota: '10' });
+    expect(await atributosNoServidor(collab, id), 'a edição de A foi desfeita').toEqual({ cota: '30' });
+    await expect.poll(() => atributosNaStore(A, id), { timeout: 30000 }).toEqual({ cota: '30' });
 });
 
 collabTest.describe('o Leitor', () => {

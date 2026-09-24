@@ -283,9 +283,12 @@ function preserveSyncMetadata(oldFeature, cleanedFeature) {
  * to each person (P8), so it may only take back what THIS edit did: a field whose current value is
  * no longer what the edit left there (`from`) was written by someone after it, and stays.
  *
- * The unit is the geometry as a whole and each top-level property. Bookkeeping properties
- * (`confirmedVersion`, `updatedAt`, ...) always differ from the recorded snapshot, so they keep
- * the current value, which is also what `preserveSyncMetadata` does.
+ * The unit is the geometry as a whole and each top-level property, EXCEPT the custom attributes,
+ * whose unit is each key (owner's decision, 2026-09-24, the same split the sync patch and the
+ * server's frontier use, `store/sync/feature-patch.js`): with the whole bag as the unit, undoing my
+ * change of "x" after a colleague changed "z" kept the whole current bag and undid nothing.
+ * Bookkeeping properties (`confirmedVersion`, `updatedAt`, ...) always differ from the recorded
+ * snapshot, so they keep the current value, which is also what `preserveSyncMetadata` does.
  *
  * @param {Object} current - The feature as stored now.
  * @param {Object} from - The feature as the edit being reverted left it.
@@ -301,10 +304,40 @@ export function keepLaterEdits(current, from, to) {
     result.properties = result.properties ?? {};
     for (const key of new Set([...Object.keys(now), ...Object.keys(then), ...Object.keys(result.properties)])) {
         if (deepEqual(now[key], then[key])) continue;
+        if (key === 'attributes' && keepLaterAttributeEdits(result.properties, now[key], then[key])) continue;
         if (now[key] === undefined) delete result.properties[key];
         else result.properties[key] = deepClone(now[key]);
     }
     return result;
+}
+
+/** @returns {boolean} Whether `value` is an attribute bag that can be compared key by key. */
+function isAttributeBag(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * {@link keepLaterEdits} inside the attribute bag: the target's bag, with every KEY changed since
+ * the reverted edit taken from the current bag. Answers false, leaving the whole-bag rule in charge,
+ * when one of the three is not a bag (absent counts as empty).
+ * @param {Object} properties - The result's properties, rewritten in place.
+ * @param {*} now - The current bag.
+ * @param {*} then - The bag the reverted edit left.
+ * @returns {boolean}
+ */
+function keepLaterAttributeEdits(properties, now, then) {
+    const target = properties.attributes === undefined ? {} : properties.attributes;
+    const current = now === undefined ? {} : now;
+    const left = then === undefined ? {} : then;
+    if (!isAttributeBag(target) || !isAttributeBag(current) || !isAttributeBag(left)) return false;
+    const bag = deepClone(target);
+    for (const key of new Set([...Object.keys(current), ...Object.keys(left), ...Object.keys(bag)])) {
+        if (deepEqual(current[key], left[key])) continue;
+        if (!Object.hasOwn(current, key)) delete bag[key];
+        else bag[key] = deepClone(current[key]);
+    }
+    properties.attributes = bag;
+    return true;
 }
 
 // ===== CRUD OPERATIONS =====

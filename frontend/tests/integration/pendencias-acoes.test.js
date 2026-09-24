@@ -229,6 +229,46 @@ describe('reaplicar como operação nova', () => {
         expect(podeReaplicar({ ...base, envelope: opDeCamada(), resultado: { conflict: {} } })).toBe(false);
         expect(podeReaplicar({ ...base, origem: PendenciaOrigem.QUARENTENA, envelope: opDeCamada(), resultado: conflito() })).toBe(false);
     });
+
+    // OS ATRIBUTOS POR CHAVE (decisão do dono em 2026-09-24). A tentativa foi gravada na fila no
+    // formato ANTIGO, com o objeto `attributes` inteiro, e recusada porque o colega excluiu "x" da
+    // mesma feição. Reaplicada, ela levava o objeto inteiro de novo, com "x" dentro, e ressuscitava
+    // o atributo que o colega tinha excluído. O patch da op nova é recalculado pela diferença entre
+    // o que a pessoa viu e o que ela gravou, e agora sai só com a chave que ela mexeu.
+    it('reaplicar uma edição de atributo leva só a chave que a pessoa mexeu, e não ressuscita a excluída', async () => {
+        const feicao = (attributes, confirmedVersion) => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [-43.2, -22.9] },
+            properties: { id: 'feicao-1', source: 'point', nome: 'Posto', attributes, confirmedVersion },
+        });
+        const antiga = {
+            protocolVersion: 2,
+            id: 'op-atributo',
+            entityType: 'feature',
+            operationType: 'update',
+            entityId: 'feicao-1',
+            mapId: 'mapa-1',
+            timestamp: 1,
+            lamportTimestamp: 1,
+            clientId: 'c1',
+            baseVersion: 3,
+            previousData: feicao({ x: 'um', y: 'um' }, 3),
+            data: feicao({ x: 'um', y: 'dois' }, 3),
+            patch: [{ op: 'set', path: ['properties', 'attributes'], value: { x: 'um', y: 'dois' } }],
+        };
+        const queue = await filaCom([antiga], [[antiga, {
+            rejected: true,
+            status: 'conflict',
+            reason: 'Os mesmos campos foram alterados no servidor.',
+            conflict: { fields: [['properties', 'attributes']], entityVersion: 4, serverData: null },
+        }]]);
+        const linha = (await linhasDe(queue))[0];
+        expect(podeReaplicar(linha)).toBe(true);
+
+        const { operacao } = await reaplicarComNovaBase(linha, { queue, online: false });
+        expect(operacao.baseVersion).toBe(4);
+        expect(operacao.patch).toEqual([{ op: 'set', path: ['properties', 'attributes', 'y'], value: 'dois' }]);
+    });
 });
 
 describe('exportar', () => {

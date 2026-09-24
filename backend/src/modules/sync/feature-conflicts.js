@@ -42,15 +42,80 @@ async function featureRow(t, atlasId, entityId) {
     WHERE f.id=$1 AND m.atlas_id=$2`, [entityId, atlasId]);
 }
 
+/**
+ * The custom attributes of a feature (`properties.attributes`), the one property whose unit of
+ * dispute is each of its KEYS rather than the property itself (owner's decision, 2026-09-24).
+ *
+ * WHY THIS ONE AND ONLY THIS ONE. The attributes are a bag of independent fields the person names
+ * and fills in one at a time, in the panel or in the attribute table, and two colleagues filling
+ * DIFFERENT fields of the same feature were disputing one unit: the second to arrive was refused
+ * and, once reapplied, its whole bag brought back the field the first had deleted. Every other
+ * property keeps its unit, and the rule for the SAME key does not change: written after the
+ * declared base, it is a conflict, exactly like `nome` or `descricao`.
+ *
+ * THE OLD SHAPE STAYS VALID. A queue persisted before this change carries the whole bag at
+ * `['properties','attributes']`, and it is applied as it always was (the bag replaced). What is new
+ * is that such a write is also disputed by a per-key write made after its base, because replacing
+ * the bag would silently erase it.
+ */
+const ATTRIBUTES = 'attributes';
+const ATTRIBUTES_PATH_KEY = JSON.stringify(['properties', ATTRIBUTES]);
+const ATTRIBUTE_KEY_PREFIX = ATTRIBUTES_PATH_KEY.slice(0, -1) + ',';
+/** Names that would reach the prototype of the attribute bag instead of an own key. */
+const UNSAFE_ATTRIBUTE_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+
 function fieldKey(path) { return JSON.stringify(path); }
+
+function isAttributeKeyPath(path) {
+  return path.length === 3 && path[0] === 'properties' && path[1] === ATTRIBUTES;
+}
 
 function validPatchEntry(entry) {
     if (!entry || !['set', 'remove'].includes(entry.op) || !Array.isArray(entry.path)) return false;
     if (entry.op === 'set' && !Object.hasOwn(entry, 'value')) return false;
   const [root, key] = entry.path;
   if (root === 'geometry') return entry.path.length === 1 && entry.op === 'set';
+  if (isAttributeKeyPath(entry.path)) {
+    const name = entry.path[2];
+    return typeof name === 'string' && name.length > 0 && !UNSAFE_ATTRIBUTE_KEYS.has(name);
+  }
   return root === 'properties' && entry.path.length === 2 && typeof key === 'string'
     && key.length > 0 && !RESERVED.has(key);
+}
+
+/**
+ * The revision at which a unit was last written, as the dispute check reads it.
+ *
+ * The frontier stores what each write named, and an attribute key and the whole bag overlap: a key
+ * is disputed by a later write of its key OR of the whole bag, and the whole bag by a later write
+ * of itself OR of any of its keys. Every other path reads exactly as before (its own entry, then
+ * `'*'`).
+ * @param {Object} versions - The frontier, unit → version.
+ * @param {string} key - `fieldKey` of the path.
+ * @returns {number}
+ */
+function writtenAt(versions, key) {
+  const own = versions[key];
+  if (key.startsWith(ATTRIBUTE_KEY_PREFIX)) {
+    const bag = versions[ATTRIBUTES_PATH_KEY];
+    if (own === undefined && bag === undefined) return Number(versions['*'] ?? 0);
+    return Math.max(Number(own ?? 0), Number(bag ?? 0));
+  }
+  let at = Number(own ?? versions['*'] ?? 0);
+  if (key === ATTRIBUTES_PATH_KEY) {
+    for (const [unit, version] of Object.entries(versions)) {
+      if (unit.startsWith(ATTRIBUTE_KEY_PREFIX)) at = Math.max(at, Number(version));
+    }
+  }
+  return at;
+}
+
+/** The attribute bag of the merged feature as an OWN copy, created when absent or malformed. */
+function ownAttributeBag(properties) {
+  const current = properties[ATTRIBUTES];
+  const bag = current && typeof current === 'object' && !Array.isArray(current) ? { ...current } : {};
+  properties[ATTRIBUTES] = bag;
+  return bag;
 }
 
 /** Reads durable revisions under the caller's atlas write lock, before any mutation. */
@@ -102,12 +167,22 @@ export async function prepareFeatureMutation(t, atlasId, op, rawOp, userId) {
   }
   const keys = patch.map(entry => fieldKey(entry.path));
   if (new Set(keys).size !== keys.length) return conflict('O patch altera o mesmo campo mais de uma vez.');
-  const disputed = keys.filter(key => Number(versions[key] ?? versions['*'] ?? 0) > base);
+  // The whole bag and one of its keys in the same patch would each undo part of the other.
+  if (keys.includes(ATTRIBUTES_PATH_KEY) && keys.some(key => key.startsWith(ATTRIBUTE_KEY_PREFIX))) {
+    return conflict('O patch altera o mesmo campo mais de uma vez.');
+  }
+  const disputed = keys.filter(key => writtenAt(versions, key) > base);
   if (disputed.length) return conflict(RAZAO_CAMPOS_DISPUTADOS, disputed.map(key => JSON.parse(key)));
   const merged = canonicalFeature(current);
   for (const entry of patch) {
     if (entry.path[0] === 'geometry') merged.geometry = entry.value;
-    else if (entry.op === 'remove') delete merged.properties[entry.path[1]];
+    else if (isAttributeKeyPath(entry.path)) {
+      // Removing from a bag that is not there removes nothing, and must not create one.
+      if (entry.op === 'remove' && !Object.hasOwn(merged.properties, ATTRIBUTES)) continue;
+      const bag = ownAttributeBag(merged.properties);
+      if (entry.op === 'remove') delete bag[entry.path[2]];
+      else bag[entry.path[2]] = entry.value;
+    } else if (entry.op === 'remove') delete merged.properties[entry.path[1]];
     else merged.properties[entry.path[1]] = entry.value;
   }
   const layerId = merged.properties.layerId;
