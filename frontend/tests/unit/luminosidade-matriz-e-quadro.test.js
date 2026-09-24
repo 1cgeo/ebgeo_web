@@ -23,7 +23,6 @@ import {
     sobreposicao,
 } from '../../src/js/utilities/luminosidade/matriz-pitcic.model.js';
 import {
-    diaDoPainel,
     linhaDaIluminacao,
     linhasDaFig410,
     linhasDoQuadro,
@@ -32,7 +31,7 @@ import {
     tabelaCsv,
 } from '../../src/js/utilities/luminosidade/quadro-pitcic.js';
 import { notaDoCriterioDaNoite } from '../../src/js/utilities/luminosidade/luminosidade-phrases.js';
-import { MS_POR_DIA, somarDias } from '../../src/js/utilities/luminosidade/hora-brasilia.js';
+import { MS_POR_DIA, diaDoPainel, somarDias } from '../../src/js/utilities/hora-brasilia.js';
 
 const BRASILIA = { lat: -15.78, lng: -47.929167 };
 const PORTO_ALEGRE = { lat: -30.0346, lng: -51.2177 };

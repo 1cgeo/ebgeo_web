@@ -71,10 +71,11 @@ describe('O vocabulário de uso: espelho, forma e ordem', () => {
       'indisponivel.visto',
     'migracao.resultado', 'sync.resultado', 'logout.descarte', 'preferencia.base', 'preferencia.camada', 'recurso.aberto',
     'luminosidade.aberta',
+    'meteorologia.aberta',
     ]);
-    assert.equal(EVENTOS_DE_USO.length, 20);
+    assert.equal(EVENTOS_DE_USO.length, 21);
     assert.ok(Object.isFrozen(EVENTOS_DE_USO), 'a lista precisa ser congelada');
-    assert.equal(new Set(EVENTOS_DE_USO).size, 20, 'evento duplicado');
+    assert.equal(new Set(EVENTOS_DE_USO).size, 21, 'evento duplicado');
   });
 
   it('as quatro páginas são as quatro entradas HTML do produto, congeladas', () => {
@@ -100,7 +101,7 @@ describe('O vocabulário de uso: espelho, forma e ordem', () => {
     // num teste de veracidade, e é por isso que a asserção é sobre o valor exato.
     const semQualificador = EVENTOS_DE_USO
       .filter((e) => !['atlas.aberto', 'pdf.exportado', 'ferramenta.ativada', 'medicao.aberta', 'migracao.resultado', 'sync.resultado', 'logout.descarte', 'preferencia.base', 'preferencia.camada', 'recurso.aberto'].includes(e));
-    assert.equal(semQualificador.length, 10);
+    assert.equal(semQualificador.length, 11);
     for (const e of semQualificador) {
       assert.deepEqual(PROPS_PERMITIDAS[e], [], `${e} deveria não aceitar qualificador`);
     }
@@ -111,7 +112,7 @@ describe('O vocabulário de uso: espelho, forma e ordem', () => {
     // recusam em momentos diferentes: o Joi com 422 nomeando o campo, o CHECK com 23514 mesmo
     // que alguém escreva por outro caminho. Sem este caso, valor novo entraria no JS e a
     // escrita morreria no banco, com uma mensagem sem relação aparente com o assunto.
-    assert.equal(EVENTOS_DE_USO.length, 20, 'laço sobre lista vazia seria zero asserções');
+    assert.equal(EVENTOS_DE_USO.length, 21, 'laço sobre lista vazia seria zero asserções');
     for (const evento of EVENTOS_DE_USO) {
       assert.ok(
         MIGRACAO.includes(`'${evento}'`),
@@ -137,7 +138,7 @@ describe('propAceita: os três estados do qualificador', () => {
     // A decisão está no espelho: a linha sem qualificador é o TOTAL daquele gesto, que
     // continua sendo uma contagem verdadeira. Recusá-la faria um cliente que não soube
     // qualificar perder o lote inteiro.
-    assert.equal(EVENTOS_DE_USO.length, 20, 'laço sobre lista vazia seria zero asserções');
+    assert.equal(EVENTOS_DE_USO.length, 21, 'laço sobre lista vazia seria zero asserções');
     for (const evento of EVENTOS_DE_USO) {
       assert.deepEqual(propAceita(evento, ''), { ok: true }, `${evento} com prop vazia`);
       assert.deepEqual(propAceita(evento, undefined), { ok: true }, `${evento} sem prop`);

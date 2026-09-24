@@ -67,6 +67,7 @@ export const EVENTOS_DE_USO = Object.freeze([
     'preferencia.camada',
     'recurso.aberto',
     'luminosidade.aberta',
+    'meteorologia.aberta',
 ]);
 
 /**
@@ -113,6 +114,8 @@ export const EventoDeUso = Object.freeze({
     RECURSO_ABERTO: 'recurso.aberto',
     /** O painel de luminosidade (dados solares e lunares do PITCIC) abriu, pelo menu de contexto. */
     LUMINOSIDADE_ABERTA: 'luminosidade.aberta',
+    /** O painel de meteorologia (previsão da matriz do PITCIC) abriu, pelo menu de contexto. */
+    METEOROLOGIA_ABERTA: 'meteorologia.aberta',
 
 });
 
@@ -167,6 +170,9 @@ export const PROPS_PERMITIDAS = Object.freeze({
     // Sem qualificador: o número que decide se a entrada pelo menu de contexto é achada é quantas
     // vezes o painel abre, e nada mais.
     'luminosidade.aberta': Object.freeze([]),
+    // Sem qualificador, e o ponto consultado NUNCA vira qualificador: coordenada de interesse é
+    // dado sensível.
+    'meteorologia.aberta': Object.freeze([]),
 });
 
 /**

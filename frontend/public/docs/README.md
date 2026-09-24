@@ -401,6 +401,20 @@ O dia D começa em hoje; as setas e o campo de data mudam o dia. Os blocos "Crep
 
 "Salvar tabela" baixa a tabela em CSV, com o ponto, o fuso e a ressalva do horizonte. O cálculo usa o horizonte teórico ao nível do mar: relevo, nuvens e chuva não entram. Quando um fenômeno não acontece na data (em latitudes altas), a célula diz "não ocorre" ou "sem luar", com o motivo na dica. O cálculo é feito no próprio navegador, sem consultar a rede, e no celular o toque longo no mapa abre o mesmo item.
 
+##### Meteorologia neste ponto (previsão do tempo)
+
+O item "Meteorologia neste ponto", com o ícone de nuvem, aparece logo abaixo do de luminosidade (o administrador pode desligá-lo na aba Sistema). Ele abre um painel com as linhas de previsão da mesma matriz do PITCIC (Quadro 4-5) para o ponto clicado, para o dia D e os dois seguintes, em hora de Brasília:
+
+- **Previsão de tempo**: a condição mais severa do dia (por exemplo, "Garoa fraca" ou "Trovoada").
+- **Precipitação** e **Prob. de chuva**: o total previsto no dia e a maior probabilidade horária.
+- **Temperatura máx.** e **mín.**, **Umidade máx.** e **mín.**
+- **Ventos**: a direção predominante, como o manual escreve ("N-NW"), e a velocidade média em m/s; **Rajada máx.** mostra a hora ao passar o mouse.
+- **Visibilidade mín.**: a menor do dia, com a hora na dica.
+
+O bloco "Nebulosidade e pressão" traz as médias do dia. Embaixo da tabela ficam o modelo (GFS), a hora da rodada e o ponto consultado. Para proteger a área de interesse, o ponto é arredondado a cerca de 11 km antes de sair. "Salvar tabela" baixa o CSV. A previsão alcança até 14 dias à frente; para uma data mais distante, a coluna diz "sem previsão".
+
+A consulta é feita pelo próprio navegador, direto na fonte da previsão. Sem acesso a ela, o painel mostra "Previsão indisponível" e o botão "Tentar de novo". Os dois painéis ocupam o mesmo lugar na tela, então abrir um fecha o outro.
+
 ### Módulo 5: Painel Auxiliar Direito
 
 <img src="./images/lateral_inf_direito.png" alt="Lateral Inferior Direito" width="50%"/>

@@ -49,6 +49,9 @@ const APPCONFIG_ENV = Object.freeze({
   URL_SERVIDOR_PRINCIPAL: 'urlServidorPrincipal',
   // A base do link público de compartilhamento (2026-09-20). URL absoluta, escaneada como a de cima.
   URL_BASE_LINK_PUBLICO: 'urlBaseLinkPublico',
+  // A raiz da fonte meteorológica que o NAVEGADOR consulta (2026-09-23). URL absoluta e pública
+  // por padrão, escaneada como as de cima; ela não aponta para a máquina de desenvolvimento.
+  METEOROLOGIA_URL: 'meteorologiaUrl',
 });
 
 let importCounter = 0;
@@ -209,5 +212,24 @@ describe('config — optionalInt boundaries on the zoom knobs', () => {
       ],
       [4, 14, 2, 12]
     );
+  });
+});
+
+// O PAINEL DE METEOROLOGIA NASCE LIGADO, e isso é decisão do dono (2026-09-23), tomada DEPOIS de a
+// primeira versão nascer desligada: fica presa aqui para que inverter o padrão seja decisão, e não
+// um ajuste de passagem. O preço está no comentário da chave, em `config.static.js`: ligado e com a
+// fonte pública, o navegador de quem abre o painel manda uma célula da área de interesse para fora
+// da rede.
+describe('config — o painel de meteorologia nasce ligado, apontando para a fonte pública', () => {
+  it('features.meteorologia é true e a raiz padrão é a API pública da Open-Meteo', async () => {
+    const S = await import('../../src/modules/config/config.static.js');
+    assert.equal(S.FEATURES.meteorologia, true);
+    const cfg = await importConfigWith({});
+    assert.equal(cfg.appConfig.meteorologiaUrl, 'https://api.open-meteo.com');
+  });
+
+  it('a raiz vem do ambiente quando declarada (uma instalação na rede)', async () => {
+    const cfg = await importConfigWith({ METEOROLOGIA_URL: 'https://meteo.exemplo.test' });
+    assert.equal(cfg.appConfig.meteorologiaUrl, 'https://meteo.exemplo.test');
   });
 });

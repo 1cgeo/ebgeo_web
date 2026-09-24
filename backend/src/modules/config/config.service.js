@@ -358,7 +358,7 @@ async function buildAppConfig() {
       self_registration: config.security.allowSelfRegistration,
       password_reset_email: canDeliverAccountMail(),
     },
-    services: { tileServerUrl: C.tileServerUrl },
+    services: { tileServerUrl: C.tileServerUrl, meteorologiaUrl: C.meteorologiaUrl },
     // A chave `search` faz parte do SHAPE CONGELADO e permanece — mas VAZIA: não
     // carrega mais `apiUrl`. O gazetteer É este backend (GET /nomes/busca) e o
     // cliente resolve a rota a partir da própria base da API. Havia um

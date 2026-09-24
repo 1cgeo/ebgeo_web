@@ -51,6 +51,9 @@ export const configOverridesSchema = Joi.object({
     // default; the served `features.self_registration` and the `/auth/register` gate both read
     // the merged value. `password_reset_email` is NOT here: it mirrors SMTP config, frozen at boot.
     self_registration: Joi.boolean(),
+    // The PITCIC weather panel (2026-09-23). On by default (owner's decision): every browser that
+    // opens it sends a cell of the area of interest to the weather source, and this turns it off.
+    meteorologia: Joi.boolean(),
   }).unknown(true),
   // A FAIXA DE ZOOM DA APLICAÇÃO SAIU DAQUI em 2026-08-31, por decisão do dono: ela é fixa em
   // [2, 21] (`config.static.js`, `MAP2D_BASE`) e o único nível ajustável passou a ser o do MAPA
@@ -166,6 +169,10 @@ export const configOverridesSchema = Joi.object({
   }).unknown(true),
   services: Joi.object({
     tileServerUrl: Joi.string().max(500).allow(''),
+    // The Open-Meteo root the BROWSER queries. ONLY http and https: the client builds
+    // `<root>/v1/forecast?...` on it, so any other scheme would be a request the page cannot make.
+    // Empty keeps the panel off whatever the flag says.
+    meteorologiaUrl: Joi.string().uri({ scheme: ['http', 'https'] }).max(500).allow(''),
   }).unknown(true),
   // `search` não tem mais `apiUrl`: o gazetteer É este backend (GET /nomes/busca),
   // e o cliente deriva a rota da própria base da API. Ligar/desligar continua em

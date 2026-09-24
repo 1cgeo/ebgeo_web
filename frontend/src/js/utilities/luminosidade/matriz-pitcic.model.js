@@ -41,7 +41,7 @@
  * horizon) is null for that field alone, with a reason code, and never nulls the whole day.
  */
 
-import { MS_POR_DIA, arredondarAoMinuto, dataIsoValida, somarDias } from './hora-brasilia.js';
+import { MS_POR_DIA, arredondarAoMinuto, dataIsoValida, somarDias } from '@utils/hora-brasilia.js';
 
 // ============================================================================================
 // THE VOCABULARY

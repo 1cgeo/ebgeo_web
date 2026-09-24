@@ -14,7 +14,7 @@ O manual exibe o Quadro 4-5 preenchido sem definir os campos, e três lacunas mu
 
 ## As armadilhas, cada uma com o número que a mediu
 
-**O dia civil é o de P, nunca o UTC nem o do navegador.** A data é uma string `AAAA-MM-DD` derivada do instante somado ao deslocamento de Brasília (`dataCivilP`, `frontend/src/js/utilities/luminosidade/hora-brasilia.js`), e a constante do fuso existe em um lugar só. A ferramenta de declinação grava a data UTC de `new Date()` e registra o dia seguinte depois das 21:00; este módulo não repete a forma.
+**O dia civil é o de P, nunca o UTC nem o do navegador.** A data é uma string `AAAA-MM-DD` derivada do instante somado ao deslocamento de Brasília (`dataCivilP`, `frontend/src/js/utilities/hora-brasilia.js`), e a constante do fuso existe em um lugar só. O módulo nasceu dentro da pasta da luminosidade e saiu dela quando o painel de meteorologia chegou, para que nenhum dos dois painéis importe o outro; a condição da mudança é ele continuar folha de zero imports. A ferramenta de declinação grava a data UTC de `new Date()` e registra o dia seguinte depois das 21:00; este módulo não repete a forma.
 
 **O dia solar da biblioteca é o do instante que ela recebe.** Passar a meia-noite de Brasília devolveu os horários da VÉSPERA em 365 de 365 dias em Brasília, Boa Vista e Rio Branco, e acertou em 365 de 365 em Recife, porque a fronteira é o meridiano de 45°W. Uma tabela de teste só com cidades do litoral nordestino passaria verde com o defeito. O modelo passa o meio-dia solar médio local do dia D (`instanteDoDiaSolar`, `frontend/src/js/utilities/luminosidade/matriz-pitcic.model.js`), que acerta em qualquer longitude, e não o meio-dia de P que a proposta sugeria, que só acerta a oeste de 135°E.
 
@@ -44,9 +44,13 @@ A proposta previa mais três superfícies, e o dono tirou as três ao ver o pain
 
 - a faixa de noite, crepúsculos e luar sob a régua da barra temporal, com o ponto lembrado por mapa;
 - a caixa "Dados de luminosidade" no PDF, nos dois motores;
-- toda ligação com a linha do tempo: o D é hoje ou a data escolhida no painel (`diaDoPainel`, `frontend/src/js/utilities/luminosidade/quadro-pitcic.js`), e não existe "Dia D do mapa" nem "Voltar ao Dia D".
+- toda ligação com a linha do tempo: o D é hoje ou a data escolhida no painel (`diaDoPainel`, `frontend/src/js/utilities/hora-brasilia.js`), e não existe "Dia D do mapa" nem "Voltar ao Dia D".
 
 "Copiar tabela" virou "Salvar tabela", que baixa um CSV na convenção da tabela de atributos (vírgula, BOM, toda célula por `escapeCsvCell`). O ponto vai como latitude e longitude numéricas, e não no formato decimal do mapa, porque uma coordenada do hemisfério sul começa com "-" e a guarda de fórmula a imprimiria com um apóstrofo na frente (`tabelaCsv`).
+
+## A casca comum com a meteorologia
+
+Desde 2026-09-23 o cartão, a folha do celular, o pino, o seletor de data e o download moram numa casca comum (`frontend/src/js/utilities/painel-de-ponto/painel-de-ponto.js`, estilo em `frontend/src/css/painel-de-ponto.css`), porque o dono separou luminosidade e meteorologia em duas telas com a mesma cara. A troca foi medida por captura antes e depois, em 1440 e 360 px, no Chromium e no Firefox: sete de oito imagens saíram idênticas pixel a pixel, e a oitava diferiu em 41 pixels de antisserrilhado nos cantos de dois botões. A mudança de comportamento é uma só: os dois painéis ocupam o mesmo lugar, e abrir um fecha o outro.
 
 ## Ao capturar a tela
 
@@ -57,3 +61,4 @@ No Chromium do harness do Playwright, que desenha por SwiftShader, a captura mos
 - [[modulo-temporal]], de onde esta tela ficou deliberadamente separada.
 - [[peso-do-pacote-web]], o teto que prende o pacote fora do boot.
 - [[observabilidade]], onde o evento de uso `luminosidade.aberta` é contado.
+- [[meteorologia-pitcic]], a outra metade da mesma matriz.

@@ -63,6 +63,10 @@ const EXCECOES_DESTRUTIVAS = [{
   arquivo: '015_uso_luminosidade.sql',
   trecho: 'ALTER TABLE uso_eventos_dia DROP CONSTRAINT IF EXISTS uso_eventos_dia_evento_check',
   motivo: 'Widens the usage-event CHECK to luminosidade.aberta, keeping every event accepted before.'
+}, {
+  arquivo: '016_uso_meteorologia.sql',
+  trecho: 'ALTER TABLE uso_eventos_dia DROP CONSTRAINT IF EXISTS uso_eventos_dia_evento_check',
+  motivo: 'Widens the usage-event CHECK to meteorologia.aberta, keeping every event accepted before.'
 }];
 const PADROES_DESTRUTIVOS = [
   /\bDROP\s+TABLE\b/i,

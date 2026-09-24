@@ -840,7 +840,16 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // for them: 11625 kB measured, 11541 without them, which is the 11540 of the paragraph above.
         // The PACKAGE is not in these kB (the walker counts the tree's own files), and its static
         // absence from the boot graph is what `EXTERNOS_SO_DINAMICOS` holds.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(785);
+        //
+        // 2026-09-23 (later the same day): 794, with the PITCIC weather panel and the shell the two
+        // point panels now share, measured by this case's own failure (794 against 785). Nine new
+        // source files: the shell (`utilities/painel-de-ponto/painel-de-ponto.js` and its phrase
+        // leaf) and seven of `utilities/meteorologia/`. TWO of those are eager and small, the door the
+        // context menu reaches statically: `meteorologia/carregador.js` (the loader, which also
+        // answers whether the deployment offers the panel) and `meteorologia/meteorologia-phrases.js`
+        // (a zero-import leaf, for the menu label). The rest arrive only by `import()`.
+        // `hora-brasilia.js` MOVED out of the light module to `utilities/` and is not new.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(794);
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
@@ -854,7 +863,10 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // propósito, como as subidas anteriores.
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
-        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11650);
+        // 11650 -> 11710 on 2026-09-23 for the weather panel and the shared point-panel shell:
+        // 11685 kB measured by this case's failure, 60 kB over the light panel's 11625 of the same
+        // day (the shell moved code out of the light panel, so its growth is less than the new files).
+        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11710);
     });
 
     it('seguir `import()` de fato acrescenta grafo, e é isso que prova a regex dinâmica', () => {

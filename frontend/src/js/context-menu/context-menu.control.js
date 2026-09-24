@@ -35,6 +35,10 @@ import { semEdicaoSync } from '@store/edicao-indisponivel.js';
 // model and the astronomy library come by `import()` behind it.
 import { carregarLuminosidade } from '@utils/luminosidade/carregador.js';
 import { ROTULO_DO_ITEM_DE_MENU } from '@utils/luminosidade/luminosidade-phrases.js';
+// The weather panel, the light panel's twin: the same kind of door, and the only static pieces are
+// the loader (which also answers whether this deployment offers it) and the phrase leaf.
+import { carregarMeteorologia, meteorologiaDisponivel } from '@utils/meteorologia/carregador.js';
+import { ROTULO_DO_ITEM_DE_MENU as ROTULO_DA_METEOROLOGIA } from '@utils/meteorologia/meteorologia-phrases.js';
 import { ehFalhaDeCarga } from '@utils/carga-sob-demanda.model.js';
 
 /** A sun over the horizon, 16 px, static markup. */
@@ -44,6 +48,14 @@ const LUMINOSIDADE_ICON_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" f
     + '<line x1="4.22" y1="10.22" x2="5.64" y2="11.64"/><line x1="1" y1="18" x2="3" y2="18"/>'
     + '<line x1="21" y1="18" x2="23" y2="18"/><line x1="18.36" y1="11.64" x2="19.78" y2="10.22"/>'
     + '<line x1="23" y1="22" x2="1" y2="22"/></svg>';
+
+/** A cloud with rain, 16 px, static markup. */
+const METEOROLOGIA_ICON_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
+    + 'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M20 16.58A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"/>'
+    + '<line x1="8" y1="19" x2="8" y2="21"/><line x1="8" y1="13" x2="8" y2="15"/>'
+    + '<line x1="16" y1="19" x2="16" y2="21"/><line x1="16" y1="13" x2="16" y2="15"/>'
+    + '<line x1="12" y1="21" x2="12" y2="23"/><line x1="12" y1="15" x2="12" y2="17"/></svg>';
 // ── Portões de combinar/separar setas ─────────────────────────────────────────────────────────
 //
 // POR QUE OS PREDICADOS ESTÃO AQUI, COPIADOS. O import estático de `arrow-merge.js` prendia
@@ -662,6 +674,10 @@ class ContextMenuControl {
         // writes, so there is no rank to hide it from and no state to refuse it in. It sits right
         // above "Copiar Coordenadas" because both act on the clicked point.
         this._contextMenu.appendChild(this._createLuminosidadeItem());
+        // The weather panel sits right under it, and only where the administrator turned it on:
+        // off, it is not a refusal to explain but a capability this deployment does not have, so
+        // the command is not drawn (`meteorologiaDisponivel`).
+        if (meteorologiaDisponivel()) this._contextMenu.appendChild(this._createMeteorologiaItem());
 
         const copyItem = this._createMenuItem('Copiar Coordenadas', this._onCopyCoordinates);
         this._contextMenu.appendChild(copyItem);
@@ -1215,16 +1231,37 @@ class ContextMenuControl {
      * @private
      */
     _createLuminosidadeItem() {
-        const item = this._createMenuItem(ROTULO_DO_ITEM_DE_MENU, () => this._onLuminosidade());
+        return this._createItemComIcone(ROTULO_DO_ITEM_DE_MENU, LUMINOSIDADE_ICON_SVG, () => this._onLuminosidade());
+    }
+
+    /**
+     * The "Meteorologia neste ponto" item, the light item's twin.
+     * @returns {HTMLElement}
+     * @private
+     */
+    _createMeteorologiaItem() {
+        return this._createItemComIcone(ROTULO_DA_METEOROLOGIA, METEOROLOGIA_ICON_SVG, () => this._onMeteorologia());
+    }
+
+    /**
+     * A menu item with a static SVG icon before its label.
+     * @param {string} rotulo
+     * @param {string} svg - static markup, never user data
+     * @param {Function} acao
+     * @returns {HTMLElement}
+     * @private
+     */
+    _createItemComIcone(rotulo, svg, acao) {
+        const item = this._createMenuItem(rotulo, acao);
         item.classList.add('context-menu-item--com-icone');
         item.textContent = '';
         const icone = document.createElement('span');
         icone.className = 'context-menu-item__icone';
         icone.setAttribute('aria-hidden', 'true');
-        icone.innerHTML = LUMINOSIDADE_ICON_SVG;
-        const rotulo = document.createElement('span');
-        rotulo.textContent = ROTULO_DO_ITEM_DE_MENU;
-        item.append(icone, rotulo);
+        icone.innerHTML = svg;
+        const texto = document.createElement('span');
+        texto.textContent = rotulo;
+        item.append(icone, texto);
         return item;
     }
 
@@ -1250,6 +1287,28 @@ class ContextMenuControl {
             throw error;
         }
         modulo.abrirPainelLuminosidade({ map: this._map, ponto, formato });
+    }
+
+    /**
+     * Opens the weather panel on the clicked point, the same way as {@link _onLuminosidade}.
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _onMeteorologia() {
+        if (!this._lastCoordinates || !this._map) return;
+        const ponto = { ...this._lastCoordinates };
+        const formato = this._mouseCoordinatesControl?.getCurrentFormat?.() || 'latlong';
+        let modulo;
+        try {
+            modulo = await carregarMeteorologia();
+        } catch (error) {
+            if (ehFalhaDeCarga(error)) {
+                console.warn('[meteorologia] o módulo não chegou:', error);
+                return;
+            }
+            throw error;
+        }
+        modulo.abrirPainelMeteorologia({ map: this._map, ponto, formato });
     }
 
     _onResetNorth() {

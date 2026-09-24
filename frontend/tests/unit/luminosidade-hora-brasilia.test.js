@@ -2,7 +2,8 @@
 
 /**
  * @fileoverview Brasília time, the civil day in P and the Quadro 4-5 cell format
- * (`utilities/luminosidade/hora-brasilia.js`).
+ * (`utilities/hora-brasilia.js`, shared by the light and the weather panels since 2026-09-23; this
+ * file keeps its name because the decision record of the light panel cites it).
  *
  * The traps this file pins: the civil day is P's and never UTC's (the declination tool records
  * tomorrow's date after 21:00 in Brasília); the minute is ROUNDED, and rounded BEFORE the date, so
@@ -30,7 +31,7 @@ import {
     rotuloUtc,
     somarDias,
     textoDaCelula,
-} from '../../src/js/utilities/luminosidade/hora-brasilia.js';
+} from '../../src/js/utilities/hora-brasilia.js';
 
 const utc = (iso) => Date.parse(iso);
 

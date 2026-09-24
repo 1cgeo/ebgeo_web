@@ -55,6 +55,7 @@ const ESPERADOS = [
     'indisponivel.visto',
     'migracao.resultado', 'sync.resultado', 'logout.descarte', 'preferencia.base', 'preferencia.camada', 'recurso.aberto',
     'luminosidade.aberta',
+    'meteorologia.aberta',
 ];
 
 const PAGINAS_ESPERADAS = ['mapa', 'atlas', 'admin', 'calibracao'];

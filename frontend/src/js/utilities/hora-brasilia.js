@@ -1,11 +1,14 @@
-// Path: js/utilities/luminosidade/hora-brasilia.js
+// Path: js/utilities/hora-brasilia.js
 
 /**
  * @fileoverview BRASÍLIA TIME, the civil day, and the format of PITCIC's Quadro 4-5.
  *
- * A leaf with ZERO imports, testable in node, read by the matrix model, by the panel and by the
- * saved table. This is the only place where the zone offset is written: before
- * this file the code had no Brasília constant, no letter P, and no −180 anywhere.
+ * A leaf with ZERO imports, testable in node, shared by the two point panels of the PITCIC matrix
+ * (light and weather) and by their saved tables. It was born inside the light module and moved here
+ * when the weather panel arrived, so that neither panel imports the other (decision D10 of the
+ * weather proposal); the zero-import rule is the condition that move was made on. This is the only
+ * place where the zone offset is written: before this file the code had no Brasília constant, no
+ * letter P, and no −180 anywhere.
  *
  * ── WHY BRASÍLIA, AND NEITHER THE BROWSER NOR UTC ───────────────────────────────────────────
  *
@@ -247,6 +250,18 @@ export function rotuloDoDia(dataIso) {
 export function rotuloRelativo(n) {
     if (n === 0) return 'D';
     return n > 0 ? `D+${n}` : `D−${-n}`;
+}
+
+/**
+ * Day D of a point panel and where it came from: the date chosen in the panel (arrows or the date
+ * field), or today. Both are civil dates in P, whatever the computer's zone. There is no link to the
+ * map's timeline (owner, 2026-09-23).
+ * @param {{escolhidoNoPainel: string|null, agoraMs: number}} entrada
+ * @returns {{dataD: string, origem: 'painel'|'hoje'}}
+ */
+export function diaDoPainel({ escolhidoNoPainel, agoraMs }) {
+    if (dataIsoValida(escolhidoNoPainel)) return { dataD: escolhidoNoPainel, origem: 'painel' };
+    return { dataD: dataCivilP(agoraMs), origem: 'hoje' };
 }
 
 /**

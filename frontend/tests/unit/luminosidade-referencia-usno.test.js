@@ -61,7 +61,7 @@ import {
     meiaNoiteP,
     somarDias,
     MS_POR_DIA,
-} from '../../src/js/utilities/luminosidade/hora-brasilia.js';
+} from '../../src/js/utilities/hora-brasilia.js';
 
 const FIXTURES = resolve(dirname(fileURLToPath(import.meta.url)), '../fixtures/usno-2026');
 

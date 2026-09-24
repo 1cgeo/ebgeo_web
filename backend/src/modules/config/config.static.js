@@ -36,6 +36,12 @@ export const FEATURES = {
   // deste bloco.
   idle_timeout_minutes: 30,
   idle_warning_seconds: 60,
+  // O PAINEL DE METEOROLOGIA nasce LIGADO, por decisão do dono (2026-09-23), e o preço é de
+  // sigilo e está declarado: ligado, cada navegador que abrir o painel manda à fonte
+  // (`services.meteorologiaUrl`, a Open-Meteo pública por padrão) uma célula da área de interesse
+  // e uma data, e o que foi enviado não se recolhe. O administrador desliga na aba Sistema, ou
+  // aponta a fonte para uma instalada na rede, que é o que tira a consulta da mão de terceiros.
+  meteorologia: true,
 };
 
 export const MAP2D_BASE = {

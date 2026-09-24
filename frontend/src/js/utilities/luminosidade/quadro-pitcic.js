@@ -12,14 +12,12 @@ import { escapeCsvCell } from '@utils/csv-escape.js';
 import {
     ROTULO_FUSO_BRASILIA,
     celulaHoraria,
-    dataCivilP,
-    dataIsoValida,
     dataPorExtenso,
     diasEntre,
     rotuloDoDia,
     rotuloRelativo,
     textoDaCelula,
-} from './hora-brasilia.js';
+} from '@utils/hora-brasilia.js';
 import { EVENTOS_DO_SOL } from './matriz-pitcic.model.js';
 import {
     CAMPOS_DO_QUADRO,
@@ -248,17 +246,6 @@ export function tabelaCsv(matriz, { coordenada = null } = {}) {
         [RESSALVA_CURTA],
     ];
     return `${linhas.map((l) => l.map(escapeCsvCell).join(',')).join('\n')}\n`;
-}
-
-/**
- * Day D of the panel and where it came from: the date chosen in the panel (arrows or the date
- * field), or today. Both are civil dates in P, whatever the computer's zone.
- * @param {{escolhidoNoPainel: string|null, agoraMs: number}} entrada
- * @returns {{dataD: string, origem: 'painel'|'hoje'}}
- */
-export function diaDoPainel({ escolhidoNoPainel, agoraMs }) {
-    if (dataIsoValida(escolhidoNoPainel)) return { dataD: escolhidoNoPainel, origem: 'painel' };
-    return { dataD: dataCivilP(agoraMs), origem: 'hoje' };
 }
 
 /**

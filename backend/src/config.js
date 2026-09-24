@@ -592,6 +592,13 @@ const config = Object.freeze({
     // origin is exactly the address the recipient may not reach. The admin panel overrides it.
     urlBaseLinkPublico: optional('URL_BASE_LINK_PUBLICO', 'https://ebgeo.dsg.eb.mil.br'),
     tileServerUrl: optional('TILE_SERVER_URL', ''),
+    // THE WEATHER SOURCE the BROWSER queries for the PITCIC weather panel (owner, 2026-09-23: the
+    // call leaves the browser, never this server, which makes no outbound HTTP call at all). It is
+    // an Open-Meteo API root, public or one of ours. The panel is ON by default (owner, 2026-09-23),
+    // so with the public default every browser that opens it sends a rounded cell and a date to a
+    // third party; pointing this at an Open-Meteo inside the network is what stops that. The admin
+    // panel overrides it (`services.meteorologiaUrl`) and can turn the panel off.
+    meteorologiaUrl: optional('METEOROLOGIA_URL', 'https://api.open-meteo.com'),
     terrainUrl: optional('TERRAIN_URL', 'https://demotiles.maplibre.org/terrain-tiles/tiles.json'),
     hillshadeUrl: optional('HILLSHADE_URL', 'https://demotiles.maplibre.org/terrain-tiles/tiles.json'),
     // Só se aplicam quando a URL é um TEMPLATE `{z}/{x}/{y}` (fonte por tiles);

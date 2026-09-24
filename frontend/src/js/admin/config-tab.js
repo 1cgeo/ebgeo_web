@@ -178,6 +178,17 @@ class ConfigTab {
         const fPan = check(form, 'Imagens panorâmicas (360°)', 'admin-config-feat-pan', !!eff.features?.imagens_panoramicas);
         const fGrid = check(form, 'Grade (UTM)', 'admin-config-feat-grid', !!eff.features?.grid);
         const fSearch = check(form, 'Busca por API', 'admin-config-feat-search', !!eff.features?.apisearch);
+        // O PAINEL DE METEOROLOGIA nasce ligado (dono, 2026-09-23), e o aviso ao lado diz o preço:
+        // é o NAVEGADOR de cada pessoa que consulta a fonte, e a consulta leva uma região e uma data.
+        const fMeteo = check(form, 'Meteorologia (previsão no menu de contexto do mapa)',
+            'admin-config-feat-meteorologia', !!eff.features?.meteorologia);
+        const meteoHint = document.createElement('p');
+        meteoHint.className = 'admin-form__hint';
+        meteoHint.textContent = 'Ligado, o navegador de quem abrir o painel consulta a fonte da '
+            + 'previsão (em Serviços) com o ponto arredondado a cerca de 11 km e a data; a fonte vê '
+            + 'também o endereço do EBGeo e a saída da rede. Com a fonte pública, essa consulta sai '
+            + 'para fora da rede. Vale no próximo carregamento da página.';
+        form.appendChild(meteoHint);
 
         heading(form, 'Contas');
         const fSignup = check(form, 'Permitir auto-cadastro (botão "Criar conta")',
@@ -263,6 +274,15 @@ class ConfigTab {
             + 'Cada camada é lida em "<esta URL>/grid_<sistema>_<escala>". Em branco, a grade fica '
             + 'desligada. Não afeta mapas base, dados nem 3D/360.';
         form.appendChild(tileHint);
+
+        const meteoUrl = text(form, 'Fonte da previsão meteorológica (URL)', 'admin-config-meteorologia-url',
+            eff.services?.meteorologiaUrl ?? '', { placeholder: 'https://api.open-meteo.com' });
+        const meteoUrlHint = document.createElement('p');
+        meteoUrlHint.className = 'admin-form__hint';
+        meteoUrlHint.textContent = 'Raiz de uma API Open-Meteo, a pública ou uma instalada na rede. '
+            + 'Uma instalada na rede não deixa a região consultada sair dela. Em branco, o painel de '
+            + 'meteorologia fica desligado.';
+        form.appendChild(meteoUrlHint);
 
         const error = document.createElement('div');
         error.className = 'admin-form__error';
@@ -354,6 +374,7 @@ class ConfigTab {
             diffBool(featDiff, 'imagens_panoramicas', fPan.checked, !!eff.features?.imagens_panoramicas);
             diffBool(featDiff, 'grid', fGrid.checked, !!eff.features?.grid);
             diffBool(featDiff, 'apisearch', fSearch.checked, !!eff.features?.apisearch);
+            diffBool(featDiff, 'meteorologia', fMeteo.checked, !!eff.features?.meteorologia);
             diffBool(featDiff, 'self_registration', fSignup.checked, !!eff.features?.self_registration);
             if (Object.keys(featDiff).length) payload.features = featDiff;
 
@@ -381,9 +402,25 @@ class ConfigTab {
                 payload.streetView360 = { miniMapBasemap: miniMapa.value };
             }
 
+            const servicesDiff = {};
             if (tileUrl.value.trim() !== (eff.services?.tileServerUrl ?? '')) {
-                payload.services = { tileServerUrl: tileUrl.value.trim() };
+                servicesDiff.tileServerUrl = tileUrl.value.trim();
             }
+            const meteoVal = meteoUrl.value.trim();
+            if (meteoVal !== (eff.services?.meteorologiaUrl ?? '')) {
+                // Vazio é aceito (desliga o painel); o resto precisa ser http(s) completo, que é
+                // o que o servidor recusaria com 422, levando junto o salvamento da aba inteira.
+                if (meteoVal && !urlDeServidorValida(meteoVal)) {
+                    const recusa = 'A fonte da previsão meteorológica precisa ser um endereço http:// '
+                        + 'ou https:// completo.';
+                    error.textContent = recusa;
+                    error.hidden = false;
+                    showError(recusa);
+                    return;
+                }
+                servicesDiff.meteorologiaUrl = meteoVal;
+            }
+            if (Object.keys(servicesDiff).length) payload.services = servicesDiff;
 
             if (Object.keys(payload).length === 0) {
                 showSuccess('Nenhuma alteração a salvar.');

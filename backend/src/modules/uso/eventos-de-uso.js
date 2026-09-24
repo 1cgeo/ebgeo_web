@@ -66,6 +66,7 @@ export const EVENTOS_DE_USO = Object.freeze([
   'migracao.resultado', 'sync.resultado', 'logout.descarte',
   'preferencia.base', 'preferencia.camada', 'recurso.aberto',
   'luminosidade.aberta',
+  'meteorologia.aberta',
 ]);
 
 /**
@@ -124,6 +125,10 @@ export const PROPS_PERMITIDAS = Object.freeze({
   'indisponivel.visto': Object.freeze([]),
   // O painel de luminosidade (dados solares e lunares do PITCIC), aberto pelo menu de contexto.
   'luminosidade.aberta': Object.freeze([]),
+  // O painel de meteorologia (as linhas de previsão da matriz do PITCIC), aberto pelo menu de
+  // contexto. Sem qualificador, pela mesma razão do de luminosidade; e o ponto consultado NUNCA
+  // vira qualificador, porque coordenada de interesse é dado sensível.
+  'meteorologia.aberta': Object.freeze([]),
 });
 
 /**

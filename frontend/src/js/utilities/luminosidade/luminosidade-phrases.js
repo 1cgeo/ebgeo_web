@@ -135,19 +135,10 @@ export const RESSALVA_DO_HORIZONTE = 'Horizonte teórico ao nível do mar. Relev
 /** The same condition on one line, for the saved table. */
 export const RESSALVA_CURTA = 'Horizonte teórico ao nível do mar; relevo, nuvens e chuva não entram no cálculo.';
 
-/** Where day D came from; the header says which one it is. */
-export const ORIGEM_DO_DIA_D = Object.freeze({
-    painel: 'D escolhido no painel',
-    hoje: 'D = hoje',
-});
-
-/** Controls. */
-export const ROTULO_DIA_ANTERIOR = 'Dia anterior';
-export const ROTULO_DIA_SEGUINTE = 'Dia seguinte';
-export const ROTULO_DATA_D = 'Dia D';
-export const ROTULO_SALVAR = 'Salvar tabela';
+/** The day controls, the close and save labels and where day D came from are the SHELL's
+ * (`utilities/painel-de-ponto/painel-de-ponto-phrases.js`), shared with the weather panel. */
 export const DICA_SALVAR = 'Salva a tabela em CSV, com o ponto, o fuso e a ressalva do horizonte.';
-export const ROTULO_FECHAR = 'Fechar';
+export const ROTULO_DA_ALCA = 'Expandir ou recolher o painel de luminosidade';
 
 /** Toasts. */
 export const AVISO_SALVO = 'Tabela de luminosidade salva.';

@@ -1,15 +1,18 @@
-/* Path: css/luminosidade.css */
+/* Path: css/painel-de-ponto.css */
 
 /**
- * The light panel (PITCIC "Dados solares" and "Dados lunares"), opened from the map's context
- * menu. On desktop it is a card under the search bar, shifted with it when the sidebar or the
- * feature panel opens; on a phone it is a bottom sheet with three heights.
+ * The PITCIC point panels, opened from the map's context menu: the light panel ("Dados solares" and
+ * "Dados lunares") and the weather panel (the other rows of Quadro 4-5). One card design for both,
+ * because they are the two halves of one doctrinal table; the shell is
+ * `js/utilities/painel-de-ponto/painel-de-ponto.js`. On desktop it is a card under the search bar,
+ * shifted with it when the sidebar or the feature panel opens; on a phone it is a bottom sheet with
+ * three heights.
  *
  * Numbers are tabular: a column of times must line up digit by digit, or 05:13h and 18:54h read
  * as different widths and the eye compares shapes instead of values.
  */
 
-.luminosidade-sr {
+.painel-ponto-sr {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -21,7 +24,7 @@
     border: 0;
 }
 
-.luminosidade-painel {
+.painel-ponto {
     position: fixed;
     box-sizing: border-box;
 
@@ -54,49 +57,49 @@
     will-change: transform;
 }
 
-.luminosidade-painel[data-sidebar-state="expanded"] {
+.painel-ponto[data-sidebar-state="expanded"] {
     transform: translateX(var(--sidebar-panel-width));
 }
 
-.luminosidade-painel::-webkit-scrollbar {
+.painel-ponto::-webkit-scrollbar {
     width: 8px;
 }
 
-.luminosidade-painel::-webkit-scrollbar-track {
+.painel-ponto::-webkit-scrollbar-track {
     background: transparent;
 }
 
-.luminosidade-painel::-webkit-scrollbar-thumb {
+.painel-ponto::-webkit-scrollbar-thumb {
     background-color: var(--primary);
     border-radius: var(--radius-full);
 }
 
-.luminosidade-painel::-webkit-scrollbar-thumb:hover {
+.painel-ponto::-webkit-scrollbar-thumb:hover {
     background-color: var(--primary-hover);
 }
 
-.luminosidade-painel__cabecalho {
+.painel-ponto__cabecalho {
     display: flex;
     align-items: center;
     justify-content: space-between;
 }
 
-.luminosidade-painel__titulo {
+.painel-ponto__titulo {
     margin: 0;
     font-size: var(--font-size-base);
     font-weight: var(--font-weight-semibold);
 }
 
-.luminosidade-painel__titulo:focus {
+.painel-ponto__titulo:focus {
     outline: none;
 }
 
-.luminosidade-painel__titulo:focus-visible {
+.painel-ponto__titulo:focus-visible {
     outline: 2px solid var(--primary-600);
     outline-offset: 2px;
 }
 
-.luminosidade-painel__fechar {
+.painel-ponto__fechar {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -111,15 +114,15 @@
     font-size: var(--font-size-base);
 }
 
-.luminosidade-painel__fechar:hover {
+.painel-ponto__fechar:hover {
     background: var(--gray-100);
 }
 
-.luminosidade-painel__espiada {
+.painel-ponto__espiada {
     display: none;
 }
 
-.luminosidade-painel__ponto-e-data {
+.painel-ponto__ponto-e-data {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -127,18 +130,18 @@
     gap: var(--space-2);
 }
 
-.luminosidade-painel__coordenada {
+.painel-ponto__coordenada {
     font-variant-numeric: tabular-nums;
     font-weight: var(--font-weight-medium);
 }
 
-.luminosidade-painel__data {
+.painel-ponto__data {
     display: inline-flex;
     align-items: center;
     gap: var(--space-1);
 }
 
-.luminosidade-painel__seta {
+.painel-ponto__seta {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -153,11 +156,11 @@
     font-size: var(--font-size-2xs);
 }
 
-.luminosidade-painel__seta:hover {
+.painel-ponto__seta:hover {
     background: var(--gray-100);
 }
 
-.luminosidade-painel__campo-data {
+.painel-ponto__campo-data {
     height: 28px;
     padding: 0 var(--space-1);
     font-family: inherit;
@@ -167,13 +170,13 @@
     border-radius: var(--radius-sm);
 }
 
-.luminosidade-painel__origem {
+.painel-ponto__origem {
     margin: 0;
     font-size: var(--font-size-xs);
     color: var(--gray-600);
 }
 
-.luminosidade-painel__aviso-fuso {
+.painel-ponto__aviso-fuso {
     margin: 0;
     padding: var(--space-1) var(--space-2);
     font-size: var(--font-size-xs);
@@ -183,48 +186,48 @@
     border-radius: var(--radius-sm);
 }
 
-.luminosidade-painel__aviso-fuso[hidden] {
+.painel-ponto__aviso-fuso[hidden] {
     display: none;
 }
 
-.luminosidade-painel__conteudo {
+.painel-ponto__conteudo {
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
 }
 
-.luminosidade-quadro {
+.painel-ponto-quadro {
     width: 100%;
     border-collapse: collapse;
     font-variant-numeric: tabular-nums;
 }
 
-.luminosidade-quadro th,
-.luminosidade-quadro td {
+.painel-ponto-quadro th,
+.painel-ponto-quadro td {
     padding: 3px var(--space-2);
     text-align: left;
     vertical-align: baseline;
     border-bottom: var(--border-width) solid var(--gray-100);
 }
 
-.luminosidade-quadro__coluna {
+.painel-ponto-quadro__coluna {
     font-weight: var(--font-weight-semibold);
     white-space: nowrap;
 }
 
-.luminosidade-quadro__relativo {
+.painel-ponto-quadro__relativo {
     display: block;
     color: var(--gray-900);
 }
 
-.luminosidade-quadro__dia {
+.painel-ponto-quadro__dia {
     display: block;
     font-size: var(--font-size-2xs);
     font-weight: var(--font-weight-normal);
     color: var(--gray-500);
 }
 
-.luminosidade-quadro__grupo th {
+.painel-ponto-quadro__grupo th {
     padding-top: var(--space-2);
     font-size: var(--font-size-2xs);
     font-weight: var(--font-weight-semibold);
@@ -234,49 +237,49 @@
     background: var(--gray-50);
 }
 
-.luminosidade-quadro__rotulo {
+.painel-ponto-quadro__rotulo {
     font-weight: var(--font-weight-medium);
     white-space: nowrap;
 }
 
-.luminosidade-quadro__rotulo abbr {
+.painel-ponto-quadro__rotulo abbr {
     text-decoration: underline dotted var(--gray-400);
     cursor: help;
 }
 
-.luminosidade-quadro__celula {
+.painel-ponto-quadro__celula {
     white-space: nowrap;
 }
 
-.luminosidade-quadro__celula--vazia {
+.painel-ponto-quadro__celula--vazia {
     font-style: italic;
     color: var(--gray-500);
 }
 
-.luminosidade-quadro__marca {
+.painel-ponto-quadro__marca {
     font-size: var(--font-size-2xs);
     color: var(--gray-600);
 }
 
-.luminosidade-painel__nota {
+.painel-ponto__nota {
     margin: 0;
     font-size: var(--font-size-xs);
     color: var(--gray-600);
 }
 
-.luminosidade-painel__bloco {
+.painel-ponto__bloco {
     border-top: var(--border-width) solid var(--gray-200);
     padding-top: var(--space-1);
 }
 
-.luminosidade-painel__bloco-titulo {
+.painel-ponto__bloco-titulo {
     padding: var(--space-1) 0;
     font-weight: var(--font-weight-medium);
     color: var(--gray-700);
     cursor: pointer;
 }
 
-.luminosidade-painel__rodape {
+.painel-ponto__rodape {
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
@@ -284,20 +287,20 @@
     border-top: var(--border-width) solid var(--gray-200);
 }
 
-.luminosidade-painel__ressalva {
+.painel-ponto__ressalva {
     margin: 0;
     font-size: var(--font-size-xs);
     color: var(--gray-600);
 }
 
-.luminosidade-painel__acoes {
+.painel-ponto__acoes {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: var(--space-2);
 }
 
-.luminosidade-painel__botao {
+.painel-ponto__botao {
     padding: var(--space-1) var(--space-3);
     font-family: inherit;
     font-size: var(--font-size-sm);
@@ -309,20 +312,97 @@
     border-radius: var(--radius-md);
 }
 
-.luminosidade-painel__botao:hover {
+.painel-ponto__botao:hover {
     background: var(--primary-hover);
+}
+
+.painel-ponto__botao--secundario {
+    color: var(--primary);
+    background: #fff;
+}
+
+.painel-ponto__botao--secundario:hover {
+    background: var(--primary-50);
+}
+
+/* A cell whose text is a phrase ("Pancadas de chuva fortes") and not a number: it wraps instead of
+   pushing the card sideways. */
+.painel-ponto-quadro__celula--quebra {
+    white-space: normal;
+}
+
+/* The state of a panel that reads from the network (the weather panel): consulting, or the source
+   did not answer. The table keeps its place under it, so the card does not jump when the numbers
+   arrive. */
+.painel-ponto__estado {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+    margin: 0;
+    padding: var(--space-2);
+    font-size: var(--font-size-xs);
+    color: var(--gray-700);
+    background: var(--gray-50);
+    border-radius: var(--radius-sm);
+}
+
+.painel-ponto__estado--erro {
+    color: var(--color-error-strong);
+    background: #fef2f2;
+    border-left: 3px solid var(--color-error);
+}
+
+.painel-ponto__estado-titulo {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+}
+
+.painel-ponto__estado-texto {
+    margin: 0;
+}
+
+/* Consulting: the spinner beside the title, on one line. The same ring as the search bar's, turning
+   by `transform`; under reduced motion it stands still and the title alone says it is waiting. */
+.painel-ponto__estado--carregando {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.painel-ponto__spinner {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--gray-200);
+    border-top-color: var(--primary);
+    border-radius: var(--radius-full);
+    animation: painel-ponto-giro 0.8s linear infinite;
+}
+
+@keyframes painel-ponto-giro {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .painel-ponto__spinner {
+        animation: none;
+    }
 }
 
 /* =========================================================================
    PHONE: the same panel as a bottom sheet with three heights.
    ========================================================================= */
 
-.luminosidade-painel__alca {
+.painel-ponto__alca {
     display: none;
 }
 
-.luminosidade-painel--folha,
-.luminosidade-painel--folha[data-sidebar-state] {
+.painel-ponto--folha,
+.painel-ponto--folha[data-sidebar-state] {
     top: auto;
     right: 0;
     bottom: 0;
@@ -333,22 +413,22 @@
     padding: 0 var(--space-4) calc(var(--space-4) + var(--safe-area-bottom));
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.18);
-    transform: translateY(calc(100% - 132px + var(--luminosidade-arrasto, 0%)));
+    transform: translateY(calc(100% - 132px + var(--painel-ponto-arrasto, 0%)));
 }
 
-.luminosidade-painel--folha[data-estado="meia"] {
-    transform: translateY(calc(100% - var(--phone-sheet-half) + var(--luminosidade-arrasto, 0%)));
+.painel-ponto--folha[data-estado="meia"] {
+    transform: translateY(calc(100% - var(--phone-sheet-half) + var(--painel-ponto-arrasto, 0%)));
 }
 
-.luminosidade-painel--folha[data-estado="inteira"] {
-    transform: translateY(var(--luminosidade-arrasto, 0%));
+.painel-ponto--folha[data-estado="inteira"] {
+    transform: translateY(var(--painel-ponto-arrasto, 0%));
 }
 
-.luminosidade-painel--arrastando {
+.painel-ponto--arrastando {
     transition: none;
 }
 
-.luminosidade-painel--folha .luminosidade-painel__alca {
+.painel-ponto--folha .painel-ponto__alca {
     position: sticky;
     top: 0;
     z-index: 1;
@@ -363,7 +443,7 @@
     touch-action: none;
 }
 
-.luminosidade-painel--folha .luminosidade-painel__alca::before {
+.painel-ponto--folha .painel-ponto__alca::before {
     content: '';
     display: block;
     width: 40px;
@@ -373,7 +453,7 @@
     border-radius: var(--radius-full);
 }
 
-.luminosidade-painel--folha .luminosidade-painel__espiada {
+.painel-ponto--folha .painel-ponto__espiada {
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -382,18 +462,27 @@
     color: var(--gray-700);
 }
 
-.luminosidade-painel__espiada-dia {
+.painel-ponto__espiada-dia {
     font-weight: var(--font-weight-medium);
     color: var(--gray-900);
 }
 
-.luminosidade-painel--folha[data-estado="espiada"] .luminosidade-painel__rodape,
-.luminosidade-painel--folha[data-estado="espiada"] .luminosidade-painel__conteudo {
+.painel-ponto--folha[data-estado="espiada"] .painel-ponto__rodape,
+.painel-ponto--folha[data-estado="espiada"] .painel-ponto__conteudo {
     visibility: hidden;
 }
 
-.luminosidade-painel--folha .luminosidade-quadro th,
-.luminosidade-painel--folha .luminosidade-quadro td {
+.painel-ponto--folha .painel-ponto-quadro th,
+.painel-ponto--folha .painel-ponto-quadro td {
     padding: 3px 4px;
     font-size: 13px;
+}
+
+/* On a 360 px phone the weather quadro does not fit with unbroken cells: its cells carry units and
+   phrases ("24 km ou mais", "E-SE 2,0 m/s"), where the light panel's carry short times, and the card
+   hides horizontal overflow, so the D+2 column was cut (measured by capture on 2026-09-23). There,
+   and only there, cells and row labels wrap. */
+.painel-ponto--folha.painel-ponto--meteorologia .painel-ponto-quadro__celula,
+.painel-ponto--folha.painel-ponto--meteorologia .painel-ponto-quadro__rotulo {
+    white-space: normal;
 }

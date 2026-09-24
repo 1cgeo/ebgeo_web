@@ -5,9 +5,9 @@
  *
  * Reached ONLY by the `import()` in `carregador.js`, never statically: this file pulls the astronomy
  * library through `efemerides.js`, and `tests/unit/teto-de-peso-da-pagina-do-mapa.test.js` fails a
- * static path to the package from the map's boot graph. The pure leaves (`hora-brasilia.js`,
- * `matriz-pitcic.model.js`, `quadro-pitcic.js`, `luminosidade-phrases.js`) carry no library and may
- * be imported directly where a caller needs them.
+ * static path to the package from the map's boot graph. The pure leaves (`matriz-pitcic.model.js`,
+ * `quadro-pitcic.js`, `luminosidade-phrases.js`, and the shared `utilities/hora-brasilia.js`) carry
+ * no library and may be imported directly where a caller needs them.
  */
 
 import { efemerides } from './efemerides.js';
