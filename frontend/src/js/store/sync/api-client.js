@@ -234,6 +234,25 @@ function jsonBodyBytes(body) {
 }
 
 /**
+ * Reads a response body as text, calling `onChunk` for every chunk that arrives.
+ * @param {ReadableStream<Uint8Array>} stream
+ * @param {Function} onChunk
+ * @returns {Promise<string>}
+ */
+async function readTextReportingChunks(stream, onChunk) {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let text = '';
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        onChunk();
+        text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+}
+
+/**
  * Timeout (ms) for the logout revoke, which is an EXCEPTION to the unbounded default above.
  *
  * THE DEFAULT IS DELIBERATE AND THIS IS NOT A REPAIR OF IT: a request left unbounded protects a
@@ -785,15 +804,19 @@ export class ApiClient {
      * @param {Object} [opts.body] - JSON body.
      * @param {boolean} [opts.auth=true] - Send the Authorization header.
      * @param {boolean} [opts._retry=true] - Internal: allow one 401 refresh+retry.
+     * @param {number} [opts.timeoutMs] - Deadline of the request.
+     * @param {boolean} [opts.deadlineCountsSilence=false] - Every chunk of the RESPONSE BODY re-arms
+     *   `timeoutMs`, so the deadline measures silence instead of duration (see `pullSync`).
      * @returns {Promise<*>} The parsed response (envelope unwrapped).
      * @throws {ApiError}
      */
     async _request(method, path, options = {}) {
-        const { timeoutMs, signal: parentSignal } = options;
+        const { timeoutMs, signal: parentSignal, deadlineCountsSilence = false } = options;
         if (!timeoutMs && !parentSignal) return this._performRequest(method, path, options);
         const controller = new AbortController();
         let timer;
         let onAbort;
+        let rearm;
         const aborted = new Promise((_, reject) => {
             onAbort = () => {
                 controller.abort(parentSignal?.reason);
@@ -802,16 +825,23 @@ export class ApiClient {
             if (parentSignal?.aborted) onAbort();
             else parentSignal?.addEventListener('abort', onAbort, { once: true });
             if (timeoutMs) {
-                timer = setTimeout(() => {
-                const error = new ApiError('Tempo de espera esgotado. A tentativa pode ser repetida.', { code: 'REQUEST_TIMEOUT' });
-                controller.abort(error);
-                reject(error);
-                }, timeoutMs);
+                const expire = () => {
+                    const error = new ApiError('Tempo de espera esgotado. A tentativa pode ser repetida.', { code: 'REQUEST_TIMEOUT' });
+                    controller.abort(error);
+                    reject(error);
+                };
+                timer = setTimeout(expire, timeoutMs);
+                if (deadlineCountsSilence) {
+                    rearm = () => {
+                        clearTimeout(timer);
+                        timer = setTimeout(expire, timeoutMs);
+                    };
+                }
             }
         });
         try {
             return await Promise.race([
-                this._performRequest(method, path, { ...options, signal: controller.signal }), aborted,
+                this._performRequest(method, path, { ...options, signal: controller.signal, onBodyChunk: rearm }), aborted,
             ]);
         } finally {
             clearTimeout(timer);
@@ -819,7 +849,7 @@ export class ApiClient {
         }
     }
 
-    async _performRequest(method, path, { body, auth = true, _retry = true, signal, assertContext } = {}) {
+    async _performRequest(method, path, { body, auth = true, _retry = true, signal, assertContext, onBodyChunk } = {}) {
         // Renew BEFORE the header is built, or the request carries the stale token.
         // Guarded by `auth`, which is also what keeps this out of the recursion:
         // `refresh()` issues its own request with `auth: false`.
@@ -872,7 +902,7 @@ export class ApiClient {
         // 204 No Content (logout) — nothing to parse.
         if (res.status === 204) return null;
 
-        const parsed = await this._parseBody(res);
+        const parsed = await this._parseBody(res, onBodyChunk);
         signal?.throwIfAborted();
         assertContext?.();
 
@@ -881,7 +911,7 @@ export class ApiClient {
             if (res.status === 401 && _retry && auth && this._refreshToken) {
                 await this.refresh();
                 signal?.throwIfAborted();
-                return this._performRequest(method, path, { body, auth, _retry: false, signal, assertContext });
+                return this._performRequest(method, path, { body, auth, _retry: false, signal, assertContext, onBodyChunk });
             }
             // Two error envelopes reach this client. The atlas API sends
             // `{ error: { code, message } }`; sv360 sends a FLAT `{ error: '...' }`
@@ -908,9 +938,16 @@ export class ApiClient {
         return this._unwrap(parsed);
     }
 
-    /** @private Parses a response body as JSON, tolerating empty bodies. */
-    async _parseBody(res) {
-        const text = await res.text();
+    /**
+     * @private Parses a response body as JSON, tolerating empty bodies.
+     * @param {Response} res
+     * @param {Function} [onChunk] - Called for every chunk of the body as it arrives (the silence
+     *   deadline of `_request`). Without a readable stream it degrades to `text()`.
+     */
+    async _parseBody(res, onChunk) {
+        const text = onChunk && typeof res.body?.getReader === 'function'
+            ? await readTextReportingChunks(res.body, onChunk)
+            : await res.text();
         if (!text) return null;
         try {
             return JSON.parse(text);
@@ -2731,12 +2768,21 @@ export class ApiClient {
 
     /**
      * Pulls operations (or a full snapshot) since a given version.
+     *
+     * THE 180 s COUNT SILENCE, NOT DURATION (2026-09-23). They covered the whole request, body
+     * included, so on the 40 kbps link the product targets any snapshot or tail above roughly
+     * 900 KB compressed was cut on every attempt while its bytes were still flowing, and the atlas
+     * could not be opened on that link at all. Now the first byte has 180 s (the server builds the
+     * snapshot before answering) and each chunk of the body re-arms them: a body that stops
+     * arriving is still cut, one that keeps arriving is not.
      * @param {string} atlasId
      * @param {number} [sinceVersion=0] - 0 (or below min) returns a snapshot.
      * @returns {Promise<{ snapshot?: Object, operations?: Object[], currentVersion: number, isSnapshot: boolean }>}
      */
     async pullSync(atlasId, sinceVersion = 0, { signal } = {}) {
-        return this._request('GET', `/atlas/${atlasId}/sync/${sinceVersion}`, { timeoutMs: 180000, signal });
+        return this._request('GET', `/atlas/${atlasId}/sync/${sinceVersion}`, {
+            timeoutMs: 180000, deadlineCountsSilence: true, signal,
+        });
     }
 
     /**

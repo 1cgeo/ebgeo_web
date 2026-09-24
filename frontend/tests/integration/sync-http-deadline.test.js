@@ -94,6 +94,51 @@ describe('Sync HTTP deadline and cancellation', () => {
         await rejected;
     });
 
+    /**
+     * O PRAZO DO RETRATO MEDE SILÊNCIO, NÃO DURAÇÃO (2026-09-23). O retrato comprimido de um atlas
+     * grande em 40 kbps leva mais que 180 s para descer, e com o prazo sobre o pedido inteiro a
+     * abertura estourava a cada tentativa com os bytes chegando o tempo todo. Cada pedaço do corpo
+     * rearma o prazo; o que continua cortado é o corpo que PARA de chegar.
+     */
+    function streamingResponse({ chunks, everyMs, stallAfter = Infinity }) {
+        const encoder = new TextEncoder();
+        const payload = JSON.stringify({ data: { isSnapshot: true, currentVersion: 7, snapshot: { pad: 'z'.repeat(chunks * 10) } } });
+        const size = Math.ceil(payload.length / chunks);
+        let sent = 0;
+        const body = new ReadableStream({
+            async pull(controller) {
+                if (sent >= chunks) { controller.close(); return; }
+                if (sent >= stallAfter) { await new Promise(() => {}); }
+                await new Promise((resolve) => setTimeout(resolve, everyMs));
+                controller.enqueue(encoder.encode(payload.slice(sent * size, (sent + 1) * size)));
+                sent += 1;
+            },
+        });
+        return { ok: true, status: 200, headers: new Headers(), body, text: () => new Response(body).text() };
+    }
+
+    it('a snapshot still arriving after 180 s is not cut: every chunk re-arms the deadline', async () => {
+        vi.useFakeTimers();
+        const api = new ApiClient({ fetch: vi.fn(async () => streamingResponse({ chunks: 40, everyMs: 10000 })) });
+        let settled = null;
+        api.pullSync('atlas').then((r) => { settled = r; }, (e) => { settled = e.code ?? e.name; });
+        await vi.advanceTimersByTimeAsync(399000);
+        expect(settled, 'still downloading at 399 s, not cut at 180 s').toBeNull();
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(settled?.currentVersion).toBe(7);
+    });
+
+    it('a snapshot whose body stops arriving is still cut, 180 s after the last chunk', async () => {
+        vi.useFakeTimers();
+        const api = new ApiClient({ fetch: vi.fn(async () => streamingResponse({ chunks: 40, everyMs: 10000, stallAfter: 5 })) });
+        let settled = null;
+        api.pullSync('atlas').then(() => { settled = 'ok'; }, (e) => { settled = e.code ?? e.name; });
+        await vi.advanceTimersByTimeAsync(50000 + 179000);
+        expect(settled).toBeNull();
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(settled).toBe('REQUEST_TIMEOUT');
+    });
+
     it('a closed atlas cancels its request before a delayed response can be used', async () => {
         const api = new ApiClient({ fetch: vi.fn(() => new Promise(() => {})) });
         const controller = new AbortController();
