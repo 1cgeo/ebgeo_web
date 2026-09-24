@@ -104,6 +104,10 @@ function writingIntoServerAtlas() {
     return getActiveScope()?.kind === StoreScopeKind.REMOTE || isRemoteStoreSync();
 }
 
+/** The refusal of an ADDITIVE import into the server atlas that is open (see `handleImport`). */
+const RECUSA_DO_ADITIVO_NO_SERVIDOR = 'Não é possível adicionar um arquivo ao atlas do servidor '
+    + 'que está aberto. Use "Importar .ebgeo", que abre o arquivo em um atlas local novo.';
+
 
 export class ExportImportService {
     constructor(baseLayerControl, toolManager, mapManager, eventBus = null) {
@@ -111,6 +115,19 @@ export class ExportImportService {
         this._toolManager = toolManager;
         this.mapManager = mapManager;
         this._eventBus = eventBus;
+    }
+
+    /**
+     * Refuses an ADDITIVE import into the server atlas that is open, and says so. Asked by the
+     * "Importar" command of the maps tab ON THE CLICK, before the file picker opens: until
+     * 2026-09-24 the refusal came only after the person had chosen a file. `handleImport` asks it
+     * again, for the doors where the file arrives first (a drop).
+     * @returns {boolean} True when the import was refused (and the notice shown).
+     */
+    recusarImportAditivoNoServidor() {
+        if (!writingIntoServerAtlas()) return false;
+        showError(RECUSA_DO_ADITIVO_NO_SERVIDOR, { duration: 10000 });
+        return true;
     }
 
     /**
@@ -573,12 +590,7 @@ export class ExportImportService {
         // novo não tem a que somar. Somar de verdade seria criar mapas, camadas e feições DENTRO
         // do atlas do servidor, o que exige permissão de escrita (o guard nem é consultado aqui) e
         // uma rodada de sync por entidade. A recusa nomeia a saída, que existe logo ao lado.
-        if (isAdditiveImport && writingIntoServerAtlas()) {
-            showError(
-                'Não é possível adicionar um arquivo ao atlas do servidor que está aberto. '
-                + 'Use "Importar .ebgeo", que abre o arquivo em um atlas local novo.',
-                { duration: 10000 }
-            );
+        if (isAdditiveImport && this.recusarImportAditivoNoServidor()) {
             event.target.value = '';
             return;
         }

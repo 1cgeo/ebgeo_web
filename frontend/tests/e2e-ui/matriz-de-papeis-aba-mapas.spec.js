@@ -41,3 +41,27 @@ for (const permission of ['read', 'comment']) {
         });
     });
 }
+
+collabTest.describe('Aba Mapas: "Importar" num atlas de servidor recusa no clique', () => {
+    collabTest.use({ collabOptions: { peers: 1, permission: 'write', mapName: 'Mapa Tático' } });
+
+    collabTest('o Editor não é levado a escolher um arquivo que será recusado', async ({ collab }) => {
+        // The additive import never enters a server atlas (`handleImport`,
+        // `import_export/export-import.service.js`), whoever asks. The command is drawn for a
+        // writer, and the refusal came only AFTER the file picker: the person chose a `.ebgeo`
+        // and then read that nothing could be added here. The refusal is the click's.
+        const B = collab.peers[0];
+        await B.locator('.sidebar-nav-btn[data-tab="mapas"]').click();
+        const importar = B.locator('#maps-action-import');
+        await expect(importar).toBeVisible({ timeout: 10000 });
+
+        let seletorAbriu = false;
+        B.on('filechooser', () => { seletorAbriu = true; });
+        await importar.click();
+
+        const aviso = B.locator('.toast', { hasText: 'Não é possível adicionar um arquivo ao atlas do servidor' });
+        await expect(aviso).toBeVisible({ timeout: 5000 });
+        await B.waitForTimeout(500);
+        expect(seletorAbriu, 'o seletor de arquivo abriu antes da recusa').toBe(false);
+    });
+});

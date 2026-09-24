@@ -1457,6 +1457,9 @@ export class MapsTab {
             showWarning(denialNotice(perm.required));
             return;
         }
+        // The same shape for the atlas KIND: an additive import never enters a server atlas, so
+        // the click refuses (naming the way out) before the picker asks for a file.
+        if (this._exportImportService?.recusarImportAditivoNoServidor?.()) return;
 
         if (this._exportImportService) {
             const fileInput = document.createElement('input');
