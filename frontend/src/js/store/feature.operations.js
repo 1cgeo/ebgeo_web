@@ -455,7 +455,10 @@ export async function updateFeature(type, feature, mapName = null, { preserveUse
 
         // Skip for authoritative user-data writes: UserDataManager passes a full clone, so an
         // intentionally-emptied attributes/images collection must NOT be restored from the old value.
-        if (keepUserData) preserveUserData(oldFeature, cleanedFeature);
+        // Skip for undo and redo too: `keepLaterEdits` above already kept whatever changed after
+        // the reverted edit, and restoring the stored collection when the target is empty made
+        // undoing "add the first attribute" (or the first photo) do nothing, silently.
+        if (keepUserData && !revertFrom) preserveUserData(oldFeature, cleanedFeature);
         preserveSyncMetadata(oldFeature, cleanedFeature);
 
         if (isFeatureEqual(oldFeature, cleanedFeature)) return;

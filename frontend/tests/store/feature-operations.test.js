@@ -1224,3 +1224,57 @@ describe('addFeature e addFeatures recusam camada travada do mapa corrente', () 
         expect(emitStoreError).not.toHaveBeenCalledWith('store:operationBlocked', expect.objectContaining({ reason: 'layer_locked' }));
     });
 });
+
+// ============================================================================
+// Desfazer e refazer de atributo pelo caminho REAL (2026-09-24)
+// ============================================================================
+
+// O MOTOR DE DESFAZER chama `updateFeature(tipo, action.oldFeature, null, { revertFrom:
+// action.newFeature })` (`store-state-manager.js`, `_executeUndoAction`) sem `preserveUserData:
+// false`, e `preserveUserData` devolvia a bolsa guardada sempre que o resultado ficava vazio: desfazer
+// "adicionar o primeiro atributo" não fazia NADA, sem aviso. A ação desfeita aqui é a que o próprio
+// `updateFeature` gravou (a escrita do gerente de atributos, com `transform` e `preserveUserData:
+// false`), e o desfazer é a MESMA chamada do motor.
+describe('desfazer e refazer de atributo', () => {
+    async function acaoGravada(transform) {
+        mockMapManager.recordAction.mockClear();
+        await updateFeature('points', mockMapData.value.features.points[0], 'TestMap', { preserveUserData: false, transform });
+        expect(mockMapManager.recordAction).toHaveBeenCalledTimes(1);
+        return mockMapManager.recordAction.mock.calls[0][0];
+    }
+    const atributos = () => mockMapData.value.features.points[0].properties.attributes;
+
+    it('desfazer "adicionar o primeiro atributo" tira o atributo, e refazer o devolve', async () => {
+        mockMapData.value.features.points.push(makeFeature('f1'));
+        const acao = await acaoGravada((f) => { f.properties.attributes = { x: 'um' }; return f; });
+        expect(atributos()).toEqual({ x: 'um' });
+
+        await updateFeature(acao.featureType, acao.oldFeature, null, { revertFrom: acao.newFeature });
+        expect(atributos() ?? {}, 'o desfazer não desfez nada').toEqual({});
+
+        await updateFeature(acao.featureType, acao.newFeature, null, { revertFrom: acao.oldFeature });
+        expect(atributos()).toEqual({ x: 'um' });
+    });
+
+    it('desfazer "excluir o último atributo" devolve o atributo', async () => {
+        mockMapData.value.features.points.push(makeFeature('f1', 'point', { attributes: { x: 'um' } }));
+        const acao = await acaoGravada((f) => { delete f.properties.attributes.x; return f; });
+        expect(atributos()).toEqual({});
+
+        await updateFeature(acao.featureType, acao.oldFeature, null, { revertFrom: acao.newFeature });
+        expect(atributos()).toEqual({ x: 'um' });
+    });
+
+    it('desfazer uma edição de GEOMETRIA não mexe nos atributos que ela não tocou', async () => {
+        mockMapData.value.features.points.push(makeFeature('f1', 'point', { attributes: { x: 'um' } }));
+        mockMapManager.recordAction.mockClear();
+        const movida = makeFeature('f1', 'point', { attributes: { x: 'um' } });
+        movida.geometry.coordinates = [-43.3, -22.8];
+        await updateFeature('points', movida, 'TestMap');
+        const acao = mockMapManager.recordAction.mock.calls[0][0];
+
+        await updateFeature(acao.featureType, acao.oldFeature, null, { revertFrom: acao.newFeature });
+        expect(mockMapData.value.features.points[0].geometry.coordinates).toEqual([-43.2, -22.9]);
+        expect(atributos()).toEqual({ x: 'um' });
+    });
+});
