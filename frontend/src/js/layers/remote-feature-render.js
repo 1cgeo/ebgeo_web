@@ -39,72 +39,116 @@ const REMOTE_FEATURE_EVENTS = [
 ];
 
 /**
- * How many times the duration of the previous refresh the next one waits, at least.
+ * Longest a refresh may hold the single-flight gate. `setupMapFeatures` can wait on the NETWORK
+ * (a missing image blob goes to `fetchImageBlob`, a plain fetch with no deadline, and the symbol
+ * library is a dynamic import), so a refresh that never settles would otherwise freeze the 2D
+ * rendering of every peer's edit until a reload. Past this, the gate opens and the next event
+ * schedules a new refresh, overlapping the stuck one, which is what the code did before the gate.
+ * @type {number}
+ */
+const REFRESH_WATCHDOG_MS = 5000;
+
+/**
+ * Ceiling of the trailing wait. The measured refresh duration is wall clock and includes network
+ * waits, so without a ceiling one slow image would space the next rebuild by as long as it took.
+ * @type {number}
+ */
+const MAX_TRAILING_SPACING_MS = 2000;
+
+/**
+ * Subscribes a debounced source refresh to remote feature ops.
  *
  * A BURST USED TO PAY ONE FULL REBUILD PER OPERATION, and the fixed 80 ms debounce was why. A
  * peer's operation takes a read and a write of the whole map document (`applyRemoteFeatureOp`),
  * which on a map of a few thousand features is longer than 80 ms, so the timer fired between
  * nearly every two operations, and each firing re-read the whole document and `setData`'d every
  * collection. Nothing stopped a second rebuild from starting while the first was still running.
- * Measured on 2026-09-23 in Chromium: 300 remote creates on a map of 3 000 points ran 152 full
- * rebuilds (and 152 extra LAYERS_CHANGED rounds), all of it on the main thread the apply chain
- * also needs. With two rebuilds never overlapping and the gap scaled to what the last one cost,
- * the rebuild takes at most a third of a sustained burst, and a single operation still draws
- * after the same 80 ms.
- * @type {number}
- */
-const REFRESH_SPACING_FACTOR = 2;
-
-/**
- * Subscribes a debounced source refresh to remote feature ops.
+ * Measured on 2026-09-23 in Chromium: 300 remote creates on a map of 3 000 points ran 161 to 220
+ * full rebuilds (each one more LAYERS_CHANGED round), all of it on the main thread the apply chain
+ * also needs.
  *
- * THREE RULES, and the last change of the store is always drawn: (1) a burst arms ONE timer;
+ * FOUR RULES, and the last change of the store is always drawn: (1) a burst arms ONE timer;
  * (2) a refresh never starts while another runs, and an event arriving meanwhile marks the
- * sources dirty, which schedules exactly one more refresh when the running one ends; (3) the
- * wait is `debounceMs` or {@link REFRESH_SPACING_FACTOR} times the previous refresh, whichever
- * is longer.
+ * sources dirty, which schedules exactly one more refresh when the running one ends; (3) that
+ * trailing refresh waits `debounceMs` or as long as the refresh that just ran, whichever is
+ * longer, capped at {@link MAX_TRAILING_SPACING_MS}, so a sustained burst spends at most about
+ * half its time rebuilding; (4) a refresh that has not settled after {@link REFRESH_WATCHDOG_MS}
+ * releases the gate, and its late settlement changes nothing.
+ *
+ * AN ISOLATED OPERATION STILL DRAWS AFTER `debounceMs`, and that is why the spacing lives only on
+ * the trailing path: a peer's single edit on a big map must not wait for the cost of the previous
+ * rebuild, which is what a spacing applied to every schedule did in its first version.
  *
  * @param {() => (void|Promise<void>)} refresh - Repopulates the map sources from the store.
  * @param {{ debounceMs?: number, scheduler?: (fn: () => void, ms: number) => any,
- *   now?: () => number }} [opts]
+ *   now?: () => number, watchdogMs?: number,
+ *   watchdogScheduler?: (fn: () => void, ms: number) => any,
+ *   cancelWatchdog?: (handle: any) => void }} [opts]
  * @returns {() => void} Unsubscribe function.
  */
-export function wireRemoteFeatureRender(refresh, { debounceMs = 80, scheduler = setTimeout, now = () => performance.now() } = {}) {
+export function wireRemoteFeatureRender(refresh, {
+    debounceMs = 80,
+    scheduler = setTimeout,
+    now = () => performance.now(),
+    watchdogMs = REFRESH_WATCHDOG_MS,
+    watchdogScheduler = setTimeout,
+    cancelWatchdog = clearTimeout,
+} = {}) {
     const bus = getEventBus();
     let timer = null;
-    let running = false;
+    /** Id of the refresh holding the gate, or 0 when the gate is open. */
+    let activeRun = 0;
+    let lastRunId = 0;
     let dirty = false;
     let wired = true;
-    let lastDurationMs = 0;
+
+    /**
+     * Opens the gate for `runId`, once: the watchdog and the settlement race, and whichever comes
+     * second finds the gate already open (or held by a newer refresh) and does nothing.
+     * @param {number} runId
+     * @param {number} spacingMs - How long the refresh held the gate.
+     */
+    const release = (runId, spacingMs) => {
+        if (activeRun !== runId) return;
+        activeRun = 0;
+        if (dirty) schedule(Math.min(spacingMs, MAX_TRAILING_SPACING_MS));
+    };
 
     const run = () => {
         timer = null;
-        running = true;
+        const runId = ++lastRunId;
+        activeRun = runId;
         dirty = false;
         const started = now();
+        const watchdog = watchdogScheduler(() => {
+            if (activeRun === runId) console.warn('Remote feature render refresh did not settle; releasing the gate.');
+            release(runId, 0);
+        }, watchdogMs);
         Promise.resolve().then(refresh).catch((err) => {
             console.error('Remote feature render refresh failed:', err);
         }).finally(() => {
-            lastDurationMs = Math.max(0, now() - started);
-            running = false;
-            if (dirty) schedule();
+            cancelWatchdog(watchdog);
+            release(runId, Math.max(0, now() - started));
         });
     };
 
-    const schedule = () => {
+    /** @param {number} [spacingMs] - Trailing wait (only the trailing path passes one). */
+    const schedule = (spacingMs = 0) => {
         if (!wired) return;
-        if (running) {
+        if (activeRun !== 0) {
             dirty = true;
             return;
         }
         if (timer !== null) return; // coalesce a burst of remote ops into one refresh
-        timer = scheduler(run, Math.max(debounceMs, lastDurationMs * REFRESH_SPACING_FACTOR));
+        timer = scheduler(run, Math.max(debounceMs, spacingMs));
     };
 
-    for (const evt of REMOTE_FEATURE_EVENTS) bus.on(evt, schedule);
+    // The bus hands the payload to the listener; the spacing argument is the trailing path's alone.
+    const onRemoteFeatureEvent = () => schedule();
+    for (const evt of REMOTE_FEATURE_EVENTS) bus.on(evt, onRemoteFeatureEvent);
 
     return function unwireRemoteFeatureRender() {
         wired = false;
-        for (const evt of REMOTE_FEATURE_EVENTS) bus.off?.(evt, schedule);
+        for (const evt of REMOTE_FEATURE_EVENTS) bus.off?.(evt, onRemoteFeatureEvent);
     };
 }

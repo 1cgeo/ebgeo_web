@@ -123,8 +123,8 @@ describe('wireRemoteFeatureRender (bug E)', () => {
  * A rajada de operacoes remotas pagava UMA reconstrucao inteira por operacao: com o mapa grande,
  * aplicar uma op leva mais que os 80 ms do debounce, e nada impedia uma segunda reconstrucao de
  * comecar com a primeira rodando. Medido em 2026-09-23 no Chromium, 300 criacoes remotas num mapa
- * de 3 000 pontos: 161 a 220 reconstrucoes e 33 a 45 s para convergir; com as regras abaixo, 45 a
- * 52 e 16 a 24 s (tres rodadas intercaladas de cada). Os casos contam agendamentos, nao relogio.
+ * de 3 000 pontos: 161 a 220 reconstrucoes e 33 a 45 s para convergir; com o espacamento aplicado
+ * a todo agendamento (primeira versao), 45 a 52 e 16 a 24 s. Os casos contam agendamentos, nao relogio.
  */
 describe('wireRemoteFeatureRender: rajada longa', () => {
     const deferred = () => {
@@ -170,9 +170,10 @@ describe('wireRemoteFeatureRender: rajada longa', () => {
         expect(armed).toHaveLength(1);
     });
 
-    it('a espera seguinte e o dobro da reconstrucao anterior, nunca menos que o debounce', async () => {
+    it('so a reconstrucao de arrasto espera o custo da anterior; o evento isolado espera o debounce', async () => {
         let clock = 0;
-        const refresh = vi.fn(() => { clock += 300; });
+        const pending = deferred();
+        const refresh = vi.fn(() => { clock += 300; return pending.promise; });
         const armed = [];
         wireRemoteFeatureRender(refresh, {
             now: () => clock,
@@ -183,19 +184,99 @@ describe('wireRemoteFeatureRender: rajada longa', () => {
         expect(armed[0].ms).toBe(80);
         armed[0].fn();
         await settle();
-
+        // Evento DURANTE a reconstrucao de 300 ms: a de arrasto espera 300.
         fire(EventTypes.FEATURE_CREATED);
-        expect(armed[1].ms).toBe(600);
+        pending.resolve();
+        await settle();
+        expect(armed[1].ms).toBe(300);
         armed[1].fn();
         await settle();
 
-        // Uma reconstrucao barata devolve a espera ao piso.
-        refresh.mockImplementation(() => { clock += 10; });
+        // Sem evento durante a reconstrucao, o proximo evento isolado volta ao debounce, mesmo
+        // depois de uma reconstrucao cara: a edicao solitaria do colega nao paga o custo da rajada.
+        fire(EventTypes.FEATURE_MODIFIED);
+        expect(armed[2].ms).toBe(80);
+    });
+
+    it('uma reconstrucao que nunca termina nao congela o desenho: o vigia abre a porta', async () => {
+        const nunca = new Promise(() => {});
+        const refresh = vi.fn(() => nunca);
+        const armed = [];
+        const vigias = [];
+        const aviso = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        wireRemoteFeatureRender(refresh, {
+            scheduler: (fn, ms) => { armed.push({ fn, ms }); return armed.length; },
+            watchdogScheduler: (fn, ms) => { vigias.push({ fn, ms }); return vigias.length; },
+            cancelWatchdog: () => {},
+        });
         fire(EventTypes.FEATURE_CREATED);
-        armed[2].fn();
+        armed[0].fn();
+        await settle();
+        expect(vigias[0].ms).toBe(5000);
+
+        // A foto do colega pendurou o GET do blob; as edicoes seguintes chegam.
+        fire(EventTypes.FEATURE_MODIFIED);
+        expect(armed).toHaveLength(1);
+        vigias[0].fn();
+        // A porta abriu, e a edicao que chegou durante a espera ganha a sua reconstrucao, no debounce.
+        expect(armed).toHaveLength(2);
+        expect(armed[1].ms).toBe(80);
+        armed[1].fn();
+        await settle();
+        expect(refresh).toHaveBeenCalledTimes(2);
+        aviso.mockRestore();
+    });
+
+    it('o termino tardio da reconstrucao pendurada nao abre a porta da seguinte', async () => {
+        const primeira = deferred();
+        const segunda = deferred();
+        const refresh = vi.fn().mockReturnValueOnce(primeira.promise).mockReturnValueOnce(segunda.promise);
+        const armed = [];
+        const vigias = [];
+        const aviso = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        wireRemoteFeatureRender(refresh, {
+            scheduler: (fn, ms) => { armed.push({ fn, ms }); return armed.length; },
+            watchdogScheduler: (fn, ms) => { vigias.push({ fn, ms }); return vigias.length; },
+            cancelWatchdog: () => {},
+        });
+        fire(EventTypes.FEATURE_CREATED);
+        armed[0].fn();
+        await settle();
+        vigias[0].fn();
+        fire(EventTypes.FEATURE_CREATED);
+        armed[1].fn();
+        await settle();
+        expect(refresh).toHaveBeenCalledTimes(2);
+
+        primeira.resolve();
+        await settle();
+        // A segunda ainda segura a porta: evento novo so marca sujo, nao arma timer.
+        fire(EventTypes.FEATURE_CREATED);
+        expect(armed).toHaveLength(2);
+        segunda.resolve();
+        await settle();
+        expect(armed).toHaveLength(3);
+        aviso.mockRestore();
+    });
+
+    it('a espera de arrasto tem teto: uma reconstrucao de 160 s nao adia a seguinte por 160 s', async () => {
+        let clock = 0;
+        const lenta = deferred();
+        const refresh = vi.fn(() => { clock += 160000; return lenta.promise; });
+        const armed = [];
+        wireRemoteFeatureRender(refresh, {
+            now: () => clock,
+            scheduler: (fn, ms) => { armed.push({ fn, ms }); return armed.length; },
+            watchdogScheduler: () => 0,
+            cancelWatchdog: () => {},
+        });
+        fire(EventTypes.FEATURE_CREATED);
+        armed[0].fn();
         await settle();
         fire(EventTypes.FEATURE_CREATED);
-        expect(armed[3].ms).toBe(80);
+        lenta.resolve();
+        await settle();
+        expect(armed[1].ms).toBe(2000);
     });
 
     it('a reconstrucao que falha nao trava as seguintes', async () => {
