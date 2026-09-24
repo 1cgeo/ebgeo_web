@@ -79,7 +79,7 @@ import { isViewer3DOpen } from '@utils/viewer3d-state.js';
 import { showError, showSuccess } from '@utils';
 import { showInChannel } from '@utils/toast_service.js';
 import { transferOutcomeNotice } from './layer-transfer-phrases.js';
-import { denialNotice } from '@store/denial-phrases.js';
+import { denialNotice, LOCKED_LAYER_DELETE_NOTICE } from '@store/denial-phrases.js';
 import { isStreetView360Open } from '@utils/streetview360-state.js';
 
 /**
@@ -438,6 +438,11 @@ export class FeaturesTab {
         const layers = await getLayers();
         const layer = layers.find((l) => l.id === layerId);
         if (!layer) return;
+        // A locked layer refuses BEFORE the confirmation (see `LOCKED_LAYER_DELETE_NOTICE`).
+        if (layer.locked === true) {
+            showInChannel('store-blocked', LOCKED_LAYER_DELETE_NOTICE, 'warning', { duration: 2500 });
+            return;
+        }
 
         const isLastLayer = layers.length <= 1;
         const message = isLastLayer
@@ -453,14 +458,17 @@ export class FeaturesTab {
         try {
             this._suppressLayersChangedRefresh = true;
 
-            await this._syncMapSourcesAfterDelete(layerId);
-
+            // The STORE first, the map sources only after it said yes: a refusal (a lock that
+            // landed after the confirmation, a locked map) used to leave the layer's drawing
+            // removed from the screen while the store kept every feature.
             const deleteResult = await deleteLayer(layerId);
 
-            if (!deleteResult) {
+            if (!deleteResult || deleteResult.success === false) {
                 this._suppressLayersChangedRefresh = false;
                 return;
             }
+
+            await this._syncMapSourcesAfterDelete(layerId);
 
             const layersAfterDelete = await getLayers();
 

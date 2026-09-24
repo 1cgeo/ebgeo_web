@@ -208,3 +208,19 @@ export function lockedLayerCreateNotice(isActiveLayer) {
         ? 'Camada ativa bloqueada. Desbloqueie-a ou escolha outra camada na aba Camadas.'
         : 'A camada de destino está bloqueada. Desbloqueie-a na aba Camadas.';
 }
+
+/**
+ * Deleting a LOCKED layer: its features go with it, which is the edit the lock forbids. Said by
+ * the delete button of the layers tree (drawn, `aria-disabled`, the click refuses) and by
+ * `deleteLayer` in the store, for the lock that lands between the confirmation and the write.
+ * Renaming the layer and its opacity stay free: they are the layer's metadata, not its features.
+ */
+export const LOCKED_LAYER_DELETE_NOTICE = 'Esta camada está bloqueada. Desbloqueie-a para excluí-la.';
+
+/**
+ * Ungrouping or combining a LOCKED group: either one dissolves the group, and with it the lock
+ * that holds its members, which would be a way around the lock without lifting it. Said by
+ * `ungroupFeatures` and `combineGroups` in the store; the context menu that offers them is not
+ * reachable for a locked group, because its members are not selected.
+ */
+export const LOCKED_GROUP_DISSOLVE_NOTICE = 'Este grupo está bloqueado. Desbloqueie-o para desagrupar ou combinar.';

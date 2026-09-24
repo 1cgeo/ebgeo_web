@@ -25,6 +25,7 @@ import { checkPermission } from '@store/sync/permission-guard.js';
 import { showPrompt, showConfirm } from '@modals';
 import { IDUtils, showError, showToast } from '@utils';
 import { semEdicaoSync } from '@store/edicao-indisponivel.js';
+import { LOCKED_LAYER_DELETE_NOTICE } from '@store/denial-phrases.js';
 
 /**
  * @typedef {Object} LayerListCallbacks
@@ -141,7 +142,7 @@ function createLayerControls(layer, callbacks) {
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'layer-delete-btn';
     deleteBtn.innerHTML = FEATURES_TAB_ICONS.DELETE;
-    deleteBtn.title = 'Excluir camada';
+    applyDeleteLockState(deleteBtn, layer.locked === true);
     deleteBtn.onclick = (e) => {
         e.stopPropagation();
         handleDeleteLayer(layer.id, callbacks);
@@ -677,6 +678,12 @@ async function handleDeleteLayer(layerId, callbacks) {
     const layers = await getLayers();
     const layer = layers.find((l) => l.id === layerId);
     if (!layer) return;
+    // THE STATE REFUSES THE CLICK, before the confirmation: asking "delete?" to then refuse
+    // would make the person confirm something that cannot happen.
+    if (layer.locked === true) {
+        showToast(LOCKED_LAYER_DELETE_NOTICE, 'warning');
+        return;
+    }
 
     const isLastLayer = layers.length <= 1;
     const message = isLastLayer
@@ -690,14 +697,17 @@ async function handleDeleteLayer(layerId, callbacks) {
     if (!confirmed) return;
 
     try {
-        if (callbacks.onSyncMapSources) {
-            await callbacks.onSyncMapSources(layerId);
-        }
-
+        // The STORE first, and the map only after it said yes: removing the features from the
+        // sources before a refusal (a lock that landed after the confirmation, a locked map) left
+        // the layer's drawing gone from the screen while the store kept all of it.
         const deleteResult = await deleteLayer(layerId);
 
-        if (!deleteResult) {
+        if (!deleteResult || deleteResult.success === false) {
             return;
+        }
+
+        if (callbacks.onSyncMapSources) {
+            await callbacks.onSyncMapSources(layerId);
         }
 
         const layersAfterDelete = await getLayers();
@@ -833,5 +843,24 @@ export function updateLayerLockIndicator(container, layerId, locked) {
         lockBtn.innerHTML = locked ? FEATURES_TAB_ICONS.LOCK_LOCKED : FEATURES_TAB_ICONS.LOCK_UNLOCKED;
         lockBtn.title = locked ? 'Desbloquear camada' : 'Bloquear camada';
         lockBtn.classList.toggle('lock-toggle--active', locked);
+    }
+
+    const deleteBtn = layerContainer.querySelector('.layer-header .layer-delete-btn');
+    if (deleteBtn) applyDeleteLockState(deleteBtn, locked);
+}
+
+/**
+ * The delete button of a locked layer: DRAWN, with `aria-disabled` and the reason in its title,
+ * and never the `disabled` property, because the click is how the reason reaches the person.
+ * @param {HTMLButtonElement} button
+ * @param {boolean} locked
+ */
+function applyDeleteLockState(button, locked) {
+    if (locked) {
+        button.setAttribute('aria-disabled', 'true');
+        button.title = LOCKED_LAYER_DELETE_NOTICE;
+    } else {
+        button.removeAttribute('aria-disabled');
+        button.title = 'Excluir camada';
     }
 }

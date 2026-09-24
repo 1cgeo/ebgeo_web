@@ -285,3 +285,39 @@ describe('removeFeatureFromAllGroups (unguarded delete)', () => {
         expect(checkPermission).not.toHaveBeenCalled();
     });
 });
+
+// ============================================================================
+// Grupo TRAVADO não se dissolve (2026-09-24)
+// ============================================================================
+//
+// Desagrupar e combinar acabam com o grupo, e é o `locked` do grupo que segura os membros:
+// dissolver um grupo travado destravaria os membros sem ninguém tirar a trava. Controle negativo:
+// com `refuseLockedGroupDissolve` devolvendo sempre falso, os dois casos de recusa reprovam.
+
+describe('grupo travado: desagrupar e combinar recusam, nomeando o estado', () => {
+    it('desagrupar um grupo travado devolve false, avisa, e não chega ao gerente', async () => {
+        groupManager.getGroupById = vi.fn(() => ({ id: 'g1', locked: true }));
+        const result = await ungroupFeatures('g1', 'TestMap');
+        expect(result).toBe(false);
+        expect(groupManager.ungroupFeatures).not.toHaveBeenCalled();
+        expect(emitStoreError).toHaveBeenCalledWith(StoreErrorEvents.STORE_OPERATION_BLOCKED, expect.objectContaining({
+            operation: 'ungroupFeatures', reason: 'group_locked',
+            message: expect.stringMatching(/^Este grupo está bloqueado./),
+        }));
+    });
+
+    it('combinar com UM dos grupos travado devolve null e não chega ao gerente', async () => {
+        groupManager.getGroupById = vi.fn((id) => ({ id, locked: id === 'g2' }));
+        const result = await combineGroups(['g1', 'g2'], [], 'TestMap');
+        expect(result).toBeNull();
+        expect(groupManager.combineGroups).not.toHaveBeenCalled();
+        expect(emitStoreError).toHaveBeenCalledWith(StoreErrorEvents.STORE_OPERATION_BLOCKED, expect.objectContaining({ reason: 'group_locked' }));
+    });
+
+    it('CONTROLE: destravados, os dois chegam ao gerente', async () => {
+        groupManager.getGroupById = vi.fn((id) => ({ id, locked: false }));
+        expect(await ungroupFeatures('g1', 'TestMap')).toBe(true);
+        expect(await combineGroups(['g1', 'g2'], [], 'TestMap')).toEqual({ id: 'grp-combined' });
+        expect(emitStoreError).not.toHaveBeenCalled();
+    });
+});

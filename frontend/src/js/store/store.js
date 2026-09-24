@@ -86,7 +86,7 @@ import {
     getFeatureById,
     featureLockState
 } from './feature.operations.js';
-import { featureLockNotice } from './denial-phrases.js';
+import { featureLockNotice, LOCKED_LAYER_DELETE_NOTICE } from './denial-phrases.js';
 import {
     setMapDependencies,
     getCurrentMapNameSync,
@@ -890,6 +890,20 @@ export async function deleteLayer(layerId, mapName = null) {
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot delete layer.');
         return { success: false, reason: 'MAP_LOCKED' };
+    }
+    // A LOCKED LAYER IS NOT DELETED (2026-09-24, owner's decision): its features go with it, and
+    // the lock is a client convention the server never asks about. The tree refuses before the
+    // confirmation; this refuses the lock that lands between the confirmation and the write.
+    // Current map only, like every client-lock guard (the layer memory holds that map alone).
+    const onCurrentMap = mapName === null || mapName === getCurrentMapNameSync();
+    if (onCurrentMap && deps.layerManager?.getLayerById?.(layerId)?.locked === true) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation: 'deleteLayer',
+            message: LOCKED_LAYER_DELETE_NOTICE,
+            reason: 'layer_locked',
+            timestamp: Date.now()
+        });
+        return { success: false, reason: 'LAYER_LOCKED' };
     }
     await deleteLayerFeatures(layerId, mapName);
     return await deleteLayerOnly(layerId, mapName);

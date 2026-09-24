@@ -8,6 +8,7 @@
 import { isCurrentMapLockedSync } from './map.operations.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
+import { LOCKED_GROUP_DISSOLVE_NOTICE } from './denial-phrases.js';
 
 // ===== DEPENDENCY INJECTION =====
 
@@ -51,6 +52,30 @@ function guardMutation(action, operation) {
     return { blocked: false };
 }
 
+/**
+ * Refuses to dissolve a LOCKED group (2026-09-24, owner's decision on the client locks).
+ *
+ * Ungrouping and combining both end the group, and the group's `locked` is what holds its
+ * members: dissolving it would unlock them without anyone lifting the lock. The lock is a client
+ * convention (the server stores it and never asks), so the question is asked here, where every
+ * caller goes through.
+ * @param {string[]} groupIds
+ * @param {string|null} mapName
+ * @param {string} operation
+ * @returns {boolean} True when refused (already announced).
+ */
+function refuseLockedGroupDissolve(groupIds, mapName, operation) {
+    const locked = (groupIds || []).some((id) => deps.groupManager?.getGroupById?.(id, mapName)?.locked === true);
+    if (!locked) return false;
+    emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+        operation,
+        message: LOCKED_GROUP_DISSOLVE_NOTICE,
+        reason: 'group_locked',
+        timestamp: Date.now()
+    });
+    return true;
+}
+
 // ===== CREATE OPERATIONS =====
 
 /**
@@ -83,6 +108,7 @@ export async function createGroup(features, mapName = null) {
  */
 export function combineGroups(groupIds, selectedFeatures = [], mapName = null) {
     if (guardMutation(GuardAction.UPDATE_GROUP, 'combineGroups').blocked) return null;
+    if (refuseLockedGroupDissolve(groupIds, mapName, 'combineGroups')) return null;
     return deps.groupManager.combineGroups(groupIds, selectedFeatures, mapName);
 }
 
@@ -175,6 +201,7 @@ export function updateGroupProperty(groupId, property, value, mapName = null) {
  */
 export function ungroupFeatures(groupId, mapName = null) {
     if (guardMutation(GuardAction.DELETE_GROUP, 'ungroupFeatures').blocked) return false;
+    if (refuseLockedGroupDissolve([groupId], mapName, 'ungroupFeatures')) return false;
     return deps.groupManager.ungroupFeatures(groupId, mapName);
 }
 
