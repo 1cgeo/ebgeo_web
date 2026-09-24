@@ -4,6 +4,20 @@ Escrito em 2026-09-24 à tarde, quando a campanha de caça de bugs e de cobertur
 
 O trabalho não integrado mora em worktrees fora do repositório, em C:\Users\diniz\ebgeo_hunt\ (uma pasta por frente, cada uma com o próprio node_modules). Cada frente tem um relatório em C:\Users\diniz\ebgeo_hunt\relatorios\ com uma seção PRÓXIMO PASSO que diz o estado exato e o próximo comando. O índice geral é C:\Users\diniz\ebgeo_hunt\RETOMADA.md.
 
+## 0. Onde o trabalho não integrado está salvo
+
+Todo o trabalho das frentes está em COMMITS nos branches hunt/ do repositório principal. Os branches são locais, mas a pasta do repositório (e a .git dentro dela) fica no OneDrive. Em 2026-09-24, ao encerrar, o que ainda não tinha commit foi commitado como wip, com a mensagem começando por wip e a palavra NÃO VERIFICADO no corpo, no branch da própria frente. Os relatórios de cada frente foram copiados para C:\Users\diniz\OneDrive\Desktop\Desenvolvimento\ebgeo_hunt_relatorios, porque a pasta ebgeo_hunt fica fora do OneDrive.
+
+Com trabalho que falta integrar:
+
+- hunt/fotos (HEAD 43f8729d): fotos anexas por referência (item 1.1), mais o spec de transição em wip.
+- hunt/b61-lote (HEAD 1b7cac2f): gestos em massa com uma gravação (item 1.2).
+- hunt/rede-ws (HEAD 12b2c21b): presença em link lento (0627c0cb e dadaff7c, item 1.3) e o WebSocket bloqueado em wip (item 1.4).
+- hunt/orfas (HEAD a68ed8b6): coleta de imagem órfã, inteira em wip (item 1.5).
+- Com um commit wip cada (item 2): hunt/cob-desenho (30c29454), hunt/cob-taticas (076cf1e9), hunt/cob-briefing (f9a5551c), hunt/cob-camadas (9c1ee708), hunt/cob-imagens (9ef0ee51).
+
+Sem nada a integrar (o conteúdo já entrou por outro commit, ou foi descartado de propósito): hunt/atributos, hunt/b61, hunt/cob-bloqueio, hunt/cob-importexport, hunt/desempenho-proposta, hunt/migracao, hunt/producao, e os retratos de integração obsoletos hunt/integra-fotos e hunt/integra-lote.
+
 ## 1. Trabalho pronto em branches e ainda não integrado
 
 A ordem abaixo é a de prioridade. Para integrar: cherry-pick no branch hunt/integra (worktree integra), testes, depois fast-forward do integracao_backend e push. Outra sessão do dono também publica neste branch, então faça fetch e rebase antes de todo push, nunca force.
