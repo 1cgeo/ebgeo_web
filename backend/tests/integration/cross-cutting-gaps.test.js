@@ -66,7 +66,7 @@ describe('Cross-cutting invariants — gaps', () => {
   });
 
   describe('public token revocation over HTTP (x-public-token-...-revoked)', () => {
-    it('disabling public sharing rejects a previously-minted public token; re-enabling restores it', async () => {
+    it('disabling public sharing rejects a previously-minted public token; re-enabling does NOT restore it', async () => {
       const pubAtlas = await createAtlas(db, owner.id);
       const link = await makeAtlasPublic(db, pubAtlas.id);
       const publicToken = await getPublicToken(app, link);
@@ -83,10 +83,17 @@ describe('Cross-cutting invariants — gaps', () => {
       // exactly that, so a de-published link stops confirming that the atlas is there.
       await pull().expect(404);
 
-      // KNOWN nuance: the token is bound to atlasId + isPublic, NOT to public_link, so
-      // re-enabling makes the SAME old token valid again — it is not individually revocable.
-      await A('post', `/api/v1/atlas/${pubAtlas.id}/sharing/public`).expect(200);
-      await pull().expect(200);
+      // Re-enabling mints a NEW link, and since 2026-09-23 the visitor token carries the
+      // fingerprint of the link that issued it: the old token stays refused, which is what
+      // "o link é revogável" (CONSTITUICAO 5.4) asks. This case used to pin the opposite, as a
+      // "known nuance"; the repro of the fix is link-publico-republicado-nao-revive-token.
+      const republished = await A('post', `/api/v1/atlas/${pubAtlas.id}/sharing/public`).expect(200);
+      await pull().expect(404);
+      const freshToken = await getPublicToken(app, republished.body.data.publicLink);
+      await supertest(app)
+        .get(`/api/v1/atlas/${pubAtlas.id}/sync/0`)
+        .set('Authorization', `Bearer ${freshToken}`)
+        .expect(200);
     });
   });
 
