@@ -446,6 +446,15 @@ export const CONVERGENCE_GUARDED = new Set([
     // guarda. `operation-dispatcher.js:147` também gateia por ele para marcar a edição local
     // pendente, então o defer e a checagem de versão ligam juntos.
     EntityType.BRIEFING,
+    // SLIDE entrou em 2026-09-23, e com ele o envelope do briefing deixou de carregar o CONTEUDO
+    // dos slides no par (`mergeEnvelopeSlides`). O servidor guarda cada slide numa linha e aplica
+    // as ops de slide uma a uma; o par as ignorava e convergia pelo envelope, que traz a lista
+    // INTEIRA de quem o mandou, montada antes de saber da edicao do colega. Duas pessoas editando
+    // slides DIFERENTES ao mesmo tempo terminavam com a edicao de uma delas apagada nos dois
+    // clientes e viva no Postgres, ate' o proximo F5
+    // (`frontend/tests/e2e-ui/briefing-slides-concorrentes.repro.spec.js`). Com a op de slide
+    // aplicada por slide, cada um precisa da propria guarda LWW, como qualquer outra entidade.
+    EntityType.SLIDE,
 ]);
 
 /**
@@ -757,10 +766,14 @@ async function applyRemoteOperationInner(operation, guarded) {
             await applyRemoteSettingOp(data);
             break;
         case EntityType.SLIDE:
-            // Live delivery carries the parent's full document. Recovery must also handle a
-            // prepared slide whose parent envelope was already acknowledged before the crash.
-            entityPersisted = operation.localRepair
-                ? await applyLocalSlideIntent(operationType, entityId, mapId, data) : false;
+            // One slide, applied on its own (the parent envelope no longer carries slide content
+            // to a peer, see `mergeEnvelopeSlides`). The envelope's `mapId` slot carries the
+            // briefing id. A live update keeps the slide where it is, because the ORDER belongs to
+            // the envelope; recovery keeps its own rule (the order the intent recorded).
+            entityPersisted = await applyLocalSlideIntent(operationType, entityId,
+                mapId ?? data?.briefingId ?? data?.briefing_id ?? null,
+                operation.localRepair ? data : clientSlideShape(data),
+                { keepPosition: !operation.localRepair });
             break;
         default:
             // AN ENTITY TYPE THIS BUILD DOES NOT KNOW IS IGNORED, NOT FAILED, and F13 is what the
@@ -1532,7 +1545,54 @@ async function applyRemoteGroupFeatureOp(opType, mapId, data) {
 }
 
 /**
+ * The slide list a remote briefing UPDATE leaves on this client: the ENVELOPE decides the order,
+ * and each slide's CONTENT stays the one this client already has.
+ *
+ * The envelope carries its author's whole list, built before the author learned of anything a
+ * colleague did meanwhile, so taking the slides from it erased the colleague's slide edit on this
+ * client while the server, which stores each slide in its own row, kept it. Content arrives by
+ * the slide ops that ride in the same batch (applied one by one, `applyLocalSlideIntent`), so:
+ *  - a slide in both keeps this client's object, in the envelope's position;
+ *  - a slide only in the envelope is NOT taken from it: its own CREATE brings it, and the
+ *    envelope's copy may be a slide the colleague deleted meanwhile;
+ *  - a slide only here stays, after the others, which is the server's own rule for a slide
+ *    missing from `slide_order` (its author's DELETE, if that is what happened, removes it).
+ *
+ * @param {Object[]} local - The slides this client has.
+ * @param {Object[]} envelope - The slides in the incoming envelope.
+ * @returns {Object[]} The merged list, `order` renumbered.
+ */
+export function mergeEnvelopeSlides(local, envelope) {
+    const mine = new Map((Array.isArray(local) ? local : []).filter(slide => slide?.id).map(slide => [slide.id, slide]));
+    const merged = [];
+    for (const slide of Array.isArray(envelope) ? envelope : []) {
+        const kept = mine.get(slide?.id);
+        if (!kept) continue;
+        merged.push(kept);
+        mine.delete(slide.id);
+    }
+    merged.push(...mine.values());
+    return merged.map((slide, order) => (slide.order === order ? slide : { ...slide, order }));
+}
+
+/** Keys the server's slide normalization adds to the logged payload; the client model has none. */
+const SERVER_SLIDE_ALIASES = ['_mapName', 'map_id', 'model_id', 'photo_id', 'temporal_cursor',
+    'base_layer', 'temporal_enabled', 'briefing_id'];
+
+/** A live slide op's payload in the client's own shape (the server echoes its normalization). */
+function clientSlideShape(data) {
+    if (!data || typeof data !== 'object') return data;
+    const shaped = { ...data };
+    for (const key of SERVER_SLIDE_ALIASES) delete shaped[key];
+    return shaped;
+}
+
+/**
  * Applies a remote briefing operation.
+ *
+ * An UPDATE takes the briefing's own fields and the slide ORDER from the envelope, never the
+ * slides' content (see {@link mergeEnvelopeSlides}). A CREATE, or an update for a briefing this
+ * client does not have, still takes the document whole: there is nothing here to protect.
  *
  * @param {string} opType - Operation type
  * @param {string} briefingId - Briefing UUID
@@ -1544,6 +1604,11 @@ async function applyRemoteBriefingOp(opType, briefingId, data) {
             case OperationType.CREATE:
             case OperationType.UPDATE: {
                 if (data) {
+                    const existing = opType === OperationType.UPDATE
+                        ? await handlerLocalRepository().getBriefing(briefingId) : null;
+                    if (existing) {
+                        data = { ...data, slides: mergeEnvelopeSlides(existing.slides, data.slides) };
+                    }
                     await handlerLocalRepository().saveBriefing(briefingId, data);
                 }
                 const eventType = opType === OperationType.CREATE
@@ -1560,8 +1625,14 @@ async function applyRemoteBriefingOp(opType, briefingId, data) {
     });
 }
 
-/** Materialize a pending local slide without generating another operation or undo entry. */
-async function applyLocalSlideIntent(opType, slideId, briefingId, data) {
+/**
+ * Writes one slide into its briefing document without generating another operation or undo
+ * entry: a peer's live slide op, or the recovery of a prepared local one.
+ *
+ * `keepPosition` (live ops): an existing slide is replaced where it is, because the order is the
+ * envelope's to decide; only a slide this client does not have yet is placed by its `order`.
+ */
+async function applyLocalSlideIntent(opType, slideId, briefingId, data, { keepPosition = false } = {}) {
     if (!briefingId) return false;
     return withDocumentLock(`briefing:${briefingId}`, 'recoverLocalSlide', async () => {
         const repo = handlerLocalRepository();
@@ -1572,8 +1643,9 @@ async function applyLocalSlideIntent(opType, slideId, briefingId, data) {
         if (opType !== OperationType.DELETE && (!data || typeof data !== 'object')) return false;
         if (previousIndex !== -1) slides.splice(previousIndex, 1);
         if (opType !== OperationType.DELETE) {
-            const position = Number.isInteger(data.order) ? Math.max(0, Math.min(data.order, slides.length))
-                : previousIndex === -1 ? slides.length : previousIndex;
+            const position = keepPosition && previousIndex !== -1 ? previousIndex
+                : Number.isInteger(data.order) ? Math.max(0, Math.min(data.order, slides.length))
+                    : previousIndex === -1 ? slides.length : previousIndex;
             slides.splice(position, 0, { ...data, id: slideId });
         }
         const updated = { ...briefing, slides };

@@ -588,9 +588,75 @@ describe('Remote Briefing Operations', () => {
             serverVersion: 9,
             data: { id: 'briefing-fwd', name: 'v9', slides: [{ id: 's2', title: 'novo' }] },
         });
+        // Since 2026-09-23 the slide itself arrives by ITS op, right behind the envelope in the
+        // same batch (see the describe below); the envelope alone carries name and order.
+        await applyRemoteOperation({
+            entityType: EntityType.SLIDE,
+            operationType: OperationType.CREATE,
+            entityId: 's2',
+            mapId: 'briefing-fwd',
+            serverVersion: 9,
+            data: { id: 's2', title: 'novo', order: 0 },
+        });
 
         expect(briefingStore.get('briefing-fwd').name).toBe('v9');
         expect(briefingStore.get('briefing-fwd').slides).toHaveLength(1);
+    });
+});
+
+// SLIDES DIFERENTES EDITADOS AO MESMO TEMPO (2026-09-23). O envelope de briefing traz a lista de
+// slides INTEIRA de quem o mandou, montada antes de ele saber da edicao do colega; aplicado em
+// bloco no par, ele apagava do disco do par a edicao que o servidor guardava (cada slide e' uma
+// linha la'). Medido com duas browsers em `frontend/tests/e2e-ui/briefing-slides-concorrentes.repro.spec.js`.
+describe('Remote briefing envelope vs per-slide ops', () => {
+    const envelope = (slides, extra = {}) => ({
+        entityType: EntityType.BRIEFING, operationType: OperationType.UPDATE, entityId: 'b-par', ...extra,
+        data: { id: 'b-par', name: 'Plano', slides },
+    });
+
+    beforeEach(async () => {
+        briefingStore.set('b-par', { id: 'b-par', name: 'Plano', slides: [
+            { id: 's1', order: 0, title: 'Um (do A)' },
+            { id: 's2', order: 1, title: 'Dois' },
+        ] });
+    });
+
+    it('o envelope do colega NAO devolve o texto velho de um slide que ele nao editou', async () => {
+        await applyRemoteOperation(envelope([{ id: 's1', title: 'Um' }, { id: 's2', title: 'Dois' }], { serverVersion: 31 }));
+        await applyRemoteOperation({ entityType: EntityType.SLIDE, operationType: OperationType.UPDATE, entityId: 's2',
+            mapId: 'b-par', serverVersion: 31, data: { id: 's2', order: 1, title: 'Dois (do B)', briefing_id: 'b-par', _mapName: 'M' } });
+        const slides = briefingStore.get('b-par').slides;
+        expect(slides.map((s) => s.title)).toEqual(['Um (do A)', 'Dois (do B)']);
+        // A forma do cliente: o que a normalizacao do servidor acrescenta nao entra no documento.
+        expect(slides[1]).not.toHaveProperty('briefing_id');
+        expect(slides[1]).not.toHaveProperty('_mapName');
+    });
+
+    it('a ORDEM vem do envelope, e um slide que o envelope nao conhece fica, no fim', async () => {
+        briefingStore.get('b-par').slides.push({ id: 's3', order: 2, title: 'Tres (de outro)' });
+        await applyRemoteOperation(envelope([{ id: 's2' }, { id: 's1' }], { serverVersion: 32 }));
+        const slides = briefingStore.get('b-par').slides;
+        expect(slides.map((s) => s.id)).toEqual(['s2', 's1', 's3']);
+        expect(slides.map((s) => s.order)).toEqual([0, 1, 2]);
+    });
+
+    it('um slide que so o envelope traz NAO ressuscita: quem o cria e a op dele', async () => {
+        await applyRemoteOperation(envelope([{ id: 's1' }, { id: 's2' }, { id: 'apagado', title: 'x' }], { serverVersion: 33 }));
+        expect(briefingStore.get('b-par').slides.map((s) => s.id)).toEqual(['s1', 's2']);
+    });
+
+    it('a op de slide mais VELHA que a ja aplicada naquele slide e descartada (LWW por slide)', async () => {
+        await applyRemoteOperation({ entityType: EntityType.SLIDE, operationType: OperationType.UPDATE, entityId: 's2',
+            mapId: 'b-par', serverVersion: 40, data: { id: 's2', order: 1, title: 'v40' } });
+        await applyRemoteOperation({ entityType: EntityType.SLIDE, operationType: OperationType.UPDATE, entityId: 's2',
+            mapId: 'b-par', serverVersion: 39, data: { id: 's2', order: 1, title: 'v39' } });
+        expect(briefingStore.get('b-par').slides.find((s) => s.id === 's2').title).toBe('v40');
+    });
+
+    it('DELETE de slide remove so aquele slide', async () => {
+        await applyRemoteOperation({ entityType: EntityType.SLIDE, operationType: OperationType.DELETE, entityId: 's1',
+            mapId: 'b-par', serverVersion: 41, data: null });
+        expect(briefingStore.get('b-par').slides.map((s) => s.id)).toEqual(['s2']);
     });
 });
 

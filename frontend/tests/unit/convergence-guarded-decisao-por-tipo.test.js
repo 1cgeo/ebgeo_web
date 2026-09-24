@@ -70,6 +70,12 @@ const DENTRO = new Map([
         + ' `saveBriefing(briefingId, data)` com o objeto INTEIRO, array de slides incluído.'
         + ' Como o slide isolado é no-op inbound, dois usuários editando slides do mesmo'
         + ' briefing não tinham proteção nenhuma.'],
+    [EntityType.SLIDE,
+        'entrou em 2026-09-23, quando deixou de ser no-op inbound: `applyLocalSlideIntent` troca'
+        + ' o slide INTEIRO por id dentro do documento do briefing, e o envelope do pai passou a'
+        + ' decidir só nome e ordem (`mergeEnvelopeSlides`). Sem guarda por slide, a op mais velha'
+        + ' de um slide escreveria por cima da mais nova, que é o que o envelope fazia antes com'
+        + ' a lista inteira (`briefing-slides-concorrentes.repro.spec.js`).'],
 ]);
 
 /**
@@ -100,10 +106,6 @@ const FORA = new Map([
         'mesma razão estrutural das cinco sub-entidades de mapa. A exclusão mútua que ele precisa'
         + ' já existe e é outra: `withSideDocument(\'temporal\', ...)`, contra o merge de patch'
         + ' do lado local.'],
-    [EntityType.SLIDE,
-        'no-op inbound de propósito: o `case` existe só para não cair no `warn`, e não escreve'
-        + ' nada. Slides convergem pela op do `briefing` pai, que ESTÁ no Set. Guardar um handler'
-        + ' que não escreve não guardaria nada.'],
     [EntityType.GROUP_FEATURE,
         'a razão é ESTRUTURAL e é o inverso das sub-entidades de mapa: lá cinco fluxos'
         + ' dividem um `entityId`, aqui CADA OP tem o seu, um UUID descartável cunhado por'

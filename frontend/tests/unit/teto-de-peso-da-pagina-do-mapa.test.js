@@ -888,7 +888,13 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // 11650 -> 11710 on 2026-09-23 for the weather panel and the shared point-panel shell:
         // 11685 kB measured by this case's failure, 60 kB over the light panel's 11625 of the same
         // day (the shell moved code out of the light panel, so its growth is less than the new files).
-        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11710);
+        // 11710 -> 11730 on 2026-09-23 (night, branch hunt/collab-briefing): three sync fixes with
+        // no new module, only code in eager files: the briefing editor's three-way merge
+        // (`store/briefing.operations.js`, `briefing/editor/briefing-editor.control.js`), undo that
+        // keeps a peer's later edit (`keepLaterEdits`, `store/feature.operations.js`) and the per-slide
+        // inbound apply (`store/sync/remote-operation-handler.js`). 11713 kB measured by this case's
+        // failure, about 24 kB of source over the three commits, half of it comments.
+        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11730);
     });
 
     it('seguir `import()` de fato acrescenta grafo, e é isso que prova a regex dinâmica', () => {
