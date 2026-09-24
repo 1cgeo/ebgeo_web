@@ -275,11 +275,13 @@
        ========================================================================= */
     --font-family-base: -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, oxygen, ubuntu, sans-serif;
 
-    /* Coordinates, keycaps, codes. Cascadia Mono (Windows 11) and Consolas (every
-       Windows) before the generic; 'Cascadia Code' is left out on purpose, its
-       ligatures turn "->" and "=>" into arrows. Until 2026-09-24 there were seven
-       stacks, the coordinate bar was Courier New, and 13 rules read this token
-       while nothing defined it. */
+    /* Keycaps, codes (SIDC, technical ids), coordinate tables and inputs. NOT the live
+       coordinate bars: they use the interface face with `tabular-nums`, because Segoe
+       UI's digits are already equal-width and the monospace only made them wider.
+       Cascadia Mono (Windows 11) and Consolas (every Windows) before the generic;
+       'Cascadia Code' is left out on purpose, its ligatures turn "->" and "=>" into
+       arrows. Until 2026-09-24 there were seven stacks, the coordinate bar was
+       Courier New, and 13 rules read this token while nothing defined it. */
     --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', consolas, 'Liberation Mono', menlo, monospace;
 
     /* Os tres degraus ABAIXO de `xs` servem selo, contador e marca de estado, que

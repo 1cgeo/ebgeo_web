@@ -17,8 +17,12 @@
     box-shadow: var(--shadow-control) !important;
     padding: var(--space-2) var(--space-3) !important;
 
-    /* Typography */
-    font-family: var(--font-mono) !important;
+    /* Typography. The interface face with TABULAR digits, not a monospace: Segoe UI's
+       digits are already equal-width (measured 2026-09-24, a reading does not move a pixel
+       between "0" and "1"), and the monospace made the same reading 34% wider.
+       `tabular-nums` keeps that on faces whose default digits are proportional (SF Pro). */
+    font-family: var(--font-family-base) !important;
+    font-variant-numeric: tabular-nums !important;
     font-size: var(--font-size-xs) !important;
     color: var(--gray-700) !important;
     font-weight: var(--font-weight-normal) !important;

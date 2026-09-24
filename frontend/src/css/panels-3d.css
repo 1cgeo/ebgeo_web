@@ -765,7 +765,10 @@ body.cesium-active .modal-overlay {
     min-width: 280px;
     width: auto;
     padding: var(--space-2) var(--space-3);
-    font-family: var(--font-mono);
+
+    /* Same as the 2D bar (`.coordinates-control`): interface face, tabular digits. */
+    font-family: var(--font-family-base);
+    font-variant-numeric: tabular-nums;
     font-size: var(--font-size-xs);
     white-space: nowrap;
     background: rgba(255, 255, 255, 0.9);
