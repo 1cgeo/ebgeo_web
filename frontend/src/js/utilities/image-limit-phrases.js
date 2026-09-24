@@ -108,6 +108,9 @@ export function photoNotArrivedNotice() {
     return 'A foto ainda não chegou ao servidor. Tente abrir de novo em instantes.';
 }
 
+/** The notice of an attach that failed without a sentence of its own (a refused write, a crash). */
+export const FALHA_AO_ANEXAR = 'Não foi possível anexar a foto. Tente de novo.';
+
 /**
  * The notice of a photo that is still large after the reduction (`PHOTO_CONFIG.warnBytes`).
  *

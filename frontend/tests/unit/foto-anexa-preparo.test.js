@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const h = vi.hoisted(() => ({ ordem: [], envio: null }));
+const h = vi.hoisted(() => ({ ordem: [], envio: null, registrado: true, online: true }));
 
 vi.mock('../../src/js/utilities/image_utils.js', () => ({
     processImageFile: vi.fn(async (file) => {
@@ -20,13 +20,14 @@ vi.mock('../../src/js/store/settings.operations.js', () => ({
     removeImage: vi.fn(async (id) => { h.ordem.push(`apagar:${id}`); }),
 }));
 vi.mock('../../src/js/store/sync/image-sync.js', () => ({
+    isImageSyncOnline: () => h.online,
     registrarEnvioDeImagem: vi.fn(async (_blob, id) => {
         h.ordem.push(`registrar:${id}`);
         h.envio = {
             enviar: vi.fn(() => h.ordem.push('enviar')),
             descartar: vi.fn(async () => { h.ordem.push('descartar'); }),
         };
-        return { registrado: true, ...h.envio };
+        return { registrado: h.registrado, ...h.envio };
     }),
 }));
 
@@ -35,6 +36,8 @@ const { prepararFotoAnexa } = await import('../../src/js/store/photo-attach.js')
 beforeEach(() => {
     h.ordem.length = 0;
     h.envio = null;
+    h.registrado = true;
+    h.online = true;
 });
 
 describe('prepararFotoAnexa', () => {
@@ -72,5 +75,22 @@ describe('prepararFotoAnexa', () => {
         await foto.descartar();
         expect(h.ordem.slice(-2)).toEqual(['descartar', `apagar:${foto.item.id}`]);
         expect(h.envio.enviar).not.toHaveBeenCalled();
+    });
+
+    // O REGISTRO QUE NÃO FOI GRAVADO (revisão, 2026-09-24, item 5): num atlas de servidor, sem a
+    // pendência nada mandaria os bytes, e a entidade citaria para todos uma foto que só existe aqui.
+    it('atlas de servidor e registro não gravado: gravar lança antes do diário e apaga os bytes', async () => {
+        h.registrado = false;
+        const foto = await prepararFotoAnexa({ name: 'a.jpg', type: 'image/jpeg', size: 1 });
+        await expect(foto.gravar()).rejects.toMatchObject({ fotoNaoRegistrada: true });
+        expect(h.ordem).toEqual(['processar', `guardar:${foto.item.id}`, `registrar:${foto.item.id}`, `apagar:${foto.item.id}`]);
+    });
+
+    it('atlas LOCAL não registra nada, e isso não é falha', async () => {
+        h.registrado = false;
+        h.online = false;
+        const foto = await prepararFotoAnexa({ name: 'a.jpg', type: 'image/jpeg', size: 1 });
+        await expect(foto.gravar()).resolves.toBeUndefined();
+        expect(h.ordem).not.toContain(`apagar:${foto.item.id}`);
     });
 });

@@ -12,7 +12,7 @@ import { showToast } from '@utils/index.js';
 import { validateImagePayload, IMAGE_CONFIG } from '@utils/image_utils.js';
 import { showConfirm } from '@modals/index.js';
 import { mostrarFotoInteira } from '@js/user_data/photo-source.js';
-import { photoNotArrivedNotice } from '@utils/image-limit-phrases.js';
+import { photoNotArrivedNotice, FALHA_AO_ANEXAR } from '@utils/image-limit-phrases.js';
 import config from '@js/config.js';
 
 /**
@@ -228,7 +228,14 @@ export async function buildPhotoGallerySection(placeholder, featureId, imageOps,
                     showToast(`${rotulo}${validation.reason}`, 'error');
                     continue;
                 }
-                await imageOps.add(featureId, file);
+                try {
+                    await imageOps.add(featureId, file);
+                } catch (error) {
+                    // The attach threw (the upload could not be put on record, a refused write):
+                    // say so here, instead of an unhandled rejection out of this listener.
+                    console.error('[panel-shared-3d] could not attach a photo:', error);
+                    showToast(error?.fotoNaoRegistrada ? error.message : FALHA_AO_ANEXAR, 'error');
+                }
             }
             fileInput.value = '';
             await renderImages();

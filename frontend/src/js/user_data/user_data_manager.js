@@ -506,6 +506,9 @@ const userDataManager = {
             return imageData;
         } catch (error) {
             console.error('UserDataManager: Error adding image -', error);
+            // The one failure of this door that has a sentence of its own: the upload could not be
+            // put on record, so the photo was not attached (`prepararFotoAnexa`).
+            if (error?.fotoNaoRegistrada) showWarning(error.message);
             return null;
         }
     },

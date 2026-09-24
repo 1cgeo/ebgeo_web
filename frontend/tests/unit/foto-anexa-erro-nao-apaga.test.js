@@ -13,7 +13,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const h = vi.hoisted(() => ({ gravacao: 'ok', fotos: [] }));
+const h = vi.hoisted(() => ({ gravacao: 'ok', fotos: [], semRegistro: false, avisos: [] }));
 
 vi.mock('@store', () => ({
     getMapData: vi.fn(async () => ({
@@ -38,7 +38,9 @@ vi.mock('@store/photo-attach.js', () => ({
         const foto = {
             item: { id: `foto-${h.fotos.length}`, name: file.name, thumbnail: 'data:image/jpeg;base64,/9j/' },
             bytes: 10,
-            gravar: vi.fn(async () => {}),
+            gravar: vi.fn(async () => {
+                if (h.semRegistro) throw Object.assign(new Error('Não foi possível anexar a foto.'), { fotoNaoRegistrada: true });
+            }),
             confirmar: vi.fn(),
             descartar: vi.fn(async () => {}),
         };
@@ -46,7 +48,7 @@ vi.mock('@store/photo-attach.js', () => ({
         return foto;
     }),
 }));
-vi.mock('@utils/toast_service.js', () => ({ showWarning: vi.fn(), showToast: vi.fn(), showError: vi.fn(), showSuccess: vi.fn() }));
+vi.mock('@utils/toast_service.js', () => ({ showWarning: vi.fn((t) => h.avisos.push(t)), showToast: vi.fn(), showError: vi.fn(), showSuccess: vi.fn() }));
 vi.mock('@sidebar/panels/notes-panel.js', () => ({ sanitizeHtml: (s) => s }));
 
 const userDataManager = (await import('../../src/js/user_data/user_data_manager.js')).default;
@@ -55,6 +57,8 @@ const arquivo = () => ({ name: 'vistoria.jpg', type: 'image/jpeg', size: 1000 })
 beforeEach(() => {
     h.fotos.length = 0;
     h.gravacao = 'ok';
+    h.semRegistro = false;
+    h.avisos.length = 0;
 });
 
 describe('userDataManager.addImage: erro não é recusa', () => {
@@ -89,5 +93,12 @@ describe('userDataManager.addImage: erro não é recusa', () => {
     it('a gravação que dá certo manda a foto', async () => {
         expect(await userDataManager.addImage('p1', 'point', arquivo())).toMatchObject({ id: 'foto-0' });
         expect(h.fotos[0].confirmar).toHaveBeenCalledTimes(1);
+    });
+
+    // O REGISTRO QUE NÃO FOI GRAVADO (item 5 da revisão): a foto não é anexada, e a pessoa é avisada.
+    it('o envio que não pôde ser registrado não anexa, e avisa', async () => {
+        h.semRegistro = true;
+        expect(await userDataManager.addImage('p1', 'point', arquivo())).toBeNull();
+        expect(h.avisos).toEqual(['Não foi possível anexar a foto.']);
     });
 });

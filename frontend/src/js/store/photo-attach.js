@@ -78,6 +78,18 @@ export async function prepararFotoAnexa(file, { origem = 'foto-anexa' } = {}) {
             escopo = getActiveScope();
             await storeImage(id, blob);
             envio = await registrarEnvioDeImagem(blob, id, { origem, nomeDaFigura: () => file.name });
+            // A SERVER ATLAS WITH NO UPLOAD ON RECORD MUST NOT GET THE REFERENCE (2026-09-24, review).
+            // The registration writes the pendency; when it fails (the disk refused it) nothing would
+            // ever send the bytes, and the entity would cite, for every peer, a photo that exists
+            // only here. Thrown here, inside the transaction's work and before the intention, the
+            // edit does not happen; the bytes just stored are removed. A local atlas registers
+            // nothing by design, which is not a failure.
+            if (!envio.registrado && isImageSyncOnline()) {
+                await removerSeNoMesmoAtlas(escopo, id);
+                gravou = false;
+                envio = null;
+                throw Object.assign(new Error(FALHA_AO_REGISTRAR_A_FOTO), { fotoNaoRegistrada: true });
+            }
         },
         confirmar: () => {
             envio?.enviar();
@@ -89,6 +101,13 @@ export async function prepararFotoAnexa(file, { origem = 'foto-anexa' } = {}) {
         },
     };
 }
+
+/**
+ * What the door reports when the upload of an attached photo could not be put on record. The error
+ * carries `fotoNaoRegistrada: true`, which is what the galleries test before showing it.
+ */
+export const FALHA_AO_REGISTRAR_A_FOTO = 'Não foi possível anexar a foto: o navegador não conseguiu '
+    + 'guardar o envio dela. Libere espaço e tente de novo.';
 
 /**
  * Removes bytes minted here and referenced by nothing, but only in the atlas they were written to.
