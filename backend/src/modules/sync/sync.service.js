@@ -897,6 +897,16 @@ function transformFeaturesToFrontend(features) {
         geometry: feature.geometry,
         properties: {
           ...feature.properties,
+          // THE LAYER COMES FROM THE COLUMN WHEN THERE IS ONE, the same rule `canonicalFeature`
+          // (`feature-conflicts.js`) already applies to every ack and relayed op. Every write path
+          // of this server keeps the column in step with the property the client sends (sync create and
+          // patch through `deriveFeatureColumns`/`prepareFeatureMutation`, the default-layer
+          // resolution and `ensureMapLayers`, which write both), so for those rows this changes
+          // nothing; what it repairs is a row whose JSONB kept a stale id, which is what every
+          // server copy made before 9586c931 holds (the column remapped, the property naming the
+          // SOURCE atlas's layer), invisible on the client because it filters by the property.
+          // A null column keeps the property (`'default'` or absent), as before.
+          ...(feature.layer_id ? { layerId: feature.layer_id } : {}),
           id: feature.id,
           source: feature.feature_type,
           createdAt: new Date(feature.created_at).getTime(),

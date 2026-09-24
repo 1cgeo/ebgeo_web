@@ -901,14 +901,16 @@ async function cloneMapSubEntities(t, mapPairs, imageIdMap = {}, pruner = null, 
     const id = (isImage && imageIdMap[feature.id]) || crypto.randomUUID();
     featureIdMapping[feature.id] = id;
     const properties = rewriteFeatureProperties(feature.properties, id, isImage, imageIdMap);
-    // THE PROPERTY FOLLOWS THE COLUMN. The client decides a feature's layer by
-    // `properties.layerId` (the MapLibre visibility filter, the features tab, hide/lock), and the
-    // snapshot serves `properties` verbatim without rewriting `layerId` from the column. Remapping
-    // only `layer_id` left every copied feature naming a layer that exists only in the SOURCE
-    // atlas, so the copy opened with its features stored and invisible. Import already realigns
-    // (`propriedadesRealinhadas`); this is the same rule for clone and duplicate.
-    if (typeof properties.layerId === 'string' && layerIdMapping[properties.layerId]) {
-      properties.layerId = layerIdMapping[properties.layerId];
+    // THE PROPERTY FOLLOWS THE COLUMN WHEN IT MIRRORED IT, which is the rule of the import
+    // (`propriedadesRealinhadas`): only a `properties.layerId` equal to the source `layer_id` is
+    // rewritten to the copied layer. The client decides a feature's layer by the property (the
+    // MapLibre visibility filter, the features tab, hide/lock), and remapping only the column left
+    // every copied feature naming a layer that exists only in the SOURCE atlas, stored and
+    // invisible. A property that already disagreed with the column at the source is left as it
+    // was: the snapshot serves the layer from the column whenever there is one
+    // (`transformFeaturesToFrontend`), so the copy reads the same layer the source reads.
+    if (feature.layer_id && properties.layerId === feature.layer_id && layerIdMapping[feature.layer_id]) {
+      properties.layerId = layerIdMapping[feature.layer_id];
     }
     return {
       id,

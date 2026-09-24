@@ -140,4 +140,68 @@ describe('copia de atlas e duplicacao de mapa realinham properties.layerId com a
     assert.equal(pontos[0].properties.layerId, camadas[0],
       'a feicao sem camada e presa a camada padrao da copia (ensureMapLayers)');
   });
+
+  // A REGRA DO IMPORT: so se reescreve a propriedade que ESPELHAVA a coluna. Uma feicao cuja
+  // propriedade ja divergia da coluna na origem fica com a propriedade como estava, e quem decide
+  // a camada servida e a coluna (o retrato a deriva dela), dos dois lados da copia.
+  it('DIVERGENCIA na origem: a propriedade nao espelhava a coluna e nao e reescrita; o retrato serve a coluna', async () => {
+    const atlas = await createAtlas(db, owner.id, { name: `CPv ${randomUUID().slice(0, 6)}` });
+    const map = await createMap(db, atlas.id, { name: 'Origem' });
+    const camadaA = await createLayer(db, map.id, { name: 'A', sort_order: 0 });
+    const camadaB = await createLayer(db, map.id, { name: 'B', sort_order: 1 });
+    await db.query(
+      `INSERT INTO features (map_id, feature_type, geometry, properties, layer_id)
+       VALUES ($1, 'point', '{"type":"Point","coordinates":[0,0]}'::jsonb, $2::jsonb, $3)`,
+      [map.id, JSON.stringify({ source: 'point', layerId: camadaB.id }), camadaA.id],
+    );
+    // A origem ja serve a camada da COLUNA.
+    const origem = await doSnapshot(atlas.id, map.id);
+    assert.equal(origem.pontos[0].properties.layerId, camadaA.id);
+
+    const res = await supertest(app)
+      .post(`/api/v1/atlas/${atlas.id}/clone`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({})
+      .expect(201);
+    const mapaCopia = res.body.data.maps[0];
+    const { rows } = await db.query('SELECT layer_id, properties FROM features WHERE map_id = $1', [mapaCopia.id]);
+    assert.equal(rows.length, 1);
+    assert.notEqual(rows[0].layer_id, camadaA.id, 'a coluna foi remapeada');
+    assert.equal(rows[0].properties.layerId, camadaB.id, 'a propriedade que nao espelhava fica como estava');
+
+    const copia = await doSnapshot(res.body.data.id, mapaCopia.id);
+    assert.equal(copia.pontos[0].properties.layerId, rows[0].layer_id, 'o retrato da copia serve a coluna');
+    const nomeServido = (await db.query('SELECT name FROM layers WHERE id = $1', [rows[0].layer_id])).rows[0].name;
+    assert.equal(nomeServido, 'A', 'e a camada servida e a copia da mesma camada que a origem serve');
+  });
+
+  // AS COPIAS FEITAS ANTES DO CONSERTO continuam com a coluna certa e a propriedade velha no
+  // banco. O retrato as repara na leitura, porque deriva a camada da coluna.
+  it('COPIA ANTIGA (propriedade com id da origem): o retrato serve a camada da coluna', async () => {
+    const atlas = await createAtlas(db, owner.id, { name: `CPa ${randomUUID().slice(0, 6)}` });
+    const map = await createMap(db, atlas.id, { name: 'Copia antiga' });
+    const camada = await createLayer(db, map.id, { name: 'Tropas' });
+    const idDaOrigem = randomUUID();
+    await db.query(
+      `INSERT INTO features (map_id, feature_type, geometry, properties, layer_id)
+       VALUES ($1, 'point', '{"type":"Point","coordinates":[0,0]}'::jsonb, $2::jsonb, $3)`,
+      [map.id, JSON.stringify({ source: 'point', layerId: idDaOrigem }), camada.id],
+    );
+    const { camadas, pontos } = await doSnapshot(atlas.id, map.id);
+    assert.deepEqual(camadas, [camada.id]);
+    assert.equal(pontos[0].properties.layerId, camada.id);
+  });
+
+  it('BORDA: coluna nula mantem a propriedade como veio', async () => {
+    const atlas = await createAtlas(db, owner.id, { name: `CPn ${randomUUID().slice(0, 6)}` });
+    const map = await createMap(db, atlas.id, { name: 'Sem camada' });
+    await db.query(
+      `INSERT INTO features (map_id, feature_type, geometry, properties, layer_id)
+       VALUES ($1, 'point', '{"type":"Point","coordinates":[0,0]}'::jsonb,
+               '{"source":"point","layerId":"default"}'::jsonb, NULL)`,
+      [map.id],
+    );
+    const { pontos } = await doSnapshot(atlas.id, map.id);
+    assert.equal(pontos[0].properties.layerId, 'default');
+  });
 });
