@@ -36,6 +36,36 @@ let watching = false;
  */
 const AVISO_DE_RESGATE_MS = 12000;
 
+/**
+ * The boot curtain (`#initial-loader`) a screen of this module took down, and where it stood.
+ *
+ * THE PROGRESS CARD IS A PAUSE IN THE BOOT, NOT ITS END. The curtain covers the page until the
+ * page itself says it is ready: on the map that is `renderBootMap` (`map_sig.js`), after
+ * `switchMap` has created the feature sources. Until 2026-09-23 the card removed it for good, so
+ * when the gate SUCCEEDED the rest of the boot ran uncovered, with the toolbar live and no feature
+ * source yet: a point drawn in that window vanished, silently or under a false "the map is no
+ * longer open" notice. The copy of a `main` archive always shows the card, so every person
+ * arriving with data went through it. The recovery screen never gives the curtain back, because
+ * that boot stops there. Guard: `tests/e2e-ui/migracao-cortina-do-boot.repro.spec.js`.
+ * @type {{ element: Element, parent: Node, next: Node|null }|null}
+ */
+let bootCurtain = null;
+
+function takeDownBootCurtain() {
+    const loader = document.getElementById('initial-loader');
+    if (!loader) return;
+    bootCurtain = { element: loader, parent: loader.parentNode, next: loader.nextSibling };
+    loader.remove();
+}
+
+function restoreBootCurtain() {
+    const saved = bootCurtain;
+    bootCurtain = null;
+    if (!saved?.parent) return;
+    const next = saved.next?.parentNode === saved.parent ? saved.next : null;
+    saved.parent.insertBefore(saved.element, next);
+}
+
 function closeScreen() {
     screen?.remove();
     screen = null;
@@ -45,7 +75,7 @@ function closeScreen() {
 
 function makeScreen(title, message) {
     closeScreen();
-    document.getElementById('initial-loader')?.remove();
+    takeDownBootCurtain();
     screen = document.createElement('div');
     screen.className = 'ebgeo-unavailable';
     screen.dataset.testid = 'migration-recovery';
@@ -329,6 +359,8 @@ export async function runLegacyUpgradeGate({ mapa = false } = {}) {
         // progress card over a boot that already succeeded.
         progress.cancel();
         closeScreen();
+        // The boot goes on from here, so it goes on covered, as it would had the card never shown.
+        restoreBootCurtain();
         await reportRepairs(result?.reparos, { mapa });
         reportLateOutcome(result?.late);
         registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_SUCESSO);
