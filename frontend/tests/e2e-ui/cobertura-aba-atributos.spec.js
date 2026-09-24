@@ -206,3 +206,30 @@ test('com o mapa travado, a seção de atributos é só de leitura', async ({ pa
     await expect(painel).toContainText('cota');
     await expect(painel).toContainText('10');
 });
+
+// UMA CHAVE QUE JÁ EXISTE NÃO É SOBRESCRITA EM SILÊNCIO (2026-09-24). Renomear "cota" para
+// "setor", com "setor" já na feição, apagava o valor de "setor" sem aviso; criar "setor" de novo
+// pelo formulário trocava o valor dele como se fosse uma edição. A tabela de atributos já recusava a
+// coluna repetida (`_handleAddColumn`); a aba passa a recusar do mesmo jeito, nomeando o motivo.
+test('renomear ou criar com uma chave que já existe recusa, e nenhum valor se perde', async ({ page }) => {
+    const { id, aba } = await pontoComAba(page);
+    await criarAtributo(aba, 'cota', '10');
+    await criarAtributo(aba, 'setor', '1');
+    await expect.poll(() => atributosNaStore(page, id)).toEqual({ cota: '10', setor: '1' });
+
+    await aba.locator('.feature-attribute-row', { hasText: 'cota' }).locator('.feature-attribute-key-edit').click();
+    const campo = aba.locator('.feature-attribute-key-input');
+    await campo.fill('setor');
+    await campo.press('Enter');
+    await expect(aba.locator('.feature-attributes-error')).toBeVisible();
+    await page.waitForTimeout(500);
+    expect(await atributosNaStore(page, id), 'renomear para uma chave existente apagou o valor dela')
+        .toEqual({ cota: '10', setor: '1' });
+    await campo.press('Escape');
+
+    await criarAtributo(aba, 'setor', '99');
+    await expect(aba.locator('.feature-attributes-error')).toBeVisible();
+    await page.waitForTimeout(500);
+    expect(await atributosNaStore(page, id), 'criar uma chave existente trocou o valor dela')
+        .toEqual({ cota: '10', setor: '1' });
+});
