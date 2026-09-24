@@ -163,7 +163,20 @@ describe('waitForFunction não recebe predicado assíncrono', () => {
         expect(arquivos.length).toBeGreaterThan(100);
         expect(arquivos).toContain('tests/e2e-ui/cadeia-completa-atlas.spec.js');
         for (const rel of arquivos) {
-            const n = contarPredicadosAssincronos(readFileSync(join(RAIZ_PACOTE, rel), 'utf8'));
+            // O arquivo pode SUMIR entre a listagem e esta leitura: três censos de permissão e de
+            // recurso escrevem um `tmp-nao-rastreado.js` sob `tests/fixtures/` e o apagam no
+            // `finally`, o inventário lista não rastreados, e o Vitest roda os arquivos em
+            // paralelo. Medido em 2026-09-24 na rodada de antes do deploy: um ENOENT que não
+            // tinha nada a ver com espera. Pular o que sumiu é seguro, porque um arquivo que não
+            // existe não carrega predicado nenhum; é a mesma guarda de `docs-integridade.test.js`.
+            let fonte;
+            try {
+                fonte = readFileSync(join(RAIZ_PACOTE, rel), 'utf8');
+            } catch (err) {
+                if (err.code === 'ENOENT') continue;
+                throw err;
+            }
+            const n = contarPredicadosAssincronos(fonte);
             if (n > 0) achados.set(rel, n);
         }
         expect(Object.fromEntries([...achados].sort())).toEqual(Object.fromEntries([...DIVIDA].sort()));
