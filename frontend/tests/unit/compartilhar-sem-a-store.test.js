@@ -260,7 +260,11 @@ describe('o núcleo do modal de compartilhamento cabe em `atlas.html`', () => {
         // data), folha de ZERO imports que entra por `store/atlas-namespace.js`, porque o registro
         // é chaveado pelo sufixo do namespace e tem de morrer junto com ele. Não é o núcleo que a
         // importa: é a fábrica de namespace, que o núcleo já alcançava. Não alcança a store.
-        expect(grafo.arquivos.size).toBeLessThanOrEqual(32);
+        //
+        // 32 -> 33 em 2026-09-24, por decisão do coordenador da segunda revisão das fotos anexas:
+        // user_data/photo-refs.js, folha de zero imports; não alcança a store. Entra por
+        // `store/sync/feature-patch.js`, que compara as fotos de uma feição sem os bytes delas.
+        expect(grafo.arquivos.size).toBeLessThanOrEqual(33);
     });
 
     for (const [rotulo, padrao] of Object.entries(PROIBIDOS)) {

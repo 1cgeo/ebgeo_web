@@ -50,7 +50,8 @@ import {
     esquecerPendenciasEmMemoria,
     BlobUploadState
 } from './blob-upload-queue.js';
-import { fraseDeFalhaDeBlob, avisoDeFiguraRecusada } from './blob-upload-phrases.js';
+import { fraseDeFalhaDeBlob, avisoDeFiguraRecusada, avisoDeFotoRecusada } from './blob-upload-phrases.js';
+import { ORIGEM_FOTO_ANEXA, ORIGEM_FOTO_CONVERTIDA } from './blob-upload-keys.js';
 
 /** @type {string|null} The connected atlas id (null when offline). */
 let _atlasId = null;
@@ -169,7 +170,8 @@ export async function uploadImageBlob(blob, imageId, { origem = 'imagem' } = {})
  * @param {string} imageId - The id the feature carries.
  * @param {Object} [options]
  * @param {string} [options.origem='imagem'] - Label recorded on the pendency.
- * @param {() => (string|null)} [options.nomeDaFigura] - The figure's name, read when the outcome is known.
+ * @param {() => (string|null)} [options.nomeDaFigura] - The figure's name, read when the outcome is known
+ *   (for a photo, its file name: the notice of a photo names the photo, `avisoDeFotoRecusada`).
  * @returns {Promise<{registrado: boolean, enviar: () => Promise<Object>, descartar: () => Promise<void>}>}
  *   Resolves once the hold is in place. `enviar` settles with the verdict and never rejects.
  */
@@ -192,9 +194,13 @@ export async function registrarEnvioDeImagem(blob, imageId, { origem = 'imagem',
             } catch {
                 nome = null;
             }
-            const aviso = resultado.estado === BlobUploadState.RECUSADO
-                ? avisoDeFiguraRecusada({ nome, causa: resultado.causa, status: resultado.status })
-                : (resultado.motivo || fraseDeFalhaDeBlob({}));
+            // A PHOTO is named as a photo, with the outcome of its own kind (`avisoDeFotoRecusada`).
+            const convertida = origem.startsWith(ORIGEM_FOTO_CONVERTIDA);
+            const foto = convertida || origem.startsWith(ORIGEM_FOTO_ANEXA);
+            const recusa = { nome, causa: resultado.causa, status: resultado.status };
+            const aviso = resultado.estado !== BlobUploadState.RECUSADO
+                ? (resultado.motivo || fraseDeFalhaDeBlob({}))
+                : foto ? avisoDeFotoRecusada({ ...recusa, convertida }) : avisoDeFiguraRecusada(recusa);
             try {
                 showWarning(aviso, { duration: 8000 });
             } catch {

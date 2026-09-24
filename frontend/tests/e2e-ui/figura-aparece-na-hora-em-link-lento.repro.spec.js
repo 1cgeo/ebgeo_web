@@ -225,7 +225,7 @@ collabTest('recusa definitiva na primeira tentativa: aviso nomeia a figura, vira
         await route.fulfill({
             status: 201, contentType: 'application/json',
             body: JSON.stringify({ data: { uploaded: [], mapping: {},
-                failed: images.map((i) => ({ localId: i.localId, error: 'Invalid file type: image/gif' })) } }),
+                failed: images.map((i) => ({ localId: i.localId, error: 'Invalid file type: image/gif', permanent: true })) } }),
         });
     });
     const { id } = await inserirFoto(A, arquivo);

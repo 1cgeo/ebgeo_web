@@ -43,6 +43,12 @@ export const BLOB_UPLOAD_RECUSADO = 'recusado';
 export const ORIGEM_FOTO_ANEXA = 'foto-anexa';
 
 /**
+ * `origem` of an INLINE photo that an edit (or the boundary) converted to a reference
+ * (`converterFotosInline`, `store/photo-attach.js`). Refused, it holds the edit that carried it.
+ */
+export const ORIGEM_FOTO_CONVERTIDA = 'foto-convertida';
+
+/**
  * Empties the IMAGES store of one scope, KEEPING the uploads the server has not received and the
  * bytes those uploads name.
  *

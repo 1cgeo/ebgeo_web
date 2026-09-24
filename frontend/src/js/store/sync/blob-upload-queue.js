@@ -86,7 +86,7 @@ import { operationQueue } from './operation-queue.js';
 import { EntityType } from './operation-types.js';
 import { idsDeFotosDaEntidade } from '@js/user_data/photo-refs.js';
 import { connectionState } from './connection-state.js';
-import { BLOB_UPLOAD_KEY_PREFIX, BLOB_UPLOAD_PENDENTE, BLOB_UPLOAD_RECUSADO } from './blob-upload-keys.js';
+import { BLOB_UPLOAD_KEY_PREFIX, BLOB_UPLOAD_PENDENTE, BLOB_UPLOAD_RECUSADO, ORIGEM_FOTO_CONVERTIDA } from './blob-upload-keys.js';
 import {
     CausaDeFalha,
     FALHA_SEM_BYTES,
@@ -611,8 +611,6 @@ async function assentar(scope, registro, desfecho) {
     return atualizado;
 }
 
-/** Prefix of the `origem` of a photo converted from inline bytes by an edit (`photo-attach.js`). */
-const ORIGEM_CONVERTIDA = 'foto-convertida';
 
 /**
  * Whether a record is the upload of an INLINE photo that an edit converted to a reference.
@@ -620,7 +618,7 @@ const ORIGEM_CONVERTIDA = 'foto-convertida';
  * @returns {boolean}
  */
 function ehConversao(registro) {
-    return typeof registro?.origem === 'string' && registro.origem.startsWith(ORIGEM_CONVERTIDA);
+    return typeof registro?.origem === 'string' && registro.origem.startsWith(ORIGEM_FOTO_CONVERTIDA);
 }
 
 /**

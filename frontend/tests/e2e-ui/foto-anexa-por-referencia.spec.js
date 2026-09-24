@@ -222,7 +222,7 @@ collabTest('recusa: o aviso nomeia a foto, a edição sai com a referência e o 
         await route.fulfill({
             status: 201, contentType: 'application/json',
             body: JSON.stringify({ data: { uploaded: [], mapping: {},
-                failed: images.map((i) => ({ localId: i.localId, error: 'Invalid file type: image/gif' })) } }),
+                failed: images.map((i) => ({ localId: i.localId, error: 'Invalid file type: image/gif', permanent: true })) } }),
         });
     });
     await anexarPelaGaleria(A, await fotoDeCamera(A, { largura: 800, altura: 600, nome: 'vistoria.jpg' }));
@@ -231,7 +231,9 @@ collabTest('recusa: o aviso nomeia a foto, a edição sai com a referência e o 
     await expect.poll(() => toast.evaluate((el) => Number(getComputedStyle(el).opacity)), { timeout: 5000 }).toBeGreaterThan(0.9);
     const texto = (await toast.innerText()).trim();
     console.log(`FOTO_REF_RECUSA ${JSON.stringify(texto)}`);
-    expect(texto).toContain('"vistoria.jpg"');
+    // A FOTO é dita foto, com o desfecho dela (`avisoDeFotoRecusada`), e não "figura".
+    expect(texto).toContain('A foto "vistoria.jpg" não foi enviada ao servidor, e os colegas veem só a miniatura.');
+    expect(texto).not.toContain('figura');
     await expect.poll(async () => (await noServidor(collab.db, linha)).foto?.name ?? null, { timeout: 30000 }).toBe('vistoria.jpg');
     expect((await noServidor(collab.db, linha)).imagem).toBeNull();
 

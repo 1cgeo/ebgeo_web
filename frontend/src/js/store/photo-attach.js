@@ -35,7 +35,7 @@ import { storeImage, removeImage } from './settings.operations.js';
 import { registrarEnvioDeImagem, isImageSyncOnline } from './sync/image-sync.js';
 // Leaf module (zero imports).
 import { OperationType } from './sync/operation-types.js';
-import { fotosSemBytes } from '@js/user_data/photo-refs.js';
+import { fotosSemBytes, fotoSemBytes } from '@js/user_data/photo-refs.js';
 
 /**
  * Processes a photo file and hands back the item the entity must carry, the WRITE of its bytes and
@@ -194,8 +194,7 @@ export async function converterFotosInline(fotos, { origem = 'foto-convertida' }
                 novas.push(foto);
                 continue;
             }
-            const { data: _bytes, ...semBytes } = foto;
-            novas.push({ ...semBytes, id, type: mime });
+            novas.push({ ...fotoSemBytes(foto), id, type: mime });
         }
     } catch (error) {
         console.warn('[photo-attach] could not convert an inline photo; the edit keeps it inline:', error);

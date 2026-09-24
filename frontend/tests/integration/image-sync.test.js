@@ -9,6 +9,8 @@ const h = vi.hoisted(() => ({
     enfileirarBlob: vi.fn(),
     retomarBlobsPendentes: vi.fn(async () => ({ tentadas: 0, confirmadas: 0, pendentes: 0, recusadas: 0 })),
     esquecerPendenciasEmMemoria: vi.fn(),
+    registrarBlob: vi.fn(),
+    enviarBlobRegistrado: vi.fn(),
 }));
 vi.mock('../../src/js/store/sync/api-client.js', () => ({
     apiClient: {
@@ -24,6 +26,9 @@ vi.mock('../../src/js/store/sync/blob-upload-queue.js', () => ({
     enfileirarBlob: (...a) => h.enfileirarBlob(...a),
     retomarBlobsPendentes: (...a) => h.retomarBlobsPendentes(...a),
     esquecerPendenciasEmMemoria: (...a) => h.esquecerPendenciasEmMemoria(...a),
+    registrarBlob: (...a) => h.registrarBlob(...a),
+    enviarBlobRegistrado: (...a) => h.enviarBlobRegistrado(...a),
+    descartarBlobRegistrado: vi.fn(async () => {}),
     blobUploadPending: () => false,
     BlobUploadState: Object.freeze({
         PENDENTE: 'pendente', CONFIRMADO: 'confirmado', RECUSADO: 'recusado',
@@ -45,7 +50,9 @@ import {
     isImageSyncOnline,
     uploadImageBlob,
     fetchImageBlob,
+    registrarEnvioDeImagem,
 } from '../../src/js/store/sync/image-sync.js';
+import { showWarning } from '@utils/toast_service.js';
 
 beforeEach(() => {
     h.fetchImageBlob.mockReset();
@@ -109,5 +116,38 @@ describe('image-sync gateway (§17.14/§17.19)', () => {
         setImageSyncAtlas('atlas-1');
         h.fetchImageBlob.mockRejectedValue(new Error('404'));
         expect(await fetchImageBlob('x')).toBeNull();
+    });
+});
+
+// O AVISO DE RECUSA NOMEIA O QUE FOI RECUSADO (2026-09-24, segunda revisão das fotos anexas): uma FOTO
+// é dita foto, pelo nome do arquivo, com o desfecho dela; a figura do mapa continua sendo figura. Antes,
+// a foto antiga que uma edição converteu era "a figura", e a frase mandava inseri-la em outro formato.
+describe('registrarEnvioDeImagem: o aviso de uma recusa definitiva', () => {
+    async function recusado(origem, nome) {
+        setImageSyncAtlas('atlas-1');
+        h.registrarBlob.mockResolvedValue({ imageId: 'img-1' });
+        h.enviarBlobRegistrado.mockResolvedValue({ confirmado: false, estado: 'recusado', causa: 'recusa', status: 400 });
+        vi.mocked(showWarning).mockClear();
+        const envio = await registrarEnvioDeImagem(new Blob([new Uint8Array([1])]), 'img-1', { origem, nomeDaFigura: () => nome });
+        await envio.enviar();
+        return vi.mocked(showWarning).mock.calls.map(([texto]) => texto);
+    }
+
+    it('foto anexada: nomeia a foto e diz que os colegas veem só a miniatura', async () => {
+        expect(await recusado('foto-anexa', 'vistoria.jpg')).toEqual([
+            'A foto "vistoria.jpg" não foi enviada ao servidor, e os colegas veem só a miniatura. Ela está nas pendências para revisão.',
+        ]);
+        expect(await recusado('foto-anexa-360', 'vistoria.jpg')).toHaveLength(1);
+    });
+
+    it('foto antiga convertida por uma edição: diz que a edição ficou nas pendências, sem mandar inserir nada', async () => {
+        const [aviso] = await recusado('foto-convertida', 'antiga.jpg');
+        expect(aviso).toBe('A foto "antiga.jpg" não foi enviada ao servidor, e a edição que a levava ficou nas pendências. Abra as pendências para decidir.');
+        expect(aviso).not.toMatch(/figura|insira|formato/);
+    });
+
+    it('figura do mapa continua sendo figura', async () => {
+        const [aviso] = await recusado('imagem', 'Imagem 3');
+        expect(aviso.startsWith('A figura "Imagem 3" não foi enviada ao servidor')).toBe(true);
     });
 });

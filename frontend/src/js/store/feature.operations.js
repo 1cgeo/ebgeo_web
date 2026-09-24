@@ -69,6 +69,12 @@ async function converterFotosDaFeicao(feature) {
  * neither touched. When the person edits the photos, the patch claims `images` anyway, and the
  * conversion adds no unit to it. The weight that made the conversion ride on every edit (the old
  * side carrying the bytes) is taken off by {@link previousOfFeatureEdit} instead.
+ *
+ * THE COST, accepted by the coordinator of the review on 2026-09-24: an edit that does not touch the
+ * photos carries the bytes of an inline photo ONCE, in the new side (zero while every edit converted,
+ * two before phase 2c), and the inline acervo converges to blobs more slowly, only when someone edits
+ * the photos of a feature or when a local atlas goes up. A false dispute that holds the whole feature
+ * was judged worse than both.
  * @param {Object} anterior - The feature as it was
  * @param {Object} nova - The feature about to be written
  * @returns {boolean}

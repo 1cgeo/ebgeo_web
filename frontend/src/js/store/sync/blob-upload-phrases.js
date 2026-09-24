@@ -192,6 +192,44 @@ export function avisoDeFiguraRecusada({ nome = null, causa, status = null } = {}
 }
 
 /**
+ * The notice of an attached PHOTO the server refused, naming the PHOTO and saying what the person
+ * can do (2026-09-24, second review of the attached photos).
+ *
+ * {@link avisoDeFiguraRecusada} spoke of a "figura" and told the person to insert it in another
+ * format, which for an old inline photo that an edit converted points at a gesture nobody made. The
+ * two photos also end differently, and the sentence says which: an ATTACHED one is released, so the
+ * colleagues get the reference and see only its thumbnail; a CONVERTED one holds the edit that
+ * carried it in the pendencies (`aplicarRecusa`, `blob-upload-queue.js`).
+ * @param {Object} params
+ * @param {string|null} [params.nome] - The photo's file name; a generic handle when there is none.
+ * @param {string} [params.causa] - A value of {@link CausaDeFalha}.
+ * @param {number|null} [params.status] - HTTP status, when there was an answer.
+ * @param {boolean} [params.convertida] - Whether it is an old inline photo that an edit converted.
+ * @returns {string}
+ */
+export function avisoDeFotoRecusada({ nome = null, causa, status = null, convertida = false } = {}) {
+    const rotulo = textoOuNulo(nome);
+    const qual = rotulo ? `A foto "${rotulo}"` : 'Uma foto anexa';
+    if (causa === CausaDeFalha.PERMISSAO) {
+        return `${qual} não foi enviada ao servidor: seu acesso a este atlas não permite enviar fotos. Peça ao gestor do atlas.`;
+    }
+    if (convertida) {
+        return `${qual} não foi enviada ao servidor, e a edição que a levava ficou nas pendências. Abra as pendências para decidir.`;
+    }
+    const inicio = `${qual} não foi enviada ao servidor, e os colegas veem só a miniatura.`;
+    switch (causa) {
+        case CausaDeFalha.ARQUIVO:
+            return status === 413
+                ? `${inicio} Anexe uma versão menor.`
+                : `${inicio} Anexe a foto em JPEG ou PNG.`;
+        case CausaDeFalha.SEM_BYTES:
+            return `${inicio} O arquivo não está mais neste computador: anexe a foto de novo.`;
+        default:
+            return `${inicio} Ela está nas pendências para revisão.`;
+    }
+}
+
+/**
  * The raw message, kept for diagnosis and never rendered.
  *
  * IT IS A SEPARATE FIELD ON PURPOSE. Folding it into the phrase would put an English transport

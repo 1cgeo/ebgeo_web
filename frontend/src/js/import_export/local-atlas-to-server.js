@@ -30,7 +30,7 @@ import { normalizeLegacyDeclinationProperties, ensureMapDataShape } from '@store
 import { normalizeSlideControls } from '@js/briefing/slide-controls.js';
 import { isDerivedOutputBucket } from '@store/analysis-output.js';
 import { mimeDeFotoInlineQueSobe, blobDeDataUrl } from '@utils/image_utils.js';
-import { fotoTemBytesInline, idDeFotoPorReferencia } from '@js/user_data/photo-refs.js';
+import { fotoTemBytesInline, idDeFotoPorReferencia, fotoSemBytes } from '@js/user_data/photo-refs.js';
 
 /** Server-accepted feature types (mirror of backend `VALID_FEATURE_TYPES`). */
 const VALID_FEATURE_TYPES = new Set([
@@ -179,8 +179,7 @@ function converterFotos(fotos, imageIdMap, fotosInline) {
         const sobe = fotoInlineQueSobe(foto);
         if (sobe) {
             if (!fotosInline.has(foto.id)) fotosInline.set(foto.id, sobe.blob);
-            const { data: _bytes, ...semBytes } = foto;
-            return { ...semBytes, id: imageIdMap[foto.id] || foto.id, type: sobe.mime };
+            return { ...fotoSemBytes(foto), id: imageIdMap[foto.id] || foto.id, type: sobe.mime };
         }
         if (!fotoTemBytesInline(foto) && foto?.id && imageIdMap[foto.id]) return { ...foto, id: imageIdMap[foto.id] };
         return foto;

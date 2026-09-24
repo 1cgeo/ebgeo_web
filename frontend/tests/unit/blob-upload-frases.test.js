@@ -20,6 +20,7 @@ import {
     fraseDeFalhaDeBlob,
     mensagemCrua,
     avisoDeFiguraRecusada,
+    avisoDeFotoRecusada,
 } from '@store/sync/blob-upload-phrases.js';
 
 const ARQUIVO = fileURLToPath(
@@ -169,5 +170,44 @@ describe('o aviso da figura recusada nomeia a figura e diz o que fazer (2026-09-
             expect(f).toContain('aparece só para você');
             expect(f).not.toMatch(/\b\d{3}\b/);
         }
+    });
+});
+
+describe('avisoDeFotoRecusada: a FOTO recusada, pelo nome, com o desfecho do tipo dela', () => {
+    it('nomeia a foto, e sem nome diz "Uma foto anexa"', () => {
+        expect(avisoDeFotoRecusada({ nome: 'ponte.jpg', causa: CausaDeFalha.RECUSA }))
+            .toBe('A foto "ponte.jpg" não foi enviada ao servidor, e os colegas veem só a miniatura. Ela está nas pendências para revisão.');
+        for (const vazio of [null, undefined, '', '   ', 42]) {
+            expect(avisoDeFotoRecusada({ nome: vazio, causa: CausaDeFalha.RECUSA }).startsWith('Uma foto anexa não foi enviada')).toBe(true);
+        }
+    });
+
+    it('cada causa de uma foto ANEXADA diz uma ação, e nenhuma fala de figura nem cita código HTTP', () => {
+        const frases = [
+            avisoDeFotoRecusada({ nome: 'a.jpg', causa: CausaDeFalha.ARQUIVO, status: 413 }),
+            avisoDeFotoRecusada({ nome: 'a.jpg', causa: CausaDeFalha.ARQUIVO, status: 415 }),
+            avisoDeFotoRecusada({ nome: 'a.jpg', causa: CausaDeFalha.PERMISSAO, status: 403 }),
+            avisoDeFotoRecusada({ nome: 'a.jpg', causa: CausaDeFalha.SEM_BYTES }),
+            avisoDeFotoRecusada({ nome: 'a.jpg' }),
+        ];
+        expect(frases[0]).toContain('Anexe uma versão menor.');
+        expect(frases[1]).toContain('Anexe a foto em JPEG ou PNG.');
+        expect(frases[2]).toBe('A foto "a.jpg" não foi enviada ao servidor: seu acesso a este atlas não permite enviar fotos. Peça ao gestor do atlas.');
+        expect(frases[3]).toContain('anexe a foto de novo');
+        expect(frases[4]).toContain('pendências');
+        expect(new Set(frases).size).toBe(frases.length);
+        for (const frase of frases) {
+            expect(frase).not.toMatch(/figura|\b[1-5]\d\d\b/);
+            expect(frase.endsWith('.')).toBe(true);
+        }
+    });
+
+    it('a foto CONVERTIDA por uma edição não manda anexar nada: a edição que a levava está nas pendências', () => {
+        for (const causa of [CausaDeFalha.ARQUIVO, CausaDeFalha.RECUSA, CausaDeFalha.SEM_BYTES, undefined]) {
+            expect(avisoDeFotoRecusada({ nome: 'antiga.jpg', causa, convertida: true }))
+                .toBe('A foto "antiga.jpg" não foi enviada ao servidor, e a edição que a levava ficou nas pendências. Abra as pendências para decidir.');
+        }
+        // Sem permissão a saída é a mesma para as duas: pedir ao gestor.
+        expect(avisoDeFotoRecusada({ nome: 'antiga.jpg', causa: CausaDeFalha.PERMISSAO, convertida: true })).toContain('Peça ao gestor do atlas.');
     });
 });
