@@ -63,8 +63,28 @@ describe('planLateLegacyChanges', () => {
         expect(plan).toMatchObject({ outcome: 'absorb', writes: [['maps', 'Principal']], deletes: [] });
     });
 
+    // O REGISTRO DESTE CASO ERA `mapBadgeColors` até 2026-09-23, e ele deixou de servir: a cor do
+    // crachá é atribuída sozinha pelas duas versões ao listar um mapa, e só ABRIR a antiga depois de
+    // uma volta da produção a gravava (medido com o build real da main). Ela passou a ser ponteiro
+    // (`PREFERENCE_KEYS`), e o caso mede o mesmo princípio com um registro que é trabalho da pessoa.
     it('mesmo registro nos dois lados: conflito', () => {
-        expect(planLateLegacyChanges(entrada({ legado: { 'settings/mapBadgeColors': 'b1' }, destino: { 'settings/mapBadgeColors': 'b9' } })))
+        expect(planLateLegacyChanges(entrada({ legado: { 'settings/custom_icons': 'i1' }, destino: { 'settings/custom_icons': 'i9' } })))
+            .toMatchObject({ outcome: 'conflict', reason: 'same_unit' });
+    });
+
+    it('a cor do crachá mudou nos dois lados: fica a da versão nova, sem conflito', () => {
+        const plan = planLateLegacyChanges(entrada({
+            legado: { 'maps/Principal': 'p1', 'settings/mapBadgeColors': 'b1' }, destino: { 'settings/mapBadgeColors': 'b9' }
+        }));
+        expect(plan).toMatchObject({ outcome: 'absorb', writes: [['maps', 'Principal']], deletes: [] });
+    });
+
+    it('mapa da antiga provado inerte pelo chamador não conta como mudança dela', () => {
+        const plan = planLateLegacyChanges({ ...entrada({
+            legado: { 'maps/Principal': 'p1' }, destino: { 'settings/map_notes_Principal': 'n9' }
+        }), legacyInert: [['maps', 'Principal']] });
+        expect(plan.outcome).toBe('nothing');
+        expect(planLateLegacyChanges(entrada({ legado: { 'maps/Principal': 'p1' }, destino: { 'settings/map_notes_Principal': 'n9' } })))
             .toMatchObject({ outcome: 'conflict', reason: 'same_unit' });
     });
 

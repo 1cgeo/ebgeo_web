@@ -370,3 +370,130 @@ it('origem apagada por ordem não serve de base: o que uma aba antiga escrever d
     expect(await transition.inventoryScope(destino)).toEqual(destinoAntes);
     expect((await loja(ns.StoreName.MAPS).getItem('Principal')).features.coordination_lines).toHaveLength(0);
 });
+
+// A VOLTA DA PRODUÇÃO PARA A VERSÃO ANTIGA (rollback), medida no navegador em 2026-09-23 com o build
+// real da `main` (`tests/helpers/main-rollback-novo.mjs`, modo `existente`): a pessoa trabalhou na
+// versão nova, a produção voltou para a antiga e ela só ABRIU o EBGeo. Só isso grava na origem o
+// `sync` do mapa ativo (carimbado, conteúdo igual) e o `mapBadgeColors` (a cor automática do
+// crachá). Quando a nova volta, a regra lia as duas coisas como alteração da versão antiga no MESMO
+// mapa que a nova editou, criava um "Recuperado" com a cópia velha e o ABRIA no lugar do atlas em que
+// a pessoa estava trabalhando.
+async function antigaSoAbre() {
+    const atual = await storeAt('ebgeo_maps').getItem('Principal');
+    await seedDatabase('ebgeo_maps', { Principal: { ...atual, sync: { ...atual.sync, version: 7, updatedAt: 777 } } });
+    await seedDatabase('ebgeo_app_settings', { mapBadgeColors: { Principal: '#3b82f6', Segundo: '#22c55e' } });
+}
+
+it('a versão antiga só ABRIU depois de a nova editar o mesmo mapa: não é alteração, e nada vira Recuperado', async () => {
+    await seed24();
+    await storeAt('ebgeo_app_settings').removeItem('mapBadgeColors');
+    const { transition, ns, loja } = await transicao();
+    await loja(ns.StoreName.SETTINGS).setItem('map_notes_Principal', { title: 'Trabalho feito na versão nova' });
+    await novaCarimbaMapa(loja, ns, 'Principal');
+    await antigaSoAbre();
+
+    const boot = await transition.prepareLegacyTransition();
+    expect(boot.late?.outcome).not.toBe('conflict');
+    expect(await loja(ns.StoreName.SETTINGS).getItem('map_notes_Principal')).toEqual({ title: 'Trabalho feito na versão nova' });
+    expect(await loja(ns.StoreName.SETTINGS).getItem('mapBadgeColors')).toEqual({ Principal: '#3b82f6', Segundo: '#22c55e' });
+    expect(await transition.legacyHasChanged()).toBe(false);
+});
+
+it('as duas versões gravaram a cor do crachá: fica a da nova, e ninguém é perguntado', async () => {
+    await seed24();
+    const { transition, ns, loja } = await transicao();
+    await loja(ns.StoreName.SETTINGS).setItem('map_notes_Principal', { title: 'Nota da nova' });
+    await loja(ns.StoreName.SETTINGS).setItem('mapBadgeColors', { Principal: '#ef4444', Segundo: '#22c55e' });
+    await antigaSoAbre();
+
+    const boot = await transition.prepareLegacyTransition();
+    expect(boot.late?.outcome).not.toBe('conflict');
+    expect(await loja(ns.StoreName.SETTINGS).getItem('mapBadgeColors')).toEqual({ Principal: '#ef4444', Segundo: '#22c55e' });
+});
+
+it('controle: a antiga carimbou o mapa E mudou um campo dele depois de a nova editá-lo: continua conflito', async () => {
+    await seed24();
+    const { transition, ns, loja } = await transicao();
+    await loja(ns.StoreName.SETTINGS).setItem('map_notes_Principal', { title: 'Nota da nova' });
+    const atual = await storeAt('ebgeo_maps').getItem('Principal');
+    await seedDatabase('ebgeo_maps', { Principal: { ...atual, baseLayer: 'imagens', sync: { ...atual.sync, version: 9 } } });
+    await expect(transition.prepareLegacyTransition()).rejects.toMatchObject({ code: 'legacy_changes' });
+});
+
+// OS CONTROLES DA REGRA NOVA: ela só absolve o que PROVA que a antiga não acrescentou, não mudou e
+// não apagou nada. Cada um destes continua conflito.
+async function comPontoAntigo() {
+    // Uma feição que já existia antes da transição, com o carimbo de criação da versão antiga.
+    const ponto = {
+        type: 'Feature', geometry: { type: 'Point', coordinates: [-47.9, -15.8] },
+        properties: { id: 'ponto-antigo', nome: 'Ponto antigo', source: 'point', createdAt: 1000, attributes: { cor: 'azul' } }
+    };
+    await seedDatabase('ebgeo_maps', { Principal: mapa('Principal', 'Principal', [], [ponto]) });
+    return ponto;
+}
+
+it('controle: a antiga editou um ATRIBUTO de feição do mapa que a nova editou: conflito', async () => {
+    await seed24();
+    const ponto = await comPontoAntigo();
+    const { transition, ns, loja } = await transicao();
+    await loja(ns.StoreName.SETTINGS).setItem('map_notes_Principal', { title: 'Nota da nova' });
+    await seedDatabase('ebgeo_maps', { Principal: { ...mapa('Principal', 'Principal', [], [{
+        ...ponto, properties: { ...ponto.properties, attributes: { cor: 'vermelho' } } }]), sync: { version: 8 } } });
+    await expect(transition.prepareLegacyTransition()).rejects.toMatchObject({ code: 'legacy_changes' });
+});
+
+it('controle: a antiga APAGOU uma feição antiga e a fila dela registrou: conflito', async () => {
+    await seed24();
+    await comPontoAntigo();
+    const { transition, ns, loja } = await transicao();
+    await loja(ns.StoreName.SETTINGS).setItem('map_notes_Principal', { title: 'Nota da nova' });
+    await seedDatabase('ebgeo_maps', { Principal: { ...mapa('Principal', 'Principal'), sync: { version: 8 } } });
+    // A fila da versão antiga é o banco `ebgeo` sem sufixo, object store `operation_queue`.
+    await seedDatabase('ebgeo', { [`op_${Date.now()}_apaga`]: {
+        id: 'apaga', entityType: 'feature', operationType: 'delete', entityId: 'ponto-antigo', mapId: 'Principal', timestamp: Date.now()
+    } }, { storeName: 'operation_queue' });
+    await expect(transition.prepareLegacyTransition()).rejects.toMatchObject({ code: 'legacy_changes' });
+});
+
+it('controle: a antiga apagou uma feição antiga SEM rastro na fila: o destino a tem e ela é anterior à transição, conflito', async () => {
+    await seed24();
+    await comPontoAntigo();
+    const { transition, ns, loja } = await transicao();
+    await loja(ns.StoreName.SETTINGS).setItem('map_notes_Principal', { title: 'Nota da nova' });
+    await seedDatabase('ebgeo_maps', { Principal: { ...mapa('Principal', 'Principal'), sync: { version: 8 } } });
+    await expect(transition.prepareLegacyTransition()).rejects.toMatchObject({ code: 'legacy_changes' });
+});
+
+it('controle: a antiga apagou uma CAMADA do mapa que a nova editou: conflito', async () => {
+    await seed24();
+    await seedDatabase('ebgeo_layers', { layers_Principal: [{ id: 'default', name: 'Padrão' }, { id: 'c2', name: 'Manobra' }] });
+    const { transition, ns, loja } = await transicao();
+    await loja(ns.StoreName.SETTINGS).setItem('map_notes_Principal', { title: 'Nota da nova' });
+    await antigaSoAbre();
+    await seedDatabase('ebgeo_layers', { layers_Principal: [{ id: 'default', name: 'Padrão' }] });
+    await expect(transition.prepareLegacyTransition()).rejects.toMatchObject({ code: 'legacy_changes' });
+});
+
+it('controle: com a fila da antiga ILEGÍVEL a leitura não diz "nada foi apagado", diz "não sei"', async () => {
+    const { transition } = await transicao();
+    const ilegivel = () => Promise.reject(new Error('banco ilegível'));
+    expect(await transition.mapasComApagamentoNaAntiga(1, ilegivel)).toBeNull();
+    const vazia = async () => {};
+    expect(await transition.mapasComApagamentoNaAntiga(1, vazia)).toEqual(new Set());
+    const comApagamento = async (visit) => {
+        visit({ operationType: 'delete', entityType: 'layer', mapId: 'Principal', timestamp: 5 }, 'op_5_a');
+        visit({ operationType: 'delete', entityType: 'feature', mapId: 'Velho', timestamp: 0 }, 'op_0_b');
+    };
+    expect(await transition.mapasComApagamentoNaAntiga(1, comApagamento)).toEqual(new Set(['Principal']));
+});
+
+it('controle: sem o marco de início da transição a regra não absolve: conflito', async () => {
+    await seed24();
+    const { transition, ns, loja, state } = await transicao();
+    const diario = await state.readLegacyTransition();
+    delete diario.entry.createdAt;
+    await ns.getGlobalStore().setItem(state.LEGACY_TRANSITION_KEY, diario);
+    await loja(ns.StoreName.SETTINGS).setItem('map_notes_Principal', { title: 'Nota da nova' });
+    await antigaSoAbre();
+    await expect(transition.prepareLegacyTransition()).rejects.toMatchObject({ code: 'legacy_changes' });
+});

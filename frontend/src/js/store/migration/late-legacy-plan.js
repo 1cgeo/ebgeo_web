@@ -114,6 +114,10 @@ const DERIVED_KEYS = Object.freeze([
  */
 const PREFERENCE_KEYS = Object.freeze([
     [StoreName.SETTINGS, 'lastActiveMap'],
+    // The badge colour of each map, which BOTH versions assign by themselves the first time a map
+    // is listed. Measured on 2026-09-23 with the real build of main: only OPENING it after a
+    // rollback writes `mapBadgeColors`, and the rule read that as an edit of the old version.
+    [StoreName.SETTINGS, 'mapBadgeColors'],
 ]);
 
 /**
@@ -121,7 +125,7 @@ const PREFERENCE_KEYS = Object.freeze([
  * is decided again: without this, the fix above would never reach a browser that had already
  * remembered the conflict, because the two acervos it compares are exactly the same ones.
  */
-export const LATE_RULE_VERSION = 3;
+export const LATE_RULE_VERSION = 4;
 
 /** Outcomes of `planLateLegacyChanges`. */
 export const LateOutcome = Object.freeze({
@@ -225,10 +229,17 @@ function isPreference(id) {
  * @param {Array<[string, string]>} [input.inert] - Destination records that changed on disk but
  *   carry no work the legacy side lacks, as proved by the caller (`inertMapChanges` in
  *   `legacy-transition.js`). They are not destination changes.
+ * @param {Array<[string, string]>} [input.legacyInert] - The same proof in the OTHER direction:
+ *   legacy records that changed but carry no work the destination lacks (`inertLegacyMapChanges`).
+ *   They are not legacy changes. It exists because OPENING the old version re-stamps the `sync`
+ *   of its active map, and a rollback followed by a look at the old version turned every map the
+ *   new version had edited into a conflict (measured with the real build of main, 2026-09-23).
  * @returns {{ outcome: string, reason?: string, writes: Array<[string, string]>,
  *   deletes: Array<[string, string]> }} `writes` and `deletes` name destination records.
  */
-export function planLateLegacyChanges({ migratedBase, staged, destinationBase, destination, rawBase, rawNow, maps, inert = [] }) {
+export function planLateLegacyChanges({
+    migratedBase, staged, destinationBase, destination, rawBase, rawNow, maps, inert = [], legacyInert = [],
+}) {
     const stagedIndex = indexInventory(staged);
     const legacyChanges = changedRecords(indexInventory(migratedBase), stagedIndex);
     const plan = { outcome: LateOutcome.NOTHING, writes: [], deletes: [] };
@@ -237,6 +248,7 @@ export function planLateLegacyChanges({ migratedBase, staged, destinationBase, d
     const conflict = reason => ({ outcome: LateOutcome.CONFLICT, reason, writes: [], deletes: [] });
     const destinationIndex = indexInventory(destination);
     const inertIds = new Set(inert.map(([store, key]) => recordId(store, key)));
+    const legacyInertIds = new Set(legacyInert.map(([store, key]) => recordId(store, key)));
     const destinationChanges = [...changedRecords(indexInventory(destinationBase), destinationIndex)]
         .filter(id => !isDerived(id) && !inertIds.has(id));
     const raw = { base: indexInventory(rawBase), now: indexInventory(rawNow) };
@@ -249,6 +261,7 @@ export function planLateLegacyChanges({ migratedBase, staged, destinationBase, d
         const isLegacyRecord = raw.base.has(id) || raw.now.has(id);
         if (isLegacyRecord && raw.base.get(id) === raw.now.get(id)) return conflict('unstable_migration');
         if (isDerived(id)) continue;
+        if (legacyInertIds.has(id)) continue;
         if (isPreference(id) && destinationChanges.includes(id)) continue;
         const removed = !stagedIndex.has(id);
         if (removed && store === StoreName.MAPS) return conflict('map_removed');

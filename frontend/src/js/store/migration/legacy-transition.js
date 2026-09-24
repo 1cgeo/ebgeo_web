@@ -363,6 +363,117 @@ async function inertMapChanges(destination, stagingScope, destinationBase, desti
 }
 
 /**
+ * @param {Object} map - A map document.
+ * @returns {boolean} True when every feature bucket is empty: the default map a first boot writes.
+ */
+function semFeicoes(map) {
+    return Object.values(map?.features || {}).every((lista) => !Array.isArray(lista) || lista.length === 0);
+}
+
+/**
+ * The maps in which the previous version DELETED anything since `desde`, read from ITS outbound
+ * queue (the unsuffixed `ebgeo` database, which main fills with every gesture although it has no
+ * server): a feature, a layer, a group, any entity carrying that map.
+ * @param {number} desde - Epoch ms; older operations are not looked at.
+ * @param {(visit: Function) => Promise<void>} [percorrer] - Walks the queue; injectable for the test
+ *   that proves the unreadable queue absolves nothing.
+ * @returns {Promise<Set<string>|null>} Map addresses (name or id), or null when the queue could not
+ *   be read, which the caller takes as "cannot prove", never as "nothing deleted".
+ */
+export async function mapasComApagamentoNaAntiga(desde,
+    percorrer = (visit) => getStoreFor(StoreName.OPERATION_QUEUE, SOURCE).iterate(visit)) {
+    try {
+        const apagados = new Set();
+        await percorrer((op, key) => {
+            if (typeof key === 'string' && key.startsWith('op_') && op?.operationType === 'delete'
+                && op.mapId != null && !(Number(op.timestamp) < desde)) {
+                apagados.add(String(op.mapId));
+            }
+        });
+        return apagados;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Does the destination hold a feature that existed BEFORE the transition and that the legacy map no
+ * longer has? That is a deletion made in the previous version, whatever its queue says.
+ *
+ * A feature the new version drew after the transition is not one: its `createdAt` is after `desde`.
+ * A feature with no `createdAt` counts as older, because "cannot tell" must not absolve.
+ * @param {Object} antiga - Legacy map (migrated).
+ * @param {Object} nova - Destination map.
+ * @param {number} desde - When the transition began (epoch ms).
+ * @returns {boolean}
+ */
+function destinoTemFeicaoQueAAntigaApagou(antiga, nova, desde) {
+    const idOf = (f) => f?.properties?.id ?? f?.id;
+    const naAntiga = new Set();
+    for (const lista of Object.values(antiga?.features || {})) {
+        if (Array.isArray(lista)) for (const f of lista) naAntiga.add(idOf(f));
+    }
+    for (const lista of Object.values(nova?.features || {})) {
+        if (!Array.isArray(lista)) continue;
+        for (const f of lista) {
+            if (naAntiga.has(idOf(f))) continue;
+            const criada = Number(f?.properties?.createdAt);
+            if (!(criada >= desde)) return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * The LEGACY map records that changed without carrying work the destination lacks: the mirror of
+ * {@link inertMapChanges}, for the side that rewrote the map this time.
+ *
+ * WHY IT EXISTS, measured on 2026-09-23 with the real build of main (`main-rollback-novo.mjs`): after
+ * a rollback, only OPENING the previous version re-stamps the `sync` of its active map, with the
+ * content unchanged, and a person who had edited that map in the new version came back to a
+ * "Recuperado" holding the OLD copy, opened in place of the atlas they were working in. And a person
+ * who had only ever used the new version got the empty default map main writes on its first boot
+ * read as "the old version created Principal".
+ *
+ * TWO WAYS TO BE INERT, both proved on content: the legacy map (without `sync`) is contained in the
+ * destination's, field by field and feature by feature (nothing ADDED or CHANGED); or it is a map
+ * the legacy side CREATED since the base, with no feature at all, over a destination map of the same
+ * key (the first-boot default). CONTAINMENT CANNOT SEE A DELETION, so two proofs of "nothing deleted"
+ * are demanded on top, and either failing leaves the map to the old rule (a conflict): no DELETE of
+ * any entity of that map in the previous version's queue since the transition began, and no feature
+ * in the destination that predates the transition and is missing from the legacy map. Without the
+ * start of the transition, or with an unreadable queue, nothing is absolved.
+ *
+ * @param {Object} destination - Destination scope.
+ * @param {Object} stagingScope - Staging scope, the migrated legacy acervo.
+ * @param {Array} migratedBase - Legacy side's base, migrated.
+ * @param {Array} staged - Legacy acervo now, migrated.
+ * @param {number} desde - When the transition began (epoch ms).
+ * @returns {Promise<Array<[string, string]>>}
+ */
+async function inertLegacyMapChanges(destination, stagingScope, migratedBase, staged, desde) {
+    if (!Number.isFinite(desde) || desde <= 0) return [];
+    const base = new Map(migratedBase.map(([id, key, hash]) => [JSON.stringify([id, key]), hash]));
+    const candidates = staged.filter(([id, key, hash]) => id === StoreName.MAPS
+        && base.get(JSON.stringify([id, key])) !== hash);
+    if (!candidates.length) return [];
+    const apagados = await mapasComApagamentoNaAntiga(desde);
+    if (apagados === null) return [];
+    const inert = [];
+    for (const [id, key] of candidates) {
+        const antiga = await getStoreFor(StoreName.MAPS, stagingScope).getItem(key);
+        const nova = await getStoreFor(StoreName.MAPS, destination).getItem(key);
+        if (!antiga || !nova) continue;
+        const nomes = [key, antiga.id, antiga.name].filter((n) => n != null).map(String);
+        if (nomes.some((n) => apagados.has(n))) continue;
+        if (destinoTemFeicaoQueAAntigaApagou(antiga, nova, desde)) continue;
+        const criadaNaAntiga = !base.has(JSON.stringify([id, key]));
+        if (!mapHoldsOwnWork(antiga, nova) || (criadaNaAntiga && semFeicoes(antiga))) inert.push([id, key]);
+    }
+    return inert;
+}
+
+/**
  * The inventory the destination must have after a plan, derived from the snapshot the plan was
  * made on. Compared as a set because `inventoryScope` orders by store and key, and a derived list
  * would have to reproduce that order to be comparable.
@@ -463,7 +574,9 @@ async function absorbLateLegacyChanges(state) {
     const plan = planLateLegacyChanges({
         migratedBase: base.migrated, staged, destinationBase: base.destination, destination: destinationNow,
         rawBase: base.raw, rawNow, maps: [...await mapAddresses(stagingScope), ...await mapAddresses(destination)],
-        inert: await inertMapChanges(destination, stagingScope, base.destination, destinationNow)
+        inert: await inertMapChanges(destination, stagingScope, base.destination, destinationNow),
+        legacyInert: await inertLegacyMapChanges(destination, stagingScope, base.migrated, staged,
+            Number(state.entry?.createdAt) || 0)
     });
     if (plan.outcome === LateOutcome.CONFLICT) {
         retireStaging(state, staging);
