@@ -4375,7 +4375,7 @@ instável, e cada uma foi atribuída antes de ser tocada.
 - **Decisão (coordenador da caça noturna, sem mudar contrato, schema nem API):** a saída é função pura da entrada (`deriveAnalysisOutput`), a mesma na ferramenta do autor, no caminho de entrada do par, no retrato, na rajada de criações remotas e no desfazer/refazer (`replaceDerivedOutput`); a escrita dela é descartada pelo despachante por TIPO, pela lista única `DERIVED_OUTPUT_BUCKET_OF`, nunca por formato de id; linhas legadas de saída vindas do servidor são descartadas no retrato; o envio de atlas local não sobe a saída; as recusas antigas dessas ops são limpas da fila.
 - **Alternativas recusadas:** UUID determinístico para a saída (quebra a relação por prefixo dos atlas locais existentes e exigiria cascata no servidor); aceitar id não-UUID no servidor (migração de `features.id`).
 - **Precedente:** o raster de símbolo militar regenerado pelo par e a contagem de cores de 2026-09-21, ambos derivados do que sincroniza.
-- **Status:** aceita pelo coordenador, para o dono confirmar.
+- **Status:** aceita pelo coordenador e confirmada pelo dono em 2026-09-24.
 
 ---
 
@@ -4385,7 +4385,7 @@ instável, e cada uma foi atribuída antes de ser tocada.
 - **Decisão:** `preserveUnsyncedWorkOfOtherAtlases` roda antes de toda varredura involuntária (mapa, páginas sem mapa, boot deslogado, troca de conta por `endPreviousAccountIfReplaced`). Entra todo atlas remoto registrado com contagem positiva ou desconhecida, adotado como local sem mudar o atlas corrente; fica de fora o de descarte confirmado e o que outra aba viva tem montado (a saída daquela aba o resgata); acima do teto de atlas locais, o atlas fica retido (`retainRemoteAtlasForRescue`) com o prazo que resta dito na tela, e veto vencido conta como perdido. A guarda de boot não varre com par de tokens guardado, e o cursor durável carrega principal e nível do recorte.
 - **Alternativa recusada:** só o veto de retenção de 24 h, que perde em silêncio depois do prazo.
 - **Risco declarado para o dono:** o resgate no boot deslogado transforma o retrato de servidor com pendência em atlas local legível sem login, sem a poda de recursos privados que "Sair do servidor" aplica. A política já valia para o atlas montado; esta decisão a estende.
-- **Status:** aceita pelo coordenador, para o dono confirmar.
+- **Status:** aceita pelo coordenador e confirmada pelo dono em 2026-09-24.
 
 ---
 
@@ -4394,7 +4394,7 @@ instável, e cada uma foi atribuída antes de ser tocada.
 - **Contexto:** com uma aba do `main` aberta durante a implantação (o caso mais comum da virada), o portão de migração desenhava a tela de duas saídas, cujo único comando além de baixar é "Continuar", que APAGA os dados deste computador; a saída certa (fechar a janela antiga) não tinha botão e o texto se contradizia.
 - **Decisão (diretriz de resiliência de 2026-09-22):** o portão desenha "Há uma janela antiga do EBGeo aberta. Feche a outra janela do EBGeo neste computador. Esta página continua sozinha quando ela fechar." sem comando nenhum, sonda de novo a cada segundo e segue sozinho depois de duas ausências seguidas. A tela de duas saídas continua para as falhas reais. Medido com o build real do `main`: Chromium e Firefox esperam sem botão e retomam em 3 a 5 s depois de a janela antiga fechar, com a escrita tardia dela absorvida.
 - **Alternativa recusada:** um terceiro botão "Recarregar" na tela de recuperação, que contraria a regra do dono de uma tela com duas saídas.
-- **Status:** aceita pelo coordenador, para o dono confirmar.
+- **Status:** aceita pelo coordenador e confirmada pelo dono em 2026-09-24.
 
 ---
 
@@ -4402,7 +4402,7 @@ instável, e cada uma foi atribuída antes de ser tocada.
 
 - **Contexto:** medido com o build real do `main`: se a produção voltar para o `main` e a pessoa só ABRIR o app, a versão antiga regrava o `sync` do mapa ativo e o `mapBadgeColors`, e ao voltar a integração criava e ABRIA um "Recuperado" com a cópia velha no lugar do atlas em que a pessoa trabalhava.
 - **Decisão:** um mapa da origem que mudou é inerte quando o conteúdo dele (sem `sync`) está contido no do destino, E a fila do `main` não tem exclusão de entidade daquele mapa desde o início da transição, E o destino não tem feição anterior à transição que falte na origem; sem marco de início ou com fila ilegível, nada é absolvido. `mapBadgeColors` entrou em `PREFERENCE_KEYS` e `LATE_RULE_VERSION` subiu. A decisão de 2026-09-23 sobre abrir o Recuperado direto continua valendo quando há alteração real.
-- **Status:** aceita pelo coordenador, para o dono confirmar.
+- **Status:** aceita pelo coordenador e confirmada pelo dono em 2026-09-24.
 
 ---
 
