@@ -136,7 +136,13 @@ router.post(
 );
 
 // Map operations
-router.post('/:atlasId/maps/:mapId/duplicate', auth, requireAtlasPermission('write'), ctrl.duplicateMap);
+router.post(
+  '/:atlasId/maps/:mapId/duplicate',
+  auth,
+  requireAtlasPermission('write'),
+  validate({ body: schemas.duplicateMapSchema }),
+  ctrl.duplicateMap,
+);
 
 // Mount nested routers
 router.use('/:atlasId/sharing', sharingRoutes);

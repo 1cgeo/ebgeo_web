@@ -1200,8 +1200,15 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}, sourcePermis
  * Duplicates a single map within the same atlas.
  * Clones all sub-entities (layers, groups, features, group_features, cesium3d, streetview360,
  * catalog layers) and the blobs of its image features.
+ *
+ * @param {string} atlasId
+ * @param {string} mapId - Source map.
+ * @param {string|null} [actingUserId] - Author of the structural marker.
+ * @param {{name?: string|null}} [options] - `name`: the name of the copy (validated by the route);
+ *   without it the copy is "<source> (cópia)", which collides with the first copy on a second
+ *   duplicate of the same map, and the client resolves maps by name.
  */
-export async function duplicateMap(atlasId, mapId, actingUserId = null) {
+export async function duplicateMap(atlasId, mapId, actingUserId = null, { name = null } = {}) {
   let newMapResult;
 
   await withPreparedImageCopies(atlasId, atlasId, mapId, async (t, { imageIdMap, rows: imageRows }) => {
@@ -1220,7 +1227,7 @@ export async function duplicateMap(atlasId, mapId, actingUserId = null) {
     await insertMany(t, CS.images, imageRows);
 
     const newMapId = crypto.randomUUID();
-    await insertMany(t, CS.maps, [mapRow(newMapId, atlasId, withCopySuffix(map.name), map)]);
+    await insertMany(t, CS.maps, [mapRow(newMapId, atlasId, name || withCopySuffix(map.name), map)]);
 
     await cloneMapSubEntities(
       t,

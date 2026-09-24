@@ -2059,6 +2059,20 @@ export class ApiClient {
     }
 
     /**
+     * Duplicates one map of a server atlas ON THE SERVER ("Duplicar"), with every sub-entity.
+     * One of the declared structural exceptions to sync-only writes: the copy is an entity-whole
+     * operation the op log cannot describe. Requires write permission (backend-enforced); peers
+     * learn of it by the `map_duplicated` broadcast and the structural marker.
+     * @param {string} atlasId
+     * @param {string} mapId - Source map UUID.
+     * @param {{name?: string}} [payload] - `name`: the name of the copy.
+     * @returns {Promise<Object>} The new map row (`id`, `name`, ...).
+     */
+    async duplicateMap(atlasId, mapId, payload = {}) {
+        return this._request('POST', `/atlas/${atlasId}/maps/${mapId}/duplicate`, { body: payload });
+    }
+
+    /**
      * Lists the caller's own trashed (soft-deleted) atlases.
      * @returns {Promise<Array<Object>>}
      */

@@ -37,6 +37,11 @@ import { IDUtils } from '../utilities';
 import { setMapTemporalSaved } from '@store/temporal.operations.js';
 import { checkPermission, GuardAction } from '../store/sync/permission-guard.js';
 import { DEFAULT_MAP_NAME } from '../store/store.constants.js';
+import { isRemoteStoreSync } from '../store/store-origin.js';
+import { isValidUUID } from '../utilities/uuid.js';
+import { syncEngine } from '@store/sync/sync-engine.js';
+import { apiClient, ApiError } from '@store/sync/api-client.js';
+import { connectionState } from '@store/sync/connection-state.js';
 
 const MAP_LIMIT = 100;
 
@@ -159,6 +164,8 @@ class MapManager {
             }
 
             const trimmed = newMapName.trim();
+            if (isRemoteStoreSync()) return await this._duplicateOnServer(mapName, trimmed, originalMapData);
+
             const originalColorUsage = await getColorUsage(mapName);
             const originalNotes = await getMapNotes(mapName);
 
@@ -186,6 +193,54 @@ class MapManager {
             console.error('Erro ao duplicar mapa:', error);
             return { success: false, message: 'Não foi possível duplicar o mapa. Tente de novo.' };
         }
+    }
+
+    /**
+     * "Duplicar" in a SERVER atlas: the server copies the map (the declared structural exception
+     * for an entity-whole operation), and this client receives the copy by the same path as every
+     * peer, a snapshot.
+     *
+     * The local composition does not travel, and that is why this branch exists: it wrote the
+     * layers with a raw repository write before the map existed and without any operation, and
+     * handed the features to `addMap` inside the map document, where the server's map CREATE does
+     * not look. The copy reached the server with no feature, the author kept features pointing at
+     * layers that never existed, and an F5 showed an empty map
+     * (`frontend/tests/e2e-ui/duplicar-mapa-no-servidor.repro.spec.js`). A local atlas keeps the
+     * local composition.
+     *
+     * Offline the command is still offered and the click is refused naming the state: the server
+     * is the only one that can copy.
+     *
+     * @param {string} mapName - Map being duplicated.
+     * @param {string} trimmed - Name of the copy.
+     * @param {Object} originalMapData - The document of the map being duplicated.
+     * @returns {Promise<{success: boolean, message: string}>}
+     * @private
+     */
+    async _duplicateOnServer(mapName, trimmed, originalMapData) {
+        const perm = checkPermission(GuardAction.CREATE_MAP);
+        if (!perm.allowed) return { success: false, message: 'Você não tem permissão para criar mapas neste atlas.' };
+        const offline = { success: false, message: 'Sem conexão com o servidor. Duplicar um mapa precisa dela; tente de novo quando ela voltar.' };
+        const atlasId = syncEngine.atlasId;
+        if (!atlasId || !connectionState.isOnline()) return offline;
+        if (!isValidUUID(originalMapData?.id)) return { success: false, message: 'O mapa não foi encontrado.' };
+
+        // What this client still has in the queue for the source is not on the server yet, and
+        // the server copies what IT has. Best effort: an op that cannot go now stays in the queue.
+        await syncEngine.flush().catch(() => {});
+        try {
+            await apiClient.duplicateMap(atlasId, originalMapData.id, { name: trimmed });
+        } catch (error) {
+            // The connection can drop before the socket notices (the heartbeat takes seconds): a
+            // request that never reached the server is the same state, and says the same thing.
+            if (!(error instanceof ApiError)) return offline;
+            throw error;
+        }
+        await syncEngine.resync();
+
+        await setCurrentMap(trimmed);
+        await this._switchBaseLayer();
+        return { success: true, message: `Mapa "${mapName}" duplicado como "${trimmed}"` };
     }
 
     /**

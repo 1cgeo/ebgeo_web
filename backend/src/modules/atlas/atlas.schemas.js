@@ -102,6 +102,13 @@ export const cloneAtlasSchema = Joi.object({
   name: Joi.string().max(255),
 });
 
+// Duplicating a map: the name the person typed in the prompt (optional; without it the copy is
+// named "<source> (cópia)"). It has to travel with the request: the client resolves maps by NAME,
+// and a second duplicate of the same map, named by the server, collides with the first copy.
+export const duplicateMapSchema = Joi.object({
+  name: Joi.string().trim().min(1).max(255),
+});
+
 // Ownership transfer: the new owner is picked among current members (validated in the service).
 export const transferOwnershipSchema = Joi.object({
   newOwnerId: Joi.string().uuid().required(),

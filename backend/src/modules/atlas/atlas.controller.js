@@ -269,7 +269,7 @@ export const importAtlas = asyncHandler(async (req, res) => {
 export const duplicateMap = asyncHandler(async (req, res) => {
   // O ator desce ao serviço porque o MARCADOR que a duplicação passou a deixar em `operations`
   // (ver `sync/structural-marker.js`) é uma linha de log com autoria, como toda op.
-  const newMap = await atlasService.duplicateMap(req.atlasId, req.params.mapId, req.user.id);
+  const newMap = await atlasService.duplicateMap(req.atlasId, req.params.mapId, req.user.id, { name: req.body?.name });
   // O par CONECTADO continua aprendendo por aqui, com resync imediato; o marcador é a outra
   // metade, para o par que estava offline e cujo pull incremental respondia vazio.
   broadcastToRoom(req.atlasId, { type: 'map_duplicated', mapId: newMap.id });
