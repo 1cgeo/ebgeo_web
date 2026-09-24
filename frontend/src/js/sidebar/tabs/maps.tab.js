@@ -1697,7 +1697,7 @@ export class MapsTab {
                 showSuccess(result.message);
                 // Emit event to update sidebar shortcuts and maps list
                 this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
-            } else {
+            } else if (!result.cancelled) {
                 showWarning(result.message);
             }
         } catch (_error) {
