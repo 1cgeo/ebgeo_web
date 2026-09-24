@@ -24,9 +24,16 @@ export const AREA_TYPES = Object.freeze(new Set([
     'polygon', 'circle', 'ellipse', 'rectangle', 'sector', 'arrow', 'processed_visibility',
 ]));
 
+/**
+ * Types whose polygon parts the map fills from `color`/`opacity`, not `fillColor`: they get a
+ * PolyStyle in that colour whenever the geometry has a polygon, since KML fills a polygon without
+ * one in opaque white (tests/unit/kmz-viewshed-com-preenchimento.repro.test.js).
+ */
+export const FILL_FROM_COLOR_TYPES = Object.freeze(new Set(['processed_visibility', 'coordination_line']));
+
 /** Feature types drawn as plain linework (LineStyle only). */
 export const LINE_TYPES = Object.freeze(new Set([
-    'line', 'brush', 'boundary', 'occupied_front', 'coordination_line',
+    'line', 'brush', 'boundary', 'occupied_front', 'coordination_line', 'processed_los',
 ]));
 
 /** Feature types rendered as a stored or generated symbol image. */
@@ -34,7 +41,7 @@ export const SYMBOL_TYPES = Object.freeze(new Set([
     'military_symbol', 'engineering_symbol', 'coordination_measure', 'magnetic_declination',
 ]));
 
-/** Analysis artefacts that are not exported as map content. */
+/** The analysis INPUTS, not exported; their outputs (`processed_*`) are. */
 export const SKIPPED_TYPES = Object.freeze(new Set(['los', 'visibility']));
 
 /**

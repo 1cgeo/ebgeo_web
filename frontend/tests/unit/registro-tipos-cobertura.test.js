@@ -121,7 +121,7 @@ const CENSO = [
     },
     {
         arquivo: 'import_export/kmz/kmz-feature-types.js', completa: 'tipo', universo: 'selecionaveis',
-        motivo: 'Classifies each type into the KML shape it exports as. An unknown type falls through to plain linework, losing fill, label and symbol without an error. The processing outputs are explicitly skipped upstream.',
+        motivo: 'Classifies each type into the KML shape it exports as. An unknown type falls through to plain linework, losing fill, label and symbol without an error. The service skips the two analysis INPUTS (los, visibility) and EXPORTS the outputs, which this line called "skipped upstream" until 2026-09-24 while processed_visibility fell through to linework and came out white in Google Earth. The universe here is the selectable types, which leaves the outputs out; kmz-viewshed-com-preenchimento.repro.test.js holds every store type, outputs included, off the fallback.',
     },
     {
         arquivo: 'tool_manager/tool-registry.js', completa: 'tipo', universo: 'selecionaveis',

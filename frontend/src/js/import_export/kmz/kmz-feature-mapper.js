@@ -36,7 +36,7 @@ import {
     collectPhotos,
     POINT_ICON_NATIVE_PX,
 } from './kmz-assets.js';
-import { classifyFeatureType, FeatureCategory } from './kmz-feature-types.js';
+import { classifyFeatureType, FeatureCategory, FILL_FROM_COLOR_TYPES } from './kmz-feature-types.js';
 import { regenerateSymbolBitmap } from '@js/military_tools/symbol-bitmap.regenerate.js';
 
 /**
@@ -115,6 +115,14 @@ function measureGeometryLength(geometry) {
         default:
             return 0;
     }
+}
+
+/** @param {Object} geometry - GeoJSON @returns {boolean} whether it carries a polygon */
+function hasPolygon(geometry) {
+    if (!geometry) return false;
+    if (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon') return true;
+    if (geometry.type === 'GeometryCollection') return (geometry.geometries || []).some(hasPolygon);
+    return false;
 }
 
 /**
@@ -235,11 +243,20 @@ export async function mapFeatureToKml({ feature, featureType, styles, assets, op
     const geometry = buildGeometry(feature.geometry, { dashMeters });
     if (!geometry) return null;
 
-    const body = category === FeatureCategory.AREA
-        ? buildLineStyle(properties) + buildPolyStyle(properties)
+    // See `FILL_FROM_COLOR_TYPES`; the 'poly' key keeps a line with polygons from sharing a style.
+    const fromColor = FILL_FROM_COLOR_TYPES.has(featureType);
+    const fillProperties = fromColor
+        ? { ...properties, fillColor: properties.color, fillOpacity: properties.opacity }
+        : properties;
+    const filled = category === FeatureCategory.AREA || (fromColor && hasPolygon(feature.geometry));
+    const body = filled
+        ? buildLineStyle(properties) + buildPolyStyle(fillProperties)
         : buildLineStyle(properties);
 
-    const styleId = styles.register(styleSignature(featureType, properties), body);
+    const styleId = styles.register(
+        styleSignature(featureType, fillProperties, filled && category !== FeatureCategory.AREA ? 'poly' : ''),
+        body
+    );
 
     return buildPlacemark({
         name: properties.nome,
