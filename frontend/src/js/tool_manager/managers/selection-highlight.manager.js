@@ -109,6 +109,13 @@ export class SelectionHighlightManager {
         this._reentradaDoTurfPendente = false;
 
         /**
+         * Os tipos cuja ferramenta TARDIA foi pedida por este passe e ainda não chegou (ou não
+         * chegou nunca). Ver `_carregarControleTardio`.
+         * @type {Set<string>}
+         */
+        this._controlesTardiosPendentes = new Set();
+
+        /**
          * A coleção que foi escrita na fonte por último, guardada por REFERÊNCIA para a
          * comparação de identidade do passe por quadro. `null` significa "não sei o que
          * está lá", e a próxima passada escreve. Ver `_mesmaColecao`.
@@ -428,12 +435,47 @@ export class SelectionHighlightManager {
 
         const control = this.selectionManager.controls.get(type);
 
+        if (!control && this._carregarControleTardio(type)) return [];
+
         if (!this._supportsToolCentricSelectionBoxes(control)) {
             console.warn(`Tool ${type} does not implement selection box interface`);
             return [];
         }
 
         return this._createSelectionBoxesWithCache(features, control);
+    }
+
+    /**
+     * Pede o controle de uma ferramenta TARDIA que ainda não subiu, e redesenha quando ele chega.
+     *
+     * A SELEÇÃO É PUBLICADA ANTES DE A FERRAMENTA EXISTIR, em três caminhos: `selectFeature`
+     * escreve no StateManager (cujo assinante é este passe, síncrono) e só depois chama
+     * `ensureControlFor`, e `selectGroup` e o `move_handler` fazem o mesmo. No primeiro clique
+     * da sessão numa feição de ferramenta tardia (todas menos ponto, linha, polígono, texto,
+     * imagem e pincel) a caixa não era desenhada até o zoom seguinte, e o console acusava
+     * "does not implement selection box interface" para setor, elipse e retângulo, que
+     * implementam (relato do dono, 2026-09-24).
+     *
+     * O conserto mora no consumidor, e não em cada caminho de seleção, pela razão da reentrada
+     * do Turf acima: é o único ponto por onde todos passam. UMA carga por tipo, e a reentrada só
+     * acontece se o controle chegou. Uma falha já avisou em `ensureControlFor` e na porta de
+     * carga sob demanda, e o tipo fica pendente de propósito: liberá-lo faria cada quadro de um
+     * gesto de zoom pedir de novo. O próximo gesto de seleção tenta por conta própria.
+     * @private
+     * @param {string} type - Feature type
+     * @returns {boolean} true quando o tipo é de ferramenta tardia (carga pedida agora ou antes)
+     */
+    _carregarControleTardio(type) {
+        if (!this.selectionManager.controlFactories?.has(type)) return false;
+        if (this._controlesTardiosPendentes.has(type)) return true;
+
+        this._controlesTardiosPendentes.add(type);
+        this.selectionManager.ensureControlFor(type).then((controle) => {
+            if (!controle) return;
+            this._controlesTardiosPendentes.delete(type);
+            this.updateSelectionHighlight();
+        });
+        return true;
     }
 
     /**
