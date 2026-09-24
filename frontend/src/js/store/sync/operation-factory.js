@@ -476,8 +476,8 @@ export function createOperation(entityType, operationType, entityId, mapId, data
 // 200 operations was refused locally and never reached the server: importing, pasting, moving to a
 // layer, grouping, transferring a layer to another map, and the undo or redo of any of them. It now
 // travels in parts of {@link MAX_OPS_PER_LOGICAL_BATCH}, each its own `batchId`, in `batchIndex`
-// order, and the first operation of each part DEPENDS (`dependsOn`) on the last one of the
-// previous part. The queue already refuses to hand over an operation whose dependency carries a
+// order, and every operation of each part DEPENDS (`dependsOn`) on the last one of the previous
+// part (every one, not only the first: see `linkOf` in `gesture-batch.js`). The queue already refuses to hand over an operation whose dependency carries a
 // problem (`PendingBlockade`, `operation-queue.js`), and the flush pushes one part at a time
 // with its receipt before the next, so a part leaves only after the previous one was applied and a
 // refused part HOLDS the following ones: a group member never reaches the server ahead of the group
@@ -572,14 +572,17 @@ export function createBatchOperations(operations) {
     const { scopeSuffix, atlasId } = readScopeStamp();
 
     let previousId = null;
+    let partLink = null;
     return operations.map((op, index) => {
         const id = generateUUID();
         const position = firstIndex + index;
         let dependency = null;
         if (gesture) {
             dependency = gesture.link(position, id);
-        } else if (partIds && index > 0 && index % MAX_OPS_PER_LOGICAL_BATCH === 0) {
-            dependency = previousId;
+        } else if (partIds && index > 0) {
+            // Every member of a part after the first depends on the last op of the previous part.
+            if (index % MAX_OPS_PER_LOGICAL_BATCH === 0) partLink = previousId;
+            dependency = partLink;
         }
         previousId = id;
         return {

@@ -79,7 +79,13 @@ function partIdOf(gesto, index) {
 
 /**
  * Records the operation written at `index` and answers what it must depend on: the last
- * operation of the PREVIOUS part when it opens a part, nothing otherwise.
+ * operation of the PREVIOUS part, for EVERY operation of a part after the first.
+ *
+ * EVERY ONE, NOT ONLY THE FIRST. The first version linked only the op that opens a part and let
+ * the loader's poisoning by `batchId` hold the rest, which the pending list does not see: after
+ * "Aceitar o servidor" on the refused part, the link of the first op went with it and the other
+ * 199 left on the next flush without the part they followed. A link on each member is a fact
+ * every reader of the queue sees (`PendingBlockade`, `getProblems`, the pending list).
  * @param {OpenGesture} gesto
  * @param {number} index - Absolute `batchIndex`.
  * @param {string} opId - The operation's id.
@@ -87,7 +93,7 @@ function partIdOf(gesto, index) {
  */
 function linkOf(gesto, index, opId) {
     const part = Math.floor(index / GESTURE_PART_SIZE);
-    const dependency = part > 0 && index % GESTURE_PART_SIZE === 0 ? (gesto.lastOpOfPart[part - 1] ?? null) : null;
+    const dependency = part > 0 ? (gesto.lastOpOfPart[part - 1] ?? null) : null;
     gesto.lastOpOfPart[part] = opId;
     return dependency;
 }

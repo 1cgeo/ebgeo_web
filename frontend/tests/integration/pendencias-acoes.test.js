@@ -417,3 +417,59 @@ describe('a tabela de afordância: o POSTO some, o ESTADO recusa o clique', () =
         expect(idsQueSaemJunto({ operationId: null }, linhas)).toEqual([]);
     });
 });
+
+/**
+ * B6.1: "Aceitar o servidor" sobre uma PARTE recusada de um lote partido.
+ *
+ * O DEFEITO (achado de leitura na revisao de 2026-09-24, provado aqui). Acima de 200 o lote parte em
+ * blocos e so a PRIMEIRA op do bloco seguinte dependia (`dependsOn`) da ultima do anterior; as
+ * outras eram seguradas pelo envenenamento por `batchId` do carregador, que o painel nao ve. Entao
+ * aceitar o servidor na op recusada levava so ela e aquela primeira op, e as outras 49 do bloco
+ * seguinte saiam no proximo flush, sem a parte recusada.
+ */
+describe('aceitar o servidor sobre uma parte recusada de um lote partido (B6.1)', () => {
+    beforeEach(async () => {
+        await getStoreFor(StoreName.OPERATION_QUEUE, scope).clear();
+    });
+
+    it('nada do bloco seguinte sai depois de aceitar o servidor numa op da parte recusada', async () => {
+        const { createBatchOperations } = await import('@store/sync/operation-factory.js');
+        const ops = createBatchOperations(Array.from({ length: 450 }, (_, i) => ({
+            entityType: 'feature', operationType: 'create', entityId: `f${i}`, mapId: 'mapa-1',
+            data: { type: 'Feature', properties: { id: `f${i}`, source: 'point' } },
+        }))).map((op) => ({ ...op, scopeSuffix: scope.dbSuffix }));
+        const partes = [...new Set(ops.map((op) => op.batchId))];
+        expect(partes).toHaveLength(3);
+        const parte = (k) => ops.filter((op) => op.batchId === partes[k]);
+        const recusa = { rejected: true, reason: 'O mapa está bloqueado e não aceita edições', batchId: partes[1] };
+
+        // A parte 1 foi aplicada (saiu da fila); a parte 2 foi recusada inteira; a 3 esta retida.
+        const queue = await filaCom(ops, parte(1).map((op) => [op, recusa]));
+        await queue.dequeue(parte(0).map((op) => op.id));
+        expect(await queue.peek(25)).toEqual([]);
+
+        const linhas = await linhasDe(queue);
+        const ultimaRecusada = parte(1).at(-1).id;
+        const linha = linhas.find((l) => l.operationId === ultimaRecusada);
+        await aceitarOServidor(linha, linhas, { queue, engine: motorFalso() });
+
+        // O que sobrou nao pode sair sem a parte recusada: nem as irmas recusadas, nem a parte 3.
+        const livres = await queue.peek(25);
+        expect(livres.filter((op) => op.batchId === partes[2])).toEqual([]);
+        expect(await queue.countByState()).toMatchObject({ pendentes: 0 });
+    });
+
+    it('o painel mostra o bloco seguinte INTEIRO como parado atras da parte recusada', async () => {
+        const { createBatchOperations } = await import('@store/sync/operation-factory.js');
+        const ops = createBatchOperations(Array.from({ length: 450 }, (_, i) => ({
+            entityType: 'feature', operationType: 'create', entityId: `g${i}`, mapId: 'mapa-1',
+            data: { type: 'Feature', properties: { id: `g${i}`, source: 'point' } },
+        }))).map((op) => ({ ...op, scopeSuffix: scope.dbSuffix }));
+        const partes = [...new Set(ops.map((op) => op.batchId))];
+        const recusa = { rejected: true, reason: 'O mapa está bloqueado e não aceita edições', batchId: partes[1] };
+        const queue = await filaCom(ops, ops.filter((op) => op.batchId === partes[1]).map((op) => [op, recusa]));
+        await queue.dequeue(ops.filter((op) => op.batchId === partes[0]).map((op) => op.id));
+        const problemas = await queue.getProblems();
+        expect(problemas).toHaveLength(250);
+    });
+});

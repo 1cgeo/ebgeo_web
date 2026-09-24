@@ -47,13 +47,17 @@ async function transacao(descricoes) {
 const lotes = (ops) => [...new Set(ops.map((op) => op.batchId))];
 const tamanhos = (ops) => lotes(ops).map((id) => ops.filter((op) => op.batchId === id).length);
 
-/** Asserts the chain: the first op of every part after the first depends on the last op of the previous one. */
+/**
+ * Asserts the chain: EVERY op of every part after the first depends on the last op of the previous
+ * one (not only the first: the pending list and "Aceitar o servidor" read the link, not the batch).
+ */
 function afirmarEncadeado(ops) {
     const ids = lotes(ops);
     for (let k = 1; k < ids.length; k++) {
-        const anterior = ops.filter((op) => op.batchId === ids[k - 1]);
-        const primeira = ops.find((op) => op.batchId === ids[k]);
-        expect(primeira.dependsOn, `a parte ${k + 1} depende da ${k}`).toContain(anterior.at(-1).id);
+        const ultima = ops.filter((op) => op.batchId === ids[k - 1]).at(-1).id;
+        const membros = ops.filter((op) => op.batchId === ids[k]);
+        expect(membros.filter((op) => !(op.dependsOn ?? []).includes(ultima)).map((op) => op.id),
+            `toda op da parte ${k + 1} depende da ultima da ${k}`).toEqual([]);
     }
 }
 
