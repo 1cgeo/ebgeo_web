@@ -201,6 +201,7 @@ import {
 } from '../../src/js/store/streetview360.operations.js';
 
 import { setStreetview360Compat } from '../../src/js/store/repositories/index.js';
+import { prepararFotoAnexa } from '../../src/js/store/photo-attach.js';
 import { validateImageFile } from '../../src/js/utilities/image_utils.js';
 import { logOrientation360Operation, logMarker360Operation, OperationType } from '../../src/js/store/sync/index.js';
 import { emitStoreError } from '../../src/js/store/store-errors.js';
@@ -837,6 +838,20 @@ describe('marker image operations', () => {
     it('addMarker360Image returns null when the marker is missing', async () => {
         const result = await addMarker360Image('ghost', fakeFile());
         expect(result).toBeNull();
+        // A CLEAN refusal: nothing was written, so the prepared photo is dropped.
+        const limpa = await prepararFotoAnexa.mock.results.at(-1).value;
+        expect(limpa.descartar).toHaveBeenCalledTimes(1);
+        expect(limpa.confirmar).not.toHaveBeenCalled();
+    });
+
+    // UM ERRO NÃO É UMA RECUSA (revisão da fase 2c, 2026-09-24): a intenção pode estar no diário.
+    it('addMarker360Image: gravação que falha MANDA a foto em vez de apagar', async () => {
+        const marker = await addMarker360('photo-1.jpg', makeMarkerData());
+        setStreetview360Compat.mockRejectedValueOnce(new Error('IDB write failed'));
+        await expect(addMarker360Image(marker.id, fakeFile())).rejects.toThrow();
+        const comErro = await prepararFotoAnexa.mock.results.at(-1).value;
+        expect(comErro.confirmar).toHaveBeenCalledTimes(1);
+        expect(comErro.descartar).not.toHaveBeenCalled();
     });
 
     it('getMarker360Images returns the attached images / [] when none', async () => {

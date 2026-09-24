@@ -244,12 +244,17 @@ describe('feição de atlas de servidor com foto inline: a próxima edição con
         expect(h.imagens.size).toBe(0);
     });
 
-    it('gravação que falha: a pendência é descartada, os bytes saem, nada sobe', async () => {
+    // UM ERRO NÃO É UMA RECUSA (revisão da fase 2c, 2026-09-24). A gravação da entidade falha DEPOIS
+    // de a intenção estar no diário; a intenção será reprojetada e enviada citando a foto, então os
+    // bytes e a pendência ficam e sobem. Antes, eles eram apagados e o servidor recebia uma
+    // referência para uma foto que ninguém ia mandar.
+    it('gravação que falha depois da intenção: os bytes ficam e sobem', async () => {
         h.falharGravacao = true;
         await expect(updateFeatureProperty('points', 'p1', 'nome', 'Depois', MAPA)).rejects.toThrow();
-        expect(h.envios).toHaveLength(1);
-        expect(h.envios[0]).toMatchObject({ enviado: false, descartado: true });
-        expect(h.imagens.size).toBe(0);
+        const [op] = opsDeFeicao();
+        const citada = op.data.properties.images[0].id;
+        expect(h.envios).toEqual([expect.objectContaining({ id: citada, enviado: true, descartado: false })]);
+        expect(h.imagens.has(citada)).toBe(true);
     });
 
     it('a próxima edição de uma feição JÁ convertida não converte de novo', async () => {

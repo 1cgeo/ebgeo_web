@@ -13,8 +13,9 @@
  *
  * THE ORDER IS THE IMAGE TOOL'S (`add_image_control.js`): the bytes are stored and the upload is
  * REGISTERED before the entity is saved, so an F5 in between still finds the pendency on disk; the
- * transfer starts only after the save succeeded (`confirmar`), and a refused save drops both
- * (`descartar`). One deliberate difference: the entity's operation does NOT wait for the blob. The
+ * transfer starts after the save (`confirmar`), ALSO after a save that threw (the intention may
+ * already be in the journal, see `comConversao`), and only a CLEAN refusal drops both (`descartar`).
+ * One deliberate difference: the entity's operation does NOT wait for the blob. The
  * gallery draws the thumbnail, which travels with the entity, so there is no hole to prevent, and
  * holding the operation would hold every later edit behind a slow photo. Opening the WHOLE photo
  * before its bytes reach the server says so (`photoNotArrivedNotice`) and can be tried again.
@@ -23,8 +24,9 @@
  * The store owns no toast; the callers word what the person reads.
  */
 
-import { processImageFile, mimeDeFotoInlineQueSobe, blobDeDataUrl } from '../utilities/image_utils.js';
-import { generateUUID } from '../utilities/uuid.js';
+import { processImageFile, mimeDeFotoInlineQueSobe, blobDeDataUrl } from '@utils/image_utils.js';
+import { generateUUID } from '@utils/uuid.js';
+import { getActiveScope } from '@store/atlas-namespace.js';
 import { storeImage, removeImage } from './settings.operations.js';
 import { registrarEnvioDeImagem, isImageSyncOnline } from './sync/image-sync.js';
 // Leaf module (zero imports).
@@ -39,9 +41,11 @@ import { OperationType } from './sync/operation-types.js';
  * @param {string} [opcoes.origem='foto-anexa'] - Label of the upload pendency
  * @returns {Promise<{item: Object, bytes: number, confirmar: () => void, descartar: () => Promise<void>}>}
  *   `item`: `{ id, name, type, size, thumbnail, addedAt }`, with no `data`. `confirmar` after the
- *   entity was saved; `descartar` when the save refused or threw.
+ *   entity was saved AND after a write that THREW; `descartar` only on a CLEAN refusal (see
+ *   {@link comConversao} for why an error is not a refusal).
  */
 export async function prepararFotoAnexa(file, { origem = 'foto-anexa' } = {}) {
+    const escopo = getActiveScope();
     const { blob, thumbnail } = await processImageFile(file);
     const id = generateUUID();
     await storeImage(id, blob);
@@ -62,10 +66,25 @@ export async function prepararFotoAnexa(file, { origem = 'foto-anexa' } = {}) {
         },
         descartar: async () => {
             await envio.descartar();
-            // The bytes were never referenced by any entity (the id was minted here), so they go.
-            await removeImage(id).catch(() => {});
+            await removerSeNoMesmoAtlas(escopo, id);
         },
     };
+}
+
+/**
+ * Removes bytes minted here and referenced by nothing, but only in the atlas they were written to.
+ *
+ * `removeImage` acts on the ACTIVE repository, and a switch of atlas between the preparation and the
+ * refusal would aim it at another atlas (2026-09-24, review). There the id does not exist, so the
+ * removal did nothing, and the bytes stayed where they were written anyway: the honest version keeps
+ * them and says so. An orphan blob is the cheap failure.
+ * @param {Object|null} escopo - The scope active when the bytes were written
+ * @param {string} id
+ * @returns {Promise<void>}
+ */
+async function removerSeNoMesmoAtlas(escopo, id) {
+    if (getActiveScope() !== escopo) return;
+    await removeImage(id).catch(() => {});
 }
 
 /**
@@ -99,12 +118,12 @@ export async function prepararFotoAnexa(file, { origem = 'foto-anexa' } = {}) {
  */
 export async function converterFotosInline(fotos, { origem = 'foto-convertida' } = {}) {
     if (!isImageSyncOnline() || !Array.isArray(fotos) || !fotos.some((foto) => mimeDeFotoInlineQueSobe(foto))) return null;
+    const escopo = getActiveScope();
     const feitos = [];
     const descartar = async () => {
         for (const { id, envio } of feitos) {
             await envio.descartar();
-            // Minted here and referenced by nothing yet, so the bytes go.
-            await removeImage(id).catch(() => {});
+            await removerSeNoMesmoAtlas(escopo, id);
         }
     };
     const novosIds = new Map();
@@ -192,8 +211,16 @@ export async function converterFotosDasOperacoes(operacoes, { origem = 'foto-con
 }
 
 /**
- * Awaits the write, then starts the uploads of the photos it converted, or drops them when the
- * write threw (which is how `runTransaction` refuses: lock, logout barrier, a switch of atlas).
+ * Awaits the write, then starts the uploads of the photos it converted, AND ALSO WHEN THE WRITE
+ * THREW.
+ *
+ * AN ERROR IS NOT A REFUSAL (2026-09-24, review). `runTransaction` can throw AFTER the intention is
+ * already in the journal (the persistence of the entity, the fence, a switch of scope, the
+ * materialisation mark): the intention is re-projected and SENT on the next connect, citing the
+ * photo. Dropping the bytes and the pendency there published a reference to a picture nobody would
+ * ever upload, for every peer. Keeping and sending them costs, at worst, an orphan blob on the
+ * server, which is the cheap failure. Dropping belongs only to a CLEAN refusal (a falsy result with
+ * nothing written), which the callers decide, as `add_image_control.js` does.
  *
  * The conversion is read through a function because the 3D and 360 funnels only learn it inside the
  * transaction's work, after the write promise already exists.
@@ -207,7 +234,7 @@ export async function comConversao(conversao, escrita) {
     try {
         resultado = await escrita;
     } catch (error) {
-        await conversao()?.descartar();
+        conversao()?.confirmar();
         throw error;
     }
     conversao()?.confirmar();

@@ -211,6 +211,7 @@ import {
 } from '../../src/js/store/cesium3d.operations.js';
 
 import { getCesium3dCompat, setCesium3dCompat } from '../../src/js/store/repositories/index.js';
+import { prepararFotoAnexa } from '../../src/js/store/photo-attach.js';
 import {
     logMarker3dOperation,
     logMeasurement3dOperation,
@@ -571,6 +572,23 @@ describe('marker images', () => {
         // valid file but missing marker
         seed({ markers: [] });
         expect(await addMarkerImage('ghost', fakeImageFile())).toBeNull();
+    });
+
+    // UM ERRO NÃO É UMA RECUSA (revisão da fase 2c, 2026-09-24): a gravação que falha depois de a
+    // intenção estar no diário manda a foto, porque a intenção será reenviada citando-a. Só a recusa
+    // LIMPA (entidade ausente, nada gravado) descarta.
+    it('addMarkerImage: gravação que falha MANDA a foto em vez de apagar; recusa limpa descarta', async () => {
+        const marker = await addMarker('tsA', { position: {} });
+        setCesium3dCompat.mockRejectedValueOnce(new Error('IndexedDB write failed'));
+        await expect(addMarkerImage(marker.id, fakeImageFile())).rejects.toThrow();
+        const comErro = await prepararFotoAnexa.mock.results.at(-1).value;
+        expect(comErro.confirmar).toHaveBeenCalledTimes(1);
+        expect(comErro.descartar).not.toHaveBeenCalled();
+
+        expect(await addMarkerImage('ghost', fakeImageFile())).toBeNull();
+        const limpa = await prepararFotoAnexa.mock.results.at(-1).value;
+        expect(limpa.descartar).toHaveBeenCalledTimes(1);
+        expect(limpa.confirmar).not.toHaveBeenCalled();
     });
 
     it('getMarkerImages returns stored images, [] when none/missing', async () => {

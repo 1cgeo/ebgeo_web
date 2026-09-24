@@ -327,7 +327,8 @@ async function addEntityImage(entityId, file, collectionKey, changeEvent, mapNam
             };
         }, null);
     } catch (error) {
-        await foto.descartar();
+        // An error is not a refusal: the intention may already be in the journal (`comConversao`).
+        foto.confirmar();
         throw error;
     }
     if (!resultado) {

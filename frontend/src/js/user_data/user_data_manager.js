@@ -468,7 +468,9 @@ const userDataManager = {
         try {
             // THE PHOTO IS A BLOB WITH A REFERENCE since phase 2b (`store/photo-attach.js`): the
             // feature carries `{ id, name, type, size, thumbnail, addedAt }` and the bytes go up once,
-            // on their own, after the feature was saved. A save that did not happen drops them.
+            // on their own, after the feature was saved. A CLEAN refusal (nothing written) drops
+            // them; an ERROR keeps and sends them, because the intention may already be in the
+            // journal (`comConversao`).
             const foto = await prepararFotoAnexa(file, { origem: 'foto-anexa' });
             const imageData = foto.item;
             const imageId = imageData.id;
@@ -483,7 +485,7 @@ const userDataManager = {
                     return feature;
                 });
             } catch (error) {
-                await foto.descartar();
+                foto.confirmar();
                 throw error;
             }
             if (!salvo) {
