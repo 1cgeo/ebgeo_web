@@ -85,9 +85,12 @@ const CLASSE_EXPLICACAO = Object.freeze({
     [PendenciaClasse.RECUSA]:
         'O servidor não aceita esta alteração como ela está, e reenviar não muda isso. Exporte '
         + 'uma cópia se ela importa e aceite o que está no servidor para liberar as próximas.',
+    // SÓ AS DUAS AÇÕES QUE DE FATO VALEM PARA O GRUPO (achado da revisão, 2026-09-24): "Reaplicar"
+    // cria operação nova só para a culpada, e a frase anterior ("o que você decidir sobre aquela vale
+    // também para esta") prometia o que ele não cumpre.
     [PendenciaClasse.JUNTO]:
         'O servidor não recusou esta alteração por ela mesma: ela saiu junto com outra que ele '
-        + 'não aceitou. O que você decidir sobre aquela vale também para esta.',
+        + 'não aceitou. Aceitar o servidor ou Exportar em qualquer uma delas vale para o grupo inteiro.',
     [PendenciaClasse.DEPENDENCIA]:
         'Esta alteração não foi recusada: ela está parada atrás de outra que foi. Resolva a que '
         + 'está na frente e esta sai sozinha.',
@@ -264,8 +267,8 @@ export function juntoResumo(juntos) {
         ? `, e ${paradas} ${paradas === 1 ? 'está parada' : 'estão paradas'} atrás delas`
         : '';
     const decida = culpadas === 1
-        ? 'O que você decidir sobre ela vale para o grupo inteiro.'
-        : 'O que você decidir sobre cada uma vale para o grupo dela.';
+        ? 'Aceitar o servidor ou Exportar em qualquer uma delas vale para o grupo inteiro.'
+        : 'Aceitar o servidor ou Exportar em qualquer uma vale para o grupo dela.';
     return `${quantas} junto com ${culpadas} que o servidor não aceitou${atras}. ${decida}`;
 }
 

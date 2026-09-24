@@ -25,11 +25,12 @@ import { createBatchOperations } from '@store/sync/operation-factory.js';
 import { montarPendencias } from '@js/account/pendencias/pendencias-rows.js';
 import {
     PendenciaClasse,
+    classeExplicacao,
     confirmacaoDeAceitar,
     contadoresVisiveis,
     juntoResumo,
 } from '@js/account/pendencias/pendencias-phrases.js';
-import { aceitarOServidor, acoesDaLinha, idsQueSaemJunto } from '@js/account/pendencias/pendencias-acoes.js';
+import { aceitarOServidor, acoesDaLinha, idsQueSaemJunto, linhasParaExportar } from '@js/account/pendencias/pendencias-acoes.js';
 
 const ATLAS = '55555555-5555-4555-8555-555555555555';
 const scope = remoteScope(ATLAS);
@@ -146,6 +147,23 @@ describe('a irmã de uma parte recusada não carrega o motivo da culpada', () =>
         const irma = modelo.linhas.find((l) => l.recusadaJuntoCom);
         const acoes = acoesDaLinha(irma, { online: true, permissao: () => ({ allowed: true }) }).map((a) => a.acao);
         expect(acoes).toEqual(['exportar', 'aceitar']);
+    });
+
+    it('a frase promete só o que vale para o grupo: Aceitar e Exportar, e Exportar leva o grupo', async () => {
+        // Achado da revisão (2026-09-24): "o que você decidir sobre aquela vale também para esta"
+        // incluía Reaplicar, que cria operação nova só para a culpada.
+        const { modelo, culpada } = await cenario();
+        for (const frase of [classeExplicacao(PendenciaClasse.JUNTO), juntoResumo(modelo.juntos)]) {
+            expect(frase).not.toMatch(/decidir|decida/i);
+            expect(frase).toContain('Aceitar o servidor ou Exportar');
+        }
+        const irma = modelo.linhas.find((l) => l.recusadaJuntoCom);
+        const exportadas = linhasParaExportar(irma, modelo.linhas);
+        expect(exportadas).toHaveLength(250);
+        expect(exportadas.some((l) => l.operationId === culpada.id)).toBe(true);
+        // Fora de grupo, Exportar continua levando só a linha.
+        const parada = modelo.linhas.find((l) => l.classe === PendenciaClasse.DEPENDENCIA);
+        expect(linhasParaExportar(parada, modelo.linhas)).toEqual([parada]);
     });
 
     it('CONTROLE: recusa sem lote (sem batchFailedOperationId) continua uma linha só, com o próprio motivo', () => {

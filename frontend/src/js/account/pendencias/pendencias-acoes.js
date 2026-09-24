@@ -211,6 +211,24 @@ export function idsQueSaemJunto(linha, linhas = []) {
 }
 
 /**
+ * As linhas que "Exportar" leva a partir de uma linha: o grupo inteiro quando ela é de uma parte
+ * recusada, a própria linha no resto.
+ *
+ * É O MESMO GRUPO QUE "ACEITAR O SERVIDOR" DESCARTA ({@link idsQueSaemJunto}), porque as duas ações
+ * são as que a frase do grupo promete que valem para todos, e a pergunta de aceitar manda exportar
+ * antes: exportar uma e descartar seiscentas perderia as outras quinhentas e noventa e nove.
+ * @param {Object} linha - A linha alvo.
+ * @param {Array<Object>} linhas - Todas as linhas do modelo.
+ * @returns {Array<Object>}
+ */
+export function linhasParaExportar(linha, linhas = []) {
+    const doGrupo = Boolean(linha?.recusadaJuntoCom) || linha?.levouJunto > 0;
+    if (!doGrupo) return [linha];
+    const ids = new Set(idsQueSaemJunto(linha, linhas));
+    return linhas.filter((outra) => ids.has(outra.operationId));
+}
+
+/**
  * O documento JSON de exportação das tentativas escolhidas.
  *
  * Ele carrega o ENVELOPE inteiro e o resultado do servidor, não um resumo: quem exporta está

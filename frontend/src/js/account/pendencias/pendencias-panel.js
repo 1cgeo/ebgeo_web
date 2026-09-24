@@ -52,6 +52,7 @@ import {
     conteudoDeExportacao,
     descartarTentativa,
     idsQueSaemJunto,
+    linhasParaExportar,
     reaplicarComNovaBase,
 } from './pendencias-acoes.js';
 import {
@@ -547,7 +548,7 @@ export class PendenciasPanel extends ModalBase {
         if (this._agindo) return;
         this._agindo = true;
         try {
-            if (acao === PendenciaAcao.EXPORTAR) await this._exportar([linha]);
+            if (acao === PendenciaAcao.EXPORTAR) await this._exportar(linhasParaExportar(linha, this._modelo?.linhas ?? []));
             else if (acao === PendenciaAcao.ACEITAR) await this._aceitar(linha);
             else if (acao === PendenciaAcao.DESCARTAR) await this._descartar(linha);
             else if (acao === PendenciaAcao.REAPLICAR) await this._reaplicar(linha);
