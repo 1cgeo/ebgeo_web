@@ -1415,7 +1415,11 @@ const PAGINAS_DIST = Object.freeze([
     // depois. Os quatro arquivos a mais são repartição de chunk e não conteúdo (os modais que o
     // mapa deixou de alcançar estaticamente deixaram de dividir chunk com ele e viraram chunks
     // próprios desta página); o kB a mais é o arredondamento disso. A banda não se mexe.
-    { html: 'atlas.html', entrada: 'atlas', minArq: 18, maxArq: 44, minKb: 320, maxKb: 700 },
+    // 700 -> 740 em 2026-09-24, fim da caça noturna: 701 kB medidos com build fresco. A página entra
+    // pela saída involuntária da sessão e pelo portão de migração, que cresceram com o resgate da fila
+    // de todo atlas com pendência e a contenção do rollback, e ganhou `projects/server-send-phrases.js`
+    // (o que o servidor podou no envio, dito igual nas duas portas).
+    { html: 'atlas.html', entrada: 'atlas', minArq: 18, maxArq: 44, minKb: 320, maxKb: 740 },
     // admin.html: 800 -> 950 -> 720 em 2026-09-02, com a medida na mao: 670 kB em 24 arquivos, build
     // fresco. As abas Diagnostico e Uso (com os folhas de frase) tinham levado a pagina a 882 kB
     // (admin-*.js 258 kB, admin-legacy-*.js 358 kB), e o teto de 800 passou verde por semanas porque

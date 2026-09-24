@@ -274,13 +274,17 @@ export function otherAtlasesRescueNotice({ rescued = [], retained = [], lost = [
  *
  * DEGRADA PARA A FORMA VAGA quando o prazo não é um número utilizável, em vez de escrever
  * "por NaN horas" ou de inventar um número. A forma vaga é pior que o número, mas é verdadeira.
+ *
+ * The hours round DOWN, which is the safe side of a deadline, with one minute of slack: the time
+ * left is computed from a stamp a few milliseconds old, and a veto recorded just now would
+ * otherwise read "23 horas" in the same breath that recorded it for 24.
  * @param {*} graceMs
  * @returns {string}
  */
 function prazoEmHoras(graceMs) {
     const ms = Number(graceMs);
     if (!Number.isFinite(ms) || ms <= 0) return 'tempo limitado';
-    const horas = Math.floor(ms / 3_600_000);
+    const horas = Math.floor((ms + 60_000) / 3_600_000);
     if (horas >= 48) return `${Math.floor(horas / 24)} dias`;
     if (horas === 24) return '24 horas';
     if (horas >= 1) return `${horas} ${horas === 1 ? 'hora' : 'horas'}`;

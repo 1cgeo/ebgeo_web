@@ -190,6 +190,11 @@ const CENSO = [
     { arquivo: 'src/js/deep-link/deep-link.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/deep-link/deep-link.js', campo: 'photoName', classe: RUNTIME },
     { arquivo: 'src/js/events/event_types.js', campo: 'baseLayer', classe: RUNTIME },
+    // 2026-09-24: the rollback containment compares the old version's map fields with the factory
+    // defaults and with the destination's, in memory, to decide whether opening the old version
+    // was a change; nothing is written from these reads.
+    { arquivo: 'src/js/store/migration/legacy-transition.js', campo: 'baseLayer', classe: RUNTIME },
+    { arquivo: 'src/js/store/migration/legacy-transition.js', campo: 'catalogLayers', classe: RUNTIME },
     { arquivo: 'src/js/features_tab/models3d-section.component.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/features_tab/streetview360-section.component.js', campo: 'photoName', classe: RUNTIME },
     { arquivo: 'src/js/features_tab/streetview360-section.component.js', campo: 'photoId', classe: RUNTIME },
