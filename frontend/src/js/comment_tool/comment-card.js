@@ -55,6 +55,10 @@ import { showError, showWarning } from '@utils/toast_service.js';
 export const AVISO_RESPOSTA_RECUSADA =
     'Não foi possível responder: este comentário foi resolvido ou excluído. Seu texto foi mantido.';
 
+/** Shown when a colleague deletes the thread the person is writing in. */
+export const AVISO_CONVERSA_EXCLUIDA =
+    'Outra pessoa excluiu este comentário. Seu texto foi mantido na caixa; copie-o se precisar dele.';
+
 /**
  * As três superfícies onde um comentário pode nascer.
  *

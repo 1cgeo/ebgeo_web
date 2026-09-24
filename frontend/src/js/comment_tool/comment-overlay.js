@@ -31,6 +31,7 @@ import {
     montarCartaoDeThread,
     escrevendoNoCartao,
     respostasDe,
+    AVISO_CONVERSA_EXCLUIDA,
 } from './comment-card.js';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
@@ -242,11 +243,23 @@ export class CommentOverlay {
         this._render();
         // Keep an open thread card fresh (new replies / resolve). A PEER's resolution redraws it in
         // the resolved, read-only state and never closes it: only the person's own "Resolver"
-        // closes the card, from inside it (see comment-card.js). A deleted root closes it.
+        // closes the card, from inside it (see comment-card.js). A deleted root closes it, EXCEPT
+        // while the person has text typed in it: closing then threw the reply away with no word
+        // (`frontend/tests/e2e-ui/comentario-rascunho-thread-excluida.repro.spec.js`). The card
+        // stays, with the text, the person is told once, and sending is refused keeping the text
+        // (`AVISO_RESPOSTA_RECUSADA`).
         if (this._popup?._ebgeoRootId) {
             const root = this._comments[this._popup._ebgeoRootId];
-            if (!root) this._closeCard();
-            else if (!escrevendoNoCartao(this._popup.getElement())) this._openThread(root.id, true);
+            if (!root) {
+                if (!escrevendoNoCartao(this._popup.getElement())) {
+                    this._closeCard();
+                } else if (!this._popup._ebgeoDeletedNotice) {
+                    this._popup._ebgeoDeletedNotice = true;
+                    showWarning(AVISO_CONVERSA_EXCLUIDA);
+                }
+            } else if (!escrevendoNoCartao(this._popup.getElement())) {
+                this._openThread(root.id, true);
+            }
         }
     }
 
