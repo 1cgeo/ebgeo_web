@@ -59,6 +59,9 @@ function mapPayload(p) {
     // branch. Kept in sync with the identical mapping in middleware/auth.js.
     isPublic: p.isPublic === true,
     publicAtlasId: p.isPublic === true ? (p.atlasId ?? null) : null,
+    // The fingerprint of the link the visitor token came from (`publicLinkFingerprint`).
+    // Kept in sync with the identical mapping in middleware/auth.js.
+    publicLinkFp: p.isPublic === true ? (p.pl ?? null) : null,
     // Issued-at, carried so the strict `auth` middleware can apply the session cut-off
     // (`users.sessions_valid_from`) on a request this mapper populated. Kept in sync
     // with the identical mapping in middleware/auth.js.

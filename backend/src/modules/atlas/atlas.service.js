@@ -21,6 +21,7 @@ import { ensureMapLayers, readMapLayers } from '../maps/default-layer.js';
 // vazio e ele conclui que esta em dia.
 import { STRUCTURAL_MARKER, recordStructuralMarker } from '../sync/structural-marker.js';
 import { lockAtlasLog } from '../sync/atlas-log-lock.js';
+import { publicLinkFingerprint } from '../../utils/public-link-fingerprint.js';
 import { normalizeSlideControls } from '../sync/slide-controls.js';
 import { normalizeEpochMs } from '../sync/temporal-config.js';
 // A PODA DE COPIA (clone e import). O predicado NAO e reimplementado aqui: quem decide e
@@ -817,6 +818,9 @@ export async function getAtlasByPublicLink(publicLink) {
       isPublic: true,
       permission: 'read',
       nome: 'Visitante',
+      // The link this token came from, by fingerprint: a republished atlas has a new link, and a
+      // token of the old one must not read again. See `publicLinkFingerprint`.
+      pl: publicLinkFingerprint(atlas.public_link),
     },
     config.jwt.secret,
     { expiresIn: '1h' }

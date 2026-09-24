@@ -1,6 +1,7 @@
 // Path: src/middleware/permissions.js
 import { query } from '../database/index.js';
 import { ForbiddenError, NotFoundError } from '../utils/errors.js';
+import { publicLinkFingerprint } from '../utils/public-link-fingerprint.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -120,7 +121,7 @@ export function requireAtlasPermission(requiredLevel) {
       // segunda ida ao banco: este gate está no caminho quente (toda op de sync, toda
       // imagem, todo tile do 360).
       const atlasResult = await query(
-        `SELECT owner_id, is_public, fn_principal_vivo($2::uuid) AS principal_vivo
+        `SELECT owner_id, is_public, public_link, fn_principal_vivo($2::uuid) AS principal_vivo
            FROM atlas WHERE id = $1 AND deleted_at IS NULL`,
         [atlasId, principalUuid]
       );
@@ -207,11 +208,16 @@ export function requireAtlasPermission(requiredLevel) {
       }
 
       // Resolve permission
+      // A VISITOR TOKEN READS A PUBLIC ATLAS ONLY THROUGH THE LINK IT CAME FROM. For every other
+      // principal the atlas is public or it is not; for the visitor, a republished atlas (new link)
+      // is not public to the token of the old one. See `publicLinkFingerprint`.
+      const publicoParaEste = atlas.is_public && (!req.user?.isPublic
+        || publicLinkFingerprint(atlas.public_link) === req.user.publicLinkFp);
       const resolvedPermission = resolvePermission({
         userId,
         ownerId: atlas.owner_id,
         share,
-        isPublic: atlas.is_public,
+        isPublic: publicoParaEste,
       });
 
       // NENHUMA relação com o atlas (não é dono, não tem share, o atlas não é público):

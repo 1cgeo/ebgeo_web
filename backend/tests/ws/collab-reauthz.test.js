@@ -11,6 +11,7 @@ import { randomUUID } from 'crypto';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAtlas, createShare, makeAtlasPublic } from '../helpers/fixtures.js';
 import { reconcileAuthorization } from '../../src/modules/collab/collab.gateway.js';
+import { publicLinkFingerprint } from '../../src/utils/public-link-fingerprint.js';
 
 // Minimal stand-in for a connected ws: records the last close() call.
 function fakeSocket(overrides) {
@@ -122,8 +123,11 @@ describe('Collab WS live re-authorization (reconcileAuthorization)', () => {
     // A public (anonymous) socket survives while the atlas is public, then closes
     // once it is unpublished.
     const pubAtlas = await createAtlas(db, owner.id);
-    await makeAtlasPublic(db, pubAtlas.id);
-    const pubWs = fakeSocket({ atlasId: pubAtlas.id, userId: `public-${randomUUID()}`, permission: 'read', isPublic: true });
+    const link = await makeAtlasPublic(db, pubAtlas.id);
+    // A real visitor socket carries the fingerprint of the link its token came from
+    // (`publicLinkFingerprint`, set by the gateway from the `pl` claim).
+    const pubWs = fakeSocket({ atlasId: pubAtlas.id, userId: `public-${randomUUID()}`, permission: 'read', isPublic: true,
+      publicLinkFp: publicLinkFingerprint(link) });
     await reconcileAuthorization(pubWs);
     assert.equal(pubWs.closed, null, 'public socket survives while atlas is public');
 

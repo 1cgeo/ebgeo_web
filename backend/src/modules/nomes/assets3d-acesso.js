@@ -94,7 +94,9 @@ function impressaoDoPrincipal(user) {
   const id = principalUserId(user);
   // A fresh session must never warm the cache for a token cut before it was issued.
   if (id) return `${id}:${user.tokenIssuedAt ?? 'api-key'}`;
-  if (user?.isPublic) return `publico:${user.publicAtlasId ?? ''}`;
+  // The link fingerprint too: a token of a republished atlas's OLD link is refused by the gate,
+  // and sharing a cache line with the new link's tokens would hand it the cached answer.
+  if (user?.isPublic) return `publico:${user.publicAtlasId ?? ''}:${user.publicLinkFp ?? ''}`;
   return 'anonimo';
 }
 

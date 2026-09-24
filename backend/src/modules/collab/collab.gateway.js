@@ -16,6 +16,7 @@ import { toFrontendRole } from '../../utils/roles.js';
 import * as collabService from './collab.service.js';
 import * as handlers from './collab.handlers.js';
 import { installOutboundResourcePrune } from './collab.send.js';
+import { publicLinkFingerprint } from '../../utils/public-link-fingerprint.js';
 import {
   decidirAvisoDeTipoDesconhecido,
   MSG_TETO_DE_TIPOS,
@@ -122,10 +123,14 @@ async function resolvePermission(atlasId, userId, payload) {
     }
     // Verify atlas still exists and is public
     const atlasResult = await query(
-      'SELECT is_public FROM atlas WHERE id = $1 AND deleted_at IS NULL',
+      'SELECT is_public, public_link FROM atlas WHERE id = $1 AND deleted_at IS NULL',
       [atlasId]
     );
     if (atlasResult.rows.length === 0 || !atlasResult.rows[0].is_public) {
+      return null;
+    }
+    // Only through the link the token came from: a republished atlas has a new one.
+    if (publicLinkFingerprint(atlasResult.rows[0].public_link) !== (payload.pl ?? null)) {
       return null;
     }
     return 'read';
@@ -261,6 +266,7 @@ async function reconcileAuthorizationNow(ws, { failClosed = false, notify = fals
     const current = await resolvePermission(ws.atlasId, ws.userId, {
       isPublic: ws.isPublic,
       atlasId: ws.atlasId,
+      pl: ws.publicLinkFp ?? null,
       role: ws.userRole,
     });
     if (!current) {
@@ -541,6 +547,7 @@ export function attachWebSocket(server) {
           role: isPublicUser ? 'user' : (liveRole || 'user'),
           organization_id: isPublicUser ? null : (payload.organization_id ?? null),
           isPublic: isPublicUser,
+          publicLinkFp: isPublicUser ? (payload.pl ?? null) : null,
           tokenIssuedAt: payload.iat ?? null,
         }, atlasId, permission, clientId);
       });
@@ -620,6 +627,7 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
   // Consecutive failed authorization reconciliations (see reconcileAuthorization).
   ws.authzFailures = 0;
   ws.isPublic = user.isPublic || false;
+  ws.publicLinkFp = user.publicLinkFp ?? null;
   ws.tokenIssuedAt = user.tokenIssuedAt ?? null;
   ws.organizationId = user.organization_id || null;
   ws.cursorPosition = null;

@@ -51,6 +51,9 @@ export function verifyAndMapUser(token) {
       // one can be the path that populates req.user.
       isPublic: payload.isPublic === true,
       publicAtlasId: payload.isPublic === true ? (payload.atlasId ?? null) : null,
+      // The fingerprint of the link the visitor token came from (`publicLinkFingerprint`).
+      // Kept in sync with flexible-auth.js mapPayload.
+      publicLinkFp: payload.isPublic === true ? (payload.pl ?? null) : null,
       // Issued-at, carried so the session cut-off (`users.sessions_valid_from`) can be
       // applied below. Undefined for an api-key principal, which has no token and is
       // revoked by rotating the key instead. Kept in sync with flexible-auth.js
