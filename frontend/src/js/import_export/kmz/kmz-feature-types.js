@@ -13,9 +13,15 @@
  * @module import_export/kmz/kmz-feature-types
  */
 
-/** Feature types drawn as filled areas (LineStyle + PolyStyle). */
+/**
+ * Feature types drawn as filled areas (LineStyle + PolyStyle).
+ *
+ * `processed_visibility` is the derived output of a viewshed (the green and red halves). Absent
+ * from every list it fell to the LINE default, and a KML Polygon without `<PolyStyle>` is filled
+ * with the spec's default, opaque white: the analysed area came out as a white blot.
+ */
 export const AREA_TYPES = Object.freeze(new Set([
-    'polygon', 'circle', 'ellipse', 'rectangle', 'sector', 'arrow',
+    'polygon', 'circle', 'ellipse', 'rectangle', 'sector', 'arrow', 'processed_visibility',
 ]));
 
 /** Feature types drawn as plain linework (LineStyle only). */

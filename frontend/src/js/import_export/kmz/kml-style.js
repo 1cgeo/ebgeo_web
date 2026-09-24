@@ -146,7 +146,10 @@ export function resolveOutline(properties = {}) {
 /**
  * Resolves the fill color and opacity for a feature.
  * When a hatch pattern is enabled, the hatch color becomes the solid fill so
- * the exported polygon still reads as the user styled it.
+ * the exported polygon still reads as the user styled it. A feature with no
+ * `fillColor` is filled with its `color`: every drawing tool with a fill writes
+ * `fillColor`, and the one area that does not, the derived viewshed output,
+ * paints its fill from `color` on the map (`layers/styles/tactical.layers.js`).
  *
  * @param {Object} properties - Feature properties
  * @returns {{ color: string, opacity: number, degraded: boolean }} Normalized fill style
@@ -155,7 +158,7 @@ export function resolveFill(properties = {}) {
     const hatched = properties.hatchEnabled === true && Boolean(properties.hatchColor);
     const color = hatched
         ? properties.hatchColor
-        : (properties.fillColor || FALLBACK_COLOR);
+        : (properties.fillColor || properties.color || FALLBACK_COLOR);
     const rawOpacity = properties.fillOpacity ?? properties.opacity;
     return {
         color,
