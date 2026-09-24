@@ -44,7 +44,7 @@ import { rescheduleMapTemporal } from '../store/temporal.operations.js';
 import { showConfirm } from '../modals/index.js';
 import { showSuccess, showWarning, showToast } from '../utilities/index.js';
 import { TEMPORAL_UNIT_KEYS, TEMPORAL_UNITS, TEMPORAL_MODES } from './temporal.constants.js';
-import { resolverPatchDaConfig, avisoDoReagendamento } from './temporal-settings.model.js';
+import { resolverPatchDaConfig, avisoDoReagendamento, pendenteSobreAAtual, patchSoDoQueMudou } from './temporal-settings.model.js';
 import {
     epochToDatetimeLocal,
     datetimeLocalToEpoch,
@@ -61,6 +61,7 @@ class TemporalSettingsModal {
         this._previousActiveElement = null;
         this._pending = null;
         this._original = null;
+        this._opened = null;
         this._body = null;
         this._prefixSpans = [];
         /**
@@ -88,6 +89,9 @@ class TemporalSettingsModal {
             dDate: origem, // display anchor (D); null until set
         };
         this._original = { modo: config.modo, origem };
+        // The whole config as read now: at save, a field is the person's only if it differs from
+        // this, and every other field is taken from the config as stored then (a colleague's).
+        this._opened = { ...config };
 
         this._previousActiveElement = document.activeElement;
         this._render();
@@ -472,15 +476,18 @@ class TemporalSettingsModal {
 
     async _save() {
         if (this._busy) return;
-        const p = this._pending;
+        // Rebased over the config as stored NOW: the fields the person did not touch take a
+        // colleague's value saved while this dialog was open (`pendenteSobreAAtual`).
+        const atual = await getMapTemporalConfig(this._mapName);
+        const p = pendenteSobreAAtual(this._pending, this._opened, atual);
 
         // A JANELA É VALIDADA NOS DOIS MODOS, E A INVERSÃO É RECUSADA, NÃO CONSERTADA. O relativo
         // empurrava o fim para `inicio + unidade` em silêncio (a pessoa salvava uma janela que
         // nunca tinha pedido) e o absoluto gravava cru, e uma janela invertida gravada faz a
         // feição sumir do 3D, do 360 e da legenda do PDF, porque nenhum cursor passa no predicado.
         const veredito = resolverPatchDaConfig(p, {
-            origemFallback: Number.isFinite(this._original.origem)
-                ? this._original.origem
+            origemFallback: Number.isFinite(atual?.origem)
+                ? atual.origem
                 : this._defaultOrigin(),
             unitMs: unitToMs(p.unidade),
         });
@@ -495,8 +502,11 @@ class TemporalSettingsModal {
             // `null` É RECUSA ESPERADA, NÃO EXCEÇÃO (papel insuficiente, ou mapa travado desde
             // 2026-09-21): a frase já vem do ouvinte global de `STORE_OPERATION_BLOCKED`, e o que
             // falta é não fechar a tela como se tivesse salvo.
-            const config = await setMapTemporalConfig(this._mapName, veredito.patch);
-            if (config === null) return;
+            const patch = patchSoDoQueMudou(veredito.patch, atual);
+            if (Object.keys(patch).length > 0) {
+                const config = await setMapTemporalConfig(this._mapName, patch);
+                if (config === null) return;
+            }
         } catch (error) {
             console.warn('Failed to persist temporal settings:', error);
             showWarning('Não foi possível salvar a linha do tempo. Tente de novo.');

@@ -172,3 +172,44 @@ export function avisoDoReagendamento(decisao, { gravou = null } = {}) {
         ? { tipo: 'info', texto: 'Nenhuma feição temporal para reagendar; apenas o Dia D foi atualizado.' }
         : { tipo: 'warning', texto: 'Nenhuma feição temporal para reagendar, e o novo Dia D não pôde ser salvo.' };
 }
+
+/** Os campos da tela e a chave da config de cada um (a "Data de D" e' a `origem`). */
+const CAMPOS_DA_TELA = [['modo', 'modo'], ['unidade', 'unidade'], ['inicio', 'inicio'], ['fim', 'fim'], ['dDate', 'origem']];
+
+const mesmoValor = (a, b) => (a ?? null) === (b ?? null);
+
+/**
+ * O que a tela pede, rebaseado sobre a config de AGORA.
+ *
+ * A engrenagem le a config ao abrir e pode ficar aberta o tempo que a pessoa quiser; nesse meio um
+ * colega pode salvar a dele. Gravar o que a tela tem em TODO campo desfazia a mudanca do colega nos
+ * campos que a pessoa nem tocou (medido em
+ * `frontend/tests/e2e-ui/temporal-engrenagem-copia-velha.repro.spec.js`: a unidade que o colega
+ * trocou voltava a antiga). Um campo so' e' da pessoa se ela o mudou desde a abertura; os outros vem
+ * da config atual. A validacao e o patch rodam sobre este resultado.
+ *
+ * @param {Object} pendente - O que esta na tela ({modo, unidade, inicio, fim, dDate}).
+ * @param {Object} aberta - A config lida ao abrir.
+ * @param {Object} atual - A config guardada agora.
+ * @returns {Object} Um pendente no formato de `pendente`.
+ */
+export function pendenteSobreAAtual(pendente, aberta, atual) {
+    const resultado = {};
+    for (const [campo, chave] of CAMPOS_DA_TELA) {
+        const mudou = !mesmoValor(pendente?.[campo], aberta?.[chave]);
+        resultado[campo] = mudou ? pendente?.[campo] : (atual?.[chave] ?? null);
+    }
+    return resultado;
+}
+
+/**
+ * So' as chaves do patch cujo valor difere da config atual: gravar de novo o valor que ja' esta la'
+ * e' reivindicar um campo que a pessoa nao mudou.
+ *
+ * @param {Object} patch
+ * @param {Object} atual
+ * @returns {Object}
+ */
+export function patchSoDoQueMudou(patch, atual) {
+    return Object.fromEntries(Object.entries(patch ?? {}).filter(([chave, valor]) => !mesmoValor(valor, atual?.[chave])));
+}

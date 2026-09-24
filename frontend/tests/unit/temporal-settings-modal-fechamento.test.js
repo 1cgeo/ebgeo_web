@@ -72,6 +72,24 @@ function procurar(raiz, predicado) {
 
 const botao = (raiz, texto) => procurar(raiz, (e) => e.tagName === 'button' && e.textContent === texto);
 
+/** Todos os descendentes que satisfazem o predicado, em ordem. */
+function todos(raiz, predicado, achados = []) {
+    if (predicado(raiz)) achados.push(raiz);
+    for (const filho of raiz.children) todos(filho, predicado, achados);
+    return achados;
+}
+
+/**
+ * Troca a unidade pela caixa da tela. Desde 2026-09-24 o Salvar grava so' o que a pessoa mudou
+ * (`patchSoDoQueMudou`), entao um Salvar sem mudanca nao escreve nada: os casos que medem o que
+ * acontece DEPOIS da escrita precisam de uma mudanca de verdade.
+ */
+function trocarUnidade(raiz, unidade) {
+    const caixa = todos(raiz, (e) => e.className === 'temporal-settings__select')[1];
+    caixa.value = unidade;
+    disparar(caixa, 'change');
+}
+
 // ============================================================================
 // Mocks dos vizinhos pesados
 // ============================================================================
@@ -306,6 +324,7 @@ describe('C4 — salvar não fecha a tela quando a escrita é recusada nem quand
         // lança, então o `_save` anterior fechava exatamente como num salvamento bem-sucedido.
         await abrir({ inicio: D, fim: D + DIA_MS });
         setMapTemporalConfig.mockResolvedValue(null);
+        trocarUnidade(overlay, 'SEMANA');
 
         disparar(botao(overlay, 'Salvar'), 'click');
         await vi.runAllTimersAsync();
@@ -316,13 +335,23 @@ describe('C4 — salvar não fecha a tela quando a escrita é recusada nem quand
 
     it('CONTROLE: janela válida e escrita aceita fecham a tela', async () => {
         await abrir({ inicio: D, fim: D + DIA_MS });
+        trocarUnidade(overlay, 'SEMANA');
 
         disparar(botao(overlay, 'Salvar'), 'click');
         await vi.runAllTimersAsync();
 
-        expect(setMapTemporalConfig).toHaveBeenCalledWith(MAPA, expect.objectContaining({
-            modo: 'absoluto', inicio: D, fim: D + DIA_MS,
-        }));
+        // So' o campo mudado viaja (`patchSoDoQueMudou`).
+        expect(setMapTemporalConfig).toHaveBeenCalledWith(MAPA, { unidade: 'SEMANA' });
+        expect(aberto()).toBe(false);
+    });
+
+    it('Salvar sem mudanca nenhuma nao escreve e fecha', async () => {
+        await abrir({ inicio: D, fim: D + DIA_MS });
+
+        disparar(botao(overlay, 'Salvar'), 'click');
+        await vi.runAllTimersAsync();
+
+        expect(setMapTemporalConfig).not.toHaveBeenCalled();
         expect(aberto()).toBe(false);
     });
 });
