@@ -180,10 +180,58 @@ const REFRESH_COOLDOWN_MS = 30000;
 
 /**
  * Timeout (ms) for boot-critical requests (config + session restore) so a hung backend can't
- * block boot. Other requests (snapshot pull / op push) are intentionally UNBOUNDED so a large
- * transfer on a slow/degrading network is never aborted mid-flight (P6 — resiliência a redes ruins).
+ * block boot.
+ *
+ * The snapshot pull and the op push are NOT unbounded any more, which is what this comment said
+ * until 2026-09-23: both gained a deadline on 2026-09-12, to notice a server that accepted the
+ * connection and never answered. The push deadline grows with its body, see
+ * {@link uploadDeadlineMs}, because a fixed one is what P6 (resiliência a redes ruins) forbids.
  */
 const BOOT_TIMEOUT_MS = 8000;
+
+/**
+ * The part of an upload deadline that does not depend on the body: one round trip plus the
+ * server's own work on a batch, the value the push carried alone until 2026-09-23.
+ */
+const UPLOAD_DEADLINE_BASE_MS = 30000;
+
+/**
+ * The slowest uplink an upload deadline must survive, in bytes per second: 16 kbps, below the
+ * 40 kbps military link the product is specified for, so a link at the specification still has
+ * 2.5x of margin.
+ */
+const UPLOAD_FLOOR_BYTES_PER_S = 2000;
+
+/**
+ * The deadline of a request whose BODY the server needs whole before it can answer (the op push
+ * and the receipt lookup): {@link UPLOAD_DEADLINE_BASE_MS} plus the time the body takes to go up
+ * at {@link UPLOAD_FLOOR_BYTES_PER_S}.
+ *
+ * WHY IT CANNOT BE FIXED (measured on 2026-09-23, `tests/e2e-ui/push-em-link-lento.repro.spec.js`,
+ * Chromium throttled to 40 kbps). With the fixed 30 s, a 324 KB batch, which needs about 65 s to go
+ * up, was aborted mid-upload at every attempt (0.9 s, 33.9 s, 68.4 s, 105.9 s), the server never
+ * saw it, and the queue re-sent the same head batch forever: one large gesture (an imported file,
+ * a long track, a detailed polygon) froze every later edit of that person in that atlas. `fetch`
+ * does not report upload progress, so a stall timer is not available for the request side; the
+ * deadline has to be sized from the body.
+ *
+ * Pure.
+ * @param {number} bodyBytes - Size of the serialized body, in bytes.
+ * @returns {number} Milliseconds.
+ */
+export function uploadDeadlineMs(bodyBytes) {
+    const bytes = Number.isFinite(bodyBytes) && bodyBytes > 0 ? bodyBytes : 0;
+    return UPLOAD_DEADLINE_BASE_MS + Math.ceil(bytes / UPLOAD_FLOOR_BYTES_PER_S) * 1000;
+}
+
+/**
+ * UTF-8 size of a JSON body, the unit {@link uploadDeadlineMs} is sized in.
+ * @param {*} body
+ * @returns {number}
+ */
+function jsonBodyBytes(body) {
+    return new TextEncoder().encode(JSON.stringify(body)).byteLength;
+}
 
 /**
  * Timeout (ms) for the logout revoke, which is an EXCEPTION to the unbounded default above.
@@ -799,8 +847,9 @@ export class ApiClient {
         // Boot-critical requests (config + session restore) pass a `timeoutMs` so a hung backend
         // can't block boot (P1), and so does the logout revoke (LOGOUT_TIMEOUT_MS), which carries
         // nothing worth waiting for; the abort surfaces as a rejected fetch handled by the
-        // caller's offline/anonymous fallback. All other requests (snapshot pull / op push) are
-        // left UNBOUNDED so a large transfer on a slow/degrading network is never aborted (P6).
+        // caller's offline/anonymous fallback. The snapshot pull and the op push carry deadlines
+        // too since 2026-09-12; the push one is sized from its body (`uploadDeadlineMs`), so a
+        // large transfer on a slow network is not aborted mid-flight (P6).
         // O relógio da migalha começa AQUI, depois da renovação proativa e da montagem dos
         // cabeçalhos: o que a trilha mede é o pedido, não a preparação dele.
         const inicioDoPedido = Date.now();
@@ -2697,12 +2746,14 @@ export class ApiClient {
      * @returns {Promise<{ results: Object[], acks: Object[], serverVersion: number }>}
      */
     async pushOperations(atlasId, operations, { signal } = {}) {
-        return this._request('POST', `/atlas/${atlasId}/sync`, { body: { operations }, timeoutMs: 30000, signal });
+        const body = { operations };
+        return this._request('POST', `/atlas/${atlasId}/sync`, { body, timeoutMs: uploadDeadlineMs(jsonBodyBytes(body)), signal });
     }
 
     /** Looks up delivery without submitting the old intentions for execution. */
     async lookupOperationReceipts(atlasId, operations, { signal } = {}) {
-        return this._request('POST', `/atlas/${atlasId}/sync/receipts`, { body: { operations }, timeoutMs: 30000, signal });
+        const body = { operations };
+        return this._request('POST', `/atlas/${atlasId}/sync/receipts`, { body, timeoutMs: uploadDeadlineMs(jsonBodyBytes(body)), signal });
     }
 
     /**

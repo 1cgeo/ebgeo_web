@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiClient } from '../../src/js/store/sync/api-client.js';
+import { ApiClient, uploadDeadlineMs } from '../../src/js/store/sync/api-client.js';
 
 afterEach(() => vi.useRealTimers());
 
@@ -10,10 +10,61 @@ describe('Sync HTTP deadline and cancellation', () => {
         const api = new ApiClient({ fetch });
         const sent = api.pushOperations('atlas', [{ id: 'original-id' }]);
         const rejected = expect(sent).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' });
-        await vi.advanceTimersByTimeAsync(30000);
+        await vi.advanceTimersByTimeAsync(uploadDeadlineMs(JSON.stringify({ operations: [{ id: 'original-id' }] }).length));
         await rejected;
         expect(fetch.mock.calls[0][1].signal.aborted).toBe(true);
         expect(JSON.parse(fetch.mock.calls[0][1].body).operations[0].id).toBe('original-id');
+    });
+
+    /**
+     * O PRAZO DO PUSH CRESCE COM O CORPO (2026-09-23). Com os 30 s fixos, um lote que precisa de
+     * mais tempo que isso para SUBIR era cortado no meio do envio a cada tentativa, o servidor não
+     * o via nunca e a fila reenviava a mesma cabeça para sempre, segurando toda edição seguinte.
+     * Medido no navegador em `tests/e2e-ui/push-em-link-lento.repro.spec.js` (40 kbps, 324 KB).
+     */
+    it('does not cut a large push at 30 s: the deadline is sized from the body', async () => {
+        vi.useFakeTimers();
+        const fetch = vi.fn(() => new Promise(() => {}));
+        const api = new ApiClient({ fetch });
+        const big = [{ id: 'big', data: { coords: 'x'.repeat(324000) } }];
+        let settled = null;
+        api.pushOperations('atlas', big).then(() => { settled = 'ok'; }, (e) => { settled = e.code; });
+        await vi.advanceTimersByTimeAsync(90000);
+        expect(settled, 'a 324 KB push needs ~65 s at 40 kbps and must still be in flight at 90 s').toBeNull();
+        expect(fetch.mock.calls[0][1].signal.aborted).toBe(false);
+        const bytes = new TextEncoder().encode(fetch.mock.calls[0][1].body).byteLength;
+        await vi.advanceTimersByTimeAsync(uploadDeadlineMs(bytes) - 90000);
+        expect(settled).toBe('REQUEST_TIMEOUT');
+        expect(fetch.mock.calls[0][1].signal.aborted).toBe(true);
+    });
+
+    it('sizes the upload deadline from the body: base for nothing, monotonic, never NaN', () => {
+        const base = uploadDeadlineMs(0);
+        expect(base).toBe(30000);
+        for (const bad of [-1, NaN, Infinity, -Infinity, undefined, null, '10']) {
+            expect(uploadDeadlineMs(bad), String(bad)).toBe(base);
+        }
+        expect(uploadDeadlineMs(1)).toBe(31000);
+        // 40 kbps (5000 B/s) must fit with margin: twice the body's own transfer time at that rate
+        // is always inside the deadline.
+        for (const bytes of [2000, 150000, 324000, 1000000, 10 * 1024 * 1024]) {
+            expect(uploadDeadlineMs(bytes), String(bytes)).toBeGreaterThanOrEqual(base + (bytes / 5000) * 1000 * 2);
+            expect(uploadDeadlineMs(bytes + 1)).toBeGreaterThanOrEqual(uploadDeadlineMs(bytes));
+        }
+    });
+
+    it('sizes the receipt lookup deadline the same way', async () => {
+        vi.useFakeTimers();
+        const fetch = vi.fn(() => new Promise(() => {}));
+        const api = new ApiClient({ fetch });
+        let settled = null;
+        api.lookupOperationReceipts('atlas', [{ id: 'big', data: 'y'.repeat(200000) }])
+            .then(() => { settled = 'ok'; }, (e) => { settled = e.code; });
+        await vi.advanceTimersByTimeAsync(60000);
+        expect(settled).toBeNull();
+        const bytes = new TextEncoder().encode(fetch.mock.calls[0][1].body).byteLength;
+        await vi.advanceTimersByTimeAsync(uploadDeadlineMs(bytes) - 60000);
+        expect(settled).toBe('REQUEST_TIMEOUT');
     });
 
     /**
