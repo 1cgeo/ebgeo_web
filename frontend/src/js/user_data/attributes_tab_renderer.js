@@ -223,7 +223,11 @@ function createAttributeRow(key, value, featureId, featureType, parentContainer)
                     }
                     // Renomear atributo em uma única escrita (delete + set atômico),
                     // evitando perda de dados se a app fechar entre as duas operações.
-                    await userDataManager.renameAttribute(featureId, featureType, key, newKey, value);
+                    const renomeou = await userDataManager.renameAttribute(featureId, featureType, key, newKey, value);
+                    // Sem escrita (a store recusou: mapa travado, posto), nenhum evento redesenha a
+                    // aba: redesenhar daqui, pelo valor guardado, em vez de deixar o campo aberto
+                    // mostrando o que não foi salvo.
+                    if (!renomeou) await renderAttributesContent(parentContainer, featureId, featureType);
                     return; // Re-render acontecerá via evento
                 }
             }
@@ -278,7 +282,9 @@ function createAttributeRow(key, value, featureId, featureType, parentContainer)
             if (save) {
                 const newValue = input.value;
                 if (newValue !== value) {
-                    await userDataManager.setAttribute(featureId, featureType, key, newValue);
+                    const gravou = await userDataManager.setAttribute(featureId, featureType, key, newValue);
+                    // Sem escrita, nenhum evento redesenha a aba (ver a troca de chave acima).
+                    if (!gravou) await renderAttributesContent(parentContainer, featureId, featureType);
                     return; // Re-render acontecerá via evento
                 }
             }

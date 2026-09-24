@@ -346,6 +346,10 @@ const userDataManager = {
                 action: 'set',
             });
         }
+        // Whether a change was written. False also when the store refused the write (lock, rank):
+        // the change is applied under the document lock since 2026-09-24, so a refused write never
+        // runs it and no FEATURE_UPDATED follows; the caller has to redraw from the store itself.
+        return changed;
     },
 
     /**
