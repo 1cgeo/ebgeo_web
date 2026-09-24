@@ -890,7 +890,11 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // 803 on 2026-09-24 (morning): `user_data/photo-refs.js` (zero imports) and
         // `user_data/photo-source.js`, the two leaves through which every surface reads an attached
         // photo in both shapes, inline or by reference (the structural move of photos to blobs).
-        expect(completo.arquivos.size).toBeLessThanOrEqual(803);
+        // 805 later that morning: `store/sync/espera-do-envio-do-mapa.js` and
+        // `store/sync/copia-no-servidor-phrases.js` (zero imports), through which "Duplicar" waits
+        // for this computer's pending sends before asking the server for a copy, so a picture
+        // placed a second earlier is not left out of it.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(805);
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
