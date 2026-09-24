@@ -899,12 +899,22 @@ async function cloneMapSubEntities(t, mapPairs, imageIdMap = {}, pruner = null, 
     // the snapshot rely on (feature id === image id). Everything else gets a fresh id.
     const id = (isImage && imageIdMap[feature.id]) || crypto.randomUUID();
     featureIdMapping[feature.id] = id;
+    const properties = rewriteFeatureProperties(feature.properties, id, isImage, imageIdMap);
+    // THE PROPERTY FOLLOWS THE COLUMN. The client decides a feature's layer by
+    // `properties.layerId` (the MapLibre visibility filter, the features tab, hide/lock), and the
+    // snapshot serves `properties` verbatim without rewriting `layerId` from the column. Remapping
+    // only `layer_id` left every copied feature naming a layer that exists only in the SOURCE
+    // atlas, so the copy opened with its features stored and invisible. Import already realigns
+    // (`propriedadesRealinhadas`); this is the same rule for clone and duplicate.
+    if (typeof properties.layerId === 'string' && layerIdMapping[properties.layerId]) {
+      properties.layerId = layerIdMapping[properties.layerId];
+    }
     return {
       id,
       map_id: newMapIdOf[feature.map_id],
       feature_type: feature.feature_type,
       geometry: JSON.stringify(feature.geometry),
-      properties: JSON.stringify(rewriteFeatureProperties(feature.properties, id, isImage, imageIdMap)),
+      properties: JSON.stringify(properties),
       layer_id: feature.layer_id ? (layerIdMapping[feature.layer_id] || null) : null,
     };
   }));
