@@ -206,6 +206,10 @@ vi.mock('../../src/js/store/sync/remote-operation-handler.js', async (importOrig
         applyRemoteSnapshot: h.applyRemoteSnapshot,
         setRemoteHandlerEventBus: h.setRemoteHandlerEventBus,
         recordLocalAppliedVersion: h.recordLocalAppliedVersion,
+        // The engine resolves a push's acks together; the mock keeps the per-op record the cases read.
+        resolveLocalEdits: async (entries) => {
+            for (const e of entries) await h.recordLocalAppliedVersion(e.entityId, e.serverVersion, e.localOp);
+        },
         confirmEntityVersion: h.confirmEntityVersion,
         applyMapCreationAck: h.applyMapCreationAck,
         reconcilePendingLocalEdits: h.reconcilePendingLocalEdits,

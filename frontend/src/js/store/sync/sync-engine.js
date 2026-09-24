@@ -40,7 +40,7 @@ import {
     applyRemoteSnapshot,
     applyMapCreationAck,
     setRemoteHandlerEventBus,
-    recordLocalAppliedVersion,
+    resolveLocalEdits,
     reconcilePendingLocalEdits,
     confirmEntityVersion,
     CONVERGENCE_GUARDED,
@@ -267,6 +267,8 @@ async function recordPushAcks(resp, ops, session) {
     const results = resp.results || resp.acks || [];
     const confirmed = new Set(acknowledgedOperationIds(resp, ops));
     const rejections = [];
+    /** Acknowledged guarded operations, resolved together after the loop (`resolveLocalEdits`). */
+    const resolved = [];
     for (const op of ops) {
         session.assertActive();
         const r = results.find((x) => x && (x.operationId === op.id || x.opId === op.id));
@@ -330,14 +332,20 @@ async function recordPushAcks(resp, ops, session) {
             session.assertActive();
         }
         if (confirmed.has(op.id) && sv != null && op.entityId && CONVERGENCE_GUARDED.has(op.entityType)) {
-            await recordLocalAppliedVersion(op.entityId, sv, r.canonicalOperation ?? op);
-            session.assertActive();
+            resolved.push({ entityId: op.entityId, serverVersion: sv, localOp: r.canonicalOperation ?? op });
         }
         if (confirmed.has(op.id) && op.entityType === 'map'
             && op.operationType === 'create' && r.canonicalOperation) {
             await applyMapCreationAck(r.canonicalOperation);
             session.assertActive();
         }
+    }
+
+    // THE AUTHOR'S REPAIRS GO TOGETHER (B6.1, 2026-09-24): each one is a read and a write of the
+    // whole map document, and a push of 200 on a large map paid 200 of them before the next push.
+    if (resolved.length > 0) {
+        await resolveLocalEdits(resolved);
+        session.assertActive();
     }
 
     // One toast per distinct reason, not per operation: a batch can carry several

@@ -10,22 +10,20 @@ import {
 } from '../../src/js/store/sync/operation-dispatcher.js';
 import { OperationQueue } from '../../src/js/store/sync/operation-queue.js';
 import { withGestureBatch, GESTURE_PART_SIZE } from '../../src/js/store/sync/gesture-batch.js';
-import { isSameVerbOverDistinctFeatures } from '../../src/js/store/store-state-manager.js';
-import {
-    MAX_OPS_PER_LOGICAL_BATCH,
-    isIndependentFeatureSet,
-    describeRefusedPart,
-} from '../../src/js/store/sync/operation-factory.js';
+import { MAX_OPS_PER_LOGICAL_BATCH, describeRefusedPart } from '../../src/js/store/sync/operation-factory.js';
 
 /**
- * @fileoverview B6.1 (owner decision, 2026-09-24): importar, colar ou processar mais de 200 feicoes
- * num atlas de servidor.
+ * @fileoverview B6.1 (decisao do dono, 2026-09-24): nenhum gesto deixa de chegar ao servidor por ter
+ * operacoes demais.
  *
- * O DEFEITO. Uma transacao e UM lote logico, e o servidor recusa inteiro o lote acima de
- * `LOTE_MAX_OPS` (200). `addFeatures` grava o import inteiro numa transacao, entao 201 feicoes ou
- * mais nunca chegavam ao servidor: o flush as recusava localmente, todas viravam problema duravel
- * e o colega nunca via o import. O recorte proposto: so CRIACOES de feicao independentes, fora de
- * gesto aberto, partidas em lotes de ate 200, com o `batchIndex` continuo entre as partes.
+ * O DEFEITO. Uma transacao, ou um gesto ambiente, era UM lote logico, e o servidor recusa inteiro o
+ * lote acima de `LOTE_MAX_OPS` (200): importar, colar, mover para camada, agrupar, transferir uma
+ * camada e desfazer qualquer um deles, acima de 200, nunca chegavam ao servidor.
+ *
+ * O QUE ESTE ARQUIVO PRENDE. Acima do teto o lote parte em blocos de ate 200, na ordem do
+ * `batchIndex` (continuo), e a primeira op de cada bloco depende (`dependsOn`) da ultima do bloco
+ * anterior. E esse elo que faz a fila SEGURAR os blocos seguintes quando um bloco fica com problema:
+ * um membro de grupo nunca sai antes do grupo, e o aviso diz quantas alteracoes ja chegaram.
  */
 
 const MAP_ID = '77777777-7777-4777-8777-777777777777';
@@ -47,6 +45,17 @@ async function transacao(descricoes) {
 }
 
 const lotes = (ops) => [...new Set(ops.map((op) => op.batchId))];
+const tamanhos = (ops) => lotes(ops).map((id) => ops.filter((op) => op.batchId === id).length);
+
+/** Asserts the chain: the first op of every part after the first depends on the last op of the previous one. */
+function afirmarEncadeado(ops) {
+    const ids = lotes(ops);
+    for (let k = 1; k < ids.length; k++) {
+        const anterior = ops.filter((op) => op.batchId === ids[k - 1]);
+        const primeira = ops.find((op) => op.batchId === ids[k]);
+        expect(primeira.dependsOn, `a parte ${k + 1} depende da ${k}`).toContain(anterior.at(-1).id);
+    }
+}
 
 beforeEach(async () => {
     scope = remoteScope(crypto.randomUUID());
@@ -70,172 +79,169 @@ describe('o espelho do teto do servidor', () => {
     });
 });
 
-describe('uma transacao de criacoes independentes acima do teto', () => {
-    it('450 criacoes viram tres lotes (200, 200, 50) com o indice continuo, e o flush envia cada um', async () => {
+describe('uma transacao acima do teto', () => {
+    it('450 criacoes viram 200 + 200 + 50, encadeadas, e o envio leva a primeira parte sozinha', async () => {
         await transacao(Array.from({ length: 450 }, (_, i) => criacao(`f${i}`)));
         const ops = await queue.getAll();
-        const ids = lotes(ops);
-        expect(ids).toHaveLength(3);
-        expect(ids.map((id) => ops.filter((op) => op.batchId === id).length)).toEqual([200, 200, 50]);
+        expect(tamanhos(ops)).toEqual([200, 200, 50]);
         expect(ops.map((op) => op.batchIndex)).toEqual(Array.from({ length: 450 }, (_, i) => i));
-
-        // O recorte do envio respeita cada parte: o primeiro lote vai inteiro e sozinho.
+        afirmarEncadeado(ops);
         const primeiro = await queue.peek(25);
         expect(primeiro).toHaveLength(200);
-        expect(lotes(primeiro)).toEqual([ids[0]]);
+        expect(lotes(primeiro)).toEqual([lotes(ops)[0]]);
     });
 
-    it('200 cabem num lote so, e 201 ja partem', async () => {
+    it('200 cabem num lote so, sem elo; 201 partem', async () => {
         await transacao(Array.from({ length: 200 }, (_, i) => criacao(`a${i}`)));
-        expect(lotes(await queue.getAll())).toHaveLength(1);
+        const ate200 = await queue.getAll();
+        expect(tamanhos(ate200)).toEqual([200]);
+        expect(ate200.some((op) => op.dependsOn)).toBe(false);
         await queue.clear();
         await transacao(Array.from({ length: 201 }, (_, i) => criacao(`b${i}`)));
         const ops = await queue.getAll();
-        expect(lotes(ops).map((id) => ops.filter((op) => op.batchId === id).length)).toEqual([200, 1]);
+        expect(tamanhos(ops)).toEqual([200, 1]);
+        afirmarEncadeado(ops);
     });
 
-    it('o gesto composto continua UM lote, mesmo acima do teto', async () => {
-        await withGestureBatch(async () => {
-            await transacao(Array.from({ length: 250 }, (_, i) => criacao(`g${i}`)));
-        });
-        expect(lotes(await queue.getAll())).toHaveLength(1);
-    });
-
-    it('uma transacao com qualquer coisa alem de criacao de feicao nao parte', async () => {
-        const descricoes = Array.from({ length: 250 }, (_, i) => criacao(`m${i}`));
-        descricoes.push({ ...criacao('m-upd'), operationType: 'update' });
-        await transacao(descricoes);
-        expect(lotes(await queue.getAll())).toHaveLength(1);
-    });
-
-    it('a criacao com intencao de mover nao parte', () => {
-        const ops = Array.from({ length: 250 }, (_, i) => criacao(`t${i}`, { featureIntent: { kind: 'move' } }));
-        expect(isIndependentFeatureSet(ops)).toBe(false);
-        expect(isIndependentFeatureSet(Array.from({ length: 250 }, (_, i) => criacao(`u${i}`)))).toBe(true);
+    it('um grupo de 500 membros: o grupo no primeiro bloco, os membros na ordem, encadeados', async () => {
+        const grupo = { entityType: 'group', operationType: 'create', entityId: 'grupo-1', mapId: MAP_ID,
+            data: { name: 'G', features: [] } };
+        const membros = Array.from({ length: 500 }, (_, i) => ({ entityType: 'group_feature', operationType: 'create',
+            entityId: `m${i}`, mapId: MAP_ID, data: { group_id: 'grupo-1', feature_id: `f${i}`, feature_type: 'point' } }));
+        await transacao([grupo, ...membros]);
+        const ops = await queue.getAll();
+        expect(tamanhos(ops)).toEqual([200, 200, 101]);
+        expect(ops[0].entityType).toBe('group');
+        afirmarEncadeado(ops);
     });
 });
 
-describe('o mesmo verbo sobre feicoes distintas (atualizacoes, exclusoes, gestos)', () => {
-    const atualizacao = (id) => ({ ...criacao(id), operationType: 'update' });
-
-    it('250 atualizacoes numa transacao (mover para camada) viram 200 + 50', async () => {
-        await transacao(Array.from({ length: 250 }, (_, i) => atualizacao(`v${i}`)));
-        const ops = await queue.getAll();
-        expect(lotes(ops).map((id) => ops.filter((op) => op.batchId === id).length)).toEqual([200, 50]);
-    });
-
-    it('verbos misturados ou a mesma feicao duas vezes nao partem', () => {
-        const misto = Array.from({ length: 250 }, (_, i) => (i === 249 ? atualizacao(`x${i}`) : criacao(`x${i}`)));
-        expect(isIndependentFeatureSet(misto)).toBe(false);
-        const repetida = Array.from({ length: 250 }, (_, i) => atualizacao(i === 249 ? 'x0' : `x${i}`));
-        expect(isIndependentFeatureSet(repetida)).toBe(false);
-        const exclusoes = Array.from({ length: 250 }, (_, i) => ({ ...criacao(`d${i}`), operationType: 'delete' }));
-        expect(isIndependentFeatureSet(exclusoes)).toBe(true);
-    });
-
-    it('um gesto DIVISIVEL (desfazer em massa) parte em 200, uma transacao por membro', async () => {
+describe('um gesto acima do teto (transferir, desfazer, refazer)', () => {
+    it('250 transacoes de 1 dentro de um gesto viram 200 + 50, encadeadas, indice continuo', async () => {
         await withGestureBatch(async () => {
             for (let i = 0; i < 250; i++) await transacao([{ ...criacao(`g${i}`), operationType: 'delete' }]);
-        }, { splittable: true });
+        });
         const ops = await queue.getAll();
-        expect(lotes(ops).map((id) => ops.filter((op) => op.batchId === id).length)).toEqual([200, 50]);
+        expect(tamanhos(ops)).toEqual([200, 50]);
         expect(ops.map((op) => op.batchIndex)).toEqual(Array.from({ length: 250 }, (_, i) => i));
+        afirmarEncadeado(ops);
     });
 
-    it('uma transacao do gesto divisivel nunca fica partida entre duas partes', async () => {
-        // 199 transacoes de 1 e depois uma de 3 (uma exclusao que tambem apaga membresias): a de 3
-        // comecaria em 199 e atravessaria a fronteira, entao ela abre a parte seguinte inteira.
+    it('uma transacao que atravessa a fronteira fica nos dois blocos, com o elo no meio dela', async () => {
         await withGestureBatch(async () => {
             for (let i = 0; i < 199; i++) await transacao([{ ...criacao(`b${i}`), operationType: 'delete' }]);
             await transacao(['c1', 'c2', 'c3'].map((id) => ({ ...criacao(id), operationType: 'delete' })));
-        }, { splittable: true });
-        const ops = await queue.getAll();
-        const tresId = ops.find((op) => op.entityId === 'c1').batchId;
-        expect(ops.filter((op) => op.batchId === tresId).map((op) => op.entityId)).toEqual(['c1', 'c2', 'c3']);
-        expect(lotes(ops).map((id) => ops.filter((op) => op.batchId === id).length)).toEqual([199, 3]);
-        expect(ops.filter((op) => op.batchId === tresId).map((op) => op.batchIndex)).toEqual([200, 201, 202]);
-    });
-
-    it('o gesto composto (sem a declaracao) continua um lote so', async () => {
-        await withGestureBatch(async () => {
-            for (let i = 0; i < 250; i++) await transacao([{ ...criacao(`h${i}`), operationType: 'delete' }]);
         });
-        expect(lotes(await queue.getAll())).toHaveLength(1);
+        const ops = await queue.getAll();
+        expect(tamanhos(ops)).toEqual([200, 2]);
+        afirmarEncadeado(ops);
     });
 
-    it('um gesto de dentro nao declarado desliga a divisao do de fora', async () => {
+    it('um gesto que cabe continua UM lote, sem elo nenhum', async () => {
         await withGestureBatch(async () => {
-            await withGestureBatch(async () => {
-                for (let i = 0; i < 250; i++) await transacao([{ ...criacao(`k${i}`), operationType: 'delete' }]);
-            });
-        }, { splittable: true });
-        expect(lotes(await queue.getAll())).toHaveLength(1);
+            for (let i = 0; i < 150; i++) await transacao([criacao(`h${i}`)]);
+        });
+        const ops = await queue.getAll();
+        expect(tamanhos(ops)).toEqual([150]);
+        expect(ops.some((op) => op.dependsOn)).toBe(false);
     });
 
-    it('quais entradas do desfazer sao o mesmo verbo sobre feicoes distintas', () => {
-        const f = (id) => ({ properties: { id } });
-        expect(isSameVerbOverDistinctFeatures({ type: 'addMultiple', features: {} })).toBe(true);
-        expect(isSameVerbOverDistinctFeatures({ type: 'batch', operations: [
-            { type: 'remove', feature: f('a') }, { type: 'remove', feature: f('b') }] })).toBe(true);
-        expect(isSameVerbOverDistinctFeatures({ type: 'batch', operations: [
-            { type: 'update', oldFeature: f('a') }, { type: 'update', oldFeature: f('b') }] })).toBe(true);
-        expect(isSameVerbOverDistinctFeatures({ type: 'batch', operations: [
-            { type: 'remove', feature: f('a') }, { type: 'add', feature: f('b') }] })).toBe(false);
-        expect(isSameVerbOverDistinctFeatures({ type: 'batch', operations: [
-            { type: 'update', oldFeature: f('a') }, { type: 'update', oldFeature: f('a') }] })).toBe(false);
-        expect(isSameVerbOverDistinctFeatures({ type: 'batch', operations: [
-            { type: 'removeWithProcessed', mainFeature: f('a'), processedFeatures: null },
-            { type: 'removeWithProcessed', mainFeature: f('b'), processedFeatures: { type: 'x', features: [f('b1')] } }] }))
-            .toBe(true);
-        expect(isSameVerbOverDistinctFeatures({ type: 'batch', operations: [
-            { type: 'updateWithProcessed', oldFeature: f('a') }, { type: 'updateWithProcessed', oldFeature: f('b') }] }))
-            .toBe(false);
-        expect(isSameVerbOverDistinctFeatures({ type: 'moveBetweenMaps' })).toBe(false);
-        expect(isSameVerbOverDistinctFeatures({ type: 'update', oldFeature: f('a') })).toBe(false);
+    it('um gesto de 1000 com uma transacao de 999 dentro (transferir camada) vira 5 blocos encadeados', async () => {
+        await withGestureBatch(async () => {
+            await transacao([{ entityType: 'layer', operationType: 'create', entityId: 'camada-1', mapId: MAP_ID,
+                data: { name: 'Destino' } }]);
+            await transacao(Array.from({ length: 999 }, (_, i) => criacao(`t${i}`)));
+        });
+        const ops = await queue.getAll();
+        expect(tamanhos(ops)).toEqual([200, 200, 200, 200, 200]);
+        expect(ops[0].entityType).toBe('layer');
+        afirmarEncadeado(ops);
+    });
+});
+
+describe('um bloco com problema SEGURA os seguintes', () => {
+    it('recusa do primeiro bloco: nada mais sai, e tudo conta como problema', async () => {
+        await transacao(Array.from({ length: 450 }, (_, i) => criacao(`r${i}`)));
+        const ops = await queue.getAll();
+        await queue.recordIssue(ops[5], { rejected: true, reason: 'O mapa está bloqueado' });
+        expect(await queue.peek(25)).toEqual([]);
+        expect(await queue.countByState()).toEqual({ pendentes: 0, preparadas: 0, problemas: 450 });
+    });
+
+    it('recusa do segundo bloco: o primeiro sai, o segundo e o terceiro ficam', async () => {
+        await transacao(Array.from({ length: 450 }, (_, i) => criacao(`s${i}`)));
+        const ops = await queue.getAll();
+        await queue.recordIssue(ops[250], { rejected: true, reason: 'O mapa está bloqueado' });
+        const primeiro = await queue.peek(25);
+        expect(primeiro.map((op) => op.id)).toEqual(ops.slice(0, 200).map((op) => op.id));
+        await queue.dequeue(primeiro.map((op) => op.id));
+        expect(await queue.peek(25)).toEqual([]);
+        expect(await queue.countByState()).toEqual({ pendentes: 0, preparadas: 0, problemas: 250 });
+    });
+
+    it('CONTROLE: sem o elo, o bloco seguinte a um recusado sairia', async () => {
+        await transacao(Array.from({ length: 450 }, (_, i) => criacao(`u${i}`)));
+        const store = getStoreFor(StoreName.OPERATION_QUEUE, scope);
+        const ops = await queue.getAll();
+        // Apaga os elos direto no disco e mostra que e o elo, e nada mais, que segura.
+        for (const key of (await store.keys()).filter((k) => k.startsWith('op_'))) {
+            const op = await store.getItem(key);
+            if (op?.dependsOn) {
+                const { dependsOn: _elo, ...semElo } = op;
+                await store.setItem(key, semElo);
+            }
+        }
+        await queue.recordIssue(ops[5], { rejected: true, reason: 'O mapa está bloqueado' });
+        expect((await queue.peek(25)).length).toBeGreaterThan(0);
+    });
+
+    it('o encadeamento de edicao do mesmo autor soma ao elo entre blocos, sem apagar', async () => {
+        await transacao([{ ...criacao('x200'), operationType: 'update', baseVersion: 1 }]);
+        const anterior = (await queue.getAll())[0];
+        await transacao(Array.from({ length: 250 }, (_, i) => ({ ...criacao(`x${i}`), operationType: 'update', baseVersion: 1 })));
+        const ops = (await queue.getAll()).filter((op) => op.id !== anterior.id);
+        const primeiraDaParte2 = ops[200];
+        expect(primeiraDaParte2.entityId).toBe('x200');
+        expect(primeiraDaParte2.dependsOn).toContain(anterior.id);
+        expect(primeiraDaParte2.dependsOn).toContain(ops[199].id);
     });
 });
 
 describe('a frase da parte recusada', () => {
-    const parte = (inicio, fim, batchId) => Array.from({ length: fim - inicio }, (_, k) => ({
-        id: `op${inicio + k}`, traceId: 'T', batchId, batchIndex: inicio + k,
+    /** Builds the ops of one part, the first chained to `anterior` (the last op of the previous part). */
+    const parte = (inicio, fim, batchId, anterior = null) => Array.from({ length: fim - inicio }, (_, k) => ({
+        id: `op${inicio + k}`, batchId, batchIndex: inicio + k,
+        ...(k === 0 && anterior ? { dependsOn: [anterior] } : {}),
     }));
 
     it('lote que nao e parte de nada: sem frase', () => {
         expect(describeRefusedPart(parte(0, 30, 'A'), parte(0, 30, 'A'))).toBeNull();
     });
 
-    it('parte 2 de 3 recusada, a 1 ja chegou', () => {
-        const recusada = parte(200, 400, 'B');
-        const fila = [...recusada, ...parte(400, 450, 'C')];
+    it('parte 2 de 3 recusada: a 1 chegou, a 2 e a 3 ficam', () => {
+        const recusada = parte(200, 400, 'B', 'op199');
+        const fila = [...recusada, ...parte(400, 450, 'C', 'op399')];
         expect(describeRefusedPart(recusada, fila)).toBe(
-            'O servidor recusou a parte 2 de 3 desta ação (200 feições). '
-            + '200 de 450 já chegaram; a parte recusada está nas pendências para revisão.');
+            'O servidor recusou a parte 2 de 3 desta ação. 200 de 450 alterações já chegaram; '
+            + 'as outras 250 estão nas pendências para revisão.');
     });
 
-    it('parte 1 recusada: nada chegou ainda', () => {
+    it('parte 1 recusada: nada chegou ainda, e as seguintes contam', () => {
         const recusada = parte(0, 200, 'A');
-        expect(describeRefusedPart(recusada, [...recusada, ...parte(200, 450, 'B')]))
-            .toContain('parte 1 de 3 desta ação (200 feições). 0 de 450 já chegaram');
+        const fila = [...recusada, ...parte(200, 400, 'B', 'op199'), ...parte(400, 450, 'C', 'op399')];
+        expect(describeRefusedPart(recusada, fila))
+            .toBe('O servidor recusou a parte 1 de 3 desta ação. 0 de 450 alterações já chegaram; '
+                + 'as outras 450 estão nas pendências para revisão.');
     });
 
     it('a ultima parte recusada com as anteriores entregues', () => {
-        expect(describeRefusedPart(parte(400, 450, 'C'), parte(400, 450, 'C')))
-            .toContain('parte 3 de 3 desta ação (50 feições). 400 de 450 já chegaram');
+        expect(describeRefusedPart(parte(400, 450, 'C', 'op399'), parte(400, 450, 'C', 'op399')))
+            .toContain('parte 3 de 3 desta ação. 400 de 450 alterações já chegaram; as outras 50');
     });
 
-    it('parte de um gesto dividido (um rastro por membro): frase sem total', () => {
-        const recusada = Array.from({ length: 50 }, (_, k) => ({ id: `g${k}`, traceId: `t${k}`, batchId: 'G2', batchIndex: 200 + k }));
-        expect(describeRefusedPart(recusada, recusada)).toBe(
-            'O servidor recusou uma parte desta ação (50 feições); as partes anteriores já foram enviadas. '
-            + 'A parte recusada está nas pendências para revisão.');
-        const primeira = recusada.map((op, k) => ({ ...op, batchIndex: k }));
-        expect(describeRefusedPart(primeira, primeira)).toBeNull();
-    });
-
-    it('uma parte anterior tambem recusada nao conta como chegada', () => {
-        const antes = parte(0, 200, 'A');
-        const recusada = parte(400, 450, 'C');
-        expect(describeRefusedPart(recusada, [...antes, ...recusada]))
-            .toContain('200 de 450 já chegaram');
+    it('um lote alheio na fila, sem elo, nao entra na conta', () => {
+        const recusada = parte(200, 400, 'B', 'op199');
+        const alheio = Array.from({ length: 30 }, (_, k) => ({ id: `z${k}`, batchId: 'Z', batchIndex: k }));
+        expect(describeRefusedPart(recusada, [...recusada, ...alheio])).toContain('200 de 400 alterações');
     });
 });

@@ -586,6 +586,51 @@ export async function resolveLocalEdit(entityId, serverVersion, localOp = null) 
     await replayDeferred(entityId, context);
 }
 
+/**
+ * {@link resolveLocalEdit} for every acknowledged operation of ONE push, in order, with the author's
+ * repairs applied TOGETHER.
+ *
+ * WHY. The repair re-applies the acknowledged operation through the inbound path, and a feature op
+ * there is a read and a write of the whole map document: an import of 5 000 points drained at about
+ * 4 operations per second (measured on 2026-09-24 in Chromium, 2 400 of 5 000 on the server after
+ * nine minutes), because each push of 200 paid 200 document round trips on the author. Collected
+ * and handed to {@link applyRemoteOperations}, consecutive creates of one map cost one.
+ *
+ * The bookkeeping is the single function's, entity by entity: the version seeded, the pending count
+ * decremented, and a repair only for the LAST pending edit of an entity. What moves is only WHEN the
+ * repairs run (after the whole push instead of between its members), and the clobber evidence and
+ * the deferred replays still come after the repair of their entity.
+ *
+ * @param {Array<{entityId: string, serverVersion: number, localOp: Object|null}>} entries
+ * @returns {Promise<void>}
+ */
+export async function resolveLocalEdits(entries) {
+    const context = capturedApplyContext();
+    const versions = lastAppliedVersion.forScope(context.scope);
+    const counts = pendingLocalEditCount.forScope(context.scope);
+    const remoteVersions = lastRemoteAppliedVersion.forScope(context.scope);
+    const repairs = [];
+    const settled = [];
+    for (const { entityId, serverVersion, localOp } of entries) {
+        if (!entityId) continue;
+        if (serverVersion != null) versions.set(entityId, Math.max(versions.get(entityId) ?? 0, serverVersion));
+        const remaining = (counts.get(entityId) || 0) - 1;
+        if (remaining > 0) {
+            counts.set(entityId, remaining);
+            continue;
+        }
+        counts.delete(entityId);
+        if (localOp && serverVersion != null && versions.get(entityId) === serverVersion) {
+            repairs.push({ ...localOp, serverVersion, localRepair: true });
+        }
+        settled.push(entityId);
+    }
+    if (repairs.length > 0) await applyRemoteOperations(repairs, context);
+    context.assertActive();
+    for (const entityId of settled) remoteVersions.delete(entityId);
+    for (const entityId of settled) await replayDeferred(entityId, context);
+}
+
 async function replayDeferred(entityId, context) {
     const buffers = deferredRemoteOps.forScope(context.scope);
     const deferred = buffers.get(entityId);
@@ -681,15 +726,24 @@ const MIN_CREATE_RUN = 2;
  * @param {string} mapId
  * @returns {boolean}
  */
-function joinsCreateRun(operation, mapId) {
+function joinsCreateRun(operation, mapId, previousMapId) {
     return operation?.entityType === EntityType.FEATURE
         && operation.operationType === OperationType.CREATE
         && !!operation.entityId
         && !!mapId
         && operation.mapId === mapId
-        && operation.localRepair !== true
         && !!operation.data?.properties
-        && !(operation.data.previousMapId && operation.data.previousMapId !== mapId);
+        && movedFrom(operation) === previousMapId;
+}
+
+/**
+ * The map a CREATE moves its feature out of (a confirmed move, `previousMapId`), or null.
+ * @param {Object} operation
+ * @returns {string|null}
+ */
+function movedFrom(operation) {
+    const previous = operation?.data?.previousMapId;
+    return previous && previous !== operation.mapId ? previous : null;
 }
 
 /**
@@ -701,11 +755,12 @@ function joinsCreateRun(operation, mapId) {
  */
 function createRunAt(operations, start) {
     const mapId = operations[start]?.mapId;
+    const previousMapId = movedFrom(operations[start]);
     const run = [];
     const ids = new Set();
     for (let i = start; i < operations.length; i++) {
         const operation = operations[i];
-        if (!joinsCreateRun(operation, mapId) || ids.has(operation.entityId)) break;
+        if (!joinsCreateRun(operation, mapId, previousMapId) || ids.has(operation.entityId)) break;
         ids.add(operation.entityId);
         run.push(operation);
     }
@@ -747,6 +802,38 @@ async function applyRemoteCreateRun(run, options) {
         const clear = () => run.every(operation => (pendingLocalEditCount.get(operation.entityId) || 0) === 0
             && shouldApplyVersion(operation.entityId, operation.serverVersion));
         if (!clear()) return RUN_FALLBACK;
+
+        // A MOVE leaves its origin first, as in the single path (`applyRemoteFeatureOp`): the
+        // whole run shares one origin (`createRunAt`), so the origin costs one write too.
+        const previousMapId = movedFrom(run[0]);
+        if (previousMapId) {
+            const left = await withMapDocument(previousMapId, 'applyRemoteCreateRun:origin', async () => {
+                if (!clear()) return RUN_FALLBACK;
+                const repo = handlerRepository();
+                const previous = await repo.getMap(previousMapId);
+                if (!previous) return true;
+                const leaving = new Set(run.map((operation) => operation.entityId));
+                const removed = [];
+                for (const bucket of Object.values(previous.features ?? {})) {
+                    if (!Array.isArray(bucket)) continue;
+                    for (let i = bucket.length - 1; i >= 0; i--) {
+                        if (!leaving.has(bucket[i]?.properties?.id)) continue;
+                        removed.push(bucket[i]);
+                        bucket.splice(i, 1);
+                    }
+                }
+                if (removed.length > 0) {
+                    await repo.saveMap(previousMapId, previous);
+                    for (const feature of removed) {
+                        emit(EventTypes.FEATURE_DELETED, {
+                            featureId: feature.properties.id, mapId: previousMapId, featureType: feature.properties.source,
+                        });
+                    }
+                }
+                return true;
+            });
+            if (left !== true) return RUN_FALLBACK;
+        }
 
         const written = await withMapDocument(mapId, 'applyRemoteCreateRun', async () => {
             // Re-checked under the lock, like `featureApplyPermission`: a local edit may have
@@ -793,7 +880,7 @@ async function applyRemoteCreateRun(run, options) {
         for (const operation of run) {
             markAppliedVersion(operation.entityId, operation.serverVersion);
             markRemoteApplied(operation.entityId, operation.serverVersion);
-            announceOverwrite(operation.entityId, operation.authorUserId);
+            if (!operation.localRepair) announceOverwrite(operation.entityId, operation.authorUserId);
             record(TraceStage.APPLY_PERSIST, {
                 opId: operation.id, traceId: operation.traceId,
                 entityType: operation.entityType, operationType: operation.operationType,

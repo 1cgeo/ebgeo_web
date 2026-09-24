@@ -1,21 +1,26 @@
 // Path: tests/e2e/lote-partido-parte-recusada.e2e.test.js
 
 /**
- * @fileoverview B6.1 (owner decision, 2026-09-24): a parte recusada de uma importacao partida, contra
- * o servidor REAL.
+ * @fileoverview B6.1 (decisao do dono, 2026-09-24): o lote acima do teto parte em blocos ENCADEADOS,
+ * contra o servidor REAL.
  *
- * O que a decisao B6.1 do dono (2026-09-24) troca: uma transacao de mais de 200 criacoes independentes sobe em lotes de ate
- * 200 (`createBatchOperations`) em vez de ser recusada inteira no cliente. O preco declarado e a perda da
- * atomicidade do import no servidor, e este arquivo mede esse preco no pior caso: o mapa e travado
- * DEPOIS de a primeira parte entrar. O que se afirma:
+ * Acima de `LOTE_MAX_OPS` (200) um lote parte em blocos de ate 200, e a primeira op de cada bloco
+ * depende (`dependsOn`) da ultima do bloco anterior (`createBatchOperations`). O preco declarado e a
+ * perda da atomicidade no servidor, e este arquivo mede o pior caso: o mapa e travado no meio do
+ * envio. O que se afirma, com o servidor de verdade:
  *
- *  1. a primeira parte fica no servidor e sai da fila;
- *  2. as partes seguintes sao recusadas pelo servidor, ficam no disco como pendencia e nao
- *     reentram na rodada seguinte;
- *  3. a pessoa ouve QUAL parte foi recusada e QUANTAS feicoes ja chegaram, uma frase por parte.
+ *  1. IMPORTACAO de 450: a primeira parte fica no servidor; a segunda e recusada e SEGURA a
+ *     terceira (que nunca e enviada); a pessoa ouve qual parte e quanto ja chegou; a rodada
+ *     seguinte nao volta ao servidor.
+ *  2. GRUPO de 450 membros com a trava ANTES do primeiro envio: o grupo e recusado e NENHUM
+ *     `group_feature` sai. O insert de membro sem grupo escreve zero linhas e volta confirmado como
+ *     sucesso, entao um membro que saisse depois de um grupo recusado seria o sucesso mudo.
+ *  3. GRUPO de 450 com a trava depois do primeiro bloco: o grupo e os 199 primeiros membros ficam,
+ *     o resto fica nas pendencias, e o servidor nao tem membro nenhum alem desses.
+ *  4. O servidor IGNORA `dependsOn`: uma op com um elo para um id que nao existe e aplicada igual.
  *
- * A trava entra pelo proprio protocolo, pelo `pushOperations` original, entre a primeira e a
- * segunda chamada do flush: e o instante em que a trava de um colega chega no meio do envio.
+ * A trava entra pelo proprio protocolo, pelo `pushOperations` original, entre duas chamadas do
+ * flush: e o instante em que a trava de um colega chega no meio do envio.
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -37,9 +42,10 @@ import { generateUUID } from '../../src/js/utilities/uuid.js';
 
 const QUANTAS = 450;
 
-describe.skipIf(E2E_SKIP)('e2e: parte recusada de uma importacao partida (B6.1)', () => {
+describe.skipIf(E2E_SKIP)('e2e: lote acima do teto em blocos encadeados (B6.1)', () => {
     let atlasId;
-    let mapId;
+    /** One map per case, created BEFORE the connect so the snapshot shapes them on this client. */
+    const mapas = {};
 
     const ponto = (id, i) => ({
         type: 'Feature',
@@ -47,27 +53,56 @@ describe.skipIf(E2E_SKIP)('e2e: parte recusada de uma importacao partida (B6.1)'
         properties: { source: 'point', id },
     });
 
-    async function noServidor(ids) {
+    /** A map of its own per case: a lock is destructive state and must not leak to the next case. */
+    async function criarMapa(nome) {
+        const id = generateUUID();
+        await apiClient.pushOperations(atlasId, [createOperation('map', 'create', id, null, { name: nome })]);
+        return id;
+    }
+
+    async function retratoDoMapa(mapId) {
         const { snapshot } = await apiClient.pullSync(atlasId, 0);
-        const mapa = snapshot.maps.find((m) => m.id === mapId);
+        return snapshot.maps.find((m) => m.id === mapId);
+    }
+
+    async function noServidor(mapId, ids) {
+        const mapa = await retratoDoMapa(mapId);
         // O retrato agrupa as feicoes por tipo de armazenamento (`transformFeaturesToFrontend`).
         const todas = Object.values(mapa?.features ?? {}).filter(Array.isArray).flat();
         const presentes = new Set(todas.map((f) => f.properties?.id ?? f.id));
         return ids.filter((id) => presentes.has(id)).length;
     }
 
+    /** Runs one flush with the map locked by the protocol just before push number `antesDoPush`. */
+    async function flushTravandoAntesDo(antesDoPush, mapId) {
+        const original = apiClient.pushOperations.bind(apiClient);
+        const chamadas = [];
+        const espiao = vi.spyOn(apiClient, 'pushOperations').mockImplementation(async (id, lote, opcoes) => {
+            chamadas.push(lote.length);
+            if (chamadas.length === antesDoPush) {
+                await original(atlasId, [createOperation('map', 'update', mapId, null, { locked: true })]);
+            }
+            return original(id, lote, opcoes);
+        });
+        try {
+            await syncEngine.flush();
+        } finally {
+            espiao.mockRestore();
+        }
+        return chamadas;
+    }
+
     beforeAll(async () => {
         syncEngine.configure({ baseUrl: `${getBaseUrl()}/api/v1` });
         const username = `e2e_${generateUUID().replace(/-/g, '').slice(0, 16)}`;
         const password = 'Sup3r-Secret-Pw!';
-        await syncEngine.register({ username, password, nome: 'Dono do Import Partido', email: `${username}@example.mil` });
+        await syncEngine.register({ username, password, nome: 'Dono do Lote Partido', email: `${username}@example.mil` });
         await apiClient.verifyEmail(await pendingVerificationToken(username));
         expect(await syncEngine.login({ username, password })).toBeTruthy();
 
-        const atlas = await apiClient.createAtlas({ name: 'Atlas do import partido' });
+        const atlas = await apiClient.createAtlas({ name: 'Atlas do lote partido' });
         atlasId = atlas.id;
-        mapId = generateUUID();
-        await apiClient.pushOperations(atlasId, [createOperation('map', 'create', mapId, null, { name: 'Mapa do import' })]);
+        for (const caso of ['importacao', 'grupoRecusado', 'grupoPartido', 'elo']) mapas[caso] = await criarMapa(caso);
 
         await activateRemoteAtlas(atlasId);
         expect(await syncEngine.connect(atlasId, { initialPull: false })).toBeTruthy();
@@ -78,51 +113,105 @@ describe.skipIf(E2E_SKIP)('e2e: parte recusada de uma importacao partida (B6.1)'
         await operationQueue.clear();
     });
 
-    it('a primeira parte fica, as seguintes viram pendencia, e cada uma diz quanto ja chegou', async () => {
+    it('1) importacao: a parte recusada segura a seguinte, e o aviso diz quanto chegou', async () => {
         await operationQueue.clear();
+        avisos.length = 0;
+        const mapId = mapas.importacao;
         const ids = Array.from({ length: QUANTAS }, () => generateUUID());
         const ops = createBatchOperations(ids.map((id, i) => ({
             entityType: 'feature', operationType: 'create', entityId: id, mapId, data: ponto(id, i),
-        }))).map((op) => ({ ...op, traceId: 'import-partido' }));
-        const lotes = [...new Set(ops.map((op) => op.batchId))];
+        })));
         // PISO: sem a particao, tudo abaixo mediria a recusa local de sempre.
-        expect(lotes).toHaveLength(3);
+        expect([...new Set(ops.map((op) => op.batchId))]).toHaveLength(3);
         await operationQueue.enqueueAll(ops);
 
-        const original = apiClient.pushOperations.bind(apiClient);
-        let chamadas = 0;
-        const espiao = vi.spyOn(apiClient, 'pushOperations').mockImplementation(async (id, lote, opcoes) => {
-            chamadas += 1;
-            if (chamadas === 2) {
-                await original(atlasId, [createOperation('map', 'update', mapId, null, { locked: true })]);
-            }
-            return original(id, lote, opcoes);
-        });
-        try {
-            await syncEngine.flush();
-        } finally {
-            espiao.mockRestore();
-        }
+        const chamadas = await flushTravandoAntesDo(2, mapId);
+        // A terceira parte nunca foi enviada: o elo a segurou atras da recusada.
+        expect(chamadas).toEqual([200, 200]);
+        expect(await noServidor(mapId, ids)).toBe(200);
+        expect(await noServidor(mapId, ids.slice(0, 200))).toBe(200);
 
-        const primeira = ops.filter((op) => op.batchId === lotes[0]).map((op) => op.entityId);
-        expect(await noServidor(primeira)).toBe(200);
-        expect(await noServidor(ids)).toBe(200);
-
-        const guardadas = await operationQueue.getAll();
-        expect(guardadas).toHaveLength(QUANTAS - 200);
+        expect(await operationQueue.getAll()).toHaveLength(250);
         const problemas = await operationQueue.getIssues();
-        expect(problemas).toHaveLength(QUANTAS - 200);
+        expect(problemas).toHaveLength(200);
         for (const { result } of problemas) expect(result.reason).toMatch(/bloqueado/);
+        expect(await operationQueue.countByState()).toEqual({ pendentes: 0, preparadas: 0, problemas: 250 });
 
-        const frases = avisos.filter((texto) => texto.startsWith('O servidor recusou a parte'));
-        expect(frases).toEqual([
-            'O servidor recusou a parte 2 de 3 desta ação (200 feições). 200 de 450 já chegaram; a parte recusada está nas pendências para revisão.',
-            'O servidor recusou a parte 3 de 3 desta ação (50 feições). 200 de 450 já chegaram; a parte recusada está nas pendências para revisão.',
+        expect(avisos.filter((texto) => texto.startsWith('O servidor recusou a parte'))).toEqual([
+            'O servidor recusou a parte 2 de 3 desta ação. 200 de 450 alterações já chegaram; '
+            + 'as outras 250 estão nas pendências para revisão.',
         ]);
 
-        // E a rodada seguinte nao volta ao servidor com o que ficou guardado.
-        const antes = chamadas;
+        const antes = chamadas.length;
         expect((await syncEngine.flush()).pushed).toBe(0);
-        expect(chamadas).toBe(antes);
+        expect(chamadas).toHaveLength(antes);
     }, 120000);
+
+    /**
+     * Seeds `quantas` points on `mapId` straight through the API, in pushes the server accepts.
+     * @returns {Promise<string[]>}
+     */
+    async function semearPontos(mapId, quantas) {
+        const ids = Array.from({ length: quantas }, () => generateUUID());
+        for (let inicio = 0; inicio < quantas; inicio += 150) {
+            await apiClient.pushOperations(atlasId, ids.slice(inicio, inicio + 150)
+                .map((id, k) => createOperation('feature', 'create', id, mapId, ponto(id, inicio + k))));
+        }
+        return ids;
+    }
+
+    function gestoDeGrupo(mapId, groupId, ids) {
+        return createBatchOperations([
+            { entityType: 'group', operationType: 'create', entityId: groupId, mapId,
+                data: { name: 'Grupo grande', visible: true, locked: false, features: [] } },
+            ...ids.map((fid) => ({ entityType: 'group_feature', operationType: 'create', entityId: generateUUID(), mapId,
+                data: { group_id: groupId, feature_id: fid, feature_type: 'point' } })),
+        ]);
+    }
+
+    async function membrosNoServidor(mapId, groupId) {
+        const mapa = await retratoDoMapa(mapId);
+        const grupo = mapa?.groups?.find((g) => g.id === groupId);
+        return grupo ? (grupo.features ?? []).length : null;
+    }
+
+    it('2) grupo recusado no primeiro bloco: NENHUM membro sai, nem confirmado mudo', async () => {
+        await operationQueue.clear();
+        const mapId = mapas.grupoRecusado;
+        const ids = await semearPontos(mapId, QUANTAS);
+        const groupId = generateUUID();
+        const ops = gestoDeGrupo(mapId, groupId, ids);
+        expect([...new Set(ops.map((op) => op.batchId))]).toHaveLength(3);
+        await operationQueue.enqueueAll(ops);
+
+        const chamadas = await flushTravandoAntesDo(1, mapId);
+        expect(chamadas).toEqual([200]);
+        expect(await membrosNoServidor(mapId, groupId)).toBeNull();
+        expect(await operationQueue.getAll()).toHaveLength(QUANTAS + 1);
+        expect(await operationQueue.countByState()).toEqual({ pendentes: 0, preparadas: 0, problemas: QUANTAS + 1 });
+    }, 120000);
+
+    it('3) grupo recusado no segundo bloco: ficam o grupo e os 199 membros do primeiro, nada mais', async () => {
+        await operationQueue.clear();
+        const mapId = mapas.grupoPartido;
+        const ids = await semearPontos(mapId, QUANTAS);
+        const groupId = generateUUID();
+        await operationQueue.enqueueAll(gestoDeGrupo(mapId, groupId, ids));
+
+        const chamadas = await flushTravandoAntesDo(2, mapId);
+        expect(chamadas).toEqual([200, 200]);
+        expect(await membrosNoServidor(mapId, groupId)).toBe(199);
+        expect(await operationQueue.getAll()).toHaveLength(QUANTAS + 1 - 200);
+        expect(await operationQueue.countByState()).toEqual({ pendentes: 0, preparadas: 0, problemas: QUANTAS + 1 - 200 });
+    }, 120000);
+
+    it('4) o servidor ignora `dependsOn`: um elo para um id que nao existe nao muda nada', async () => {
+        const mapId = mapas.elo;
+        const id = generateUUID();
+        const op = { ...createOperation('feature', 'create', id, mapId, ponto(id, 0)), dependsOn: [generateUUID()] };
+        const resposta = await apiClient.pushOperations(atlasId, [op]);
+        const [resultado] = resposta.results ?? resposta.acks ?? [];
+        expect(resultado?.success).toBe(true);
+        expect(await noServidor(mapId, [id])).toBe(1);
+    }, 60000);
 });

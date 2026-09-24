@@ -68,6 +68,7 @@ import {
     setRemoteHandlerEventBus,
     markLocalEditPending,
     reconcilePendingLocalEdits,
+    resolveLocalEdits,
 } from '../../src/js/store/sync/remote-operation-handler.js';
 import { EntityType, OperationType } from '../../src/js/store/sync/operation-types.js';
 import { EventTypes } from '../../src/js/events/event_types.js';
@@ -180,15 +181,52 @@ describe('applyRemoteOperations: criacoes do mesmo quadro', () => {
             .toEqual(['op-x1', 'op-x2', 'op-upd', 'op-x3', 'op-x4']);
     });
 
-    it('o eco do proprio autor e uma mudanca de mapa ficam no caminho unico', async () => {
-        const eco = [create('r1', { localRepair: true }), create('r2', { localRepair: true })];
+    // B6.1 (2026-09-24): o eco do proprio autor e a MUDANCA de mapa entram na corrida. O autor
+    // recebe de volta cada op que enviou (e repara pelo recibo), e uma camada de mil feicoes movida
+    // para outro mapa sao mil criacoes com `previousMapId`: pagas uma a uma, uma importacao de 5 000
+    // drenava a 4 ops/s no autor.
+    it('os recibos de um push reparam o autor numa escrita so (resolveLocalEdits)', async () => {
+        const ops = Array.from({ length: 50 }, (_, i) => create(`ack${i}`));
+        for (const op of ops) markLocalEditPending(op.entityId);
+        await resolveLocalEdits(ops.map((op) => ({ entityId: op.entityId, serverVersion: op.serverVersion, localOp: op })));
+        expect(calls.saveMap).toBe(1);
+        expect(mapDataStore.get('map-1').features.points).toHaveLength(50);
+        // O freio de convergencia soltou: uma op remota nova dessas feicoes aplica direto.
+        const depois = { ...ops[0], id: 'op-depois', operationType: OperationType.UPDATE, serverVersion: version + 100,
+            data: { ...ops[0].data, properties: { ...ops[0].data.properties, nome: 'depois' } } };
+        await applyRemoteOperation(depois);
+        expect(mapDataStore.get('map-1').features.points[0].properties.nome).toBe('depois');
+    });
+
+    it('o eco do proprio autor entra na corrida: uma escrita, sem aviso de sobrescrita', async () => {
+        const eco = [create('r1', { localRepair: true, authorUserId: 'eu' }), create('r2', { localRepair: true, authorUserId: 'eu' })];
         await applyRemoteOperations(eco);
-        expect(calls.saveMap).toBe(2);
-        mapDataStore.set('map-0', emptyMap('map-0'));
+        expect(calls.saveMap).toBe(1);
+        expect(emitted(EventTypes.REMOTE_EDIT_OVERWRITTEN)).toHaveLength(0);
+        expect(mapDataStore.get('map-1').features.points.map((f) => f.properties.id)).toEqual(['r1', 'r2']);
+    });
+
+    it('uma corrida de mudancas do mesmo mapa de origem: uma escrita na origem, uma no destino', async () => {
+        const origem = emptyMap('map-0');
+        origem.features.points.push(...['mv1', 'mv2', 'fica'].map((id) => ({ type: 'Feature', properties: { id, source: 'point' } })));
+        mapDataStore.set('map-0', origem);
         const movidas = [create('mv1'), create('mv2')].map((op) => ({ ...op, data: { ...op.data, previousMapId: 'map-0' } }));
-        calls.saveMap = 0;
         await applyRemoteOperations(movidas);
         expect(calls.saveMap).toBe(2);
+        expect(mapDataStore.get('map-0').features.points.map((f) => f.properties.id)).toEqual(['fica']);
+        expect(mapDataStore.get('map-1').features.points.map((f) => f.properties.id)).toEqual(['mv1', 'mv2']);
+        expect(emitted(EventTypes.FEATURE_DELETED)).toHaveLength(2);
+    });
+
+    it('origens diferentes quebram a corrida', async () => {
+        mapDataStore.set('map-0', emptyMap('map-0'));
+        mapDataStore.set('map-9', emptyMap('map-9'));
+        const [a, b] = [create('o1'), create('o2')];
+        await applyRemoteOperations([
+            { ...a, data: { ...a.data, previousMapId: 'map-0' } },
+            { ...b, data: { ...b.data, previousMapId: 'map-9' } },
+        ]);
+        expect(mapDataStore.get('map-1').features.points.map((f) => f.properties.id)).toEqual(['o1', 'o2']);
     });
 
     it('uma visada dentro da rajada chega com a saida DERIVADA, como no caminho unico', async () => {

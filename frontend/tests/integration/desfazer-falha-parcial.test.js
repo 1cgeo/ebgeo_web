@@ -65,6 +65,7 @@ vi.mock('../../src/js/store/sync/remote-operation-handler.js', async (importOrig
         applyRemoteSnapshot: vi.fn(async () => {}),
         setRemoteHandlerEventBus: vi.fn(),
         recordLocalAppliedVersion: vi.fn(async () => {}),
+        resolveLocalEdits: vi.fn(async () => {}),
         reconcilePendingLocalEdits: vi.fn(async () => {}),
         confirmEntityVersion: vi.fn(async () => {}),
         applyMapCreationAck: vi.fn(async () => {}),

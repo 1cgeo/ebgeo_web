@@ -190,7 +190,10 @@ export async function persistOperationIntents(allDescriptions, { scope, traceId 
             ?? (feature && op.featureIntent ? await queue.getLatestFeatureOperation(op.entityId) : null);
         if (predecessor && (op.operationType !== OperationType.CREATE || (feature && op.featureIntent))) {
             op.baseOperationId = predecessor.id;
-            op.dependsOn = [predecessor.id];
+            // ADDED, never replaced: the op may already depend on the last operation of the previous
+            // part of a split batch (B6.1, `createBatchOperations`), and losing that link would let
+            // this part leave ahead of a refused one.
+            op.dependsOn = [...new Set([...(op.dependsOn ?? []), predecessor.id])];
         }
         predecessors.set(chave, op);
     }

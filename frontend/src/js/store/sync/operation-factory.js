@@ -469,20 +469,22 @@ export function createOperation(entityType, operationType, entityId, mapId, data
     };
 }
 
-// ===== B6.1 (owner decision, 2026-09-24): splitting the same verb over independent features =====
+// ===== B6.1 (owner decision, 2026-09-24): a logical batch above the ceiling travels in chained parts =====
 //
-// A logical batch of THE SAME VERB OVER DISTINCT FEATURES larger than the server's batch ceiling
-// travels as several logical batches instead of one refused batch. One transaction is one logical
-// batch (`createBatchOperations`), and the server refuses a batch above `LOTE_MAX_OPS` (200) whole:
-// an import, a paste or a processing output (`addFeatures`, N creates), "move to layer"
-// (`moveFeaturesToLayer`, N updates) and the undo or redo of a mass gesture (a splittable gesture,
-// `gesture-batch.js`) above 200 features never reached the server in a server atlas: the client
-// refused them locally, the person got a pending list, and the recovery snapshot reverted the
-// gesture on screen (except the import, which stayed only on this computer). Composite gestures
-// (layer transfer, conversion, a group with its members) keep one batch and their atomicity. The
-// declared price is that the mass gesture is no longer atomic on the server, and a refused part is
-// named to the person by {@link describeRefusedPart}. The rule lives here, not in a leaf module,
-// because a new module grows the import graph that two ceilings guard.
+// The server applies a logical batch whole and refuses one above `LOTE_MAX_OPS` (200). One
+// transaction, or one ambient gesture (`gesture-batch.js`), was one batch, so every gesture above
+// 200 operations was refused locally and never reached the server: importing, pasting, moving to a
+// layer, grouping, transferring a layer to another map, and the undo or redo of any of them. It now
+// travels in parts of {@link MAX_OPS_PER_LOGICAL_BATCH}, each its own `batchId`, in `batchIndex`
+// order, and the first operation of each part DEPENDS (`dependsOn`) on the last one of the
+// previous part. The queue already refuses to hand over an operation whose dependency carries a
+// problem (`PendingBlockade`, `operation-queue.js`), and the flush pushes one part at a time
+// with its receipt before the next, so a part leaves only after the previous one was applied and a
+// refused part HOLDS the following ones: a group member never reaches the server ahead of the group
+// it belongs to (the membership insert would write zero rows and be acked as a success). The
+// server ignores `dependsOn`. The declared price: the gesture is no longer all-or-nothing on the
+// server, and a refused part is named to the person by {@link describeRefusedPart}. The rule lives
+// here, not in a leaf module, because a new module grows the import graph that two ceilings guard.
 
 /**
  * Mirror of `LOTE_MAX_OPS` in `backend/src/modules/sync/sync.service.js`: the largest logical
@@ -493,35 +495,13 @@ export function createOperation(entityType, operationType, entityId, mapId, data
 export const MAX_OPS_PER_LOGICAL_BATCH = 200;
 
 /**
- * Whether a transaction's operations are the SAME VERB over DISTINCT features, above the ceiling,
- * and therefore may be split across logical batches: all feature operations, one operation type
- * (create, update or delete), each entity once, none carrying a move intent or a source map.
- * @param {Array<{entityType: string, operationType: string, entityId: string,
- *   featureIntent?: *, sourceMapId?: *}>} operations
- * @returns {boolean}
- */
-export function isIndependentFeatureSet(operations) {
-    if (!Array.isArray(operations) || operations.length <= MAX_OPS_PER_LOGICAL_BATCH) return false;
-    const verb = operations[0]?.operationType;
-    if (!['create', 'update', 'delete'].includes(verb)) return false;
-    const entities = new Set();
-    for (const op of operations) {
-        if (op?.entityType !== 'feature' || op.operationType !== verb || op.featureIntent || op.sourceMapId) return false;
-        if (!op.entityId || entities.has(op.entityId)) return false;
-        entities.add(op.entityId);
-    }
-    return true;
-}
-
-/**
- * The sentence for a refused part of a split transaction, or null when the refused batch is not
- * a part of one.
+ * The sentence for a refused part of a split batch, or null when the refused batch is not a part
+ * of one.
  *
- * WHAT IT READS, and why it needs nothing stored: the parts of one transaction share its `traceId`
- * and continue one `batchIndex` sequence (0 .. N-1), so the refused part's first index says how
- * many operations came BEFORE it, and the queue says which of those are still waiting (refused
- * earlier). The parts after it are still in the queue at refusal time, because the queue is sent
- * in order, so the largest index still queued gives the total.
+ * WHAT IT READS, and why it needs nothing stored. `batchIndex` is contiguous across the parts, and
+ * a part leaves only after the previous one was applied, so the first index of the refused part is
+ * exactly how many operations of the gesture already arrived. The parts after it are the queued
+ * operations reachable from the refused ones through `dependsOn` (the chain between parts).
  *
  * @param {Object[]} refusedOps - The operations of the refused batch.
  * @param {Object[]} queuedOps - Every operation still in the queue, refused ones included.
@@ -530,32 +510,34 @@ export function isIndependentFeatureSet(operations) {
  */
 export function describeRefusedPart(refusedOps, queuedOps, maxPerBatch = MAX_OPS_PER_LOGICAL_BATCH) {
     if (!Array.isArray(refusedOps) || refusedOps.length === 0) return null;
-    const { traceId, batchId } = refusedOps[0];
-    if (!batchId) return null;
     const indices = refusedOps.map(op => op.batchIndex).filter(Number.isInteger);
     if (indices.length !== refusedOps.length) return null;
     const first = Math.min(...indices);
-    const feicoes = refusedOps.length === 1 ? 'feição' : 'feições';
-    // A PART OF A SPLIT GESTURE (undo, redo): one transaction per member, so its members do not
-    // share a trace and the other parts cannot be counted. Only a part after the first is known to
-    // be a part at all, and of the earlier ones only that they were sent.
-    if (!traceId || refusedOps.some(op => op.traceId !== traceId)) {
-        if (first < maxPerBatch) return null;
-        return `O servidor recusou uma parte desta ação (${refusedOps.length} ${feicoes}); as partes `
-            + 'anteriores já foram enviadas. A parte recusada está nas pendências para revisão.';
-    }
-    const siblings = (queuedOps ?? []).filter(op => op?.traceId === traceId && op.batchId && op.batchId !== batchId
-        && Number.isInteger(op.batchIndex));
-    if (first === 0 && siblings.length === 0) return null;
 
-    const lastIndex = Math.max(...indices, ...siblings.map(op => op.batchIndex));
-    const total = lastIndex + 1;
-    const waitingBefore = siblings.filter(op => op.batchIndex < first).length;
-    const arrived = first - waitingBefore;
+    const batchesIn = new Set([refusedOps[0].batchId]);
+    const reached = new Set(refusedOps.map(op => op.id));
+    let held = 0;
+    for (let grew = true; grew;) {
+        grew = false;
+        for (const op of queuedOps ?? []) {
+            if (!op?.batchId || batchesIn.has(op.batchId)) continue;
+            if (!(op.dependsOn ?? []).some(id => reached.has(id))) continue;
+            batchesIn.add(op.batchId);
+            for (const member of queuedOps) {
+                if (member?.batchId !== op.batchId) continue;
+                reached.add(member.id);
+                held += 1;
+            }
+            grew = true;
+        }
+    }
+    if (first === 0 && held === 0) return null;
+
+    const total = first + refusedOps.length + held;
     const part = Math.floor(first / maxPerBatch) + 1;
     const parts = Math.ceil(total / maxPerBatch);
-    return `O servidor recusou a parte ${part} de ${parts} desta ação (${refusedOps.length} ${feicoes}). `
-        + `${arrived} de ${total} já chegaram; a parte recusada está nas pendências para revisão.`;
+    return `O servidor recusou a parte ${part} de ${parts} desta ação. ${first} de ${total} alterações já `
+        + `chegaram; as outras ${refusedOps.length + held} estão nas pendências para revisão.`;
 }
 
 /**
@@ -568,12 +550,9 @@ export function describeRefusedPart(refusedOps, queuedOps, maxPerBatch = MAX_OPS
  * server reads parent before child by that index, so restarting it at zero would put two members
  * in the same position and leave the order to chance.
  *
- * B6.1 (owner decision, 2026-09-24): THE SAME VERB OVER INDEPENDENT FEATURES ABOVE THE SERVER CEILING
- * IS SPLIT. Outside a gesture, a transaction accepted by {@link isIndependentFeatureSet} gets one
- * `batchId` per part of {@link MAX_OPS_PER_LOGICAL_BATCH}; inside a SPLITTABLE gesture the gesture
- * hands out the part ids (`idAt`). The `batchIndex` CONTINUES across the parts, which is what
- * lets a refusal name its part ({@link describeRefusedPart}). One batch of all of them was refused
- * locally, whole, forever.
+ * B6.1 (owner decision, 2026-09-24): ABOVE {@link MAX_OPS_PER_LOGICAL_BATCH} THE BATCH IS SPLIT
+ * INTO CHAINED PARTS, a transaction outside a gesture here and a gesture by the ids and links it
+ * hands out (`idAt`, `link`). See the section above for why the chain is what makes it safe.
  *
  * @param {Array<{entityType: string, operationType: string, entityId: string, mapId?: string, data?: Object, previousData?: Object}>} operations - Operations to create
  * @returns {Operation[]} Array of created operations
@@ -582,7 +561,7 @@ export function createBatchOperations(operations) {
     const gesture = reserveGestureBatchSlots(operations.length);
     const batchId = gesture ? gesture.id : generateUUID();
     const firstIndex = gesture ? gesture.startIndex : 0;
-    const partIds = !gesture && isIndependentFeatureSet(operations)
+    const partIds = !gesture && operations.length > MAX_OPS_PER_LOGICAL_BATCH
         ? Array.from({ length: Math.ceil(operations.length / MAX_OPS_PER_LOGICAL_BATCH) },
             (_, part) => (part === 0 ? batchId : generateUUID()))
         : null;
@@ -592,27 +571,40 @@ export function createBatchOperations(operations) {
     // per-op read would let a scope switch split a batch across two atlases.
     const { scopeSuffix, atlasId } = readScopeStamp();
 
-    return operations.map((op, index) => ({
-        id: generateUUID(),
-        protocolVersion: 2,
-        entityType: op.entityType,
-        operationType: op.operationType,
-        entityId: op.entityId,
-        mapId: op.mapId || null,
-        data: op.data || null,
-        previousData: op.previousData || null,
-        ...mutationContract(op.entityType, op.operationType, op.data, op.previousData),
-        ...(op.entityType === 'feature' ? {
-            ...(op.featureIntent ? { featureIntent: op.featureIntent } : {}),
-            ...(op.sourceMapId ? { sourceMapId: op.sourceMapId } : {}) } : {}),
-        timestamp,
-        lamportTimestamp: ++lamportClock,
-        clientId: client,
-        traceId: actionTraceId,
-        scopeSuffix,
-        atlasId,
-        batchId: partIds ? partIds[Math.floor(index / MAX_OPS_PER_LOGICAL_BATCH)]
-            : (gesture ? gesture.idAt(firstIndex + index) : batchId),
-        batchIndex: firstIndex + index
-    }));
+    let previousId = null;
+    return operations.map((op, index) => {
+        const id = generateUUID();
+        const position = firstIndex + index;
+        let dependency = null;
+        if (gesture) {
+            dependency = gesture.link(position, id);
+        } else if (partIds && index > 0 && index % MAX_OPS_PER_LOGICAL_BATCH === 0) {
+            dependency = previousId;
+        }
+        previousId = id;
+        return {
+            id,
+            protocolVersion: 2,
+            entityType: op.entityType,
+            operationType: op.operationType,
+            entityId: op.entityId,
+            mapId: op.mapId || null,
+            data: op.data || null,
+            previousData: op.previousData || null,
+            ...mutationContract(op.entityType, op.operationType, op.data, op.previousData),
+            ...(op.entityType === 'feature' ? {
+                ...(op.featureIntent ? { featureIntent: op.featureIntent } : {}),
+                ...(op.sourceMapId ? { sourceMapId: op.sourceMapId } : {}) } : {}),
+            timestamp,
+            lamportTimestamp: ++lamportClock,
+            clientId: client,
+            traceId: actionTraceId,
+            scopeSuffix,
+            atlasId,
+            ...(dependency ? { dependsOn: [dependency] } : {}),
+            batchId: partIds ? partIds[Math.floor(index / MAX_OPS_PER_LOGICAL_BATCH)]
+                : (gesture ? gesture.idAt(position) : batchId),
+            batchIndex: position
+        };
+    });
 }

@@ -414,8 +414,14 @@ collabTest.describe('Mover camada com a ORIGEM CHEIA: o recarregamento reconcili
             for (const id of Object.keys(map.getStyle().sources)) {
                 const src = map.getSource(id);
                 if (src?.type !== 'geojson') continue;
+                // TWO SHAPES OF MapLibre's private `_data`: `{geojson}` after a `setData` and
+                // `{updateable}` (a Map by id) after an `updateData` from the diff dispatcher. Reading
+                // only the first made this floor see ZERO whenever the last write to the source was a
+                // dispatcher patch, which is a timing of the refresh, not an absence of the features.
                 const dados = src._data?.geojson ?? src._data ?? null;
-                const lista = Array.isArray(dados?.features) ? dados.features : [];
+                const lista = src._data?.updateable instanceof Map
+                    ? [...src._data.updateable.values()]
+                    : (Array.isArray(dados?.features) ? dados.features : []);
                 total += lista.filter((f) => q.includes(f.properties?.id)).length;
             }
             return total;
@@ -515,8 +521,14 @@ collabTest.describe('Mover camada com a ORIGEM CHEIA: o recarregamento reconcili
             for (const id of Object.keys(map.getStyle().sources)) {
                 const src = map.getSource(id);
                 if (src?.type !== 'geojson') continue;
+                // TWO SHAPES OF MapLibre's private `_data`: `{geojson}` after a `setData` and
+                // `{updateable}` (a Map by id) after an `updateData` from the diff dispatcher. Reading
+                // only the first made this floor see ZERO whenever the last write to the source was a
+                // dispatcher patch, which is a timing of the refresh, not an absence of the features.
                 const dados = src._data?.geojson ?? src._data ?? null;
-                const lista = Array.isArray(dados?.features) ? dados.features : [];
+                const lista = src._data?.updateable instanceof Map
+                    ? [...src._data.updateable.values()]
+                    : (Array.isArray(dados?.features) ? dados.features : []);
                 total += lista.filter((f) => q.includes(f.properties?.id)).length;
             }
             return total;
