@@ -9,6 +9,7 @@ import { addLOSAttributesToPanel, createLOSInfoSection, addLOSParametersToPanel 
 import AddLOSGeometry from './add_los_geometry.js';
 import { BaseControl } from '@tools';
 import { createPreviewScheduler } from '@tools/helpers/preview-scheduler.js';
+import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
 import { getSnappingService } from '@js/snapping';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { maplibregl } from '@js/map/maplibre.js';
@@ -938,35 +939,21 @@ class AddLOSControl extends BaseControl {
         await losSource(this.map).flush();
         await processedLosSource(this.map).flush();
         const currentData = await this.map.getSource('los').getData();
-        const processedData = await this.map.getSource('processed-los').getData();
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
                 const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    const featureToSave = {
-                        ...currentFeature,
-                        properties: {
-                            ...currentFeature.properties,
-                            ...selectedFeature.properties
-                        }
-                    };
-
-                    const processedFeatures = processedData.features.filter(pf =>
-                        pf.properties.id === selectedFeature.properties.id + '-visible' ||
-                        pf.properties.id === selectedFeature.properties.id + '-obstructed'
+                    // ONLY WHAT THE PERSON TOUCHED, over the source's current feature, like every
+                    // drawing tool (`mergePendingEdits`). Spreading the WHOLE panel copy (taken when
+                    // the panel opened) wrote back every field a colleague changed meanwhile, and since
+                    // the edit travels (346aa855) the server accepted it: a peer's rename undone by my
+                    // width change. The output is derived from the result, never patched.
+                    const featureToSave = mergePendingEdits(
+                        currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)
                     );
-
-                    const updatedProcessedFeatures = processedFeatures.map(pf => ({
-                        ...pf,
-                        properties: {
-                            ...pf.properties,
-                            ...selectedFeature.properties,
-                            id: pf.properties.id,
-                            color: pf.properties.color
-                        }
-                    }));
+                    const updatedProcessedFeatures = this.geometry.generateProcessedFeatures(featureToSave);
 
                     try {
                         if (typeof batchUpdateLOSFeatures === 'function') {
