@@ -426,7 +426,21 @@ function startCellEditing(td, feature, columnKey, isAttribute, callbacks) {
     input.focus();
     input.select();
 
+    // A PÁGINA SAINDO COM A CÉLULA ABERTA E O VALOR MUDADO. A célula grava no Enter, no Tab e no
+    // blur, e um F5 ou uma aba fechada não é nenhum dos três: o valor digitado sumia nos dois
+    // navegadores (medido em 2026-09-24). Mesma resposta do editor de briefing e do painel de
+    // feição: confirma a célula e pede a confirmação do navegador. Quem fica tem o valor gravado;
+    // quem sai tem só a tentativa (a gravação write-ahead precisa de voltas do laço de eventos que a
+    // troca de documento nem sempre dá: 2 de 5 no Chromium), mas a saída deixa de ser SILENCIOSA.
+    // Sem mudança nada é pedido. O ouvinte vive só enquanto a célula está aberta. Repro:
+    // `tests/e2e-ui/tabela-de-atributos-sobrevive-ao-f5.repro.spec.js`.
+    let naSaida = null;
+
     const finishEditing = (save) => {
+        if (naSaida) {
+            window.removeEventListener('beforeunload', naSaida);
+            naSaida = null;
+        }
         if (!td.classList.contains(ATTRIBUTE_TABLE.CSS_CLASSES.CELL_EDITING)) {
             return;
         }
@@ -475,6 +489,18 @@ function startCellEditing(td, feature, columnKey, isAttribute, callbacks) {
             td.innerHTML = originalHTML;
         }
     };
+
+    naSaida = (event) => {
+        if (!input.isConnected) {
+            window.removeEventListener('beforeunload', naSaida);
+            return;
+        }
+        if (input.value.trim() === currentValue) return;
+        finishEditing(true);
+        event?.preventDefault?.();
+        if (event) event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', naSaida);
 
     // Event handlers
     input.addEventListener('blur', () => finishEditing(true));

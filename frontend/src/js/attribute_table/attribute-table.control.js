@@ -21,7 +21,7 @@ import { showColumnContextMenu } from './components/column-context-menu.js';
 import { EventTypes } from '@events';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { ensureTurf } from '@utils/turf-loader.js';
-import { getLayers, getCurrentMapNameSync, FEATURE_TYPE_MAPPINGS, FEATURE_DISPLAY_NAMES } from '@store';
+import { getLayers, getCurrentMapNameSync, FEATURE_TYPE_MAPPINGS, FEATURE_DISPLAY_NAMES, updateFeatureProperty } from '@store';
 import { semEdicaoSync } from '@store/edicao-indisponivel.js';
 import { showPrompt } from '@modals';
 import userDataManager from '@js/user_data/user_data_manager.js';
@@ -664,8 +664,11 @@ export class AttributeTableControl {
                 // Convert singular type to plural storage type (e.g., 'polygon' -> 'polygons')
                 const storageType = FEATURE_TYPE_MAPPINGS[featureType] || featureType;
 
-                // Update in persistence (IndexedDB)
-                const { updateFeatureProperty } = await import('@store/feature.operations.js');
+                // Update in persistence (IndexedDB). PELO BARRIL JÁ CARREGADO, e não por `import()`:
+                // a célula é confirmada também na SAÍDA da página (`startCellEditing`,
+                // `components/table-renderer.js`), e ali a gravação tem de começar no mesmo turno do
+                // `beforeunload`. Com o `import()` no caminho ela esperava um turno que a troca de
+                // documento não dá, e o valor digitado sumia no F5 (medido em 2026-09-24).
                 await updateFeatureProperty(storageType, featureId, columnKey, newValue);
 
                 // Update in MapLibre source
