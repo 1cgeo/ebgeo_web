@@ -351,7 +351,9 @@ grupo, **rebaixar** e **remover** não: tirar acesso nunca precisa da mesma auto
 
 **5.4** Um atlas pode ter **link público**, e ele é **somente leitura**, imposta no servidor e não na
 interface. O visitante do link é anônimo e confinado àquele atlas. O link é revogável. **[vigente]** Preso
-por `backend/tests/integration/public-token-atlas-scope.repro.test.js`.
+por `backend/tests/integration/public-token-atlas-scope.repro.test.js` e, na metade "revogável", por
+`backend/tests/integration/link-publico-republicado-nao-revive-token.repro.test.js`: até 2026-09-23 despublicar e
+republicar (link novo) devolvia a leitura a todo token emitido pelo link velho na última hora.
 
 **5.5** O administrador global tem **posse** em todo atlas. É o quinto caminho de acesso, ao lado de dono,
 compartilhamento nominal, grupo e link público. **[vigente]** Preso por
