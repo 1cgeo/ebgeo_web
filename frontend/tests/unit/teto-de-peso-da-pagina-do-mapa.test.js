@@ -887,7 +887,10 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // (encoding of imported text), `import_export/estilo-importado.js` (our KMZ's own style on
         // the way back), `tool_manager/helpers/discard-targets.helpers.js` ("Descartar" keeps a
         // colleague's later edit) and `vendor/shpjs.js` (the toReversed polyfill's single door).
-        expect(completo.arquivos.size).toBeLessThanOrEqual(801);
+        // 803 on 2026-09-24 (morning): `user_data/photo-refs.js` (zero imports) and
+        // `user_data/photo-source.js`, the two leaves through which every surface reads an attached
+        // photo in both shapes, inline or by reference (the structural move of photos to blobs).
+        expect(completo.arquivos.size).toBeLessThanOrEqual(803);
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
@@ -924,7 +927,15 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // `store/sync/gesture-batch.js`, `store/store-state-manager.js`, `store/sync/sync-engine.js`),
         // no new module and no new package. The rule was kept in existing files on purpose: a new
         // leaf module also crossed the module-count ceilings when it was tried.
-        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11960);
+        // 11960 -> 12020 on 2026-09-24 (morning), measured 11961 kB with the owner's morning lot landing
+
+        // branch by branch: photo compression, the photo readers of both shapes, the split of big batches
+
+        // and the coverage fixes. The headroom is wider than usual ON PURPOSE while that lot is still
+
+        // arriving (photos 2b/2c, composite batches); it is re-measured and tightened when it closes.
+
+        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(12020);
     });
 
     it('seguir `import()` de fato acrescenta grafo, e é isso que prova a regex dinâmica', () => {
@@ -1416,7 +1427,10 @@ const PAGINAS_DIST = Object.freeze([
     // session exit and its rescue of every pending atlas, the derived analysis output, the import
     // leaves, the panels' discard and exit guards), none of it a lazy chunk leaking: the new eager
     // files are the four named in the module count above. The usual headroom of about 50 kB.
-    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 86, minKb: 3600, maxKb: 4230 },
+    // maxArq 86 -> 90 on 2026-09-24 (morning): a fresh build of the integrated state lists 87 files,
+    // the bytes still inside the 4230 kB ceiling. The count moves with chunk boundaries, not content:
+    // the photo reader leaves and the split batches landed in shared chunks the bundler re-cut.
+    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 90, minKb: 3600, maxKb: 4230 },
     // atlas.html: MEDIDA dos dois lados do mesmo lote, 36 arquivos / 663 kB antes e 40 / 664
     // depois. Os quatro arquivos a mais são repartição de chunk e não conteúdo (os modais que o
     // mapa deixou de alcançar estaticamente deixaram de dividir chunk com ele e viraram chunks
