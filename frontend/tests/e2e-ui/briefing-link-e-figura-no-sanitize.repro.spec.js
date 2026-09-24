@@ -86,6 +86,73 @@ collabTest.describe('Link e figura no texto rico do slide', () => {
         expect(retrato.enderecoDepois, 'a aba do EBGeo nao saiu do mapa').toBe(enderecoDoApp);
     });
 
+    collabTest('o link que um cliente modificado manda chega neutralizado: nova aba, sem opener', async ({ collab }) => {
+        collabTest.setTimeout(150000);
+        const A = collab.author;
+        const B = collab.peers[0];
+        const destino = `${APP_ORIGIN}/tutorial.html`;
+
+        // O sanitize, direto: `rel="opener"` e `target="_top"` nao passam como vieram.
+        const limpo = await A.evaluate(async (url) => {
+            const { sanitizeQuillHtml } = await import('/src/js/utilities/quill-helpers.js');
+            return {
+                opener: sanitizeQuillHtml(`<a href="${url}" target="_blank" rel="opener">a</a>`),
+                topo: sanitizeQuillHtml(`<a href="${url}" target="_top">b</a>`),
+                nomeada: sanitizeQuillHtml(`<a href="${url}" target="janela" rel="opener noreferrer">c</a>`),
+            };
+        }, destino);
+        console.log(`LIMPO ${JSON.stringify(limpo)}`);
+        for (const html of Object.values(limpo)) {
+            expect(html).toContain('target="_blank"');
+            expect(html).toContain('rel="noopener noreferrer"');
+            expect(html).not.toContain('rel="opener');
+            expect(html).not.toContain('_top');
+            expect(html).not.toContain('janela');
+        }
+
+        // Ponta a ponta: o conteudo do slide vem do COLEGA (B), como o de um cliente modificado:
+        // o payload e' escrito pela store de B, que e' o que a sync entrega a A.
+        const antes = new Set(await lerTodosBriefings(B));
+        if (!(await B.locator('.briefings-create-btn').isVisible())) await B.locator('.sidebar-nav-btn[data-tab="briefings"]').click();
+        await B.locator('.briefings-create-btn').click();
+        await expect(B.locator('#briefing-editor')).toBeVisible({ timeout: 10000 });
+        let bid = null;
+        await expect.poll(async () => {
+            bid = (await lerTodosBriefings(B)).find((b) => !antes.has(b)) ?? null;
+            return bid;
+        }, { timeout: 10000 }).toBeTruthy();
+        await B.locator('.briefing-editor-capture-btn').click();
+        await expect.poll(() => B.evaluate(async (id) => {
+            const store = await import('/src/js/store/index.js');
+            return ((await store.getBriefingById(id))?.slides ?? [])[0]?.position?.longitude ?? null;
+        }, bid), { timeout: 15000 }).not.toBeNull();
+        await B.locator('.briefing-editor-back-btn').click();
+        await B.evaluate(async ({ id, url }) => {
+            const store = await import('/src/js/store/index.js');
+            const slide = ((await store.getBriefingById(id))?.slides ?? [])[0];
+            await store.updateSlide(id, slide.id, { content: `<p><a href="${url}" target="_top" rel="opener">manual</a></p>` });
+        }, { id: bid, url: destino });
+        await expect.poll(() => conteudoNoDisco(A, bid), { timeout: 20000 }).toContain('rel="opener"');
+
+        // A apresenta e clica.
+        if (!(await A.locator('.briefings-create-btn').isVisible())) await A.locator('.sidebar-nav-btn[data-tab="briefings"]').click();
+        await A.locator(`.briefing-card[data-briefing-id="${bid}"] .briefing-card-info`).click();
+        const link = A.locator('.briefing-text-panel__content a');
+        await expect(link).toBeVisible({ timeout: 15000 });
+        const atributos = { target: await link.getAttribute('target'), rel: await link.getAttribute('rel') };
+        const enderecoDoApp = A.url();
+        const novaAba = A.context().waitForEvent('page', { timeout: 5000 }).catch(() => null);
+        await link.click();
+        const aba = await novaAba;
+        const opener = aba ? await aba.evaluate(() => window.opener === null).catch(() => null) : null;
+        console.log(`RETRATO ${JSON.stringify({ atributos, abriuOutraAba: Boolean(aba), openerNulo: opener, enderecoDepois: A.url() })}`);
+        await aba?.close();
+        expect(atributos).toEqual({ target: '_blank', rel: 'noopener noreferrer' });
+        expect(Boolean(aba), 'abriu outra aba').toBe(true);
+        expect(opener, 'a aba aberta nao alcanca a do EBGeo').toBe(true);
+        expect(A.url(), 'a aba do EBGeo nao saiu do mapa').toBe(enderecoDoApp);
+    });
+
     collabTest('a figura com tamanho explicito guarda o tamanho no sanitize', async ({ collab }) => {
         const A = collab.author;
         const limpo = await A.evaluate(async () => {

@@ -40,12 +40,12 @@ export const QUILL_DOMPURIFY_CONFIG = {
     ],
     // With data attributes off, a listed attribute's VALUE is checked against the URI pattern
     // above, and "bullet" is not a URI, so `data-list` was still removed. It carries a keyword
-    // Quill reads, never a URL. The same check removed four more listed attributes, all measured:
-    // `target` and `rel` of the links Quill writes (`_blank`, `noopener noreferrer`), so a link in a
-    // presented slide took the EBGeo tab away mid-presentation
-    // (`frontend/tests/e2e-ui/briefing-link-e-figura-no-sanitize.repro.spec.js`), and `width` and
-    // `height` of a picture. None of them carries a URL.
-    ADD_URI_SAFE_ATTR: ['data-list', 'target', 'rel', 'width', 'height'],
+    // Quill reads, never a URL. The same check removes `width` and `height` of a picture (a number
+    // is not a URI), which is why they are here too. `target` and `rel` are NOT: their values would
+    // then pass free, and this HTML is written by another user and arrives by sync (`rel="opener"`
+    // defeats the implicit noopener, `target="_top"` navigates the app itself). They are removed by
+    // the check and set by the house in `forceLinkTarget` below.
+    ADD_URI_SAFE_ATTR: ['data-list', 'width', 'height'],
     ALLOWED_URI_REGEXP: /^(?:(?:https?|data):)/i,
     ALLOW_DATA_ATTR: false,
     ADD_ATTR: ['target'],
@@ -93,7 +93,28 @@ function extractTextContent(html) {
  */
 export function sanitizeQuillHtml(html, config = QUILL_DOMPURIFY_CONFIG) {
     if (!html) return '';
-    return DOMPurify.sanitize(html, config);
+    // DOMPurify hooks are GLOBAL on the instance, so this one lives only for this call: sanitize is
+    // synchronous, and the `finally` takes it out even when sanitize throws.
+    DOMPurify.addHook('afterSanitizeAttributes', forceLinkTarget);
+    try {
+        return DOMPurify.sanitize(html, config);
+    } finally {
+        DOMPurify.removeHook('afterSanitizeAttributes', forceLinkTarget);
+    }
+}
+
+/**
+ * Every link of rich content opens in a NEW tab with no way back to this one, whatever the author
+ * wrote. The attributes come from another user through sync; the values the house needs are set
+ * here instead of being accepted from the markup. Without `target` the presentation's link took the
+ * EBGeo tab itself away (`frontend/tests/e2e-ui/briefing-link-e-figura-no-sanitize.repro.spec.js`);
+ * with the author's own `rel` a `rel="opener"` would hand the opened page `window.opener`.
+ * @param {Element} node - Node DOMPurify just finished with.
+ */
+function forceLinkTarget(node) {
+    if (node.tagName !== 'A' || !node.hasAttribute('href')) return;
+    node.setAttribute('target', '_blank');
+    node.setAttribute('rel', 'noopener noreferrer');
 }
 
 /**
