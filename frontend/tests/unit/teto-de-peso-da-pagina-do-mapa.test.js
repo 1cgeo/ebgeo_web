@@ -302,7 +302,12 @@ const ORCAMENTO = Object.freeze({
     // `ebgeo-missing-images.js`, folha de ZERO imports com a lista das imagens que um `.ebgeo` não
     // pode perder calado e a pergunta que o exportador faz quando uma delas não tem arquivo. Saiu de
     // dentro de `export-import.service.js` para ser testável em node, e é ansioso porque o serviço é.
-    import_export: 16,
+    //
+    // 18 em 2026-09-24, fim da caça noturna: `texto-de-arquivo.js` (a decodificação de CSV, DBF, KML
+    // e GPX em Windows-1252/ISO-8859-1, que perdia todo acento) e `estilo-importado.js` (o estilo do
+    // nosso KMZ de volta na importação, sem lixo de atributo), os dois ansiosos porque o controle de
+    // importação é.
+    import_export: 18,
     // 16 em 2026-09-21, com as QUATRO folhas puras que a execução da auditoria temporal tirou de
     // dentro de componentes de DOM para que a regra fosse testável em node: `temporal-attributes.model.js`
     // (janela invertida, troca de âncora, GDH derivado), `temporal-bar.model.js` (arraste e teclas da
@@ -876,7 +881,13 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // server pruned, with the same sentences as the `atlas.html` card; the leaf (7 kB, ZERO
         // imports) was split out of `projects/local-atlas-notices.js` precisely so the map does
         // not carry the chooser's 35 kB notice module to say them. Eager, one small file.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(797);
+        // 2026-09-24 (end of the night's bug hunt): 801, re-measured once for the whole lot instead
+        // of branch by branch (ten branches bumping one number were a conflict at every merge).
+        // The four files past the ones named above, all bug fixes: `import_export/texto-de-arquivo.js`
+        // (encoding of imported text), `import_export/estilo-importado.js` (our KMZ's own style on
+        // the way back), `tool_manager/helpers/discard-targets.helpers.js` ("Descartar" keeps a
+        // colleague's later edit) and `vendor/shpjs.js` (the toReversed polyfill's single door).
+        expect(completo.arquivos.size).toBeLessThanOrEqual(801);
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
@@ -899,7 +910,15 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // keeps a peer's later edit (`keepLaterEdits`, `store/feature.operations.js`) and the per-slide
         // inbound apply (`store/sync/remote-operation-handler.js`). 11713 kB measured by this case's
         // failure, about 24 kB of source over the three commits, half of it comments.
-        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11730);
+        // 11730 -> 11930 on 2026-09-24, at the end of the night's bug hunt: 11897 kB measured once for the
+
+        // whole integrated lot (ten branches), about 170 kB of source over the 11730 of the evening, spread
+
+        // over some ninety fixes and the comments that say why each one exists; the four new eager files are
+
+        // named in the module count above, and the lazy side gained no package. Headroom of about 30 kB.
+
+        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11930);
     });
 
     it('seguir `import()` de fato acrescenta grafo, e é isso que prova a regex dinâmica', () => {
@@ -1384,7 +1403,14 @@ const PAGINAS_DIST = Object.freeze([
     // sum once. Two static imports that did not belong in the boot were cut instead: the two point
     // panels' phrase leaves (-8000 bytes) and the resource share dialog (-39508 bytes, see the
     // `catalog` line of ORCAMENTO). Measured after both: 82 files, 4244561 bytes, 4145 kB.
-    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 86, minKb: 3600, maxKb: 4170 },
+    //
+    // index.html: 4170 -> 4230 on 2026-09-24, at the end of the night's bug hunt, measured on a fresh
+    // build of the integrated state: 4183 kB, that is 38 kB over the 4145 of the two cuts above. It
+    // is the eager code of about ninety fixes (the sync engine, the inbound handler, the queue, the
+    // session exit and its rescue of every pending atlas, the derived analysis output, the import
+    // leaves, the panels' discard and exit guards), none of it a lazy chunk leaking: the new eager
+    // files are the four named in the module count above. The usual headroom of about 50 kB.
+    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 86, minKb: 3600, maxKb: 4230 },
     // atlas.html: MEDIDA dos dois lados do mesmo lote, 36 arquivos / 663 kB antes e 40 / 664
     // depois. Os quatro arquivos a mais são repartição de chunk e não conteúdo (os modais que o
     // mapa deixou de alcançar estaticamente deixaram de dividir chunk com ele e viraram chunks
@@ -1406,7 +1432,11 @@ const PAGINAS_DIST = Object.freeze([
     // quatro paginas que tocam o acervo) mais o seletor pesquisavel novo do admin
     // (`ui/searchable-select.js` e o modelo dele, 24 kB de fonte). A suite passou verde o dia inteiro
     // porque o dist/ era de 2026-09-20: dist velho da verde velho, como o comentario acima ja dizia.
-    { html: 'admin.html', entrada: 'admin', minArq: 14, maxArq: 38, minKb: 600, maxKb: 830 },
+    // 830 -> 870 em 2026-09-24, fim da caça noturna, medido com build fresco: 844 kB. A página entra
+    // pelo portão de migração e pela saída involuntária da sessão, e as duas cresceram com consertos
+    // de perda de dado da noite (a espera pela janela da versão antiga, a contenção do rollback, o
+    // resgate da fila de todo atlas com pendência), mais `admin/conteudo-misto.js` na aba Sistema.
+    { html: 'admin.html', entrada: 'admin', minArq: 14, maxArq: 38, minKb: 600, maxKb: 870 },
     // calibracao.html: 1100 -> 1980 em 2026-09-04, pela MESMA troca de balcão de `index.html` e
     // pelo MESMO arquivo. Esta página carregava o `<script src="/vendors/maplibre-gl.js">` para
     // desenhar o mapa de projeto e o minimapa; agora ela alcança o chunk de MapLibre pelo grafo,
