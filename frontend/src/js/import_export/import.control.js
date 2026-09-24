@@ -886,7 +886,7 @@ class AddImportControl {
         // The overlay is a single slot (this._progressElement), and no caller reaches
         // here with one standing: the read overlay of _readFileWithProgress is removed
         // in reader.onloadend, before processFile resolves, and the CSV path never
-        // opens one (it reads through file.text()).
+        // opens one (it reads the bytes through file.arrayBuffer(), in import.tab.js).
         const updateProgress = this._showProgressIndicator(
             `Preparando ${totalFeaturesToImport} geometrias...`
         );
