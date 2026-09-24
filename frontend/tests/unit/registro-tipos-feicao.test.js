@@ -36,9 +36,6 @@ const ARQ_REGISTRO = fileURLToPath(
 );
 const ARQ_BARREL_INDEX = fileURLToPath(new URL('../../src/js/store/index.js', import.meta.url));
 const ARQ_BARREL_STORE = fileURLToPath(new URL('../../src/js/store/store.js', import.meta.url));
-const ARQ_NAVEGACAO = fileURLToPath(
-    new URL('../../src/js/utilities/feature_navigation_utils.js', import.meta.url),
-);
 
 /** The eight fields a row carries, written out ABSOLUTELY: deriving them from row zero
  *  would make a typo in row zero the definition of correctness. */
@@ -79,24 +76,6 @@ function defeitosDaLinha(row) {
     // name it and the table would draw nothing, or vice versa. The two travel together.
     if ((row.label === null) !== (row.icon === null)) out.push(`${quem}: 'label' e 'icon' precisam ser ambos nulos ou ambos preenchidos`);
     return out;
-}
-
-/** Every quoted lower-snake literal inside a source slice. */
-function literais(trecho) {
-    return [...trecho.matchAll(/'([a-z_]+)'/g)].map(m => m[1]);
-}
-
-/**
- * Slices from `abertura` to the first `fecho` after it, or null when the anchor is gone,
- * so the caller's floor (not a comparison against emptiness) reports the breakage.
- * @param {string} fonte @param {string} abertura @param {string} fecho @returns {string|null}
- */
-function fatia(fonte, abertura, fecho) {
-    const i = fonte.indexOf(abertura);
-    if (i === -1) return null;
-    const j = fonte.indexOf(fecho, i + abertura.length);
-    if (j === -1) return null;
-    return fonte.slice(i, j);
 }
 
 const fonteRegistro = readFileSync(ARQ_REGISTRO, 'utf8');
@@ -223,34 +202,5 @@ describe('registro de tipos: as duas propriedades que sao contrato', () => {
     it('controle positivo: a checagem de barrel enxerga a reexportacao', () => {
         const falso = "export * from './store.js';\nexport { FEATURE_TYPE_REGISTRY } from './feature-type.registry.js';\n";
         expect(falso).toContain('feature-type.registry');
-    });
-});
-
-describe('registro de tipos: o campo selectionBox contra a lista viva', () => {
-    // `selectionBox` is the one capability field with no derived consumer yet:
-    // `SELECTION_BOX_TYPES` still lives written out by hand in `feature_navigation_utils.js`.
-    // A field nobody checks drifts in silence, so it is checked HERE, against that file's own
-    // text, without migrating it. When that list finally derives from the registry, this pair
-    // of cases becomes redundant and should be deleted, not weakened.
-    const fonteNavegacao = readFileSync(ARQ_NAVEGACAO, 'utf8');
-
-    it('FLOOR: a lista viva foi extraida', () => {
-        const bloco = fatia(fonteNavegacao, 'const SELECTION_BOX_TYPES = [', ']');
-        expect(bloco, 'a ancora SELECTION_BOX_TYPES sumiu: leia ESTE caso, nao o de paridade').not.toBeNull();
-        expect(literais(bloco).length).toBeGreaterThanOrEqual(4);
-    });
-
-    it('a lista viva e exatamente os tipos com selectionBox no registro', () => {
-        const bloco = fatia(fonteNavegacao, 'const SELECTION_BOX_TYPES = [', ']');
-        const viva = literais(bloco ?? '');
-        const doRegistro = FEATURE_TYPE_REGISTRY.filter(r => r.selectionBox).map(r => r.type);
-        // Absolute alongside the comparative, so two identically-wrong copies cannot agree
-        // their way to green.
-        expect(doRegistro).toEqual(['text', 'image', 'military_symbol', 'magnetic_declination']);
-        expect([...viva].sort()).toEqual([...doRegistro].sort());
-    });
-
-    it('controle positivo: o extrator devolve VAZIO quando a ancora muda', () => {
-        expect(fatia('const OUTRO_NOME = [\'text\'];', 'const SELECTION_BOX_TYPES = [', ']')).toBeNull();
     });
 });

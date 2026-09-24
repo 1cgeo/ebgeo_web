@@ -35,14 +35,19 @@
  *                 `copiable`       clipboard copies it (the inverse of UNCOPYABLE_FEATURE_TYPES)
  *                 `imageResource`  carries a blob in the image store
  *                 `selectionBox`   zoom-to uses `properties.selectionBox` instead of the
- *                                  geometry (`SELECTION_BOX_TYPES`, `feature_navigation_utils.js`)
+ *                                  geometry (`SELECTION_BOX_TYPES`, `feature_navigation_utils.js`,
+ *                                  which derives from this field)
  *
- * `imageResource` and `selectionBox` differ on exactly two types (`text` has a selection box
- * and no image; `coordination_measure` has an image and no selection box). One combined
- * flag would have been wrong for both, in opposite directions.
+ * `imageResource` and `selectionBox` differ on exactly one type: `text` has a selection box
+ * and no image. Until 2026-09-24 the field also said `coordination_measure` and
+ * `engineering_symbol` had no box, copied from a hand-written list, while both controls do
+ * compute and store one (the engineering control extends the coordination one), so
+ * "Centralizar no mapa" flew them to zoom 15 instead of fitting the symbol like the
+ * military symbol. Read the control, not a list, before setting this field.
  *
  * WHAT THIS DOES NOT DO, so nobody plans from the wrong belief: it does not migrate the
- * peripheral lists. Today exactly one file derives from it (`store.constants.js`). The
+ * peripheral lists. Today two files derive from it (`store.constants.js` and
+ * `feature_navigation_utils.js`, the second migrated by the bug above). The
  * others are inventoried, with a written reason each, by
  * `frontend/tests/unit/registro-tipos-cobertura.test.js`, which is also what turns red when
  * a row lands here and a list that promises completeness never hears about it. Migrating a
@@ -159,13 +164,13 @@ export const FEATURE_TYPE_REGISTRY = Object.freeze([
     Object.freeze({
         type: 'coordination_measure', storage: 'coordination_measures',
         label: 'Medida de Coordenação', icon: './images/icon_coordination_black.svg',
-        selectable: true, copiable: true, imageResource: true, selectionBox: false,
+        selectable: true, copiable: true, imageResource: true, selectionBox: true,
     }),
 
     Object.freeze({
         type: 'engineering_symbol', storage: 'engineering_symbols',
         label: 'Símbolo de Engenharia', icon: './images/icon_engineering_black.svg',
-        selectable: true, copiable: true, imageResource: true, selectionBox: false,
+        selectable: true, copiable: true, imageResource: true, selectionBox: true,
     }),
 
     // ----- analysis tools -----

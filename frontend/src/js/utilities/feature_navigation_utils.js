@@ -6,10 +6,16 @@
  * @module utilities/feature_navigation_utils
  */
 import { getSourceTypeFromStorage } from '@store';
+import { FEATURE_TYPE_REGISTRY } from '@store/feature-type.registry.js';
 import { maplibregl } from '@js/map/maplibre.js';
 
-/** Feature types that use a selectionBox polygon for zoom bounds. */
-const SELECTION_BOX_TYPES = ['text', 'image', 'military_symbol', 'magnetic_declination'];
+/**
+ * Feature types that use a selectionBox polygon for zoom bounds, read from the registry.
+ * Written by hand until 2026-09-24, it had drifted from the controls: coordination measures
+ * and engineering symbols store a box too, and were flown to zoom 15 instead of fitted like
+ * the military symbol.
+ */
+const SELECTION_BOX_TYPES = Object.freeze(FEATURE_TYPE_REGISTRY.filter((r) => r.selectionBox).map((r) => r.type));
 
 /**
  * Approximate degree-to-pixel scale factor for padding calculation.

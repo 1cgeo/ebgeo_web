@@ -93,7 +93,11 @@ const CENSO = [
     // ---------- DERIVA ----------
     {
         arquivo: 'store/store.constants.js', deriva: true,
-        motivo: 'The six type constants of the store are derived from the registry, one pass each. This is the only file in the repository that derives today.',
+        motivo: 'The six type constants of the store are derived from the registry, one pass each.',
+    },
+    {
+        arquivo: 'utilities/feature_navigation_utils.js', deriva: true,
+        motivo: 'SELECTION_BOX_TYPES: the types whose zoom-to reads properties.selectionBox instead of the geometry, read from the registry field `selectionBox`. Migrated on 2026-09-24 by the bug it caused: the hand-written copy left out coordination measures and engineering symbols, which store a box too, and "Centralizar no mapa" flew them to zoom 15 instead of fitting them like the military symbol.',
     },
 
     // ---------- COMPLETA ----------
@@ -170,10 +174,6 @@ const CENSO = [
     {
         arquivo: 'toolbar/toolbar.constants.js',
         motivo: 'Toolbar buttons are keyed by TOOL id, which is a fourth vocabulary (the tool, not the feature). The military tools are grouped under their own ids, so the overlap with type names is partial by construction.',
-    },
-    {
-        arquivo: 'utilities/feature_navigation_utils.js',
-        motivo: 'SELECTION_BOX_TYPES: the four types whose zoom-to reads properties.selectionBox instead of the geometry. Pinned against the registry field `selectionBox` by registro-tipos-feicao.test.js without being migrated.',
     },
     {
         arquivo: 'temporal/temporal.constants.js',

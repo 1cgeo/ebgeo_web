@@ -14,8 +14,9 @@
  * - the `typeof coordArray[0] === 'number' && length >= 2` leaf test, which
  *   keeps a 3-component `[lng, lat, z]` intact, silently drops a 1-component
  *   array, and drops string coordinates without throwing;
- * - the selectionBox override: only for the four declared sources, and only
- *   when the box is a Polygon;
+ * - the selectionBox override: only for the six sources the registry flags
+ *   (`selectionBox` in `feature-type.registry.js`), and only when the box is a
+ *   Polygon;
  * - the padding formula and its clamp to [50, 200];
  * - the two early exits (no geometry, no coordinates) that leave the map alone.
  *
@@ -251,8 +252,11 @@ describe('zoomToFeature — the selectionBox override', () => {
         coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]],
     };
 
-    it('uses the selectionBox for the four declared sources', async () => {
-        for (const source of ['text', 'image', 'military_symbol', 'magnetic_declination']) {
+    // Written out ABSOLUTELY, not read from the registry: the list and the registry field agreed
+    // with each other for months while both left out the two symbols below.
+    it('uses the selectionBox for the six sources the registry flags', async () => {
+        const seis = ['text', 'image', 'military_symbol', 'coordination_measure', 'engineering_symbol', 'magnetic_declination'];
+        for (const source of seis) {
             lastBounds = null;
             const map = await fly(
                 { type: 'Point', coordinates: [50, 50] },
