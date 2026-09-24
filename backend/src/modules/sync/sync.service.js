@@ -507,15 +507,17 @@ function normalizeSlidePayload(rawData, envelopeMapId) {
     }
   }
 
-  // THE ENVELOPE NAMES THE PARENT, and it wins over whatever the payload carries. The client logs
-  // every slide op with the briefing it belongs to in the envelope's `mapId` slot, while the payload
-  // is a copy of a slide that may carry the `briefing_id` of ANOTHER briefing: a slide imported from
-  // briefing X into briefing Y kept X's `briefing_id` (a snapshot slide spreads every column), and
-  // the copy was created under X on the server, missing from Y after an F5 and an orphan in X
-  // (`frontend/tests/e2e-ui/briefing-editor-cobertura.spec.js`). The payload's own parent is the
-  // fallback for a caller that sends no envelope parent.
-  const parent = envelopeMapId ?? rawData.briefingId ?? rawData.briefing_id;
-  if (parent !== undefined && parent !== rawData.briefing_id) patch.briefing_id = parent;
+  // THE PAYLOAD'S `briefing_id` NAMES THE PARENT, and the envelope is only the fallback. That is the
+  // contract the transport specs pin (`frontend/tests/e2e-ui/browser-briefing-slides.spec.js` sends
+  // the MAP id in the envelope and the briefing in the payload). Letting the envelope win (2026-09-24,
+  // for a slide copied from briefing X into Y that still carried X's `briefing_id`) broke that
+  // contract: those slides went under the map's id and were never written. The copy is closed on the
+  // client instead: it no longer sends `briefing_id` at all (`frontend/src/js/store/sync/
+  // slide-shape.js`), so its slide ops fall through to the envelope here.
+  if (rawData.briefing_id === undefined) {
+    const parent = rawData.briefingId ?? envelopeMapId ?? undefined;
+    if (parent !== undefined) patch.briefing_id = parent;
+  }
 
   return Object.keys(patch).length ? { ...rawData, ...patch } : rawData;
 }
