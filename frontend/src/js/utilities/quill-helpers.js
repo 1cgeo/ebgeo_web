@@ -40,8 +40,12 @@ export const QUILL_DOMPURIFY_CONFIG = {
     ],
     // With data attributes off, a listed attribute's VALUE is checked against the URI pattern
     // above, and "bullet" is not a URI, so `data-list` was still removed. It carries a keyword
-    // Quill reads, never a URL.
-    ADD_URI_SAFE_ATTR: ['data-list'],
+    // Quill reads, never a URL. The same check removed four more listed attributes, all measured:
+    // `target` and `rel` of the links Quill writes (`_blank`, `noopener noreferrer`), so a link in a
+    // presented slide took the EBGeo tab away mid-presentation
+    // (`frontend/tests/e2e-ui/briefing-link-e-figura-no-sanitize.repro.spec.js`), and `width` and
+    // `height` of a picture. None of them carries a URL.
+    ADD_URI_SAFE_ATTR: ['data-list', 'target', 'rel', 'width', 'height'],
     ALLOWED_URI_REGEXP: /^(?:(?:https?|data):)/i,
     ALLOW_DATA_ATTR: false,
     ADD_ATTR: ['target'],
