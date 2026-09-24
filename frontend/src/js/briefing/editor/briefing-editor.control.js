@@ -2001,7 +2001,25 @@ export class BriefingEditorControl {
         //    edição e perder nada. `pagehide` vai junto porque é o único que dispara no
         //    descarte de aba do Safari/iOS, onde `beforeunload` não chega; o par não custa duas
         //    gravações, porque `_flushAutosave` só faz algo se houver temporizador pendente.
-        addDomListener(this, window, 'beforeunload', descarregar);
+        //
+        //    E O "BEST-EFFORT" NÃO VALE NO FIREFOX, medido em 2026-09-23: com texto digitado e F5
+        //    dentro da janela do autosave, a gravação disparada aqui não chega ao disco (2 de 2
+        //    perdidas; no Chromium, 4 de 4 gravadas). Por isso, havendo edição pendente, o
+        //    `beforeunload` também PEDE CONFIRMAÇÃO, o mesmo padrão de `DebouncedPersist`
+        //    (`warnBeforeUnload`) no painel de estilo de camada: o diálogo do navegador é o tempo em
+        //    que a gravação já disparada termina. Sem pendência nada é pedido. Repro:
+        //    `tests/e2e-ui/briefing-texto-sobrevive-ao-f5.repro.spec.js`.
+        addDomListener(this, window, 'beforeunload', (event) => {
+            // `_hasUnsavedChanges`, e NAO o temporizador: o id de um temporizador ja disparado fica
+            // no campo, e ele diz "pendente" tambem depois da gravacao. A marca so cai quando `_save`
+            // grava, entao ela cobre tambem a gravacao em voo e a que falhou.
+            const pendente = this._hasUnsavedChanges === true;
+            descarregar();
+            if (pendente && event) {
+                event.preventDefault?.();
+                event.returnValue = '';
+            }
+        });
         addDomListener(this, window, 'pagehide', descarregar);
 
         // 2. A CONEXÃO CAINDO. Aqui a gravação local continua CERTA e a op fica na fila para
