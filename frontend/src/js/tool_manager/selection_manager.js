@@ -551,6 +551,7 @@ class SelectionManager {
                 // Skip if special tools are active
                 if (this.vectorTileInfoControl?.isActive) return;
                 if (this.rectangleSelectionControl?.isActive) return;
+                if (getControl('ProcessingClipDraw')?.isCapturingMapClicks?.()) return;
 
                 const activeTool = this.getActiveTool();
                 if (activeTool) return;
@@ -618,6 +619,8 @@ class SelectionManager {
         // Skip if special tools are active
         if (this.vectorTileInfoControl?.isActive) return;
         if (this.rectangleSelectionControl?.isActive) return;
+        // The Voronoi panel is drawing its clip rectangle: the click is a corner, not a selection.
+        if (getControl('ProcessingClipDraw')?.isCapturingMapClicks?.()) return;
         // Skip while the trajectory editor is appending keypoints: those map clicks
         // add waypoints to the selected feature and must not deselect it (which would
         // close the panel and tear down the editor).
