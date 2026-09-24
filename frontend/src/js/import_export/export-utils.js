@@ -12,6 +12,8 @@ import { getControl } from '@store/control.registry.js';
 // Leaf too (zero imports); `layers/styles/tactical.layers.js` already reaches for
 // it from the same side of the graph.
 import { isScreenAnchored } from '@tools/helpers/boundary-zoom.model.js';
+// The live map's registry of source → layer name; exporters copy that map's sources.
+import { getLayerFailureNotice } from '@js/terrain/layer-failure-notice.js';
 
 /**
  * Source configurations for zoom-invariant feature correction.
@@ -283,15 +285,99 @@ export function transferMapImages(sourceMap, targetMap) {
  *
  * The listener dies with the map (`remove()`), which every exporter already calls.
  *
+ * It RETURNS the ids of the sources that failed, because a repaint makes the export finish, not
+ * the layer appear: the exporter names the visible ones to the person
+ * ({@link missingExportLayerNames}), instead of handing over a file silently without them.
+ *
  * @param {maplibregl.Map} map - The off-screen map of an export.
- * @returns {void}
+ * @returns {Set<string>} Filled as sources fail; read it once the map is drawn.
  */
 export function repaintOnSourceError(map) {
+    const failed = new Set();
     map.on('error', (event) => {
+        // Only a SOURCE that failed (its TileJSON), never one tile of it: MapLibre stamps `tile` on
+        // a tile's error, and one tile missing at the edge of a basemap's coverage is not a layer
+        // missing from the file.
+        if (typeof event?.sourceId === 'string' && event.sourceId && !event.tile) failed.add(event.sourceId);
         // A listener silences MapLibre's own console.error for the event; keep it visible.
         console.warn('Export map: a source failed to load:', event?.error?.message ?? event);
         map.triggerRepaint();
     });
+    return failed;
+}
+
+/** How long an export waits for its off-screen map before drawing what it already has, in ms. */
+export const EXPORT_MAP_DEADLINE_MS = 30000;
+
+/**
+ * Waits for `load` or `idle` on an off-screen export map, and NEVER forever.
+ *
+ * {@link repaintOnSourceError} covers a source that fails; this covers the one that never
+ * answers at all (a tile server that accepts the connection and goes quiet), and the person who
+ * gives up: "Cancelar" used to close the modal while the export stayed parked on this await, with
+ * `_exporting` true and the export button disabled until a reload. Resolves with WHY it stopped,
+ * so the caller can tell a map that finished from one that was cut short.
+ *
+ * @param {maplibregl.Map} map
+ * @param {'load'|'idle'} event
+ * @param {Object} [options]
+ * @param {() => boolean} [options.isCancelled] - Polled; true ends the wait at once.
+ * @param {number} [options.deadlineMs]
+ * @returns {Promise<'ok'|'deadline'|'cancelled'>}
+ */
+export function waitForExportMap(map, event, { isCancelled = () => false, deadlineMs = EXPORT_MAP_DEADLINE_MS } = {}) {
+    return new Promise((resolve) => {
+        let done = false;
+        const finish = (outcome) => {
+            if (done) return;
+            done = true;
+            clearTimeout(deadline);
+            clearInterval(poll);
+            map.off(event, onEvent);
+            resolve(outcome);
+        };
+        const onEvent = () => finish('ok');
+        const deadline = setTimeout(() => finish('deadline'), deadlineMs);
+        const poll = setInterval(() => { if (isCancelled()) finish('cancelled'); }, 200);
+        map.on(event, onEvent);
+    });
+}
+
+/**
+ * The layers the person SEES on the live map that did not make it into the export: the sources
+ * that failed plus those still loading when the wait gave up. Named by the live map's failure
+ * notice, which already maps a source id to its layer and knows whether it is switched on; a
+ * hidden layer draws nothing either way, so it is not news.
+ *
+ * @param {maplibregl.Map} liveMap
+ * @param {maplibregl.Map} exportMap
+ * @param {Set<string>} failedSourceIds - From {@link repaintOnSourceError}.
+ * @returns {string[]} Distinct names, in style order.
+ */
+export function missingExportLayerNames(liveMap, exportMap, failedSourceIds) {
+    const notice = getLayerFailureNotice(liveMap);
+    const sources = Object.keys(exportMap?.getStyle?.()?.sources ?? {});
+    const names = [];
+    for (const sourceId of sources) {
+        const missing = failedSourceIds.has(sourceId) || exportMap.isSourceLoaded?.(sourceId) === false;
+        if (!missing) continue;
+        const name = notice.visibleLayerNameOf(sourceId);
+        if (name && !names.includes(name)) names.push(name);
+    }
+    return names;
+}
+
+/**
+ * The sentence for {@link missingExportLayerNames}: what came out without what, and what to do.
+ * @param {string[]} names
+ * @param {string} [what='O PDF']
+ * @returns {string|null} Null when nothing is missing.
+ */
+export function missingExportLayersNotice(names, what = 'O PDF') {
+    if (!Array.isArray(names) || names.length === 0) return null;
+    const lista = names.map((n) => `"${n}"`).join(', ');
+    const sujeito = names.length === 1 ? `a camada ${lista}, que não carregou` : `as camadas ${lista}, que não carregaram`;
+    return `${what} saiu sem ${sujeito}. Confira no mapa e exporte de novo.`;
 }
 
 // ===== EXPORT PROGRESS MODAL =====

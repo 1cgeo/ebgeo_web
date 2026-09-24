@@ -412,6 +412,23 @@ export class LayerFailureNotice {
         return null;
     }
 
+    /**
+     * The name of the layer a source id of THIS map belongs to, as the panel prints it, when the
+     * person has it switched on. Null for a source no surface claims or a layer that is off.
+     *
+     * Read by the exporters: their off-screen map copies this map's sources, and a source that
+     * does not load there must be NAMED to the person instead of leaving a file silently without
+     * it (`missingExportLayerNames`, `import_export/export-utils.js`).
+     * @param {string} sourceId
+     * @returns {string|null}
+     */
+    visibleLayerNameOf(sourceId) {
+        const hit = this._resolve(sourceId);
+        if (!hit || !this._isVisible(hit)) return null;
+        if (hit.kind === BASEMAP_SURFACE) return this._basemapName ?? 'Mapa base';
+        return this._nameOf(hit.kind, hit.layerId) ?? null;
+    }
+
     /** @private The basemap is always "on": it is what the map is made of. */
     _isVisible({ kind, layerId }) {
         if (kind === BASEMAP_SURFACE) return true;

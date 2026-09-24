@@ -30,7 +30,11 @@ import {
     drawMosaicTileBorder,
     drawMosaicCartographicOverlay,
 } from './pdf-cartographic-elements.js';
-import { transferMapImages, correctZoomInvariantFeatures, repaintOnSourceError } from './export-utils.js';
+import {
+    transferMapImages, correctZoomInvariantFeatures, repaintOnSourceError, waitForExportMap,
+    missingExportLayerNames,
+} from './export-utils.js';
+import { credencialDeTile } from '@js/map/credencial-de-tile.js';
 import { parseScaleDenom, MOSAIC_BORDER_MM, MOSAIC_OVERLAP_MM } from './pdf-export.constants.js';
 import { maplibregl } from '@js/map/maplibre.js';
 
@@ -86,6 +90,8 @@ function waitForIdle(hiddenMap, timeoutMs = 20000) {
  * @param {boolean} [config.includeVerso=true]
  * @param {(percent:number, text:string) => void} [config.updateProgress]
  * @param {() => boolean} [config.isCancelled]
+ * @param {(names: string[]) => void} [config.onMissingLayers] - Called after the download with the
+ *   visible layers that did not load into the mosaic, so the caller can name them.
  * @returns {Promise<boolean>} true if a PDF was produced, false if cancelled
  */
 export async function exportMosaicPdf(config) {
@@ -111,6 +117,7 @@ export async function exportMosaicPdf(config) {
         overlapMm = MOSAIC_OVERLAP_MM,
         updateProgress = () => {},
         isCancelled = () => false,
+        onMissingLayers = () => {},
     } = config;
 
     const page = pageSizeMm(orientation);
@@ -166,11 +173,13 @@ export async function exportMosaicPdf(config) {
             // novo (4) fatia os tiles e desloca o rótulo de centro de polígono, e a imagem
             // exportada deixaria de bater com a da tela.
             zoomLevelsToOverscale: undefined,
+            // The SAME credential as the live map: see the single-sheet construction.
+            transformRequest: credencialDeTile,
         });
 
         // Before the `load` await: see the helper for the hang it prevents.
-        repaintOnSourceError(hiddenMap);
-        await new Promise((resolve) => hiddenMap.once('load', resolve));
+        const fontesQueFalharam = repaintOnSourceError(hiddenMap);
+        if (await waitForExportMap(hiddenMap, 'load', { isCancelled }) === 'cancelled') return false;
         transferMapImages(map, hiddenMap);
 
         if (isCancelled()) return false;
@@ -252,7 +261,9 @@ export async function exportMosaicPdf(config) {
         updateProgress(95, 'Gerando PDF...');
         const stamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
         const fileName = `mosaico-${rows}x${cols}-${scale.replace(':', '-')}-${dpi}dpi-${stamp}.pdf`;
+        const faltando = missingExportLayerNames(map, hiddenMap, fontesQueFalharam);
         doc.save(fileName);
+        if (faltando.length) onMissingLayers(faltando);
 
         updateProgress(100, 'Download concluído!');
         return true;

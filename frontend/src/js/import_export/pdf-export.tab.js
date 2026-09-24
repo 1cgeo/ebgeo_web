@@ -1,5 +1,5 @@
 // Path: js/import_export/pdf-export.tab.js
-import { showError } from '@utils/toast_service.js'
+import { showError, showWarning } from '@utils/toast_service.js'
 // GDAL entra SOB DEMANDA, e nao mais por `<script>` no `index.html`. Eram 187 kB
 // que a pagina do mapa baixava em toda carga sem ninguem ler no boot. O `/* global
 // initGdalJs */` que estava aqui saiu junto: desde 2026-09-14 o global nao e lido
@@ -13,6 +13,9 @@ import {
     correctZoomInvariantFeatures,
     transferMapImages,
     repaintOnSourceError,
+    waitForExportMap,
+    missingExportLayerNames,
+    missingExportLayersNotice,
     createExportProgressModal,
     getCleanMapStyle,
 } from './export-utils.js'
@@ -44,6 +47,7 @@ import { isVisibleUnderTemporal } from '@js/temporal/temporal-model.js'
 import { registrarUso } from '@js/session/uso-lote.js'
 import { EventoDeUso, PropDeUso } from '@js/session/eventos-de-uso.js'
 import { maplibregl } from '@js/map/maplibre.js'
+import { credencialDeTile } from '@js/map/credencial-de-tile.js'
 
 export default class PDFExportTab {
     constructor(map) {
@@ -931,6 +935,10 @@ export default class PDFExportTab {
                 includeVerso: true,
                 updateProgress: (percent, text) => this.updateProgress(percent, text),
                 isCancelled: () => this._exportCancelled,
+                onMissingLayers: (nomes) => {
+                    const faltando = missingExportLayersNotice(nomes, 'O mosaico');
+                    if (faltando) showWarning(faltando);
+                },
             });
 
             if (ok) {
@@ -1048,9 +1056,13 @@ export default class PDFExportTab {
                 // padrão novo (4) fatia os tiles e desloca o rótulo de centro de polígono, e a
                 // imagem exportada deixaria de bater com a da tela.
                 zoomLevelsToOverscale: undefined,
+                // The SAME credential as the live map (`map_sig.js`): without it a private layer the
+                // person sees on screen, lent by the atlas (`?atlasId=`) or read with the public
+                // link's token, is refused here and the file comes out without it.
+                transformRequest: credencialDeTile,
             });
             // Before the `idle` await below: see the helper for the hang it prevents.
-            repaintOnSourceError(hiddenMap);
+            const fontesQueFalharam = repaintOnSourceError(hiddenMap);
 
             this.updateProgress(40, 'Transferindo recursos...');
 
@@ -1069,7 +1081,8 @@ export default class PDFExportTab {
             const mapBounds = [this.usableBounds.bottomLeft, this.usableBounds.topRight];
             hiddenMap.fitBounds(mapBounds, { padding: 0, duration: 0 });
 
-            await new Promise(resolve => hiddenMap.once('idle', resolve));
+            const espera = await waitForExportMap(hiddenMap, 'idle', { isCancelled: () => this._exportCancelled });
+            if (espera === 'cancelled') return;
 
             // Hidden map is always rendered north-up (bearing = 0).
             // GDAL's -a_ullr only supports axis-aligned georeferencing;
@@ -1085,7 +1098,7 @@ export default class PDFExportTab {
             const hadChanges = await correctZoomInvariantFeatures(hiddenMap, finalZoom);
 
             if (hadChanges) {
-                await new Promise(resolve => hiddenMap.once('idle', resolve));
+                await waitForExportMap(hiddenMap, 'idle', { isCancelled: () => this._exportCancelled });
             }
 
             this.updateProgress(80, 'Finalizando...');
@@ -1182,6 +1195,11 @@ export default class PDFExportTab {
             // sai por `return` e todo erro cai no `catch`, entao esta linha so e alcancada quando
             // o arquivo de fato saiu.
             registrarUso(EventoDeUso.PDF_EXPORTADO, PropDeUso.PDF_FOLHA);
+
+            // A layer the person sees that did not load here (failed, or still loading when the wait
+            // gave up) is NAMED, instead of handing over a file silently without it.
+            const faltando = missingExportLayersNotice(missingExportLayerNames(this.map, hiddenMap, fontesQueFalharam));
+            if (faltando) showWarning(faltando);
 
             // Capture locally so a quick second export does not get its modal
             // dismissed by this stale timeout (this._progress may be reassigned).

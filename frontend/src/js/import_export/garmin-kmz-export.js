@@ -17,15 +17,19 @@
  */
 
 import JSZip from 'jszip';
-import { showError } from '@utils/toast_service.js';
+import { showError, showWarning } from '@utils/toast_service.js';
 import {
     correctZoomInvariantFeatures,
     transferMapImages,
     repaintOnSourceError,
+    waitForExportMap,
+    missingExportLayerNames,
+    missingExportLayersNotice,
     createExportProgressModal,
     getCleanMapStyle,
 } from './export-utils.js';
 import { maplibregl } from '@js/map/maplibre.js';
+import { credencialDeTile } from '@js/map/credencial-de-tile.js';
 
 const MAX_TILES = 100;
 const TILE_SIZE = 1024;
@@ -559,16 +563,18 @@ export class GarminKmzExport {
                 // padrao novo (4) fatia os tiles e desloca o rotulo de centro de poligono, e a
                 // imagem exportada deixaria de bater com a da tela.
                 zoomLevelsToOverscale: undefined,
+                // The SAME credential as the live map: see the single-sheet PDF construction.
+                transformRequest: credencialDeTile,
             });
 
             // Before the `idle` awaits below: see the helper for the hang it prevents.
-            repaintOnSourceError(hiddenMap);
+            const fontesQueFalharam = repaintOnSourceError(hiddenMap);
 
             // Transfer custom images
             transferMapImages(this.map, hiddenMap);
 
             // Wait for initial load
-            await new Promise(resolve => hiddenMap.once('idle', resolve));
+            await waitForExportMap(hiddenMap, 'idle', { isCancelled: () => this._exportCancelled });
             if (this._exportCancelled) return;
 
             progress.updateProgress(15, 'Corrigindo feicoes...');
@@ -576,7 +582,7 @@ export class GarminKmzExport {
             // Correct zoom-invariant features once (all tiles share the same zoom)
             const hadChanges = await correctZoomInvariantFeatures(hiddenMap, zoom);
             if (hadChanges) {
-                await new Promise(resolve => hiddenMap.once('idle', resolve));
+                await waitForExportMap(hiddenMap, 'idle', { isCancelled: () => this._exportCancelled });
             }
             if (this._exportCancelled) return;
 
@@ -601,7 +607,7 @@ export class GarminKmzExport {
 
                 // Jump to this tile's center and wait for full render
                 hiddenMap.jumpTo({ center: [tile.centerLng, tile.centerLat], zoom });
-                await new Promise(resolve => hiddenMap.once('idle', resolve));
+                await waitForExportMap(hiddenMap, 'idle', { isCancelled: () => this._exportCancelled });
 
                 const sourceCanvas = hiddenMap.getCanvas();
 
@@ -667,6 +673,9 @@ export class GarminKmzExport {
             URL.revokeObjectURL(url);
 
             setTimeout(() => progress.remove(), 800);
+
+            const faltando = missingExportLayersNotice(missingExportLayerNames(this.map, hiddenMap, fontesQueFalharam), 'O arquivo do Garmin');
+            if (faltando) showWarning(faltando);
 
         } catch (error) {
             if (!this._exportCancelled) {
