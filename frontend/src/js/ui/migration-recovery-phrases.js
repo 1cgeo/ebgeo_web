@@ -37,6 +37,18 @@ export const CONTINUAR_CONFIRMAR_LABEL = 'Apagar e abrir o EBGeo';
 /** Label of the way out of the second step. */
 export const CONTINUAR_CANCELAR_LABEL = 'Manter meus dados';
 
+/**
+ * The WAIT for a window of the previous version to close (2026-09-23). It is not the recovery
+ * screen and it has no command: the person's one move is closing the old window, and the gate goes
+ * on by itself when it closes (`utilities/espera-versao-antiga.js`). A button here would be a
+ * third way to lose the wait, and "Continuar" in particular used to be a way to lose the data.
+ */
+export const ESPERA_VERSAO_ANTIGA_TITULO = 'Há uma janela antiga do EBGeo aberta';
+
+/** Body of the wait above: the action, and that nothing else is needed. */
+export const ESPERA_VERSAO_ANTIGA_TEXTO = 'Feche a outra janela do EBGeo neste computador. '
+    + 'Esta página continua sozinha quando ela fechar.';
+
 /** What the screen says while the file is being prepared. */
 export const BAIXANDO = 'Preparando o arquivo com os seus dados…';
 
@@ -63,8 +75,8 @@ export const SAIDAS = 'Há duas saídas: baixar uma cópia dos seus dados para g
  */
 const CAUSAS = Object.freeze({
     legacy_tab: 'Há uma janela do EBGeo com a versão antiga aberta neste computador, e ela pode '
-        + 'gravar por cima da atualização. Feche a outra janela e recarregue esta página: nada '
-        + 'precisa ser apagado para isso.',
+        + 'gravar por cima da atualização. Feche a outra janela e recarregue esta página antes de '
+        + 'escolher uma das saídas.',
     legacy_changes: 'A versão antiga gravou alterações que não puderam ser guardadas sozinhas em '
         + 'outro atlas. Baixe seus dados antes de continuar.',
     source_changed: 'Os dados antigos mudaram durante a atualização, e refazer a cópia não bastou. '

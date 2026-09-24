@@ -4,7 +4,7 @@ import { EventoDeUso, PropDeUso } from '@js/session/eventos-de-uso.js';
 import { relatarErro } from '@js/session/erro-telemetria.js';
 import { OrigemDeErro } from '@js/session/origens-de-erro.js';
 import { instalarMonitoramentoDePendencias } from '@js/session/pendencias-monitoramento.js';
-import { createTabLock, noneKey } from '../utilities/tab-lock.js';
+import { aVersaoAntigaResponde, esperarAVersaoAntigaFechar } from '../utilities/espera-versao-antiga.js';
 import { LateResult, absorbLateLegacyChangesNow, legacyHasChanged } from '../store/migration/legacy-transition.js';
 import {
     ReparoAutomatico, prepareLegacyTransitionResiliente, recuperarAlteracoesTardias
@@ -15,7 +15,8 @@ import { pruneAbandonedCopies } from '../store/migration/legacy-cleanup.js';
 import { apontarParaORecuperado } from '../store/migration/abrir-recuperado.js';
 import {
     APAGANDO, BAIXANDO, BAIXAR_LABEL, CONTINUAR_CANCELAR_LABEL, CONTINUAR_CONFIRMAR_LABEL,
-    CONTINUAR_LABEL, SAIDAS, alteracoesGuardadasEm, apagarBloqueado, apagarConcluido,
+    CONTINUAR_LABEL, ESPERA_VERSAO_ANTIGA_TEXTO, ESPERA_VERSAO_ANTIGA_TITULO, SAIDAS,
+    alteracoesGuardadasEm, apagarBloqueado, apagarConcluido,
     apagarConfirmacao, baixarFalhou, baixouComoCopiaBruta, baixouComoEbgeo, causaDaFalha
 } from './migration-recovery-phrases.js';
 import { MigrationRecoveryError } from '../store/migration/transition-state.js';
@@ -330,6 +331,39 @@ async function reportRepairs(reparos, { mapa = false } = {}) {
 }
 
 /**
+ * A TAB OF THE PREVIOUS VERSION STILL OPEN IS A WAIT, NOT A FAILURE (2026-09-23, under the
+ * resilience rule of the product-line switch, for the owner to confirm).
+ *
+ * It is the most common case of the switch: whoever had the old EBGeo open when the version changed
+ * opens the new one in a second tab. This used to draw the two-exit recovery screen (download the
+ * data or DELETE it), and the right way out, closing the old window, had no button at all. Now the
+ * screen names that way out and has NO command, and the gate goes on by itself once the old tab
+ * stops answering (`utilities/espera-versao-antiga.js`): nothing to click, nothing to reload.
+ *
+ * The first question keeps the 100 ms window it always had, because every boot pays it.
+ *
+ * @returns {Promise<void>}
+ */
+async function esperarSeAVersaoAntigaEstiverAberta() {
+    try {
+        if (!await aVersaoAntigaResponde({ janelaMs: 100 })) return;
+        registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_ABA_ANTIGA);
+        descarregarUso();
+        console.info('Atualização local: esperando a janela da versão antiga fechar.');
+        makeScreen(ESPERA_VERSAO_ANTIGA_TITULO, ESPERA_VERSAO_ANTIGA_TEXTO);
+        await esperarAVersaoAntigaFechar();
+    } catch (error) {
+        // A PROBE THAT BREAKS DOES NOT STOP THE BOOT. It is the regime of a browser without the
+        // channel (the probe sees nothing), and what protects the data from a live old tab is the
+        // copy itself: every record is checked against its fingerprint, and a late write is absorbed
+        // or rescued (`legacy-transition.js`).
+        console.warn('Atualização local: a sonda da versão antiga falhou; seguindo.', error?.message);
+    } finally {
+        closeScreen();
+    }
+}
+
+/**
  * @param {{ mapa?: boolean }} [opcoes] - `mapa` on the map page (`index.js`): the rescued atlas
  *   opens there, and the notice says so. The other three pages only move the pointer.
  * @returns {Promise<boolean>}
@@ -337,16 +371,16 @@ async function reportRepairs(reparos, { mapa = false } = {}) {
 export async function runLegacyUpgradeGate({ mapa = false } = {}) {
     registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_INICIO);
     descarregarUso();
+    // BEFORE the progress card is armed: waiting for a window to close is not copying anything, and
+    // the card would say that it is.
+    await esperarSeAVersaoAntigaEstiverAberta();
     // ARMED, not drawn: on a machine with nothing to migrate this gate settles in a fraction of a
     // second, and the card used to flash on every boot. See `deferred-screen.js`.
     const progress = createDeferredScreen({
         message: 'Verificando a atualização dos dados locais…',
         show: (message) => makeScreen('Preparando seus dados', message),
     });
-    const probe = createTabLock({ key: noneKey(), overlayHost: null, autoPulse: false });
     try {
-        await probe.acquire(noneKey(), { settleMs: 100 });
-        if (probe.legacyPeerDetected) throw new MigrationRecoveryError('legacy_tab', 'Há uma janela da versão antiga aberta.');
         // RESILIENTE: the repairs this screen used to ask the person to choose are taken here,
         // within a budget, and the screen below is what is left when they did not work. See
         // `store/migration/transicao-resiliente.js`.
@@ -371,16 +405,15 @@ export async function runLegacyUpgradeGate({ mapa = false } = {}) {
     } catch (error) {
         // Same reason, other exit: a late timer would REPLACE the recovery screen drawn below.
         progress.cancel();
-        if (error.code === 'legacy_tab') registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_ABA_ANTIGA);
-        else if (error.code === 'legacy_changes') registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_CONFLITO);
+        if (error.code === 'legacy_changes') registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_CONFLITO);
         else if (error instanceof MigrationRecoveryError) registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_FALHA);
         else registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_STORAGE_ERROR);
         descarregarUso();
-        relatarErro(new Error(error.code === 'legacy_tab' ? 'Atualização local: versão antiga aberta' : 'Atualização local interrompida'), { origem: OrigemDeErro.BOOT });
+        relatarErro(new Error('Atualização local interrompida'), { origem: OrigemDeErro.BOOT });
         console.warn('Atualização local interrompida:', error.name, error.code || 'storage_error');
         showMigrationRecovery(error);
         return false;
-    } finally { probe.destroy(); }
+    }
 }
 
 /**

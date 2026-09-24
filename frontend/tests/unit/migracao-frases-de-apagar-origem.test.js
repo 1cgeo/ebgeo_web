@@ -46,7 +46,10 @@ describe('cada causa tem a sua frase', () => {
 
     it('a causa em que a pessoa não precisa apagar nada diz o que ela pode fazer', () => {
         expect(causaDaFalha('legacy_tab')).toContain('Feche a outra janela');
-        expect(causaDaFalha('legacy_tab')).toContain('nada precisa ser apagado');
+        // A frase dizia "nada precisa ser apagado" logo antes de SAIDAS oferecer apagar tudo, e se
+        // contradizia na mesma tela. Desde 2026-09-23 a janela antiga é ESPERA, sem esta tela; se
+        // o código ainda chegar aqui, a frase não pode desmentir o comando ao lado.
+        expect(causaDaFalha('legacy_tab')).not.toContain('nada precisa ser apagado');
         expect(causaDaFalha('drop_blocked')).toContain('Outra janela');
         expect(causaDaFalha('quota')).toContain('espaço');
     });
