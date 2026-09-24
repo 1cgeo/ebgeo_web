@@ -129,6 +129,42 @@ describeOrSkip('o atlas some com trabalho não enviado do colega', () => {
         await pageB.context().close();
     });
 
+    // O COLEGA ESTAVA SEM REDE quando o dono mandou o atlas para a lixeira: o aviso da sala não
+    // chega a ele. Medido em 2026-09-24: quem o tira do atlas ao voltar é o caminho que já existia
+    // (a leitura HTTP do atlas responde 404 e o cliente anuncia o atlas como excluído), e o que este
+    // caso cobra é o RESGATE nessa porta também, que é a mesma saída dos dois casos acima.
+    test('lixeira com o colega SEM REDE: ao voltar, ele sai do atlas com o trabalho guardado', async ({ browser }) => {
+        test.setTimeout(180000);
+        const seed = await seedSharedAtlas(browser, state.baseUrl);
+        const pageB = await openClient(browser, state.baseUrl, seed.atlasId, seed.userB);
+        // A QUEDA DE REDE, só no tempo real: todo socket novo é recusado enquanto `semRede` vale, e o
+        // atual é derrubado. É o que o colega vive com a rede fora (o `setOffline` do Playwright não
+        // derruba um WebSocket já aberto). O HTTP fica de pé, que é o caso do Wi-Fi que volta.
+        let semRede = true;
+        await pageB.context().routeWebSocket(/\/collab/, (ws) => {
+            if (semRede) ws.close();
+            else ws.connectToServer();
+        });
+        await pageB.evaluate(async () => {
+            const { wsClient } = await import('/src/js/store/sync/ws-client.js');
+            wsClient._socket?.close();
+        });
+        await expect(pageB.locator('[data-testid="sync-status-badge"]')).not.toHaveAttribute('data-state', 'online', { timeout: 30000 });
+        const id = await drawPointUI(pageB, [-43.2, -22.9]);
+        await pageB.keyboard.press('Escape');
+
+        // O dono manda para a lixeira: o aviso da sala não alcança quem está sem rede.
+        expect(await acaoDoDono(browser, seed.userA, 'DELETE', `/atlas/${seed.atlasId}`)).toBe(204);
+        semRede = false;
+
+        await pageB.waitForURL(/atlas.html/, { timeout: 90000 });
+        const aviso = pageB.locator('.toast', { hasText: 'excluído' });
+        await expect(aviso).toBeVisible({ timeout: 20000 });
+        expect(await aviso.innerText()).toMatch(/guardad[ao]s? neste computador/);
+        expect(await pontoEmAtlasLocal(pageB, id)).toEqual(['Atlas Colaborativo']);
+        await pageB.context().close();
+    });
+
     test('controle: revogado SEM trabalho pendente, o colega sai do atlas e a lista diz que o acesso acabou', async ({ browser }) => {
         test.setTimeout(180000);
         const seed = await seedSharedAtlas(browser, state.baseUrl);
