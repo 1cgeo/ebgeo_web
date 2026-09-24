@@ -14,6 +14,7 @@ import { generateUUID, isValidUUID } from '../utilities/uuid.js';
 import { deepClone, deepEqual } from '../utilities/deep-utils.js';
 import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
 import { EntityType, OperationType } from './sync/operation-types.js';
+import { clientSlideShape } from './sync/slide-shape.js';
 import { runTransaction } from '@store/store-transaction.js';
 import { withDocumentLock } from '@store/document-lock.js';
 import { getActiveScope } from '@store/atlas-namespace.js';
@@ -149,8 +150,13 @@ async function writeBriefing(id, type, action, label, prepare, missing = null) {
         if (type === OperationType.CREATE && previous) throw new Error('Já existe um briefing com este identificador.');
         const edit = prepare(previous ? deepClone(previous) : null);
         if (!edit) return async () => {};
+        // THE SLIDES LEAVE IN THE CLIENT'S SHAPE. A slide that came back from the server carries
+        // its columns next to the client's fields (`base_layer` beside `baseLayer`), stale from the
+        // last acknowledgement, and the server writes the column when both arrive: the edit stayed
+        // on this screen and nowhere else (`store/sync/slide-shape.js`).
         const next = type === OperationType.DELETE ? null : {
-            ...edit.value, id, slides: edit.value.slides ?? [],
+            ...edit.value, id,
+            slides: Array.isArray(edit.value.slides) ? edit.value.slides.map(clientSlideShape) : edit.value.slides ?? [],
             ...(type === OperationType.UPDATE ? {
                 sync: touchSyncMetadata(previous.sync), createdAt: previous.createdAt, updatedAt: Date.now()
             } : {})
@@ -166,7 +172,7 @@ async function writeBriefing(id, type, action, label, prepare, missing = null) {
         // The briefing envelope carries order/presentation; the server stores each slide separately.
         // Derive the complete set from the observed parent before either write occurs.
         if (next) {
-            const before = new Map((previous?.slides || []).map(slide => [slide.id, slide]));
+            const before = new Map((previous?.slides || []).map(slide => [slide.id, clientSlideShape(slide)]));
             for (const slide of next.slides || []) {
                 const prior = before.get(slide.id);
                 if (!deepEqual(slide, prior)) {

@@ -56,6 +56,7 @@ import {
     stampConfirmedVersionFromRow,
     stampConfirmedVersionFromRows,
 } from './confirmed-version.js';
+import { clientSlideShape } from './slide-shape.js';
 
 /** Key of the schema marker in a scope's settings database (`repository.js` reads it at boot). */
 const SCHEMA_VERSION_KEY = 'schemaVersion';
@@ -1157,10 +1158,12 @@ async function applyRemoteOperationInner(operation, guarded) {
             // One slide, applied on its own (the parent envelope no longer carries slide content
             // to a peer, see `mergeEnvelopeSlides`). The envelope's `mapId` slot carries the
             // briefing id. A live update keeps the slide where it is, because the ORDER belongs to
-            // the envelope; recovery keeps its own rule (the order the intent recorded).
+            // the envelope; recovery keeps its own rule (the order the intent recorded). The
+            // canonical receipt (`localRepair`) is shaped too: it spreads every server column, and a
+            // stored `base_layer` goes stale beside `baseLayer` (`store/sync/slide-shape.js`).
             entityPersisted = await applyLocalSlideIntent(operationType, entityId,
                 mapId ?? data?.briefingId ?? data?.briefing_id ?? null,
-                operation.localRepair ? data : clientSlideShape(data),
+                clientSlideShape(data),
                 { keepPosition: !operation.localRepair, localRepair: operation.localRepair === true });
             break;
         default:
@@ -1961,18 +1964,6 @@ export function mergeEnvelopeSlides(local, envelope) {
     }
     merged.push(...mine.values());
     return merged.map((slide, order) => (slide.order === order ? slide : { ...slide, order }));
-}
-
-/** Keys the server's slide normalization adds to the logged payload; the client model has none. */
-const SERVER_SLIDE_ALIASES = ['_mapName', 'map_id', 'model_id', 'photo_id', 'temporal_cursor',
-    'base_layer', 'temporal_enabled', 'briefing_id'];
-
-/** A live slide op's payload in the client's own shape (the server echoes its normalization). */
-function clientSlideShape(data) {
-    if (!data || typeof data !== 'object') return data;
-    const shaped = { ...data };
-    for (const key of SERVER_SLIDE_ALIASES) delete shaped[key];
-    return shaped;
 }
 
 /**
@@ -3179,6 +3170,9 @@ async function applyRemoteSnapshotInner(snapshot) {
         if (briefing && briefing.id) {
             stampConfirmedVersionFromRow(briefing);
             stampConfirmedVersionFromRows(briefing.slides);
+            // The snapshot spreads every slide column next to the client's fields; stored, they
+            // go stale and shadow the next edit on the server (`store/sync/slide-shape.js`).
+            if (Array.isArray(briefing.slides)) briefing.slides = briefing.slides.map(clientSlideShape);
             await handlerLocalRepository().saveBriefing(briefing.id, briefing);
             emit(EventTypes.BRIEFING_UPDATED, { briefingId: briefing.id, briefing });
         }
