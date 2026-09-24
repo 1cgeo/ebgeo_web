@@ -114,6 +114,7 @@ vi.mock('@sidebar/panels/notes-panel.js', () => ({ sanitizeHtml: (s) => s }));
 
 const { updateFeatureProperty, setFeatureDependencies } = await import('../../src/js/store/feature.operations.js');
 const { resetDocumentLocks } = await import('../../src/js/store/document-lock.js');
+const { addCatalogLayer, updateCatalogLayer } = await import('../../src/js/store/catalog.operations.js');
 const userDataManager = (await import('../../src/js/user_data/user_data_manager.js')).default;
 
 const MAP = 'TestMap';
@@ -177,5 +178,18 @@ describe('o gerente de atributos le e grava sob a mesma trava', () => {
         const f = persistida();
         expect(f.properties.attributes).toEqual({ cota: '9' });
         expect(f.properties.nome).toBe('Original');
+    });
+});
+
+describe('updateCatalogLayer na forma de funcao le a camada sob a trava', () => {
+    it('a funcao recebe a camada guardada NAQUELE instante, com o que o colega gravou no meio', async () => {
+        await addCatalogLayer({ id: 'cat-1', type: 'data_layer', name: 'Rios', styleOverrides: { line: { 'line-color': '#00f' } } });
+        // O "colega" grava por cima, e so' depois a funcao roda.
+        await updateCatalogLayer('cat-1', { styleOverrides: { line: { 'line-color': '#00f', 'line-width': 5 } } });
+        await updateCatalogLayer('cat-1', (atual) => ({
+            styleOverrides: { ...atual.styleOverrides, fill: { 'fill-opacity': 0.4 } },
+        }));
+        const camada = JSON.parse(h.docs.get(MAP)).catalogLayers.find((c) => c.id === 'cat-1');
+        expect(camada.styleOverrides).toEqual({ line: { 'line-color': '#00f', 'line-width': 5 }, fill: { 'fill-opacity': 0.4 } });
     });
 });

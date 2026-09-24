@@ -128,6 +128,9 @@ export class LayerStylePanel {
         // Keep only sub-layer-nested entries — legacy flat overrides (keyed
         // directly by paint property) are dropped rather than carried forward.
         this._overrides = {};
+        // WHAT THIS PANEL CHANGED, and only that, is what it persists (see `_schedulePersist`).
+        this._touched = new Map();
+        this._resetPending = false;
         for (const [key, value] of Object.entries(deepClone(this._layer.styleOverrides || {}))) {
             if (value && typeof value === 'object' && !Array.isArray(value)) {
                 this._overrides[key] = value;
@@ -564,6 +567,7 @@ export class LayerStylePanel {
     _setOverride(subKey, prop, value) {
         if (!this._overrides[subKey]) this._overrides[subKey] = {};
         this._overrides[subKey][prop] = value;
+        this._touched.set(`${subKey}\u0000${prop}`, { subKey, prop, value: deepClone(value) });
         this._applyLive();
         this._schedulePersist();
     }
@@ -585,19 +589,36 @@ export class LayerStylePanel {
 
     /** @private */
     _schedulePersist() {
-        const snapshot = deepClone(this._overrides);
+        // ONLY THE PROPERTIES THIS PANEL TOUCHED, applied over the overrides as stored WHEN THE
+        // WRITE RUNS (the function form of `updateCatalogLayer`, evaluated under the document
+        // lock). The working copy was taken when the panel opened, and persisting it whole erased
+        // every style property a colleague changed on the same layer meanwhile, with an op that
+        // left on an up-to-date base (`frontend/tests/unit/estilo-de-camada-nao-apaga-o-colega.repro.test.js`).
+        // "Restaurar padrão" is the one edit that means the whole value: it clears first.
+        const touched = [...this._touched.values()].map(entry => deepClone(entry));
+        const reset = this._resetPending;
         this._persist.schedule(PERSIST_KEY, () => {
             if (getActiveScope() !== this._scope) {
                 showWarning('O atlas mudou antes de salvar o estilo. Reabra a camada no atlas original para reaplicar a alteração.');
                 return false;
             }
-            return updateCatalogLayer(this._layer.id, { styleOverrides: snapshot }, this._mapName);
+            return updateCatalogLayer(this._layer.id, (current) => {
+                const styleOverrides = reset ? {} : deepClone(current?.styleOverrides || {});
+                for (const { subKey, prop, value } of touched) {
+                    const sub = styleOverrides[subKey];
+                    styleOverrides[subKey] = sub && typeof sub === 'object' && !Array.isArray(sub) ? sub : {};
+                    styleOverrides[subKey][prop] = deepClone(value);
+                }
+                return { styleOverrides };
+            }, this._mapName);
         });
     }
 
     /** Clears all overrides, re-applies config defaults and rebuilds the form. @private */
     _resetToDefault() {
         this._overrides = {};
+        this._touched.clear();
+        this._resetPending = true;
         this._applyLive();
         this._fillBody(this._body);
         this._schedulePersist();

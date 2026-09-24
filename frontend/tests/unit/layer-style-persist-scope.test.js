@@ -14,13 +14,22 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 
+/**
+ * What the persisted update does to a layer. Since 2026-09-24 the panel hands updateCatalogLayer a
+ * FUNCTION of the stored layer (only the touched properties over the current overrides), so these
+ * cases apply it to an empty layer instead of comparing an object literal.
+ * @param {*} updates - The second argument updateCatalogLayer received.
+ */
+function applied(updates) {
+    return typeof updates === 'function' ? updates({ styleOverrides: {} }) : updates;
+}
+
 it('does not close or report success after storage failure; Concluir retries the retained edit', async () => {
     state.update.mockRejectedValue(new Error('QuotaExceededError'));
     const onClose = vi.fn();
     const panel = new LayerStylePanel({ layer: { id: 'layer' }, onClose });
     const destroy = vi.spyOn(panel, '_destroy').mockImplementation(() => {});
-    panel._overrides = { fill: { color: '#ff0000' } };
-    panel._schedulePersist();
+    panel._setOverride('fill', 'color', '#ff0000');
     const failed = panel._close();
     await vi.advanceTimersByTimeAsync(7400);
     await failed;
@@ -29,7 +38,8 @@ it('does not close or report success after storage failure; Concluir retries the
     expect(panel._closing).toBe(false);
     state.update.mockResolvedValue(undefined);
     await panel._close();
-    expect(state.update).toHaveBeenLastCalledWith('layer', { styleOverrides: { fill: { color: '#ff0000' } } }, 'Original');
+    expect(state.update).toHaveBeenLastCalledWith('layer', expect.any(Function), 'Original');
+    expect(applied(state.update.mock.lastCall[1])).toEqual({ styleOverrides: { fill: { color: '#ff0000' } } });
     expect(destroy).toHaveBeenCalledOnce();
     expect(onClose).toHaveBeenCalledOnce();
     state.update.mockReset();
@@ -37,13 +47,11 @@ it('does not close or report success after storage failure; Concluir retries the
 
 it('style autosave remains attached to the original map after a map switch', async () => {
     const panel = new LayerStylePanel({ layer: { id: 'shared-layer' } });
-    panel._overrides = { fill: { color: '#ff0000' } };
-    panel._schedulePersist();
+    panel._setOverride('fill', 'color', '#ff0000');
     state.map = 'Other';
     await vi.advanceTimersByTimeAsync(300);
-    expect(state.update).toHaveBeenCalledWith('shared-layer', {
-        styleOverrides: { fill: { color: '#ff0000' } }
-    }, 'Original');
+    expect(state.update).toHaveBeenCalledWith('shared-layer', expect.any(Function), 'Original');
+    expect(applied(state.update.mock.lastCall[1])).toEqual({ styleOverrides: { fill: { color: '#ff0000' } } });
 });
 
 it('a pending style cannot overwrite an identically named layer in another atlas', async () => {

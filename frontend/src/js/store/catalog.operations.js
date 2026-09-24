@@ -188,7 +188,11 @@ export async function removeCatalogLayer(layerId, mapName = null) {
  * Updates a catalog layer.
  *
  * @param {string} layerId - Layer ID to update
- * @param {Partial<CatalogLayerState>} updates - Updates to apply
+ * @param {Partial<CatalogLayerState>|function(CatalogLayerState): Partial<CatalogLayerState>} updates -
+ *   Updates to apply, or a function that builds them from a clone of the layer as stored THEN,
+ *   under the document lock. The function form is for a caller whose change is a delta over the
+ *   current value (the style editor): a whole value computed from an earlier read carries back
+ *   whatever a colleague's op wrote in between.
  * @param {string} [mapName=null] - Map name
  * @returns {Promise<void>}
  */
@@ -198,7 +202,8 @@ export async function updateCatalogLayer(layerId, updates, mapName = null) {
         const index = layers.findIndex(layer => layer.id === layerId);
         if (index === -1) return null;
         const previous = deepClone(layers[index]);
-        const next = pruneCatalogLayerDefinition({ ...previous, ...deepClone(updates), id: layerId });
+        const patch = typeof updates === 'function' ? updates(deepClone(previous)) : updates;
+        const next = pruneCatalogLayerDefinition({ ...previous, ...deepClone(patch), id: layerId });
         if (next.sync) next.sync = touchSyncMetadata(next.sync);
         layers[index] = next;
         return { type: OperationType.UPDATE, id: layerId, previous, next };
