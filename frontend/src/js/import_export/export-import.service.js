@@ -64,6 +64,7 @@ import { pruneCatalogLayerDefinitions } from '@catalog/catalog-layer.ref.js';
 import { registrarUso } from '@js/session/uso-lote.js';
 import { EventoDeUso } from '@js/session/eventos-de-uso.js';
 import { serverMessageOr } from '@utils/request-failure.js';
+import { idsDeFotosPorReferencia } from '@js/user_data/photo-refs.js';
 
 /**
  * Extensao do arquivo no zip -> MIME, a TABELA INVERSA de `getBlobExtension`.
@@ -421,6 +422,10 @@ export class ExportImportService {
         for (const icon of (data.customIcons || [])) {
             if (icon?.id) usedImages.add(icon.id);
         }
+        // THE PHOTOS HELD BY REFERENCE, of features and of 3D/360 items (`user_data/photo-refs.js`):
+        // their bytes are not in the document, so they travel in `images/` like an image feature's.
+        // An inline photo travels inside the document and needs nothing here.
+        for (const id of idsDeFotosPorReferencia(data)) usedImages.add(id);
         return usedImages;
     }
 

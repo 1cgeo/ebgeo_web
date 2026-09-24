@@ -36,6 +36,8 @@ import {
 import { fetchPhotoMetadata } from '@js/street_view_tool/streetview-api.service.js';
 import { formatCoordinates } from '@utils/coordinate_converter.js';
 import { copiarAoClicar } from '@utils/copiar-ao-clicar.js';
+import { mostrarFotoInteira } from '@js/user_data/photo-source.js';
+import { photoNotArrivedNotice } from '@utils/image-limit-phrases.js';
 
 /**
  * Icons used in the component.
@@ -493,15 +495,21 @@ function openImageViewer(imageData) {
     viewer.className = 'feature-photo-viewer';
 
     const img = document.createElement('img');
-    img.src = imageData.data;
     img.alt = imageData.name || 'Imagem';
+    // Either shape of the photo (inline or held by reference), see `user_data/photo-source.js`.
+    const soltarFoto = mostrarFotoInteira(img, imageData, {
+        aoFaltar: () => showToast(photoNotArrivedNotice(), 'warning'),
+    });
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'feature-photo-viewer-close';
     closeBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
     closeBtn.title = 'Fechar';
 
-    const closeViewer = () => overlay.remove();
+    const closeViewer = () => {
+        soltarFoto();
+        overlay.remove();
+    };
 
     closeBtn.addEventListener('click', closeViewer);
     overlay.addEventListener('click', (e) => {

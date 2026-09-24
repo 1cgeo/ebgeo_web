@@ -204,7 +204,7 @@ export async function mapFeatureToKml({ feature, featureType, styles, assets, op
     const properties = feature.properties || {};
     const visible = properties.visivel !== false;
 
-    const photos = includePhotos ? collectPhotos(assets, feature) : [];
+    const photos = includePhotos ? await collectPhotos(assets, feature) : [];
     const { description, time, extendedData } = buildTextBlocks(feature, featureType, photos);
 
     const category = classifyFeatureType(featureType);

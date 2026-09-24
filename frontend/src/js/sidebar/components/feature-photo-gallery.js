@@ -19,6 +19,8 @@ import { showConfirm } from '@modals/index.js';
 import { showError, showWarning } from '@utils/index.js';
 import { validateImagePayload, IMAGE_CONFIG } from '@utils/image_utils.js';
 import { photoGalleryAffordances } from './photo-gallery-affordance.js';
+import { mostrarFotoInteira } from '@js/user_data/photo-source.js';
+import { photoNotArrivedNotice } from '@utils/image-limit-phrases.js';
 
 /** @type {Array<Object>|null} Current gallery images for viewer navigation */
 let _viewerImages = null;
@@ -322,8 +324,11 @@ export function openImageViewer(imageData, allImages = []) {
     viewer.className = 'feature-photo-viewer';
 
     const img = document.createElement('img');
-    img.src = imageData.data;
     img.alt = imageData.name || 'Imagem';
+    // The WHOLE photo, in either shape (inline or held by reference): the thumbnail at once, then
+    // the photo; a photo whose bytes did not arrive yet keeps the thumbnail and says so.
+    const aoFaltar = () => showWarning(photoNotArrivedNotice());
+    let soltarFoto = mostrarFotoInteira(img, imageData, { aoFaltar });
 
     // Top-right actions (download + close)
     const actionsBar = document.createElement('div');
@@ -378,7 +383,8 @@ export function openImageViewer(imageData, allImages = []) {
         if (!_viewerImages) return;
         currentIndex = (currentIndex + direction + _viewerImages.length) % _viewerImages.length;
         const current = _viewerImages[currentIndex];
-        img.src = current.data;
+        soltarFoto();
+        soltarFoto = mostrarFotoInteira(img, current, { aoFaltar });
         img.alt = current.name || 'Imagem';
         updateCounter();
     }
@@ -406,6 +412,7 @@ export function openImageViewer(imageData, allImages = []) {
 
     const closeViewer = () => {
         document.removeEventListener('keydown', handleKeydown);
+        soltarFoto();
         _viewerImages = null;
         overlay.remove();
         activeImageViewerClose = null;

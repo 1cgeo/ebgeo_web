@@ -100,6 +100,15 @@ function megapixels(pixels) {
 }
 
 /**
+ * The notice of a photo whose bytes are not available yet: it is held by reference and the person
+ * who attached it is still sending it (or is offline). The gallery shows its thumbnail meanwhile.
+ * @returns {string}
+ */
+export function photoNotArrivedNotice() {
+    return 'A foto ainda não chegou ao servidor. Tente abrir de novo em instantes.';
+}
+
+/**
  * The notice of a photo that is still large after the reduction (`PHOTO_CONFIG.warnBytes`).
  *
  * It is NOT a refusal: the photo is attached. It says what happened and what the person can do,

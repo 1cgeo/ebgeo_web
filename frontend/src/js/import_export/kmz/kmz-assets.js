@@ -14,6 +14,7 @@ import { getImage, getCustomIconBlob } from '@store';
 import { generatePointImage, POINT_IMAGE_HALF_SIZE } from '@js/draw_tools/point_tool/point-marker-symbols.js';
 import { parseDataUrl, sanitizePathSegment } from './kml-balloon.js';
 import { hashString } from './kml-document.js';
+import { fotoTemBytesInline, idDeFotoPorReferencia } from '@js/user_data/photo-refs.js';
 
 /** Folder holding icon and symbol images inside the KMZ. */
 const ICON_FOLDER = 'files';
@@ -224,14 +225,15 @@ export async function resolveStoredImage(registry, featureId, { regenerate, keyP
 /**
  * Writes a feature's attachment photos into the archive.
  *
- * Photos live inline on the feature as base64 data URLs, so no store lookup is
- * needed — only decoding and deduplication.
+ * A photo comes in either shape (`user_data/photo-refs.js`): inline, as a base64 data URL that is
+ * only decoded, or held by reference, whose bytes are read from the image store by `getImage`, which
+ * falls back to the server. A photo whose bytes are not available is left out of the balloon.
  *
  * @param {AssetRegistry} registry - Asset registry to write into
  * @param {Object} feature - GeoJSON feature
- * @returns {Array<{href: string, name: string}>} References for the balloon
+ * @returns {Promise<Array<{href: string, name: string}>>} References for the balloon
  */
-export function collectPhotos(registry, feature) {
+export async function collectPhotos(registry, feature) {
     const images = feature?.properties?.images;
     if (!Array.isArray(images) || images.length === 0) return [];
 
@@ -239,14 +241,19 @@ export function collectPhotos(registry, feature) {
     const refs = [];
 
     for (const image of images) {
-        if (!image?.data) continue;
-
-        const parsed = parseDataUrl(image.data);
-        if (!parsed) continue;
-
-        const key = `photo|${featureId}|${image.id ?? refs.length}`;
-        const record = registry.addBase64(key, parsed.base64, { extension: parsed.extension });
-        refs.push({ href: record.href, name: image.name || '' });
+        const key = `photo|${featureId}|${image?.id ?? refs.length}`;
+        if (fotoTemBytesInline(image)) {
+            const parsed = parseDataUrl(image.data);
+            if (!parsed) continue;
+            const record = registry.addBase64(key, parsed.base64, { extension: parsed.extension });
+            refs.push({ href: record.href, name: image.name || '' });
+            continue;
+        }
+        const id = idDeFotoPorReferencia(image);
+        const blob = id ? await getImage(id).catch(() => null) : null;
+        if (!blob) continue;
+        const record = registry.add(key, blob, { extension: extensionForBlob(blob), folder: PHOTO_FOLDER });
+        refs.push({ href: record.href, name: image?.name || '' });
     }
 
     return refs;

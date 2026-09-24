@@ -4,7 +4,8 @@
  * @fileoverview Which images a `.ebgeo` export MUST carry, and what the screen says when one of
  * them has no file to carry.
  *
- * Leaf module, zero imports, so it runs in plain node.
+ * Leaf module whose one import (`user_data/photo-refs.js`) is itself a zero-import leaf, so it
+ * runs in plain node.
  *
  * THE DEFECT THIS CLOSES (2026-09-21). An image feature or a custom icon whose blob is not
  * available used to be skipped in silence, and the file went out with a hole nobody was told
@@ -20,6 +21,8 @@
  * counts what is missing BEFORE writing the file, names it, and the person decides. The feature
  * stays in the file without its picture, which is exactly the state it already has on this disk.
  */
+
+import { idsDeFotosPorReferencia } from '@js/user_data/photo-refs.js';
 
 /**
  * @typedef {Object} RequiredImage
@@ -51,6 +54,9 @@ export function requiredImagesOf(data) {
             push(feature?.properties?.id, 'imagem', mapName);
         }
     }
+    // A PHOTO HELD BY REFERENCE has its bytes only in `images/`, so a missing one is a loss like an
+    // image feature's. An inline photo travels in the document and is never listed.
+    for (const id of idsDeFotosPorReferencia(data)) push(id, 'anexo', null);
     return out;
 }
 

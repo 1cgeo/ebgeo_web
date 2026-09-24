@@ -20,7 +20,8 @@ import {
     validateImageFile,
     processImageFile
 } from '@utils/image_utils.js';
-import { photoStillLargeNotice } from '@utils/image-limit-phrases.js';
+import { photoStillLargeNotice, photoNotArrivedNotice } from '@utils/image-limit-phrases.js';
+import { urlDaFoto } from './photo-source.js';
 import { showWarning } from '@utils/toast_service.js';
 import { sanitizeHtml } from '@sidebar/panels/notes-panel.js';
 // By FILE, not through `@js/temporal` — the barrel there would drag the whole
@@ -572,18 +573,26 @@ const userDataManager = {
      * Downloads an image to the user's device.
      * @param {Object} image - Image object with data and name
      */
-    downloadImage(image) {
-        if (!image?.data || !image?.name) {
+    async downloadImage(image) {
+        if (!image?.name) {
             console.warn('UserDataManager: Invalid image for download');
+            return;
+        }
+        // Either shape of the photo (inline or held by reference), see `photo-source.js`.
+        const fonte = await urlDaFoto(image);
+        if (!fonte) {
+            showWarning(photoNotArrivedNotice());
             return;
         }
 
         const link = document.createElement('a');
-        link.href = image.data;
+        link.href = fonte.url;
         link.download = image.name;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        // The object URL outlives the click: some browsers start reading it after this returns.
+        setTimeout(fonte.liberar, 30000);
     },
 
     // Image processing is now handled by utilities/image_utils.js
