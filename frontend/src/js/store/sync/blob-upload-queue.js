@@ -929,7 +929,11 @@ export async function retomarBlobsPendentes(atlasId) {
             try {
                 await gravar(scope, semBytes);
                 espelhar(semBytes);
-                await marcarProblema(semBytes.imageId, semBytes.ultimoErro, null);
+                // THE SAME THREE CASES AS A REFUSAL (`aplicarRecusa`, 2026-09-24). Only the image
+                // feature's operations used to be marked here: an operation that cited a PHOTO whose
+                // bytes vanished stayed held, and the queue of the whole atlas behind it, until the
+                // next connect happened to look again.
+                await aplicarRecusa(semBytes, null);
             } catch (error) {
                 console.warn('[blob-upload-queue] could not close a pendency without bytes:', error);
             }

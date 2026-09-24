@@ -47,6 +47,7 @@ vi.mock('@js/import_export/atlas-image-upload.js', () => ({
 import {
     registrarBlob,
     enviarBlobRegistrado,
+    retomarBlobsPendentes,
     esquecerPendenciasEmMemoria,
 } from '@store/sync/blob-upload-queue.js';
 import { countPendingOperationsFor } from '@js/session/unsynced-work-exit.js';
@@ -181,6 +182,38 @@ describe('a recusa e a falha do servidor numa foto CONVERTIDA', () => {
         const registrado = await registrarBlob({ imageId: crypto.randomUUID(), blob: blob(), atlasId: scope.atlasId, origem: 'foto-anexa' });
         await enviarBlobRegistrado(registrado, blob());
         expect(await countPendingOperationsFor(scope.atlasId)).toBe(1);
+    });
+});
+
+// A PENDÊNCIA SEM BYTES NA RETOMADA (revisão, 2026-09-24, item 6): o arquivo sumiu deste navegador,
+// então nada será enviado. Só a op da feição de IMAGEM era marcada; a op que citava a FOTO ficava
+// presa, e a fila do atlas inteiro atrás dela, até o próximo connect. Mesmos três casos da recusa.
+describe('a pendência de foto cujos bytes sumiram, na retomada', () => {
+    const redeCaiu = () => (_a, uploads) => ({ mapping: {}, failed: uploads.map(u => ({ localId: u.localId, error: 'Failed to fetch' })), transportErrors: 1 });
+
+    it('foto ANEXADA: a op que a cita é liberada, e a fila anda', async () => {
+        const scope = getActiveScope();
+        const p = crypto.randomUUID();
+        h.resposta = redeCaiu();
+        const registrado = await registrarBlob({ imageId: p, blob: blob(), atlasId: scope.atlasId, origem: 'foto-anexa' });
+        const feicao = await editarFeicao(scope, [foto(p)]);
+        await enviarBlobRegistrado(registrado, blob());
+        expect(await prontas()).not.toContain(feicao);
+        // Nenhum byte no armazém: a retomada fecha a pendência como sem bytes.
+        await retomarBlobsPendentes(scope.atlasId);
+        expect(await prontas()).toContain(feicao);
+    });
+
+    it('foto CONVERTIDA: a op que a cita vira problema, e não sai', async () => {
+        const scope = getActiveScope();
+        const p = crypto.randomUUID();
+        h.resposta = redeCaiu();
+        const registrado = await registrarBlob({ imageId: p, blob: blob(), atlasId: scope.atlasId, origem: 'foto-convertida' });
+        const feicao = await editarFeicao(scope, [foto(p)]);
+        await enviarBlobRegistrado(registrado, blob());
+        await retomarBlobsPendentes(scope.atlasId);
+        expect(await prontas()).not.toContain(feicao);
+        expect((await operationQueue.countByState()).problemas).toBe(1);
     });
 });
 
