@@ -20,7 +20,7 @@
  * exercitado no navegador, por `tests/e2e-ui/browser-migracao-2.2.spec.js`.
  */
 
-import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
+import { beforeAll, beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import { seedDatabase, resetIndexedDB, listDatabases, holdDatabaseOpen } from '../helpers/idb-helpers.js';
 import { fire, makeElement, makeDocumentStub } from '../helpers/dom-double.js';
 import {
@@ -37,6 +37,17 @@ const CODIGOS = Object.freeze([
 let doc;
 let baixados;
 let recarregou;
+
+// O CLIQUE EM "Baixar meus dados" CARREGA O CONSTRUTOR DO .ebgeo SOB DEMANDA, e o primeiro caso que
+// clica pagava a TRANSFORMAÇÃO desse grafo dentro do `vi.waitFor`, que desiste em 1 s. Na suíte
+// inteira da raiz, sob carga, o caso "com UM acervo" reprovou em 2 de 3 rodadas de 2026-09-24
+// (`expected [] to have a length of 1`) e passava sozinho. É a classe do import a frio de
+// `.claude/rules/testes-frontend-e-lint.md`: aquecer aqui tira o carregador da conta do caso, e o
+// `vi.resetModules()` abaixo continua refazendo só a avaliação, que é barata.
+beforeAll(async () => {
+    await import('@store/migration/ebgeo-de-recuperacao.js');
+    await import('@store/migration/recovery-archive.js');
+}, 60_000);
 
 beforeEach(async () => {
     vi.resetModules();
