@@ -101,6 +101,35 @@ function setFieldKeepingCaret(input, value) {
     if (focused && start !== null) input.setSelectionRange(Math.min(start, value.length), Math.min(end, value.length));
 }
 
+/**
+ * Shows stored rich text in a Quill editor WITHOUT any of the paths a person's edit takes.
+ *
+ * NOT through `quill.clipboard.convert`: that runs the PASTE matchers, and the pasted-image one
+ * (`createPastedImageMatcher`, `utilities/quill-helpers.js`) takes every `data:` figure out of the
+ * delta and queues it as pasted, to come back a tick later through `getSelection(true)` (stealing
+ * the focus from wherever the person is typing), recompressed, reinserted as a 'user' change at the
+ * last cursor, over whatever that cursor had selected. The text-change then saved it, the peer's
+ * editor did the same on receiving it, and the two editors fed each other for ever
+ * (`frontend/tests/e2e-ui/briefing-editor-figura-do-colega.repro.spec.js`). The stored HTML is
+ * already sanitized and already compressed: it goes straight into the root, `update('silent')`
+ * folds it into Quill's model without a text-change, and the history is cleared, because Quill
+ * records even a silent change and Ctrl+Z would otherwise undo the peer's edit and save that.
+ *
+ * The caret, when the editor has the focus, is carried across the change by the delta.
+ * @param {Object} quill - The Quill instance.
+ * @param {string} html - Stored slide content.
+ */
+function replaceQuillContentSilently(quill, html) {
+    const range = quill.hasFocus() ? quill.getSelection() : null;
+    const before = range ? quill.getContents() : null;
+    quill.root.innerHTML = sanitizeQuillHtml(html);
+    quill.update('silent');
+    quill.history?.clear();
+    if (!range) return;
+    const index = before.diff(quill.getContents()).transformPosition(range.index);
+    quill.setSelection(Math.min(index, Math.max(0, quill.getLength() - 1)), 0, 'silent');
+}
+
 const EDITOR_CONFIG = {
     AUTOSAVE_DELAY: 1500,
     MIN_PANEL_WIDTH: 280,
@@ -690,6 +719,12 @@ export class BriefingEditorControl {
      */
     async _renderSlideEditor() {
         this._slideFormStale = false;
+        // ONE RENDER AT A TIME WINS. This method awaits twice before it is done appending, and it is
+        // called without await (a slide click, a peer's change of the selected slide): two renders
+        // that overlap both appended their groups, and the form ended with TWO rich-text editors, the
+        // live one being whichever resolved last. A render that finds itself superseded after an
+        // await stops appending.
+        const render = (this._slideFormRender = (this._slideFormRender ?? 0) + 1);
         // Preserve scroll position before re-render
         const scrollable = this._slideEditorEl?.closest('.briefing-editor-scrollable');
         const savedScrollTop = scrollable ? scrollable.scrollTop : 0;
@@ -741,6 +776,7 @@ export class BriefingEditorControl {
         const mapSelect = document.createElement('select');
         mapSelect.className = 'briefing-editor-select';
         await this._populateMapSelect(mapSelect, slide);
+        if (render !== this._slideFormRender) return;
         addDomListener(this, mapSelect, 'change', async () => {
             const previousMapId = slide.mapId;
             slide.mapId = mapSelect.value || null;
@@ -848,7 +884,9 @@ export class BriefingEditorControl {
 
         this._slideEditorEl.appendChild(positionGroup);
 
-        this._slideEditorEl.appendChild(await this._createSlideViewGroup(slide));
+        const viewGroup = await this._createSlideViewGroup(slide);
+        if (render !== this._slideFormRender) return;
+        this._slideEditorEl.appendChild(viewGroup);
 
         // Content editor with Quill
         const contentGroup = document.createElement('div');
@@ -882,7 +920,7 @@ export class BriefingEditorControl {
         // BELOW the content, by request of the owner: what the slide lets the audience touch.
         this._slideEditorEl.appendChild(this._createSlideControlsGroup(slide));
 
-        this._initQuillEditor(quillContainer, slide);
+        this._initQuillEditor(quillContainer, slide, render);
 
         // Restore scroll position after re-render
         if (scrollable && savedScrollTop > 0) {
@@ -1117,7 +1155,7 @@ export class BriefingEditorControl {
      * Initializes the Quill editor for slide content.
      * @private
      */
-    async _initQuillEditor(container, slide) {
+    async _initQuillEditor(container, slide, render = this._slideFormRender) {
         try {
             // THE PREVIOUS EDITOR IS SILENCED, not just forgotten. `_renderSlideEditor` empties the
             // container, which detaches the old Quill from the page but leaves it ALIVE with its
@@ -1144,6 +1182,8 @@ export class BriefingEditorControl {
                 ],
                 enableImageCompression: true
             });
+            // Superseded while Quill loaded: a newer render owns the form and its editor.
+            if (render !== this._slideFormRender) return;
 
             this._quillEditor = editor;
 
@@ -2186,8 +2226,8 @@ export class BriefingEditorControl {
      * Shows in the selected slide's form the fields a peer changed (`keys`).
      *
      * The two TEXT widgets are updated in place, focused or not: the title keeps its caret and the
-     * rich text keeps its selection, and the rich-text update is silent, so it writes nothing back
-     * into the slide. Any other field is a select or a button: with the focus outside the form it
+     * rich text keeps its caret, and the rich-text update is silent and bypasses the paste path
+     * (`replaceQuillContentSilently`), so it writes nothing back into the slide. Any other field is a select or a button: with the focus outside the form it
      * is repainted now, with the focus inside it the repaint waits for the focus to leave, because
      * repainting recreates every input of the form.
      * @private
@@ -2202,10 +2242,7 @@ export class BriefingEditorControl {
                 const input = this._slideEditorEl.querySelector('.briefing-editor-slide-title-input');
                 if (input) setFieldKeepingCaret(input, slide.title || '');
             } else if (key === 'content' && this._quillEditor) {
-                const quill = this._quillEditor;
-                const selection = quill.getSelection();
-                quill.setContents(quill.clipboard.convert({ html: sanitizeQuillHtml(slide.content || '') }), 'silent');
-                if (selection) quill.setSelection(Math.min(selection.index, Math.max(0, quill.getLength() - 1)), 0, 'silent');
+                replaceQuillContentSilently(this._quillEditor, slide.content || '');
             } else {
                 others = true;
             }
