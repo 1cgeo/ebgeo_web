@@ -2157,6 +2157,9 @@ class AddBoundaryControl extends BaseControl {
         return (
             feature.properties.color !== initialProperties.color ||
             feature.properties.lineWidth !== initialProperties.lineWidth ||
+            // The panel's "Opacidade" writes this key; missing from this list, a change of the
+            // opacity alone was never saved (it rode along with the next save of another field).
+            feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.echelon !== initialProperties.echelon ||
             feature.properties.text_top !== initialProperties.text_top ||
             feature.properties.text_bottom !== initialProperties.text_bottom ||

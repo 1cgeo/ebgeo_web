@@ -669,6 +669,9 @@ class AddBrushControl extends BaseControl {
         return (
             feature.properties.lineColor !== initialProperties.lineColor ||
             feature.properties.lineWidth !== initialProperties.lineWidth ||
+            // The panel's "Correção de Zoom" writes this key; missing from this list, a change of
+            // that toggle alone was never saved (it rode along with the next save of another field).
+            feature.properties.zoomCorrectionEnabled !== initialProperties.zoomCorrectionEnabled ||
             feature.properties.nome !== initialProperties.nome ||
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
