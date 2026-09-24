@@ -281,6 +281,23 @@ function openAtlas(atlasId) {
 /** The mounted local section, so a handler can redraw the list after it changed. */
 let localSection = null;
 
+/** The mounted server list (signed in only), so a send that stays on the page can redraw it. */
+let serverDrive = null;
+
+/**
+ * Re-reads the server list after an atlas was created there from this page. Never throws: the
+ * send already happened and its sentence is on screen; a list that fails to refresh says so in
+ * its own toast (`AtlasDrive._refresh`) and must not turn the send into a reported failure.
+ * @returns {Promise<void>}
+ */
+async function relerListaDoServidor() {
+    try {
+        await serverDrive?.refresh();
+    } catch (error) {
+        console.warn('[projects] server list refresh after send failed:', error);
+    }
+}
+
 /**
  * Says the one sentence a local-atlas operation produced. The DECISION of what to say lives in
  * `local-atlas-notices.js` (pure, tested); this is only the wiring to the toast service.
@@ -476,9 +493,15 @@ async function sendLocalAtlasToServerFromPage(atlas) {
         });
         const notice = sendToServerNotice(result);
         tell(notice);
-        if (notice.openAtlasId) openAtlas(notice.openAtlasId);
-        // Sem destino, a pessoa fica na lista: o cartão local nunca some, então não há o que
-        // redesenhar do lado local, e o lado de servidor será relido no próximo boot.
+        if (notice.openAtlasId) {
+            openAtlas(notice.openAtlasId);
+            return;
+        }
+        // SEM DESTINO, A PESSOA FICA NA LISTA, e a frase do aviso manda procurar o atlas novo na
+        // lista do servidor desta página. O cartão local nunca some, então o lado local não muda;
+        // o do servidor MUDOU, e é relido aqui. Até 2026-09-23 ele só era relido no próximo boot, e
+        // quem não via o atlas enviava de novo, criando uma segunda cópia no servidor.
+        if (result?.atlasId) await relerListaDoServidor();
     } catch (error) {
         // "Cancelar" na pergunta das figuras sem arquivo é DECISÃO, não falha: nada foi publicado e
         // a pessoa sabe disso, porque foi ela que respondeu.
@@ -490,6 +513,8 @@ async function sendLocalAtlasToServerFromPage(atlas) {
         // estava sem imagem. `sendFailureNotice` é pura, sabe distinguir as três etapas
         // (`leitura`, `import`, `images`) e é onde essa distinção pode ser exercitada por teste.
         tell(sendFailureNotice(error, { name }));
+        // A falha depois da criação deixa o atlas no servidor, e a frase diz isso: a lista o mostra.
+        if (error?.atlasId) await relerListaDoServidor();
     }
 }
 
@@ -1257,6 +1282,7 @@ async function initProjectsPage() {
             onImport: (file) => importProjectFromFile(file),
         });
         drive.mount(body);
+        serverDrive = drive;
         startPresenceRefresh(drive);
 
         apiClient.setAuthLostHandler(() => { endSession('encerrada'); });

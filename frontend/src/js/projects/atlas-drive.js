@@ -507,6 +507,16 @@ export class AtlasDrive {
     }
 
     /**
+     * Re-reads the server list, for a change made OUTSIDE the Drive that created an atlas and did
+     * not navigate to it (the local card's "Enviar ao servidor" that ends in a warning). Its
+     * sentence tells the person the atlas is in this list, so the list has to show it.
+     * @returns {Promise<void>}
+     */
+    refresh() {
+        return this._refresh();
+    }
+
+    /**
      * Builds the Drive into `host` and focuses the search box.
      * @param {HTMLElement} [host]
      */

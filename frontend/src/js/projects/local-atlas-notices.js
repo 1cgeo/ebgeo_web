@@ -545,7 +545,7 @@ export function sendToServerNotice(result) {
     return {
         kind: NoticeKind.WARNING,
         message: `${base} ${avisos.join(' ')} O atlas local continua aqui, e o novo já está no `
-            + 'servidor, na lista acima.',
+            + 'servidor, na lista No servidor desta página.',
         openAtlasId: null,
     };
 }
@@ -644,7 +644,8 @@ export function sendFailureNotice(error, { name = null } = {}) {
         return {
             kind: NoticeKind.ERROR,
             message: `O envio de ${alvo} ficou incompleto: o atlas já foi criado no servidor, na `
-                + `lista acima, mas parte das imagens não subiu. ${local} Abra o atlas do servidor `
+                + 'lista No servidor desta página, mas parte das imagens não subiu. '
+                + `${local} Abra o atlas do servidor `
                 + `para conferir, ou exclua-o e envie de novo. Motivo: ${motivoDaFalha(error)}`,
         };
     }

@@ -436,11 +436,13 @@ describeOrSkip('enviar ao servidor o acervo herdado', () => {
         // E O CONTADOR É O QUE IMPEDE A PRÓXIMA TROCA DE ENDEREÇO DE ACUSAR A PESSOA ERRADA: sem
         // ele, "a forja não rodou" e "o produto não avisa" produzem a MESMA falha, na mesma linha.
         let forjas = 0;
+        let criado = null;
         const forjarDivergencia = async (route) => {
             const resposta = await route.fetch();
             const corpo = await resposta.json();
             if (corpo?.data?.summary) {
                 corpo.data.summary.mapsImported = 13;
+                criado = corpo.data.id ?? null;
                 forjas += 1;
             }
             await route.fulfill({ response: resposta, body: JSON.stringify(corpo) });
@@ -476,6 +478,15 @@ describeOrSkip('enviar ao servidor o acervo herdado', () => {
         // E A PÁGINA NÃO NAVEGOU: navegar mataria a frase junto com o documento que a desenhou.
         expect(new URL(page.url()).pathname).toMatch(/atlas\.html$/);
         expect(page.url()).not.toMatch(/[?&]atlas=/);
+
+        // E O ATLAS NOVO ESTÁ NA LISTA DO SERVIDOR DESTA PÁGINA, que é para onde a frase manda a
+        // pessoa. Até 2026-09-23 a lista não era relida depois do envio: a frase dizia "o novo já
+        // está no servidor, na lista acima" e a seção "No servidor" (que fica ABAIXO) continuava sem
+        // ele até um F5. Quem não o via enviava de novo, e o servidor ganhava uma segunda cópia.
+        expect(criado, 'o commit devolveu o id do atlas criado').toBeTruthy();
+        await expect(page.locator(`[data-testid="project-picker-item"][data-atlas-id="${criado}"]`),
+            'o atlas enviado aparece na lista "No servidor" sem recarregar').toBeVisible({ timeout: 30000 });
+        expect(texto, 'a frase não aponta para uma lista "acima" que fica abaixo dela').not.toContain('lista acima');
         await ctx.close();
     });
 
