@@ -1534,9 +1534,13 @@ export class AtlasDrive {
      * (`tests/e2e-ui/copia-sem-figura-recem-posta.repro.spec.js`).
      */
     async _duplicate(project) {
-        const pendentes = await pendenciasDoAtlasNesteComputador(project?.id);
-        if (pendentes !== 0) {
-            const aviso = avisoDeCopiaComPendencias(PortaDeCopia.ATLAS, { desconhecido: Number.isNaN(pendentes) });
+        const divida = await pendenciasDoAtlasNesteComputador(project?.id);
+        if (divida === null || divida.enviaveis > 0 || divida.recusadas > 0) {
+            const aviso = avisoDeCopiaComPendencias(PortaDeCopia.ATLAS, {
+                enviaveis: divida?.enviaveis > 0,
+                recusadas: divida?.recusadas > 0,
+                desconhecido: divida === null,
+            });
             const seguir = await showConfirm(aviso.titulo, {
                 message: aviso.corpo, confirmText: aviso.confirmar, cancelText: aviso.cancelar,
             });

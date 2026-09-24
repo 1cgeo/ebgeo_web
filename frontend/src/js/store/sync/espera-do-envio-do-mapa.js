@@ -27,19 +27,33 @@ import { idsComBlobPendente } from './blob-upload-queue.js';
 /** How long the door waits for the map's debt before asking. Short: the person is looking at it. */
 export const PRAZO_DA_ESPERA_DA_COPIA_MS = 8000;
 
-/** How the wait ended. */
+/**
+ * How the wait ended. PENDENTE and RECUSADO are different on purpose, because what the person can
+ * do is different: pending work goes out by itself if they wait, refused work never does, and only
+ * the Pendências panel lets them decide about it.
+ */
 export const DesfechoDaEspera = Object.freeze({
     ENVIADO: 'enviado',
     PENDENTE: 'pendente',
+    RECUSADO: 'recusado',
     DESCONHECIDO: 'desconhecido',
 });
 
-/** What the loop does next. */
-export const PassoDaEspera = Object.freeze({
-    PRONTO: 'pronto',
-    ESPERAR: 'esperar',
-    PERGUNTAR: 'perguntar',
-});
+/** What the loop does next: keep waiting, or end with a {@link DesfechoDaEspera}. */
+export const ESPERAR = 'esperar';
+
+/**
+ * The split of the map's debt that the phrase needs: work that is still on its way (it goes out
+ * if the person waits) and work the server refused (it never does).
+ * @param {{operacoes: number, problemas: number, figuras: number}} divida
+ * @returns {{enviaveis: boolean, recusadas: boolean}}
+ */
+export function partesDaDivida({ operacoes, problemas, figuras }) {
+    return {
+        enviaveis: Number(operacoes) - Number(problemas) > 0 || Number(figuras) > 0,
+        recusadas: Number(problemas) > 0,
+    };
+}
 
 /**
  * @param {Object} divida
@@ -48,16 +62,16 @@ export const PassoDaEspera = Object.freeze({
  *   blocked behind a refusal).
  * @param {number} divida.figuras - Pictures of the map whose bytes are not confirmed.
  * @param {boolean} divida.esgotado - The deadline passed.
- * @returns {string} A {@link PassoDaEspera} value.
+ * @returns {string} {@link ESPERAR}, or the {@link DesfechoDaEspera} that ends the wait.
  */
 export function decidirEsperaDaCopia({ operacoes, problemas, figuras, esgotado }) {
     const numeros = [operacoes, problemas, figuras].map(Number);
-    if (numeros.some(n => !Number.isFinite(n) || n < 0)) return PassoDaEspera.PERGUNTAR;
+    if (numeros.some(n => !Number.isFinite(n) || n < 0)) return DesfechoDaEspera.DESCONHECIDO;
     const [ops, probs, figs] = numeros;
-    if (ops === 0 && figs === 0) return PassoDaEspera.PRONTO;
-    // Only refused work left: waiting cannot change it.
-    if (figs === 0 && ops <= probs) return PassoDaEspera.PERGUNTAR;
-    return esgotado ? PassoDaEspera.PERGUNTAR : PassoDaEspera.ESPERAR;
+    if (ops === 0 && figs === 0) return DesfechoDaEspera.ENVIADO;
+    // Only refused work left: waiting cannot change it, so the door asks at once.
+    if (figs === 0 && ops <= probs) return DesfechoDaEspera.RECUSADO;
+    return esgotado ? DesfechoDaEspera.PENDENTE : ESPERAR;
 }
 
 /** Between two reads of the debt. Each read walks the queue, so not every frame. */
@@ -90,6 +104,9 @@ async function lerDivida(mapId, featureIds) {
     const [ops, pendentes] = await Promise.all([operationQueue.getByMapId(mapId), idsComBlobPendente()]);
     let problemas = 0;
     if (ops.length > 0) {
+        // The queue's own rule for what the flush will never send. A gesture split between a
+        // refused member and held ones is under-counted there today; the fix belongs to
+        // `getProblems` (following the whole batch), not to a second rule here.
         const recusadas = new Set((await operationQueue.getProblems()).map(p => p.operation?.id));
         problemas = ops.filter(op => recusadas.has(op.id)).length;
     }
@@ -106,7 +123,8 @@ async function lerDivida(mapId, featureIds) {
  * @param {() => void} [params.aoEsperar] - Called ONCE, when there is something to wait for, so the
  *   person is told why the copy is not immediate.
  * @param {number} [params.prazoMs]
- * @returns {Promise<string>} A {@link DesfechoDaEspera} value.
+ * @returns {Promise<{desfecho: string, enviaveis: boolean, recusadas: boolean}>} The
+ *   {@link DesfechoDaEspera}, and which kinds of debt were left at the end (for the phrase).
  */
 export async function esperarEnvioDoMapa({ mapId, mapData, flush, aoEsperar = null, prazoMs = PRAZO_DA_ESPERA_DA_COPIA_MS }) {
     const featureIds = idsDasFeicoes(mapData);
@@ -118,11 +136,10 @@ export async function esperarEnvioDoMapa({ mapId, mapData, flush, aoEsperar = nu
             divida = await lerDivida(mapId, featureIds);
         } catch (error) {
             console.warn('[map-copy] could not read what this map still owes the server:', error);
-            return DesfechoDaEspera.DESCONHECIDO;
+            return { desfecho: DesfechoDaEspera.DESCONHECIDO, enviaveis: false, recusadas: false };
         }
         const passo = decidirEsperaDaCopia({ ...divida, esgotado: Date.now() >= limite });
-        if (passo === PassoDaEspera.PRONTO) return DesfechoDaEspera.ENVIADO;
-        if (passo === PassoDaEspera.PERGUNTAR) return DesfechoDaEspera.PENDENTE;
+        if (passo !== ESPERAR) return { desfecho: passo, ...partesDaDivida(divida) };
         if (!avisado && aoEsperar) { avisado = true; aoEsperar(); }
         await flush().catch(() => {});
         await new Promise(resolve => setTimeout(resolve, PASSO_MS));
