@@ -52,7 +52,7 @@
     gap: var(--space-1);
     cursor: pointer;
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     color: var(--gray-700);
     transition: background var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
     white-space: nowrap;

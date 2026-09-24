@@ -317,7 +317,7 @@
 
 .briefing-editor-slide-delete-btn:hover {
     color: var(--color-error);
-    background: #fee2e2;
+    background: var(--red-100);
 }
 
 /* Sortable ghost */
@@ -351,7 +351,7 @@
 .briefing-editor-form-group label {
     display: block;
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-600);
     margin-bottom: var(--space-2);
     text-transform: uppercase;
@@ -468,7 +468,7 @@
 
 .briefing-editor-position-set {
     color: var(--gray-700);
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
     font-size: var(--font-size-xs);
 }
 
@@ -488,7 +488,7 @@
     font-size: var(--font-size-xs);
     color: var(--color-error);
     padding: var(--space-1) var(--space-2);
-    background: #fee2e2;
+    background: var(--red-100);
     border-radius: var(--radius-sm);
     margin-top: var(--space-1);
 }
@@ -504,7 +504,7 @@
     border: none;
     border-radius: var(--radius-md);
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
     transition: background var(--transition-fast);
     white-space: nowrap;
@@ -644,12 +644,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
 }
 
 .briefing-editor-orientations-dropdown__type {
     flex-shrink: 0;
-    font-size: 10px;
+    font-size: var(--font-size-3xs);
     color: var(--gray-400);
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -746,7 +746,7 @@
 
 .briefing-editor-slide-mode-badge__label {
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     white-space: nowrap;
 }
 

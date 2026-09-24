@@ -22,13 +22,15 @@
 import { mirrorAssemblyPosition, mosaicCutInsetMm } from './pdf-mosaic-geometry.js';
 import { MOSAIC_OVERLAP_MM } from './pdf-export.constants.js';
 
-// Palette (RGB) — mirrors the app's primary green and neutral greys.
-const PRIMARY = [80, 141, 78];
-const PRIMARY_DARK = [58, 107, 56];
+// Palette (RGB) — mirrors the app's primary green and neutral greys. jsPDF cannot read CSS
+// tokens: PRIMARY is `--primary` (#15803d) and PRIMARY_DARK is `--primary-hover` (#166534).
+// tests/unit/um-verde-so.test.js holds PRIMARY to the token.
+const PRIMARY = [21, 128, 61];
+const PRIMARY_DARK = [22, 101, 52];
 const INK = [40, 40, 40];
 const MUTED = [110, 110, 110];
 const FAINT_FILL = [244, 246, 244];
-const HILITE_FILL = [80, 141, 78];
+const HILITE_FILL = [21, 128, 61];
 const BORDER = [150, 150, 150];
 // Cut-line warning red for the seam-trim guides on the verso.
 const CUT = [200, 60, 60];

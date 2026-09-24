@@ -90,7 +90,7 @@
     padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-md);
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
     border: 1px solid var(--border-color);
     transition: background-color var(--transition-fast);

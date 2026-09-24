@@ -64,6 +64,16 @@ a {
   text-decoration: inherit;
 }
 
+/* Form controls do not inherit the typeface: the browser draws them in its own UI
+   font, which on Windows is Arial at 13.33px. Measured on 2026-09-24, that was 273 of
+   637 text elements on the map screen (sidebar labels, export options, modal buttons). */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
 h2,
 h3 {
   margin: 0;

@@ -131,7 +131,7 @@ body.cesium-active .modal-overlay {
     padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-sm);
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     white-space: nowrap;
     opacity: 0;
     pointer-events: none;
@@ -160,7 +160,7 @@ body.cesium-active .modal-overlay {
 /* ===== CAMERA BUTTONS ===== */
 #salvar-camera.has-saved {
     border: 3px solid var(--primary);
-    box-shadow: 0 0 0 1px rgba(80, 141, 78, 0.3);
+    box-shadow: 0 0 0 1px rgb(var(--primary-rgb) / 0.3);
 }
 
 #limpar-camera {
@@ -168,11 +168,11 @@ body.cesium-active .modal-overlay {
 }
 
 #limpar-camera:hover {
-    background: #fee2e2;
+    background: var(--red-100);
 }
 
 #limpar-camera svg {
-    stroke: #dc2626;
+    stroke: var(--red-600);
 }
 
 /* ===== HIDE NATIVE CESIUM NAVIGATION HELP ===== */
@@ -224,7 +224,7 @@ body.cesium-active .modal-overlay {
     border: none;
     color: var(--gray-700);
     font-family: inherit;
-    font-size: 13px;
+    font-size: var(--font-size-sm);
     font-weight: var(--font-weight-semibold);
     cursor: pointer;
     transition: all var(--transition-normal);
@@ -302,7 +302,7 @@ body.cesium-active .modal-overlay {
 .nav-help-text strong {
     display: block;
     color: var(--gray-900);
-    font-size: 13px;
+    font-size: var(--font-size-sm);
     font-weight: var(--font-weight-semibold);
     margin-bottom: 2px;
 }
@@ -326,11 +326,11 @@ body.cesium-active .modal-overlay {
     background: var(--primary);
     border: 2px solid rgba(255, 255, 255, 0.3);
     border-radius: var(--radius-md);
-    box-shadow: 0 4px 16px rgba(80, 141, 78, 0.3);
+    box-shadow: 0 4px 16px rgb(var(--primary-rgb) / 0.3);
     color: white;
     font-family: inherit;
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
     z-index: var(--z-3d-controls);
     transition: all var(--transition-normal);
@@ -338,7 +338,7 @@ body.cesium-active .modal-overlay {
 
 #close-3d-viewer-button:hover {
     background: var(--primary-dark);
-    box-shadow: 0 6px 20px rgba(80, 141, 78, 0.4);
+    box-shadow: 0 6px 20px rgb(var(--primary-rgb) / 0.4);
     transform: translateY(-1px);
 }
 
@@ -478,19 +478,22 @@ body.cesium-active .modal-overlay {
     overflow: hidden;
 }
 
+/* Same compact green band as `.modal-header` (modals-redesign.css). */
 .coordinate-edit-modal-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: var(--space-4) var(--space-5);
-    border-bottom: var(--border-width) solid var(--border-color);
+    box-sizing: border-box;
+    min-height: var(--modal-header-height);
+    padding: var(--space-2) var(--space-4);
+    background: var(--sidebar-bg);
+    color: white;
 }
 
 .coordinate-edit-modal-header h3 {
     margin: 0;
-    font-size: var(--font-size-base);
+    font-size: var(--font-size-lg);
     font-weight: var(--font-weight-semibold);
-    color: var(--gray-900);
 }
 
 .coordinate-edit-modal-close {
@@ -501,15 +504,15 @@ body.cesium-active .modal-overlay {
     height: var(--space-8);
     background: transparent;
     border: none;
-    border-radius: var(--radius-sm);
-    color: var(--gray-500);
+    border-radius: var(--radius-full);
+    color: rgba(255, 255, 255, 0.8);
     cursor: pointer;
     transition: all var(--transition-fast);
 }
 
 .coordinate-edit-modal-close:hover {
-    background: var(--gray-100);
-    color: var(--gray-700);
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
 }
 
 .coordinate-edit-modal-content {
@@ -526,8 +529,8 @@ body.cesium-active .modal-overlay {
 }
 
 .coordinate-edit-field label {
-    font-size: 13px;
-    font-weight: var(--font-weight-medium);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-700);
 }
 
@@ -536,14 +539,14 @@ body.cesium-active .modal-overlay {
     border: var(--border-width) solid var(--gray-300);
     border-radius: var(--radius-md);
     font-size: var(--font-size-sm);
-    font-family: "SF Mono", Consolas, monospace;
+    font-family: var(--font-mono);
     transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .coordinate-edit-field input:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
+    box-shadow: 0 0 0 3px rgb(var(--primary-rgb) / 0.15);
 }
 
 .coordinate-edit-modal-actions {
@@ -561,7 +564,7 @@ body.cesium-active .modal-overlay {
     border: var(--border-width) solid var(--gray-300);
     border-radius: var(--radius-md);
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     color: var(--gray-700);
     cursor: pointer;
     transition: all var(--transition-fast);
@@ -578,7 +581,7 @@ body.cesium-active .modal-overlay {
     border: none;
     border-radius: var(--radius-md);
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     color: white;
     cursor: pointer;
     transition: all var(--transition-fast);
@@ -607,7 +610,7 @@ body.cesium-active .modal-overlay {
     align-items: center;
     gap: var(--space-2);
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     color: var(--gray-500);
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -623,7 +626,7 @@ body.cesium-active .modal-overlay {
     font-size: var(--font-size-xl);
     font-weight: var(--font-weight-bold);
     color: var(--primary);
-    font-family: "SF Mono", Consolas, monospace;
+    font-family: var(--font-mono);
 }
 
 /* Navigate Section */
@@ -651,7 +654,7 @@ body.cesium-active .modal-overlay {
     align-items: center;
     gap: var(--space-2);
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     color: var(--gray-500);
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -676,7 +679,7 @@ body.cesium-active .modal-overlay {
 }
 
 .viewshed-parameter-label {
-    font-size: 11px;
+    font-size: var(--font-size-2xs);
     color: var(--gray-500);
 }
 
@@ -684,7 +687,7 @@ body.cesium-active .modal-overlay {
     font-size: var(--font-size-base);
     font-weight: var(--font-weight-semibold);
     color: var(--primary);
-    font-family: "SF Mono", Consolas, monospace;
+    font-family: var(--font-mono);
 }
 
 /* Navigate Section */
@@ -703,7 +706,7 @@ body.cesium-active .modal-overlay {
 .viewshed-observer-height-label {
     display: block;
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-700);
     margin-bottom: var(--space-2);
 }
@@ -719,7 +722,7 @@ body.cesium-active .modal-overlay {
     padding: var(--space-2) var(--space-3);
     font-size: var(--font-size-sm);
     font-weight: var(--font-weight-semibold);
-    font-family: "SF Mono", Consolas, monospace;
+    font-family: var(--font-mono);
     color: var(--primary);
     background: white;
     border: var(--border-width) solid var(--border-color);
@@ -730,7 +733,7 @@ body.cesium-active .modal-overlay {
 .viewshed-observer-height-input:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.1);
+    box-shadow: 0 0 0 3px rgb(var(--primary-rgb) / 0.1);
 }
 
 .viewshed-observer-height-input::-webkit-inner-spin-button,
@@ -740,13 +743,13 @@ body.cesium-active .modal-overlay {
 
 .viewshed-observer-height-unit {
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-500);
 }
 
 .viewshed-observer-height-hint {
     margin-top: var(--space-2);
-    font-size: 11px;
+    font-size: var(--font-size-2xs);
     color: var(--gray-400);
     line-height: 1.4;
 }
@@ -762,7 +765,7 @@ body.cesium-active .modal-overlay {
     min-width: 280px;
     width: auto;
     padding: var(--space-2) var(--space-3);
-    font-family: monospace;
+    font-family: var(--font-mono);
     font-size: var(--font-size-xs);
     white-space: nowrap;
     background: rgba(255, 255, 255, 0.9);

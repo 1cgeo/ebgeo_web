@@ -103,7 +103,7 @@
 }
 
 .profile-slope-info span {
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
 }
 
 .profile-slope-toggle {
@@ -129,7 +129,7 @@
 }
 
 .profile-toggle-text {
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
 }
 
 .profile-chart-container {
@@ -166,7 +166,7 @@
 }
 
 .profile-empty-message svg {
-    color: #ffa726;
+    color: var(--color-warning);
     margin-bottom: var(--space-3);
     opacity: 0.8;
 }
@@ -293,7 +293,7 @@
     border-radius: var(--radius-sm);
     cursor: pointer;
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     margin-top: var(--space-4);
     transition: all var(--transition-normal);
     width: 100%;
@@ -343,7 +343,7 @@
     padding: var(--space-2) var(--space-3);
     background-color: rgba(0, 0, 0, 0.02);
     border-radius: var(--radius-sm);
-    font-size: 13px;
+    font-size: var(--font-size-sm);
     line-height: 1.4;
     word-break: break-word;
 }
@@ -378,7 +378,7 @@
 .vector-tile-selection-menu {
     position: fixed;
     background: white;
-    border: 1px solid #ccc;
+    border: 1px solid var(--gray-300);
     border-radius: var(--radius-md);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     z-index: 999999;
@@ -392,10 +392,10 @@
 
 .vector-tile-selection-menu__header {
     padding: var(--space-2) var(--space-3);
-    background: #f5f5f5;
-    color: #666;
-    border-bottom: 1px solid #ddd;
-    font-weight: bold;
+    background: var(--gray-100);
+    color: var(--gray-500);
+    border-bottom: 1px solid var(--gray-300);
+    font-weight: var(--font-weight-bold);
     font-size: var(--font-size-sm);
 }
 
@@ -409,11 +409,11 @@
 }
 
 .vector-tile-selection-menu__item:not(:last-child) {
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--gray-200);
 }
 
 .vector-tile-selection-menu__item:hover {
-    background-color: #f0f8ff;
+    background-color: var(--gray-100);
 }
 
 /* ===== ANIMATIONS ===== */
@@ -524,7 +524,7 @@
     margin: 0 0 var(--space-5);
     color: var(--gray-800);
     font-size: var(--font-size-lg);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
 }
 
 .visibility-progress-modal__text {
@@ -553,7 +553,7 @@
 .visibility-progress-modal__percentage {
     font-size: var(--font-size-xs);
     color: var(--gray-500);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
 }
 
 /* ===== LOS INFO SECTION ===== */
@@ -657,13 +657,13 @@
 }
 
 .los-coord-row__label {
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-500);
     min-width: 65px;
 }
 
 .los-coord-row__value {
-    font-family: 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-family: var(--font-mono);
     color: var(--gray-800);
     padding: 2px 6px;
     background-color: rgba(255, 255, 255, 0.7);

@@ -132,7 +132,7 @@
 
 .painel-ponto__coordenada {
     font-variant-numeric: tabular-nums;
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
 }
 
 .painel-ponto__data {
@@ -181,7 +181,7 @@
     padding: var(--space-1) var(--space-2);
     font-size: var(--font-size-xs);
     color: var(--color-warning-strong);
-    background: #fffbeb;
+    background: var(--amber-50);
     border-left: 3px solid var(--color-warning);
     border-radius: var(--radius-sm);
 }
@@ -238,7 +238,7 @@
 }
 
 .painel-ponto-quadro__rotulo {
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     white-space: nowrap;
 }
 
@@ -274,7 +274,7 @@
 
 .painel-ponto__bloco-titulo {
     padding: var(--space-1) 0;
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     color: var(--gray-700);
     cursor: pointer;
 }
@@ -304,7 +304,7 @@
     padding: var(--space-1) var(--space-3);
     font-family: inherit;
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     color: #fff;
     cursor: pointer;
     background: var(--primary);
@@ -349,7 +349,7 @@
 
 .painel-ponto__estado--erro {
     color: var(--color-error-strong);
-    background: #fef2f2;
+    background: var(--red-50);
     border-left: 3px solid var(--color-error);
 }
 
@@ -463,7 +463,7 @@
 }
 
 .painel-ponto__espiada-dia {
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-900);
 }
 
@@ -475,7 +475,7 @@
 .painel-ponto--folha .painel-ponto-quadro th,
 .painel-ponto--folha .painel-ponto-quadro td {
     padding: 3px 4px;
-    font-size: 13px;
+    font-size: var(--font-size-sm);
 }
 
 /* On a 360 px phone the weather quadro does not fit with unbroken cells: its cells carry units and

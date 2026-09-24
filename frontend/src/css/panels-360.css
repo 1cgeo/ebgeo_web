@@ -133,7 +133,7 @@ body.streetview-active .modal-overlay {
     color: rgba(255, 255, 255, 0.85);
     border-radius: var(--radius-sm);
     font-size: var(--font-size-sm);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
 }
 
@@ -144,7 +144,7 @@ body.streetview-active .modal-overlay {
 
 .sv360-floors__btn--active {
     background: #fff;
-    color: #111;
+    color: var(--gray-900);
 }
 
 /* ===== 360 TOOLBAR - VERTICAL SIDEBAR ===== */
@@ -215,7 +215,7 @@ body.streetview-active .modal-overlay {
     padding: var(--space-1) 10px;
     border-radius: 6px;
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     white-space: nowrap;
     opacity: 0;
     pointer-events: none;
@@ -244,7 +244,7 @@ body.streetview-active .modal-overlay {
 /* ===== ORIENTATION BUTTONS ===== */
 #salvar-orientacao.has-saved {
     border: 3px solid var(--primary);
-    box-shadow: 0 0 0 1px rgba(80, 141, 78, 0.3);
+    box-shadow: 0 0 0 1px rgb(var(--primary-rgb) / 0.3);
 }
 
 #limpar-orientacao {
@@ -252,11 +252,11 @@ body.streetview-active .modal-overlay {
 }
 
 #limpar-orientacao:hover {
-    background: #fee2e2;
+    background: var(--red-100);
 }
 
 #limpar-orientacao svg {
-    stroke: #dc2626;
+    stroke: var(--red-600);
 }
 
 /* ===== CLOSE BUTTON ===== */
@@ -271,11 +271,11 @@ body.streetview-active .modal-overlay {
     background: var(--primary);
     border: 2px solid rgba(255, 255, 255, 0.3);
     border-radius: var(--radius-md);
-    box-shadow: 0 4px 16px rgba(80, 141, 78, 0.3);
+    box-shadow: 0 4px 16px rgb(var(--primary-rgb) / 0.3);
     color: #fff;
     font-family: inherit;
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
     z-index: var(--z-3d-controls);
     transition: all var(--transition-normal);
@@ -283,7 +283,7 @@ body.streetview-active .modal-overlay {
 
 #close-street-view-button:hover {
     background: var(--primary-dark);
-    box-shadow: 0 6px 20px rgba(80, 141, 78, 0.4);
+    box-shadow: 0 6px 20px rgb(var(--primary-rgb) / 0.4);
     transform: translateY(-1px);
 }
 
@@ -444,7 +444,7 @@ body.streetview-active .modal-overlay {
     border: none;
     color: var(--gray-700);
     font-family: inherit;
-    font-size: 13px;
+    font-size: var(--font-size-sm);
     font-weight: var(--font-weight-semibold);
     cursor: pointer;
     transition: all var(--transition-normal);
@@ -511,7 +511,7 @@ body.streetview-active .modal-overlay {
 .nav-help-text-360 strong {
     display: block;
     color: var(--gray-900);
-    font-size: 13px;
+    font-size: var(--font-size-sm);
     font-weight: var(--font-weight-semibold);
     margin-bottom: 2px;
 }
@@ -651,7 +651,7 @@ body.streetview-active .modal-overlay {
 
     #close-street-view-button {
         padding: var(--space-2) var(--space-3);
-        font-size: 13px;
+        font-size: var(--font-size-sm);
     }
 
     #close-street-view-button span {

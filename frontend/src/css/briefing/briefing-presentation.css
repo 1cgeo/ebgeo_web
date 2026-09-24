@@ -203,7 +203,7 @@
     min-width: 60px;
     text-align: center;
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-600);
     padding: 2px var(--space-2);
     font-variant-numeric: tabular-nums;
@@ -267,7 +267,7 @@
 .briefing-text-panel__slide-dropdown-item--active {
     background: var(--primary-50);
     color: var(--primary);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
 }
 
 .briefing-text-panel__slide-dropdown-item--active:hover {
@@ -356,8 +356,8 @@
 }
 
 .briefing-text-panel__btn--exit:hover:not(:disabled) {
-    background: #fee2e2;
-    color: #b91c1c;
+    background: var(--red-100);
+    color: var(--color-error-strong);
 }
 
 /* =========================================================================

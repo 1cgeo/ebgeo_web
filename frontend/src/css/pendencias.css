@@ -280,7 +280,7 @@
     background: white;
     color: var(--gray-800);
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
     transition: background var(--transition-fast), border-color var(--transition-fast);
 }

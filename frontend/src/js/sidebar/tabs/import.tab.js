@@ -451,9 +451,12 @@ export class ImportTab {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'import-option-btn';
+        // Not a file format, but it wears one of the palette's colors (`--import-batch-points`),
+        // border and icon, like the five formats around it.
+        btn.dataset.format = 'batch-points';
 
         btn.innerHTML = `
-            <div class="import-option-icon" style="background: #ec4899">
+            <div class="import-option-icon" data-format="batch-points">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
             </div>
             <div class="import-option-info">

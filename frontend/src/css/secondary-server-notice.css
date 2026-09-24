@@ -58,7 +58,7 @@
     width: 56px;
     height: 56px;
     border-radius: 50%;
-    background: #fffbeb;
+    background: var(--amber-50);
     color: var(--color-warning);
 }
 
@@ -105,7 +105,7 @@
     padding: 10px 20px;
     border-radius: var(--radius-md);
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     text-decoration: none;
     cursor: pointer;
     transition: background var(--transition-fast), border-color var(--transition-fast);

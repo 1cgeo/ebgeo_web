@@ -220,7 +220,7 @@
 
 .search-result-name {
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     color: var(--gray-800);
 }
 
@@ -282,7 +282,7 @@
 }
 
 .search-result-popup .maplibregl-popup-close-button {
-    font-size: 18px;
+    font-size: var(--font-size-lg);
     padding: 4px 8px;
     color: var(--gray-500);
 }
@@ -338,7 +338,7 @@
     background: var(--primary);
     color: white;
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
     transition: background var(--transition-fast), transform var(--transition-fast);
 }
@@ -404,7 +404,7 @@
 
 .search-result-property-label {
     color: var(--gray-500);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
 }
 
 .search-result-property-value {
@@ -428,7 +428,7 @@
     background: var(--primary);
     color: white;
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
     transition: background var(--transition-fast), transform var(--transition-fast);
 }
@@ -478,7 +478,7 @@
     background: var(--gray-50);
     color: var(--gray-700);
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
     transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
     text-align: left;
@@ -532,7 +532,7 @@
 
 .coordinate-conversion-label {
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-500);
     text-transform: uppercase;
     letter-spacing: 0.03em;
@@ -547,7 +547,7 @@
 .coordinate-conversion-value {
     flex: 1;
     font-size: var(--font-size-sm);
-    font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+    font-family: var(--font-mono);
     color: var(--gray-800);
     word-break: break-all;
 }
@@ -601,7 +601,7 @@
 @media (pointer: coarse) {
     /* Prevent iOS zoom on input focus (must be >= 16px) */
     .search-bar-input {
-        font-size: 16px;
+        font-size: var(--font-size-base);
 
         /* E A CAIXA TAMBÉM, porque a fonte sozinha não a levanta: medido pela régua de alvo em
            2026-09-20, o campo fechava 42 px de altura, dois abaixo da régua. Ele é o ÚNICO alvo

@@ -80,7 +80,7 @@
 
 .csv-config-panel__zone-label {
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-600);
 }
 
@@ -117,7 +117,7 @@
 .csv-config-panel__zone-input:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.15);
+    box-shadow: 0 0 0 2px rgb(var(--primary-rgb) / 0.15);
 }
 
 .csv-config-panel__zone-input::placeholder {
@@ -182,9 +182,9 @@
 
 .csv-config-panel__result--error {
     display: flex;
-    background: #fef2f2;
+    background: var(--red-50);
     color: var(--color-error);
-    border: 1px solid #fecaca;
+    border: 1px solid var(--red-200);
 }
 
 /* ===== IMPORT TAB - CSV FORMAT BUTTON ===== */

@@ -83,7 +83,7 @@
     background: transparent;
     color: var(--primary);
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
     transition: background var(--transition-fast), color var(--transition-fast);
 }
@@ -260,9 +260,9 @@
 }
 
 .processing-panel__result--error {
-    background: var(--red-50, #fef2f2);
-    color: var(--red-900, #991b1b);
-    border: var(--border-width) solid var(--red-200, #fecaca);
+    background: var(--red-50);
+    color: var(--red-800);
+    border: var(--border-width) solid var(--red-200);
 }
 
 /* ===== BBOX PICKER (Voronoi / algorithms with area selection) ===== */
@@ -285,7 +285,7 @@
     background: var(--gray-50);
     color: var(--gray-600);
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
     transition: border-color var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
 }
@@ -328,7 +328,7 @@
 .processing-panel__bbox-display--set {
     color: var(--primary-700);
     font-style: normal;
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
 }
 
 .processing-panel__bbox-display--set svg {

@@ -204,7 +204,7 @@
 .online-users__name {
     overflow: hidden;
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     color: var(--gray-800);
     text-overflow: ellipsis;
     white-space: nowrap;

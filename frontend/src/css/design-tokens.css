@@ -29,6 +29,12 @@
        68 e a faixa media 92, porque o preenchimento somava por cima do `min-height`. */
     --app-bar-height: 56px;
 
+    /* Height of the compact green band every titled modal shares (owner's choice,
+       2026-09-24): 32px close button plus 10px above and below. It is a minimum,
+       not a fixed height: under `pointer: coarse` the close button grows to
+       `--touch-target-min` and the band grows with it. */
+    --modal-header-height: 52px;
+
     /* =========================================================================
        RESPONSIVE / TOUCH
        ========================================================================= */
@@ -114,6 +120,8 @@
     --primary-100: #dcfce7;
     --primary-200: #bbf7d0;
     --primary-300: #86efac;
+    --primary-400: #4ade80;
+    --primary-500: #22c55e;
     --primary-600: #16a34a;
     --primary-700: #15803d;
     --primary-800: #166534;
@@ -150,20 +158,56 @@
     --gray-900: #111827;
 
     /* =========================================================================
+       COLORS - STATUS SCALES (Red, Amber, Blue)
+
+       The semantic colors below are ONE step of each family; the tints around them
+       (the pale background of an error card, its border, the dark text on it) were
+       written by hand in about 90 declarations because no token existed: 65 as
+       literal hex, 25 through a var() of a name like --red-600 that nothing defined,
+       so the fallback was what rendered.
+       Only the steps in use are declared. Same values as the Tailwind palette the
+       gray and primary scales already follow.
+       ========================================================================= */
+    --red-50: #fef2f2;
+    --red-100: #fee2e2;
+    --red-200: #fecaca;
+    --red-300: #fca5a5;
+    --red-400: #f87171;
+    --red-500: #ef4444;
+    --red-600: #dc2626;
+    --red-700: #b91c1c;
+    --red-800: #991b1b;
+    --red-900: #7f1d1d;
+    --amber-50: #fffbeb;
+    --amber-100: #fef3c7;
+    --amber-300: #fcd34d;
+    --amber-500: #f59e0b;
+    --amber-600: #d97706;
+    --amber-700: #b45309;
+    --amber-800: #92400e;
+    --amber-900: #78350f;
+    --blue-50: #eff6ff;
+    --blue-100: #dbeafe;
+    --blue-200: #bfdbfe;
+    --blue-500: #3b82f6;
+    --blue-600: #2563eb;
+    --blue-700: #1d4ed8;
+
+    /* =========================================================================
        COLORS - SEMANTIC
        ========================================================================= */
-    --color-success: #22c55e;
-    --color-warning: #f59e0b;
-    --color-error: #ef4444;
-    --color-info: #3b82f6;
+    --color-success: var(--primary-500);
+    --color-warning: var(--amber-500);
+    --color-error: var(--red-500);
+    --color-info: var(--blue-500);
 
     /* Os mesmos quatro papeis em tom FORTE, para TEXTO sobre a tinta clara deles.
        `--color-warning` sobre um fundo de `--warning-rgb / 20%` da menos de 2:1 e
        nao se le; o par certo de uma pilula clara e o tom escuro da mesma familia.
        Use `--color-*` para PINTAR e `--color-*-strong` para ESCREVER. */
-    --color-warning-strong: #b45309;
-    --color-error-strong: #b91c1c;
-    --color-info-strong: #1d4ed8;
+    --color-warning-strong: var(--amber-700);
+    --color-error-strong: var(--red-700);
+    --color-info-strong: var(--blue-700);
 
     /* O QUARTO CHEGOU EM 2026-09-20, e o caso dele e o inverso dos tres de cima:
        nao e texto sobre tinta clara, e FUNDO de texto branco. O toast de sucesso
@@ -171,7 +215,7 @@
        branco e reprova AA; `--color-success` (#22c55e) seria pior, 2,28:1. Este
        degrau e o mesmo `--primary-700` da marca (5,02:1), porque sucesso e verde
        e nao ha razao para o produto ter um segundo verde escuro. */
-    --color-success-strong: #15803d;
+    --color-success-strong: var(--primary-700);
 
     /* =========================================================================
        COLORS - SUPERFICIE ESCURA
@@ -224,11 +268,19 @@
     --import-kml: #f97316;
     --import-gpx: #8b5cf6;
     --import-csv: #0ea5e9;
+    --import-batch-points: #ec4899;
 
     /* =========================================================================
        TYPOGRAPHY
        ========================================================================= */
     --font-family-base: -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, oxygen, ubuntu, sans-serif;
+
+    /* Coordinates, keycaps, codes. Cascadia Mono (Windows 11) and Consolas (every
+       Windows) before the generic; 'Cascadia Code' is left out on purpose, its
+       ligatures turn "->" and "=>" into arrows. Until 2026-09-24 there were seven
+       stacks, the coordinate bar was Courier New, and 13 rules read this token
+       while nothing defined it. */
+    --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', consolas, 'Liberation Mono', menlo, monospace;
 
     /* Os tres degraus ABAIXO de `xs` servem selo, contador e marca de estado, que
        sao rotulo de uma palavra e nunca texto corrido. Eles entraram com a
@@ -242,8 +294,13 @@
     --font-size-lg: 1.125rem;   /* 18px */
     --font-size-xl: 1.25rem;    /* 20px */
     --font-size-2xl: 1.75rem;   /* 28px - titulo de tela cheia */
+
+    /* THREE weights, and no 500. Segoe UI (the face every Windows machine draws)
+       ships 400, 600 and 700 only, so 500 falls to Semibold and looked exactly like
+       600: in 2026-09 about 70% of the text on screen rendered semibold and the
+       label/title hierarchy was gone. Controls, names and titles take semibold;
+       labels and running text take normal. Guard: tests/unit/tres-pesos-de-fonte.test.js */
     --font-weight-normal: 400;
-    --font-weight-medium: 500;
     --font-weight-semibold: 600;
     --font-weight-bold: 700;
     --line-height-tight: 1.25;

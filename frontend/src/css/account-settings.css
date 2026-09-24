@@ -114,7 +114,7 @@
 
 .account-settings__readonly-label {
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-500);
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -122,7 +122,7 @@
 
 .account-settings__readonly-value {
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-800);
     overflow-wrap: anywhere;
 }
@@ -172,7 +172,7 @@
 
 .account-settings__label {
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-700);
 }
 
@@ -216,7 +216,7 @@
     align-items: flex-start;
     gap: var(--space-3);
     padding: var(--space-3) var(--space-4);
-    background: #fffbeb;
+    background: var(--amber-50);
     border: var(--border-width) solid var(--color-warning);
     border-left-width: 4px;
     border-radius: var(--radius-md);
@@ -261,8 +261,8 @@
 }
 
 .account-settings__state--error {
-    color: #7f1d1d;
-    background: #fef2f2;
+    color: var(--red-900);
+    background: var(--red-50);
     border: var(--border-width) solid var(--color-error);
 }
 
@@ -287,7 +287,7 @@
     padding: var(--space-2) var(--space-4);
     font-family: var(--font-family-base);
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     border: var(--border-width) solid transparent;
     border-radius: var(--radius-md);
     cursor: pointer;
@@ -317,8 +317,8 @@
 }
 
 .account-settings__btn--danger:hover:not(:disabled) {
-    background: #dc2626;
-    border-color: #dc2626;
+    background: var(--red-600);
+    border-color: var(--red-600);
 }
 
 .account-settings__btn--ghost {

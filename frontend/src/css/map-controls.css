@@ -99,12 +99,12 @@
 
 .feature-search-control .feature-search-input:focus {
     border-color: var(--primary) !important;
-    box-shadow: 0 0 0 2px rgba(80, 141, 78, 0.2) !important;
+    box-shadow: 0 0 0 2px rgb(var(--primary-rgb) / 0.2) !important;
 }
 
 .feature-search-control .feature-search-input::placeholder {
     color: var(--gray-400) !important;
-    font-size: 11px !important;
+    font-size: var(--font-size-2xs) !important;
 }
 
 .feature-search-control .feature-search-suggestions {
@@ -138,7 +138,7 @@
 }
 
 .feature-search-control .feature-search-suggestion:hover {
-    background: rgba(80, 141, 78, 0.08) !important;
+    background: rgb(var(--primary-rgb) / 0.08) !important;
 }
 
 .feature-search-control .feature-search-suggestion:last-child {
@@ -296,7 +296,7 @@
     border-radius: var(--radius-sm) !important;
     padding: var(--space-2) var(--space-3) !important;
     font-size: var(--font-size-sm) !important;
-    font-weight: var(--font-weight-medium) !important;
+    font-weight: var(--font-weight-semibold) !important;
     cursor: pointer !important;
     transition: all var(--transition-normal) !important;
     min-width: 80px !important;
@@ -489,7 +489,7 @@
 
 .model-preview-date,
 .streetview-preview-date {
-    font-size: 13px;
+    font-size: var(--font-size-xs);
     font-weight: var(--font-weight-normal);
     color: var(--gray-500);
     margin-bottom: var(--space-2);
@@ -504,7 +504,7 @@
     border-radius: var(--radius-sm);
     color: #fff;
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
     transition: background var(--transition-normal);
 }
@@ -530,11 +530,11 @@
 }
 
 .streetview-preview-button:hover {
-    background: #2563eb;
+    background: var(--blue-600);
 }
 
 .streetview-preview-button:active {
-    background: #1d4ed8;
+    background: var(--color-info-strong);
 }
 
 /* Shared no-media state */

@@ -15,7 +15,7 @@
     border: 2px solid white;
     border-radius: 18px;
     padding: 5px 9px;
-    font: 600 12px sans-serif;
+    font: var(--font-weight-semibold) var(--font-size-xs) var(--font-family-base);
     box-shadow: 0 2px 6px #0008;
 }
 
@@ -454,7 +454,7 @@ body.first-person-active .modal-overlay {
 .fp3d-list__row--current {
     background: var(--gray-100);
     box-shadow: inset 3px 0 0 var(--primary);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
 }
 
 /* Fixed square, so 78 photos of different proportions still make a straight
@@ -668,7 +668,7 @@ body.first-person-active .modal-overlay {
     background: rgb(255 255 255 / 12%);
     font-family: inherit;
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     line-height: 1.2;
 }
 
@@ -686,7 +686,7 @@ body.first-person-active .modal-overlay {
 /* Dimmer than the letter: the letter is the shortcut, the arrow is the
    alternative. Same weight would make the cap read as two shortcuts. */
 .fp3d-key__arrow {
-    font-size: 9px;
+    font-size: var(--font-size-4xs);
     line-height: 1;
     opacity: 0.65;
 }
@@ -909,7 +909,7 @@ body.first-person-active .modal-overlay {
     background: var(--gray-900);
     color: #fff;
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     white-space: nowrap;
     opacity: 0;
     pointer-events: none;
@@ -946,9 +946,9 @@ body.first-person-active .modal-overlay {
     color: #fff;
     font-family: inherit;
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
-    box-shadow: 0 4px 16px rgba(80, 141, 78, 0.3);
+    box-shadow: 0 4px 16px rgb(var(--primary-rgb) / 0.3);
     z-index: var(--z-3d-controls);
     transition:
         background var(--transition-normal),
@@ -962,7 +962,7 @@ body.first-person-active .modal-overlay {
 
 .close-first-person-button:hover {
     background: var(--primary-dark);
-    box-shadow: 0 6px 20px rgba(80, 141, 78, 0.4);
+    box-shadow: 0 6px 20px rgb(var(--primary-rgb) / 0.4);
     transform: translateY(-1px);
 }
 
@@ -1023,7 +1023,7 @@ body.first-person-active .modal-overlay {
 
     .close-first-person-button {
         padding: var(--space-2) var(--space-3);
-        font-size: 13px;
+        font-size: var(--font-size-sm);
     }
 
     .close-first-person-button span {

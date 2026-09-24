@@ -106,12 +106,12 @@
    contador ("8 de 10 · restam 2"), porque cor sozinha não diz nada a quem não a distingue. */
 .local-atlas__count--near {
     background: rgb(245 158 11 / 12%);
-    color: #92400e;
+    color: var(--amber-800);
 }
 
 .local-atlas__count--full {
     background: rgb(245 158 11 / 18%);
-    color: #92400e;
+    color: var(--amber-800);
     box-shadow: inset 0 0 0 1px var(--color-warning);
 }
 

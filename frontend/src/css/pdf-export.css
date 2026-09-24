@@ -54,7 +54,7 @@
     flex-direction: column;
     gap: var(--space-1);
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-600);
 }
 
@@ -62,7 +62,7 @@
     width: 100%;
     padding: var(--space-2) 10px;
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-600);
     background-color: white;
     border: var(--border-width) solid var(--border-color-dark);
@@ -74,13 +74,13 @@
 
 .pdf-mosaic-select:hover {
     border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(80, 141, 78, 0.1);
+    box-shadow: 0 0 0 3px rgb(var(--primary-rgb) / 0.1);
 }
 
 .pdf-mosaic-select:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(80, 141, 78, 0.15);
+    box-shadow: 0 0 0 3px rgb(var(--primary-rgb) / 0.15);
 }
 
 .pdf-mosaic-count {
@@ -97,7 +97,7 @@
     font-size: var(--font-size-xs);
     line-height: 1.45;
     color: var(--gray-600);
-    background: rgba(80, 141, 78, 0.08);
+    background: rgb(var(--primary-rgb) / 0.08);
     border-left: 3px solid var(--primary);
     border-radius: var(--radius-sm);
 }
@@ -117,7 +117,7 @@
     border-radius: var(--radius-sm);
     transition: all var(--transition-normal);
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-600);
 }
 
@@ -126,7 +126,7 @@
 }
 
 .orientation-selector label:hover {
-    background: rgba(80, 141, 78, 0.1);
+    background: rgb(var(--primary-rgb) / 0.1);
     color: var(--primary);
 }
 
@@ -139,7 +139,7 @@
 }
 
 .orientation-selector label:has(input:checked) {
-    background: rgba(80, 141, 78, 0.15);
+    background: rgb(var(--primary-rgb) / 0.15);
     color: var(--primary-dark);
     font-weight: var(--font-weight-semibold);
 }
@@ -157,7 +157,7 @@
     width: 100%;
     padding: 10px var(--space-3);
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-600);
     background-color: white;
     border: var(--border-width) solid var(--border-color-dark);
@@ -169,13 +169,13 @@
 
 .dpi-select:hover {
     border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(80, 141, 78, 0.1);
+    box-shadow: 0 0 0 3px rgb(var(--primary-rgb) / 0.1);
 }
 
 .dpi-select:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(80, 141, 78, 0.15);
+    box-shadow: 0 0 0 3px rgb(var(--primary-rgb) / 0.15);
 }
 
 /* ===== EXPORT BUTTON ===== */
@@ -199,7 +199,7 @@
 .export-pdf-btn:hover:not(:disabled) {
     background-color: var(--primary-dark);
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(80, 141, 78, 0.3);
+    box-shadow: 0 4px 12px rgb(var(--primary-rgb) / 0.3);
 }
 
 .export-pdf-btn:active:not(:disabled) {
@@ -216,21 +216,21 @@
 .export-status {
     margin-top: var(--space-3);
     padding: var(--space-3);
-    background: #e3f2fd;
-    border: var(--border-width) solid #bbdefb;
+    background: var(--blue-100);
+    border: var(--border-width) solid var(--blue-200);
     border-radius: var(--radius-md);
     display: flex;
     align-items: center;
     gap: var(--space-3);
     font-size: var(--font-size-sm);
     color: var(--color-info);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
 }
 
 .loading-spinner {
     width: 16px;
     height: 16px;
-    border: 2px solid #bbdefb;
+    border: 2px solid var(--blue-200);
     border-top: 2px solid var(--color-info);
     border-radius: var(--radius-full);
     animation: spin 1s linear infinite;
@@ -248,9 +248,9 @@
 }
 
 @keyframes orientationSelect {
-    0% { background: rgba(80, 141, 78, 0.1); }
-    50% { background: rgba(80, 141, 78, 0.25); }
-    100% { background: rgba(80, 141, 78, 0.15); }
+    0% { background: rgb(var(--primary-rgb) / 0.1); }
+    50% { background: rgb(var(--primary-rgb) / 0.25); }
+    100% { background: rgb(var(--primary-rgb) / 0.15); }
 }
 
 /* ===== ACCESSIBILITY ===== */
@@ -325,7 +325,7 @@
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: rgba(80, 141, 78, 0.9);
+    background: rgb(var(--primary-700-rgb) / 0.9);
     color: white;
     display: flex;
     flex-direction: column;
@@ -341,7 +341,7 @@
 }
 
 .pdf-export-modal__title {
-    font-size: 24px;
+    font-size: var(--font-size-2xl);
     font-weight: var(--font-weight-semibold);
     margin-bottom: var(--space-5);
 }

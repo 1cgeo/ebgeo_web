@@ -104,13 +104,18 @@ describe('um verde só', () => {
         // Piso do inventário: um `git ls-files` que devolvesse pouco faria o laço verificar nada.
         expect(rastreados.length).toBeGreaterThan(400);
 
+        // O HEXADECIMAL É SÓ UMA GRAFIA. Até 2026-09-24 este caso procurava só `#508d4e`, e o oliva
+        // sobreviveu como `rgba(80, 141, 78, …)` em 42 declarações de CSS (anel de foco, tinta, o
+        // fundo da exportação de PDF) e como `[80, 141, 78]` na paleta do mosaico do PDF: a mesma
+        // cor escrita em canais, que a busca pelo hexadecimal não enxerga.
+        const CANAIS = /\b80\s*,\s*141\s*,\s*78\b|\b80\s+141\s+78\b/;
         const achados = [];
         for (const arquivo of rastreados) {
             let texto = ler(arquivo);
             // Os comentários de CSS CONTAM a história do oliva, e é para contarem. O que não pode é
             // ele pintar alguma coisa.
             if (arquivo.endsWith('.css')) texto = texto.replace(/\/\*[\s\S]*?\*\//g, '');
-            if (texto.toLowerCase().includes(OLIVA)) achados.push(arquivo);
+            if (texto.toLowerCase().includes(OLIVA) || CANAIS.test(texto)) achados.push(arquivo);
         }
         expect(achados).toEqual([]);
     });
@@ -140,5 +145,11 @@ describe('um verde só', () => {
         // As ilustrações do catálogo e as camadas do PDF exportado usavam o oliva em 23 pontos.
         expect(ler('src/js/catalog/catalog.constants.js').toLowerCase()).toContain(PRIMARIO);
         expect(ler('src/js/import_export/pdf-export.tab.js').toLowerCase()).toContain(PRIMARIO);
+        // O mosaico do PDF escreve a paleta em canais RGB para o jsPDF, e não em hexadecimal.
+        const mosaico = ler('src/js/import_export/pdf-mosaic-pages.js')
+            .match(/const PRIMARY = \[(\d+),\s*(\d+),\s*(\d+)\];/);
+        expect(mosaico, 'a constante PRIMARY do mosaico do PDF sumiu').not.toBeNull();
+        const hexDoMosaico = `#${mosaico.slice(1, 4).map((c) => Number(c).toString(16).padStart(2, '0')).join('')}`;
+        expect(hexDoMosaico).toBe(PRIMARIO);
     });
 });

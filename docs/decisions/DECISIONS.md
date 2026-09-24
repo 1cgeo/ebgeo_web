@@ -225,3 +225,5 @@ que envelheceu na decisão seguinte.)
 - 2026-09-24: nenhum gesto deixa de chegar ao servidor por ter mais de 200 operações: todo lote acima do teto sobe em blocos de até 200 encadeados por `dependsOn`, e um bloco recusado segura os seguintes (decisão do dono, B6.1), [registro](decisions-2026.md).
 - 2026-09-24: as regras de agente ganham escopo por caminho (`paths:`) e o núcleo que carrega sempre tem teto de 60k caracteres; a história da correção vai para o livro-razão, [registro](decisions-2026.md).
 - 2026-09-24: a camada ativa travada não recebe feição nova: a ferramenta recusa nomeando o estado e a store recusa no commit (decisão do dono), [registro](decisions-2026.md).
+- 2026-09-24: o cabeçalho de modal é a faixa verde compacta (52px, título de 18px), também nos dois modais feitos à mão (decisão do dono), [registro](decisions-2026.md).
+- 2026-09-24: tipografia e cor só dos tokens: controles herdam a fonte, três pesos (sem 500), escala sem 13px, uma monoespaçada, escalas de vermelho, âmbar e azul (decisão do dono), [registro](decisions-2026.md).

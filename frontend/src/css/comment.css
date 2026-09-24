@@ -74,7 +74,7 @@
 }
 
 .comment-pin__initials {
-    font-size: 11px;
+    font-size: var(--font-size-2xs);
     font-weight: var(--font-weight-semibold);
     line-height: 1;
     color: #fff;
@@ -92,7 +92,7 @@
     gap: 1px;
     height: 16px;
     padding: 0 4px;
-    font-size: 10px;
+    font-size: var(--font-size-3xs);
     font-weight: var(--font-weight-bold);
     line-height: 1;
     color: var(--gray-800);
@@ -170,7 +170,7 @@
 .comment-card__action {
     padding: 2px var(--space-2);
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     color: var(--primary);
     background: transparent;
     border: none;
@@ -197,7 +197,7 @@
     width: 22px;
     height: 22px;
     padding: 0;
-    font-size: 18px;
+    font-size: var(--font-size-lg);
     line-height: 1;
     color: var(--gray-500);
     background: transparent;
@@ -239,7 +239,7 @@
     justify-content: center;
     width: 28px;
     height: 28px;
-    font-size: 10px;
+    font-size: var(--font-size-3xs);
     font-weight: var(--font-weight-semibold);
     color: #fff;
     text-transform: uppercase;
@@ -249,7 +249,7 @@
 .comment-card__replies .comment-entry__avatar {
     width: 22px;
     height: 22px;
-    font-size: 9px;
+    font-size: var(--font-size-4xs);
 }
 
 .comment-entry__body {
@@ -349,7 +349,7 @@
 .comment-composer__btn {
     padding: var(--space-1) var(--space-3);
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     border: var(--border-width) solid transparent;
     border-radius: var(--radius-md);
     cursor: pointer;
@@ -499,7 +499,7 @@
     justify-content: center;
     width: 26px;
     height: 26px;
-    font-size: 10px;
+    font-size: var(--font-size-3xs);
     font-weight: var(--font-weight-semibold);
     color: #fff;
     text-transform: uppercase;
@@ -548,8 +548,8 @@
     justify-content: center;
     width: 16px;
     height: 16px;
-    font-size: 10px;
-    font-weight: bold;
+    font-size: var(--font-size-3xs);
+    font-weight: var(--font-weight-bold);
     color: #fff;
     background: var(--primary);
     border-radius: 50%;

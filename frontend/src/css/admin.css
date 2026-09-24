@@ -65,7 +65,7 @@
     border-radius: var(--radius-md);
     color: var(--gray-600);
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     text-align: left;
     cursor: pointer;
     transition: background var(--transition-fast), color var(--transition-fast);
@@ -209,7 +209,7 @@
 .admin-empty__message {
     margin: 0;
     font-size: var(--font-size-base);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-600);
 }
 
@@ -278,7 +278,7 @@
    de design não têm família de aviso, então o valor é literal aqui como já é lá. */
 .admin-chip--credenciado {
     background: rgb(245 158 11 / 15%);
-    color: #b45309;
+    color: var(--color-warning-strong);
 }
 
 /* O Produtor tem COR PRÓPRIA de propósito. Os quatro papéis globais não são uma
@@ -299,7 +299,7 @@
    público fica neutro, que é o estado de toda linha que existia antes do eixo. */
 .admin-chip--private {
     background: rgb(245 158 11 / 15%);
-    color: #b45309;
+    color: var(--color-warning-strong);
 }
 
 .admin-chip--public {
@@ -369,7 +369,7 @@
     border: var(--border-width) solid transparent;
     border-radius: var(--radius-md);
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
     transition: background var(--transition-fast), border-color var(--transition-fast);
     white-space: nowrap;
@@ -570,7 +570,7 @@
 .admin-users__badge--pending {
     margin-left: var(--space-1);
     background: rgb(245 158 11 / 15%);
-    color: #b45309;
+    color: var(--color-warning-strong);
 }
 
 /* ELA É UM `<td>`, E POR ISSO NÃO PODE SER `display: flex`: o navegador envolve o conteúdo
@@ -679,7 +679,7 @@
 
 .admin-form__field label {
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-700);
 }
 
@@ -732,7 +732,7 @@
     padding: var(--space-2) 0;
     font-size: var(--font-size-sm);
     color: var(--gray-700);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
 }
 
 .admin-form__field--checkbox {
@@ -750,7 +750,7 @@
     background: rgb(239 68 68 / 10%);
     border: var(--border-width) solid rgb(239 68 68 / 40%);
     border-radius: var(--radius-md);
-    color: #b91c1c;
+    color: var(--color-error-strong);
     font-size: var(--font-size-sm);
 }
 
@@ -827,7 +827,7 @@
     border-radius: var(--radius-full);
     color: var(--gray-600);
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     cursor: pointer;
     transition: background var(--transition-fast), color var(--transition-fast);
 }
@@ -899,7 +899,7 @@
     padding: var(--space-3);
     border: var(--border-width) solid var(--border-color);
     border-radius: var(--radius-md);
-    font-family: var(--font-mono, ui-monospace, monospace);
+    font-family: var(--font-mono);
     font-size: var(--font-size-sm);
     line-height: 1.5;
     resize: vertical;
@@ -940,7 +940,7 @@
     display: block;
     margin-bottom: var(--space-2);
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-700);
 }
 
@@ -1140,7 +1140,7 @@
 
 .admin-audit__filtro-rotulo {
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-600);
 }
 
@@ -1361,7 +1361,7 @@
 
 .admin-audit__chip--atlas {
     background: rgb(245 158 11 / 15%);
-    color: #b45309;
+    color: var(--color-warning-strong);
 }
 
 .admin-audit__chip--sistema {
@@ -1431,7 +1431,7 @@
    de-para, que é o motivo de a gaveta existir. */
 .admin-audit__details-tecnico {
     color: var(--gray-500);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
 }
 
 /* CÓDIGO, e não texto. A gaveta mostra o que não tem tradução em vez de esconder, e a
@@ -1439,7 +1439,7 @@
    de se ler como uma frase em português mal escrita. Vale para o nome da chave e para o
    valor, independentemente: são duas metades que podem faltar separadas. */
 .admin-audit__details-codigo {
-    font-family: var(--font-mono, ui-monospace, monospace);
+    font-family: var(--font-mono);
 }
 
 .admin-audit__pager {
@@ -1861,7 +1861,7 @@
 
 .admin-diag__contagem--poucas {
     font-size: var(--font-size-base);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     color: var(--gray-700);
 }
 
@@ -1887,7 +1887,7 @@
 .admin-diag__assinatura {
     margin: 0;
     color: var(--gray-900);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     overflow-wrap: anywhere;
 }
 
@@ -1910,7 +1910,7 @@
 }
 
 .admin-diag__meta-alvo {
-    font-family: var(--font-mono, ui-monospace, monospace);
+    font-family: var(--font-mono);
     overflow-wrap: anywhere;
 }
 
@@ -1925,7 +1925,7 @@
 }
 
 .admin-diag__meta-usuario {
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-600);
 }
 
@@ -1974,7 +1974,7 @@
    compara entre dois endereços costuma ser um octeto no meio. `anywhere` porque com um proxy à
    frente este texto vem do `X-Forwarded-For` e pode não ter espaço nenhum. */
 .admin-diag__endereco-ip {
-    font-family: var(--font-mono, ui-monospace, monospace);
+    font-family: var(--font-mono);
     color: var(--gray-700);
     overflow-wrap: anywhere;
 }
@@ -2013,7 +2013,7 @@
     background: var(--gray-50);
     border: var(--border-width) solid var(--border-color);
     border-radius: var(--radius-md);
-    font-family: var(--font-mono, ui-monospace, monospace);
+    font-family: var(--font-mono);
     color: var(--gray-700);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -2044,7 +2044,7 @@
 }
 
 .admin-diag__rota {
-    font-family: var(--font-mono, ui-monospace, monospace);
+    font-family: var(--font-mono);
     overflow-wrap: anywhere;
 }
 
@@ -2265,7 +2265,7 @@
 .admin-diag__saude-release {
     max-width: 22ch;
     overflow: hidden;
-    font-family: var(--font-mono, ui-monospace, monospace);
+    font-family: var(--font-mono);
     font-size: var(--font-size-xs);
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2389,7 +2389,7 @@
 }
 
 .admin-diag__releases {
-    font-family: var(--font-mono, ui-monospace, monospace);
+    font-family: var(--font-mono);
     font-size: var(--font-size-xs);
     color: var(--gray-600);
     white-space: nowrap;
@@ -2475,7 +2475,7 @@
 
 .admin-diag__gaveta-assinatura {
     margin: 0 0 var(--space-2);
-    font-family: var(--font-mono, ui-monospace, monospace);
+    font-family: var(--font-mono);
     font-size: var(--font-size-xs);
     color: var(--gray-700);
     word-break: break-word;
@@ -2524,7 +2524,7 @@
 
 .admin-diag__meta-release,
 .admin-diag__meta-sessao {
-    font-family: var(--font-mono, ui-monospace, monospace);
+    font-family: var(--font-mono);
     color: var(--gray-500);
 }
 
@@ -2626,7 +2626,7 @@
 
 .admin-diag__migalha-quando {
     flex: 0 0 auto;
-    font-family: var(--font-mono, ui-monospace, monospace);
+    font-family: var(--font-mono);
     color: var(--gray-500);
 }
 
@@ -2804,7 +2804,7 @@
 }
 
 .admin-diag__resumo-rota-nome {
-    font-family: var(--font-mono, ui-monospace, monospace);
+    font-family: var(--font-mono);
 }
 
 /* O DELTA NÃO ENCOLHE E NÃO ESMAGA. Ele é `nowrap` e chega a 36 caracteres
@@ -3137,7 +3137,7 @@
 }
 
 .admin-uso__atlas-nome {
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     color: var(--gray-900);
 }
 
@@ -3171,7 +3171,7 @@
 
 .admin-uso__degrau-rotulo {
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-800);
 }
 
@@ -3251,7 +3251,7 @@
 }
 
 .admin-uso__retencao-coorte {
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-900);
     white-space: nowrap;
 }
@@ -3370,6 +3370,6 @@
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-6);
-    font-size: 1.4rem;
-    font-weight: 600;
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-semibold);
 }

@@ -112,6 +112,15 @@ html, body {
     background: var(--surface-dark);
 }
 
+/* Same reset as base.css, which this page does not load: form controls would
+   otherwise draw in the browser's UI font (Arial on Windows). */
+button,
+input,
+select,
+textarea {
+    font-family: inherit;
+}
+
 /* ================================================================
    LAYOUT — viewer is full-window, panel overlays on top.
    This ensures the WebGL canvas + navigation overlay canvas
@@ -968,7 +977,7 @@ html, body {
     border-radius: var(--radius-md);
     padding: var(--space-2) var(--space-4);
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
     transition: background var(--transition-fast), opacity var(--transition-fast);
 }
@@ -1024,7 +1033,7 @@ html, body {
     color: var(--on-dark-soft);
     padding: 1px 6px;
     font-size: var(--font-size-2xs);
-    font-family: monospace;
+    font-family: var(--font-mono);
     border-radius: var(--radius-sm);
     cursor: pointer;
     vertical-align: middle;
@@ -1321,7 +1330,7 @@ html, body {
     padding: 10px var(--space-5);
     border-radius: var(--radius-md);
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     z-index: 1000;
     opacity: 0;
     transition: opacity var(--transition-slow), transform var(--transition-slow);
@@ -1455,7 +1464,7 @@ html, body {
 .cal-panel__photo-counter {
     font-size: var(--font-size-xs);
     color: var(--on-dark);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
 }
 
 /* ================================================================

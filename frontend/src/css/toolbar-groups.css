@@ -160,7 +160,7 @@
     font-size: var(--font-size-xs);
     font-weight: var(--font-weight-semibold);
     color: var(--gray-400);
-    font-family: monospace;
+    font-family: var(--font-mono);
     line-height: 1;
     pointer-events: none;
 }
@@ -183,7 +183,7 @@
     margin-left: auto;
     font-size: var(--font-size-xs);
     color: var(--gray-400);
-    font-family: monospace;
+    font-family: var(--font-mono);
 }
 
 /* =========================================================================

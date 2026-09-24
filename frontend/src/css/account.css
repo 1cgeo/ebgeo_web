@@ -116,7 +116,7 @@
 }
 
 .account-control__atlas-caption {
-    font-size: 10px;
+    font-size: var(--font-size-3xs);
     font-weight: var(--font-weight-semibold);
     color: var(--gray-400);
     text-transform: uppercase;
@@ -147,7 +147,7 @@
 }
 
 .account-control__role-name {
-    font-size: 10px;
+    font-size: var(--font-size-3xs);
     font-weight: var(--font-weight-semibold);
     color: var(--primary);
     text-transform: uppercase;
@@ -178,7 +178,7 @@
     padding: 1px var(--space-1);
     border-radius: var(--radius-sm);
     background: var(--gray-100);
-    font-size: 10px;
+    font-size: var(--font-size-3xs);
     font-weight: var(--font-weight-semibold);
     color: var(--gray-700);
     text-transform: uppercase;
@@ -211,7 +211,7 @@
     border: none;
     border-radius: var(--radius-md);
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
     transition: background var(--transition-fast), color var(--transition-fast);
 }
@@ -339,7 +339,7 @@
 }
 
 .account-control__menu .account-control__btn--delete-atlas:hover {
-    background: rgba(239, 68, 68, 0.08);
+    background: rgb(var(--error-rgb) / 0.08);
     color: var(--color-error);
 }
 
@@ -444,7 +444,7 @@
 .atlas-name-badge__name {
     overflow: hidden;
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     color: var(--gray-700);
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -555,7 +555,7 @@
     align-items: center;
     gap: var(--space-1);
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-500);
 }
 
@@ -571,7 +571,7 @@
     padding: 2px var(--space-2);
     border-radius: var(--radius-full);
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     line-height: 1.4;
     white-space: nowrap;
     background: var(--gray-100);
@@ -669,7 +669,7 @@
 .sync-status-badge__label {
     overflow: hidden;
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     color: var(--gray-700);
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -739,7 +739,7 @@
     overflow: hidden;
     font-family: inherit;
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--color-error);
     text-overflow: ellipsis;
     white-space: nowrap;

@@ -241,7 +241,7 @@
 
 .sharing-member__name {
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     color: var(--gray-800);
     white-space: nowrap;
     overflow: hidden;
@@ -413,7 +413,7 @@
     color: var(--gray-600);
     font-family: inherit;
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     text-align: left;
     cursor: pointer;
     transition: background var(--transition-fast), color var(--transition-fast);
@@ -496,7 +496,7 @@
     color: var(--gray-600);
     font-family: inherit;
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
     transition: background var(--transition-fast), color var(--transition-fast);
 }
@@ -542,7 +542,7 @@
     color: var(--gray-700);
     font-family: inherit;
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
     transition: background var(--transition-fast), border-color var(--transition-fast);
 }
@@ -738,7 +738,7 @@
     border: var(--border-width) solid var(--border-color-dark);
     border-radius: var(--radius-md);
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     color: var(--gray-700);
     cursor: pointer;
     transition: background var(--transition-fast), border-color var(--transition-fast);
@@ -1037,7 +1037,7 @@
     background: var(--gray-100);
     color: var(--gray-600);
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     white-space: nowrap;
 }
 
@@ -1048,9 +1048,9 @@
     padding: 2px var(--space-2);
     border-radius: var(--radius-full);
     background: rgb(245 158 11 / 15%);
-    color: #b45309;
+    color: var(--color-warning-strong);
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     white-space: nowrap;
 }
 
@@ -1064,9 +1064,9 @@
     padding: 2px var(--space-2);
     border-radius: var(--radius-full);
     background: rgb(245 158 11 / 15%);
-    color: #b45309;
+    color: var(--color-warning-strong);
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     white-space: nowrap;
 }
 
@@ -1123,7 +1123,7 @@
     background: var(--gray-100);
     color: var(--gray-600);
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     white-space: nowrap;
 }
 
@@ -1148,7 +1148,7 @@
 
 .resource-share__level-label {
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     color: var(--gray-700);
 }
 
@@ -1257,7 +1257,7 @@
     border-radius: var(--radius-full);
     color: var(--gray-600);
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     white-space: nowrap;
     cursor: pointer;
     transition: all var(--transition-fast);
@@ -1393,7 +1393,7 @@
 
 .sharing-exposicao__titulo {
     font-size: var(--font-size-sm);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--color-warning-strong);
 }
 

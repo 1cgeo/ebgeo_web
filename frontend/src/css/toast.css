@@ -14,7 +14,7 @@
     color: white;
     font-family: var(--font-family-base);
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
     z-index: var(--z-toast);
     max-width: 90vw;
     word-wrap: break-word;

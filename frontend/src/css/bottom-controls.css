@@ -38,7 +38,7 @@
     cursor: pointer;
     font-family: var(--font-family-base);
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-semibold);
     color: var(--gray-700);
     transition: all var(--transition-fast);
     white-space: nowrap;

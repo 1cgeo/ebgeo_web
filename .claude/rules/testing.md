@@ -101,6 +101,10 @@ Rode o Playwright de DENTRO de `frontend/`: da raiz o runner carrega os specs co
   change it, probe it**: write a file with a known error and confirm the report
   arrives. A guard is worth only what its last probe proved. A última sondagem, e a armadilha da própria sondagem no Git Bash, estão em [testes-frontend-e-lint.md](testes-frontend-e-lint.md).
 
+## O shell desta máquina mente sobre barra invertida e fim de linha
+
+O Bash da ferramenta é Git Bash, e ele erra calado de duas formas. Barra invertida dentro de `node -e`, heredoc ou `sed` chega mutilada (a dupla vira simples, ou vira caractere de controle); e `grep`, `sed` e `od` escondem o `\r` de arquivo CRLF, que é o que este checkout tem (`core.autocrlf=true`). O resultado tem cara de resultado: contagem zero, regra que nunca casa, "o arquivo é LF". Então: script com regex, barra invertida ou âncora de várias linhas vai para ARQUIVO escrito pelo editor e roda com `node`; fim de linha se mede dentro do `node`; e toda substituição por script conta os alvos e aborta se casar zero. O livro-razão tem seis ocorrências desta classe; as cinco primeiras terminavam em "codificado como prática da sessão", que é por que ela voltou.
+
 ## Rodadas concorrentes na mesma máquina
 
 Antes de tratar diferença entre duas rodadas como regressão, pergunte se outra sessão escreveu no mesmo diretório entre elas (`git log --since` mais `git status`): nesta máquina, sessões diferentes já compartilharam o diretório de trabalho, e aí a sua rodada mede os arquivos da outra, meio escritos inclusive. Contagem de casos que muda entre rodadas do mesmo commit é contradição interna, e ela vence a hipótese de que o número é sobre o código. O arquivo ainda não commitado é a única fonte de divergência que não se reconstrói depois: combine antes.

@@ -126,17 +126,17 @@
 
 .signup-modal__match--coincide {
     color: var(--primary-700);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
 }
 
 .signup-modal__match--difere {
     color: var(--color-error-strong);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
 }
 
 .signup-modal__match--longa-demais {
     color: var(--color-warning-strong);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-normal);
 }
 
 /* =========================================================================
