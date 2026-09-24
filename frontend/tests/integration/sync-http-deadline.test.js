@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiClient, uploadDeadlineMs } from '../../src/js/store/sync/api-client.js';
+import { ApiClient, uploadDeadlineMs, utf8ByteLength } from '../../src/js/store/sync/api-client.js';
 
 afterEach(() => vi.useRealTimers());
 
@@ -51,6 +51,28 @@ describe('Sync HTTP deadline and cancellation', () => {
             expect(uploadDeadlineMs(bytes), String(bytes)).toBeGreaterThanOrEqual(base + (bytes / 5000) * 1000 * 2);
             expect(uploadDeadlineMs(bytes + 1)).toBeGreaterThanOrEqual(uploadDeadlineMs(bytes));
         }
+    });
+
+    it('counts the UTF-8 size of the serialized body without encoding it', () => {
+        const samples = ['', 'ascii', 'ação e ênfase', '北京', 'marcador 🪖 e 🚩', JSON.stringify({ nome: 'Pelotão Ç' })];
+        for (const text of samples) {
+            expect(utf8ByteLength(text), text).toBe(new TextEncoder().encode(text).byteLength);
+        }
+    });
+
+    it('sends the push body serialized ONCE, the same string its deadline was sized from', async () => {
+        const fetch = vi.fn(async () => ({
+            ok: true, status: 200, headers: new Headers(), text: async () => JSON.stringify({ data: { results: [] } }),
+        }));
+        const api = new ApiClient({ fetch });
+        const stringify = vi.spyOn(JSON, 'stringify');
+        const operations = [{ id: 'op-1', data: { nome: 'Posição' } }];
+        await api.pushOperations('atlas', operations);
+        const calls = stringify.mock.calls.filter(([value]) => value && value.operations === operations);
+        stringify.mockRestore();
+        expect(calls).toHaveLength(1);
+        expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ operations });
+        expect(fetch.mock.calls[0][1].headers['Content-Type']).toBe('application/json');
     });
 
     it('sizes the receipt lookup deadline the same way', async () => {

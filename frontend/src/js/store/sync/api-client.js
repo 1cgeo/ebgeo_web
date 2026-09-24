@@ -225,12 +225,24 @@ export function uploadDeadlineMs(bodyBytes) {
 }
 
 /**
- * UTF-8 size of a JSON body, the unit {@link uploadDeadlineMs} is sized in.
- * @param {*} body
+ * UTF-8 size of an already serialized body, the unit {@link uploadDeadlineMs} is sized in.
+ *
+ * Counted, not encoded: the push body can be several MB, and it is serialized ONCE and sent as
+ * that same string (`serializedBody` of `_performRequest`), so sizing it must not cost a second
+ * copy. A surrogate pair is two code units and four bytes, which the per-unit rule below adds up
+ * to exactly (1 + 1 for the high half, 1 + 1 for the low half).
+ * @param {string} text
  * @returns {number}
  */
-function jsonBodyBytes(body) {
-    return new TextEncoder().encode(JSON.stringify(body)).byteLength;
+export function utf8ByteLength(text) {
+    let bytes = 0;
+    for (let i = 0; i < text.length; i++) {
+        const unit = text.charCodeAt(i);
+        if (unit < 0x80) bytes += 1;
+        else if (unit < 0x800 || (unit >= 0xd800 && unit <= 0xdfff)) bytes += 2;
+        else bytes += 3;
+    }
+    return bytes;
 }
 
 /**
@@ -849,7 +861,12 @@ export class ApiClient {
         }
     }
 
-    async _performRequest(method, path, { body, auth = true, _retry = true, signal, assertContext, onBodyChunk } = {}) {
+    async _performRequest(method, path, {
+        body, serializedBody, auth = true, _retry = true, signal, assertContext, onBodyChunk,
+    } = {}) {
+        // `serializedBody` is a body the caller already turned into JSON (the push, which sizes its
+        // deadline from that same string); it is sent as is, and never serialized a second time.
+        const payload = serializedBody ?? (body !== undefined ? JSON.stringify(body) : undefined);
         // Renew BEFORE the header is built, or the request carries the stale token.
         // Guarded by `auth`, which is also what keeps this out of the recursion:
         // `refresh()` issues its own request with `auth: false`.
@@ -860,7 +877,7 @@ export class ApiClient {
         assertContext?.();
 
         const headers = {};
-        if (body !== undefined) headers['Content-Type'] = 'application/json';
+        if (payload !== undefined) headers['Content-Type'] = 'application/json';
         if (auth && this._accessToken) headers['Authorization'] = `Bearer ${this._accessToken}`;
         // O ID DESTA ABA, em TODO pedido, autenticado ou não. Ele costura a linha do log do
         // servidor com o relato de erro do navegador (que manda o mesmo valor no corpo), que é o
@@ -878,15 +895,16 @@ export class ApiClient {
         // can't block boot (P1), and so does the logout revoke (LOGOUT_TIMEOUT_MS), which carries
         // nothing worth waiting for; the abort surfaces as a rejected fetch handled by the
         // caller's offline/anonymous fallback. The snapshot pull and the op push carry deadlines
-        // too since 2026-09-12; the push one is sized from its body (`uploadDeadlineMs`), so a
-        // large transfer on a slow network is not aborted mid-flight (P6).
+        // too since 2026-09-12, shaped so a large transfer on a slow network is not aborted
+        // mid-flight (P6): the push one is sized from its body (`uploadDeadlineMs`) and the pull
+        // one counts silence (`deadlineCountsSilence`).
         // O relógio da migalha começa AQUI, depois da renovação proativa e da montagem dos
         // cabeçalhos: o que a trilha mede é o pedido, não a preparação dele.
         const inicioDoPedido = Date.now();
         let res;
         try {
             res = await this._fetch(`${this.baseUrl}${path}`, {
-                method, headers, body: body !== undefined ? JSON.stringify(body) : undefined,
+                method, headers, body: payload,
                 ...(signal ? { signal } : {}),
             });
         } catch (erroDeRede) {
@@ -911,7 +929,9 @@ export class ApiClient {
             if (res.status === 401 && _retry && auth && this._refreshToken) {
                 await this.refresh();
                 signal?.throwIfAborted();
-                return this._performRequest(method, path, { body, auth, _retry: false, signal, assertContext, onBodyChunk });
+                return this._performRequest(method, path, {
+                    serializedBody: payload, auth, _retry: false, signal, assertContext, onBodyChunk,
+                });
             }
             // Two error envelopes reach this client. The atlas API sends
             // `{ error: { code, message } }`; sv360 sends a FLAT `{ error: '...' }`
@@ -2792,14 +2812,18 @@ export class ApiClient {
      * @returns {Promise<{ results: Object[], acks: Object[], serverVersion: number }>}
      */
     async pushOperations(atlasId, operations, { signal } = {}) {
-        const body = { operations };
-        return this._request('POST', `/atlas/${atlasId}/sync`, { body, timeoutMs: uploadDeadlineMs(jsonBodyBytes(body)), signal });
+        const serializedBody = JSON.stringify({ operations });
+        return this._request('POST', `/atlas/${atlasId}/sync`, {
+            serializedBody, timeoutMs: uploadDeadlineMs(utf8ByteLength(serializedBody)), signal,
+        });
     }
 
     /** Looks up delivery without submitting the old intentions for execution. */
     async lookupOperationReceipts(atlasId, operations, { signal } = {}) {
-        const body = { operations };
-        return this._request('POST', `/atlas/${atlasId}/sync/receipts`, { body, timeoutMs: uploadDeadlineMs(jsonBodyBytes(body)), signal });
+        const serializedBody = JSON.stringify({ operations });
+        return this._request('POST', `/atlas/${atlasId}/sync/receipts`, {
+            serializedBody, timeoutMs: uploadDeadlineMs(utf8ByteLength(serializedBody)), signal,
+        });
     }
 
     /**
