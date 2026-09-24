@@ -173,8 +173,12 @@ export async function toggleFeatureVisibility(
         const selectionManagerType = getSourceTypeFromStorage(featureType);
         const isSelected = selectionManager.isFeatureSelected(selectionManagerType, featureId);
 
-        if (isSelected && selectionManager.deselectFeature) {
-            selectionManager.deselectFeature(featureId, selectionManagerType);
+        // A deselectFeature method never existed on the SelectionManager, and the guard testing for
+        // it turned this whole branch into a silent no-op: the feature stayed selected, panel
+        // and handles included, after being hidden or locked here.
+        if (isSelected) {
+            await selectionManager.toggleFeatureSelection(selectionManagerType, featureId, null, true);
+            selectionManager.updateUI?.();
         }
     }
 }
@@ -214,8 +218,12 @@ export async function toggleFeatureLock(
         const selectionManagerType = getSourceTypeFromStorage(featureType);
         const isSelected = selectionManager.isFeatureSelected(selectionManagerType, featureId);
 
-        if (isSelected && selectionManager.deselectFeature) {
-            selectionManager.deselectFeature(featureId, selectionManagerType);
+        // A deselectFeature method never existed on the SelectionManager, and the guard testing for
+        // it turned this whole branch into a silent no-op: the feature stayed selected, panel
+        // and handles included, after being hidden or locked here.
+        if (isSelected) {
+            await selectionManager.toggleFeatureSelection(selectionManagerType, featureId, null, true);
+            selectionManager.updateUI?.();
         }
     }
 }

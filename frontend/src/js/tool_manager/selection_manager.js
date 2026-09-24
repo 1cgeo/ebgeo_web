@@ -10,6 +10,7 @@ import {
     getFeatureGroup,
     getVisibleLayerIds,
     isFeatureEffectivelyLocked,
+    featureLockState,
     getStateManager,
     getControl,
     startBatchUndo,
@@ -24,6 +25,8 @@ import { isDragEndClick } from './click-after-drag.js';
 import { getActiveScope } from '@store/atlas-namespace.js';
 import { whenStoreWritesResume, STORE_RECOVERY_NOTICE } from '@store/write-coordinator.js';
 import { StoreErrorEvents, emitStoreError } from '@store/store-errors.js';
+import { featureLockNotice } from '@store/denial-phrases.js';
+import { EventTypes } from '@events/event_types.js';
 import { createTwoFingerTapHandler } from '../utilities/pointer-utils';
 import { ensureTurf } from '../utilities/turf-loader.js';
 import { queryHoverFeatures } from './helpers/hover-query.helpers.js';
@@ -334,6 +337,62 @@ class SelectionManager {
         this.deselectAllFeatures();
         await this._selectGroup(group);
         this.updateUI();
+    }
+
+    /**
+     * Drops the selection when a lock LANDS on a feature that is already selected.
+     *
+     * Refusing to select a locked feature (`selectFeature`) only covers the lock that exists at
+     * click time. The lock that ARRIVES afterwards, the owner locking the layer, the group or the
+     * feature while the editor has it selected, found the selection intact: panel open, handles
+     * drawn, and Delete removed the feature on the server, because the store deletes whatever is
+     * selected and the server never asks about these three locks. Measured with two browsers.
+     *
+     * Wired by `map_sig.js`, which owns the event bus, so the constructor stays free of services
+     * (unit suites build this class over a fake map). The three events are the ones every lock
+     * change reaches this client by: LAYERS_CHANGED and GROUPS_CHANGED from both the local toggle
+     * and a peer's op, and FEATURE_MODIFIED for a peer's feature write, whose payload carries the
+     * feature as it now is.
+     * @param {{on: Function}} eventBus
+     */
+    watchEffectiveLocks(eventBus) {
+        if (typeof eventBus?.on !== 'function') return;
+        const recheck = (payload) => this._dropLockedSelection(payload);
+        for (const type of [EventTypes.LAYERS_CHANGED, EventTypes.GROUPS_CHANGED, EventTypes.FEATURE_MODIFIED]) {
+            const off = eventBus.on(type, recheck);
+            if (typeof off === 'function') this._unsubscribers.push(off);
+        }
+    }
+
+    /**
+     * Clears the selection if any selected feature is now effectively locked, and says which lock.
+     *
+     * The pending panel edits are DISCARDED (`skipSave`), not saved: saving them is exactly the
+     * write the lock forbids. The notice names the state (feature, layer or group), because the
+     * person can be the one who reverses it.
+     * @param {Object} [payload] - Event payload; a `feature` in it is the fresher copy of that id.
+     * @private
+     */
+    _dropLockedSelection(payload) {
+        const selected = this.getAllSelectedFeatures();
+        if (selected.length === 0) return;
+        const fresh = payload?.feature?.properties?.id != null ? payload.feature : null;
+        let state = null;
+        for (const feature of selected) {
+            const current = fresh && String(fresh.properties.id) === String(feature?.properties?.id)
+                ? fresh
+                : feature;
+            state = featureLockState(current);
+            if (state) break;
+        }
+        if (!state) return;
+        this.deselectAllFeatures({ skipSave: true });
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation: 'selection',
+            message: featureLockNotice(state),
+            reason: 'feature_locked',
+            timestamp: Date.now()
+        });
     }
 
     /**
@@ -1200,7 +1259,29 @@ class SelectionManager {
      * class of loss as the paragraph above. What the person confirmed was THIS set of features.
      */
     async deleteSelectedFeatures() {
-        const selectedFeatures = this.getAllSelectedFeatures();
+        // A LOCKED FEATURE IS NOT DELETED FROM HERE, whatever put it in the selection. The lock is
+        // a client convention (see `watchEffectiveLocks`), this method is the funnel of the Delete
+        // key, the panel button and the context menu, and the store below deletes whatever it is
+        // given. The refusal names the lock; the unlocked rest of the selection goes ahead.
+        const selectedFeatures = [];
+        let lockedState = null;
+        for (const feature of this.getAllSelectedFeatures()) {
+            const state = featureLockState(feature);
+            if (state) lockedState ??= state;
+            else selectedFeatures.push(feature);
+        }
+        if (lockedState) {
+            emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+                operation: 'deleteSelectedFeatures',
+                message: featureLockNotice(lockedState),
+                reason: 'feature_locked',
+                timestamp: Date.now()
+            });
+        }
+        if (selectedFeatures.length === 0) {
+            if (lockedState) this.deselectAllFeatures({ skipSave: true });
+            return;
+        }
         if (!(await whenStoreWritesResume(getActiveScope()))) {
             emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
                 operation: 'deleteSelectedFeatures',

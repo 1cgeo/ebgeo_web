@@ -335,6 +335,8 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
     const uiManager = new UIManager(map, selectionManager, toolManager);
     selectionManager.setUIManager(uiManager);
     toolManager.setUiManager(uiManager);
+    // After the UI manager: dropping a selection a lock just landed on closes the panel through it.
+    selectionManager.watchEffectiveLocks(getEventBus());
 
     const featureSearchControl = new FeatureSearchControl(uiManager);
     uiManager.setFeatureSearchControl(featureSearchControl);
