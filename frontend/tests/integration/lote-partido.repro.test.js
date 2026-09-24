@@ -10,7 +10,7 @@ import {
 } from '../../src/js/store/sync/operation-dispatcher.js';
 import { OperationQueue } from '../../src/js/store/sync/operation-queue.js';
 import { withGestureBatch, GESTURE_PART_SIZE } from '../../src/js/store/sync/gesture-batch.js';
-import { MAX_OPS_PER_LOGICAL_BATCH, describeRefusedPart } from '../../src/js/store/sync/operation-factory.js';
+import { MAX_OPS_PER_LOGICAL_BATCH, describeRefusedPart, createBatchOperations } from '../../src/js/store/sync/operation-factory.js';
 
 /**
  * @fileoverview B6.1 (decisao do dono, 2026-09-24): nenhum gesto deixa de chegar ao servidor por ter
@@ -208,6 +208,36 @@ describe('um bloco com problema SEGURA os seguintes', () => {
         expect(primeiraDaParte2.entityId).toBe('x200');
         expect(primeiraDaParte2.dependsOn).toContain(anterior.id);
         expect(primeiraDaParte2.dependsOn).toContain(ops[199].id);
+    });
+});
+
+describe('duas partes nunca saem no mesmo push (achado 2 da revisao)', () => {
+    it('entre a reserva e o enfileiramento de uma transacao que fecha a parte, a parte fica retida', async () => {
+        await withGestureBatch(async () => {
+            await transacao(Array.from({ length: 190 }, (_, i) => criacao(`w${i}`)));
+            // A reserva da transacao seguinte (190..209) ja aconteceu; o enfileiramento nao.
+            const proximas = createBatchOperations(Array.from({ length: 20 }, (_, i) => criacao(`x${i}`)))
+                .map((op) => ({ ...op, scopeSuffix: scope.dbSuffix }));
+            // Um flush neste instante mandaria a parte 1 SEM a cauda que a transacao ainda vai escrever.
+            expect(await queue.peek(25)).toEqual([]);
+            await queue.enqueueAll(proximas);
+        });
+        const lote = await queue.peek(25);
+        expect(lote).toHaveLength(200);
+    });
+
+    it('um lote que depende de uma op ja incluida no push espera o recibo dela', async () => {
+        const a = Array.from({ length: 5 }, (_, i) => ({ id: `a${i}`, entityType: 'feature', operationType: 'create',
+            entityId: `fa${i}`, mapId: MAP_ID, batchId: 'A', batchIndex: 195 + i, scopeSuffix: scope.dbSuffix,
+            timestamp: 1, lamportTimestamp: 1000 + i, protocolVersion: 2 }));
+        const b = Array.from({ length: 5 }, (_, i) => ({ id: `b${i}`, entityType: 'feature', operationType: 'create',
+            entityId: `fb${i}`, mapId: MAP_ID, batchId: 'B', batchIndex: 200 + i, scopeSuffix: scope.dbSuffix,
+            dependsOn: ['a4'], timestamp: 1, lamportTimestamp: 1100 + i, protocolVersion: 2 }));
+        await queue.enqueueAll([...a, ...b]);
+        const lote = await queue.peek(25);
+        expect(lote.map((op) => op.id)).toEqual(a.map((op) => op.id));
+        await queue.dequeue(lote.map((op) => op.id));
+        expect((await queue.peek(25)).map((op) => op.id)).toEqual(b.map((op) => op.id));
     });
 });
 

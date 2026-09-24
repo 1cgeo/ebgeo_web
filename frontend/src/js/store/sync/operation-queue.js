@@ -17,7 +17,7 @@ import { captureRemoteWriteFence } from '../remote-write-fence.js';
 import { fenceStore, openStoreDatabase } from '../fenced-store.js';
 import { legacyQueueIssue } from './legacy-queue.js';
 import { IssueClass, classifyIssue } from './issue-classes.js';
-import { openGestureBatchId } from './gesture-batch.js';
+import { isOpenGestureBatch } from './gesture-batch.js';
 import { isDerivedOutputOperation } from '../analysis-output.js';
 
 function queueScope() {
@@ -423,7 +423,7 @@ class OperationQueue {
                 run.push(op);
                 // A mesma regra do carregador: gesto ABERTO ainda não é enviável, e o censo não
                 // pode prometer trabalho que o flush se recusa a entregar.
-                if (prepared.has(op.id) || (batch !== null && batch === openGestureBatchId())) runHeld = true;
+                if (prepared.has(op.id) || (batch !== null && isOpenGestureBatch(batch))) runHeld = true;
                 if (batch === null) closeRun();
             }
         }
@@ -537,9 +537,19 @@ class OperationQueue {
          * Moves the buffered run into the result when it fits the budget.
          * @returns {boolean} False when it does not fit, so the caller must stop.
          */
+        /** @type {Set<string>} Ids already in the push being assembled. */
+        const inPush = new Set();
         const flushRun = () => {
             if (run.length === 0) return true;
             if (bounded && operations.length > 0 && operations.length + run.length > limit) return false;
+            // A RUN THAT DEPENDS ON AN OP OF THIS SAME PUSH WAITS FOR ITS RECEIPT (B6.1). The server
+            // applies each `batchId` on its own, so the next part of a split batch packed behind
+            // the tail of the previous one would be applied even with that tail refused. The
+            // author's EDIT chain is the exception and keeps sharing the push: its link is the op's
+            // `baseOperationId`, and the server itself refuses an edit whose base was not applied.
+            if (bounded && operations.length > 0 && run.some((op) => (op.dependsOn ?? [])
+                .some((id) => id !== op.baseOperationId && inPush.has(id)))) return false;
+            for (const op of run) inPush.add(op.id);
             operations.push(...run);
             run = [];
             runBatch = null;
@@ -585,7 +595,7 @@ class OperationQueue {
             // sending what is already on disk would hand the server a complete-looking gesture
             // that is in fact its first half. The 1,5 s flush tick landing between two
             // transactions of a conversion or of a layer transfer is exactly that window.
-            const gestureOpen = readyOnly && batch !== null && batch === openGestureBatchId();
+            const gestureOpen = readyOnly && batch !== null && isOpenGestureBatch(batch);
             if (gestureOpen || (readyOnly && await store.getItem(JournalKey.STATE + op.id) === 'prepared')) {
                 // A MEMBER STILL PREPARED HOLDS ITS WHOLE BATCH, not only itself. One member of a
                 // gesture can stay prepared while its siblings are materialized (an image feature

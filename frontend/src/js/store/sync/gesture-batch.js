@@ -59,6 +59,8 @@ export const GESTURE_PART_SIZE = 200;
  * @property {number} depth - Reentrancy depth.
  * @property {string[]} partIds - `batchId` of each part, created on demand.
  * @property {string[]} lastOpOfPart - Id of the last operation written in each part.
+ * @property {Set<string>} heldParts - Parts the LAST reservation touched: its operations may still be
+ *   on their way to the queue (reserved before `enqueueAll`), so those parts are not complete yet.
  */
 
 /** @type {OpenGesture|null} */
@@ -123,7 +125,7 @@ export async function withGestureBatch(fn) {
         aberto.depth += 1;
     } else {
         const id = generateUUID();
-        aberto = { id, nextIndex: 0, depth: 1, partIds: [id], lastOpOfPart: [] };
+        aberto = { id, nextIndex: 0, depth: 1, partIds: [id], lastOpOfPart: [], heldParts: new Set() };
     }
     try {
         return await fn();
@@ -137,13 +139,26 @@ export async function withGestureBatch(fn) {
 
 /**
  * A identidade da parte ABERTA do gesto agora, para quem precisa esperá-la terminar.
- *
- * Só a parte ainda sendo escrita fica retida: uma parte já completa pode sair, e a seguinte a
- * espera pelo encadeamento.
  * @returns {string|null} O `batchId` aberto, ou null.
  */
 export function openGestureBatchId() {
     return aberto ? partIdOf(aberto, aberto.nextIndex) : null;
+}
+
+/**
+ * Se um `batchId` ainda pode receber operações do gesto aberto, e por isso não pode sair.
+ *
+ * DUAS partes, não uma: a que está sendo escrita agora e as que a ÚLTIMA reserva tocou. A reserva
+ * acontece na fábrica, antes de `enqueueAll`, então entre as duas a posição do gesto já passou da
+ * fronteira e a parte anterior ainda não tem a cauda no disco; tratá-la como completa mandava a
+ * parte sem a cauda (achado 2 da revisão de 2026-09-24). Como as transações de um gesto correm uma
+ * depois da outra, a reserva seguinte só acontece com a anterior já enfileirada.
+ * @param {string} batchId
+ * @returns {boolean}
+ */
+export function isOpenGestureBatch(batchId) {
+    if (!aberto || !batchId) return false;
+    return batchId === partIdOf(aberto, aberto.nextIndex) || aberto.heldParts.has(batchId);
 }
 
 /**
@@ -162,6 +177,9 @@ export function reserveGestureBatchSlots(count) {
     const startIndex = aberto.nextIndex;
     aberto.nextIndex += count;
     const gesto = aberto;
+    gesto.heldParts = new Set();
+    for (let index = startIndex; index < startIndex + count; index += GESTURE_PART_SIZE) gesto.heldParts.add(partIdOf(gesto, index));
+    if (count > 0) gesto.heldParts.add(partIdOf(gesto, startIndex + count - 1));
     return {
         id: gesto.id,
         startIndex,
