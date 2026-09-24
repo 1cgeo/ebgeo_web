@@ -473,7 +473,16 @@ describe('login programático na página só pelas portas de cliente-de-teste.js
         const arquivos = inventario();
         const achados = new Map();
         for (const rel of arquivos) {
-            const sitios = sitiosDeLoginNaPagina(readFileSync(join(RAIZ_PACOTE, rel), 'utf8'));
+            let fonte;
+            try {
+                fonte = readFileSync(join(RAIZ_PACOTE, rel), 'utf8');
+            } catch (err) {
+                // Another suite's temporary fixture (untracked, under tests/) can vanish between the
+                // inventory and this read when the suites run in parallel; that file is not a site.
+                if (err.code === 'ENOENT') continue;
+                throw err;
+            }
+            const sitios = sitiosDeLoginNaPagina(fonte);
             if (sitios.length) achados.set(rel, sitios);
         }
 
