@@ -1179,6 +1179,15 @@ async function batchUpdateAnalysisFeatures(mainType, mainFeature, processedFeatu
 
         const oldFeature = currentMapData.features[mainType][mainIndex];
         const cleanedMain = cleanFeature(mainFeature);
+        if (!cleanedMain) return false;
+        // The same two preservations `updateFeature` applies, and for the same reasons, which
+        // matter more now that this write travels: the caller hands in the MapLibre SOURCE copy,
+        // so a user-data collection absent from it would go out as a `remove` in the patch, and
+        // the confirmed revision must stay the one the server recognises.
+        preserveUserData(oldFeature, cleanedMain);
+        preserveSyncMetadata(oldFeature, cleanedMain);
+        const mainChanged = !isFeatureEqual(oldFeature, cleanedMain);
+        if (mainChanged) touchUpdatedTimestamp(cleanedMain);
         currentMapData.features[mainType][mainIndex] = cleanedMain;
 
         const featureIdPrefix = mainFeature.properties.id + '-';
@@ -1212,6 +1221,19 @@ async function batchUpdateAnalysisFeatures(mainType, mainFeature, processedFeatu
                         }
                     });
                 });
+            }
+
+            // THE INPUT'S EDIT TRAVELS, and until 2026-09-23 nothing here did: every edit of a line
+            // of sight or a viewshed other than its creation (the recalculation of a parameter, the
+            // drag of an endpoint, the panel's "Salvar") passes through this function, and it wrote
+            // the disk and logged no operation at all. In an atlas of the server the edit existed
+            // only on this computer, the peer never saw it, and the next snapshot undid it on the
+            // author. The OUTPUT is not logged: every client derives it from the input
+            // (`store/analysis-output.js`), and the dispatcher would drop it by type anyway.
+            if (mainChanged) {
+                const mapId = mapManager.getMapId(targetMap);
+                tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, cleanedMain.properties.id, mapId,
+                    cleanedMain, oldFeature, { storage: mainType });
             }
 
             return () => updateMapDataCompat(targetMap, currentMapData);
