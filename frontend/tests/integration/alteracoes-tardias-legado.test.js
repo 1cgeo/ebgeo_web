@@ -497,3 +497,47 @@ it('controle: sem o marco de início da transição a regra não absolve: confli
     await antigaSoAbre();
     await expect(transition.prepareLegacyTransition()).rejects.toMatchObject({ code: 'legacy_changes' });
 });
+
+// MAPA QUE A VERSÃO ANTIGA CRIOU SEM FEIÇÃO (revisão de 2026-09-24): só é o padrão do primeiro boot
+// se os campos do documento também forem os de fábrica. Antes bastava "sem feição", e uma vista
+// salva ou uma base trocada na versão antiga, sem desenhar nada, era descartada em silêncio.
+function mapaCriadoNaAntiga(extra = {}) {
+    return {
+        id: null, name: 'Terceiro', baseLayer: 'carta-topografica', analysisLayers: {},
+        zoom: null, center_lat: null, center_long: null, bearing: null, pitch: null,
+        features: { points: [], lines: [], polygons: [] },
+        sync: { createdAt: 5, updatedAt: 5, version: 1, deleted: false, deletedAt: null, dirty: true, ownerId: null },
+        ...extra,
+    };
+}
+
+async function destinoCriaTerceiroComNota(loja, ns) {
+    await loja(ns.StoreName.MAPS).setItem('Terceiro', { ...mapa('Terceiro', 'Terceiro'), baseLayer: 'osm-overture' });
+    await loja(ns.StoreName.SETTINGS).setItem('map_notes_Terceiro', { title: 'Nota da nova' });
+}
+
+it('mapa criado pela antiga só com os campos de fábrica é o padrão do primeiro boot: não é alteração', async () => {
+    await seed24();
+    const { transition, ns, loja } = await transicao();
+    await destinoCriaTerceiroComNota(loja, ns);
+    await seedDatabase('ebgeo_maps', { Terceiro: mapaCriadoNaAntiga() });
+    const boot = await transition.prepareLegacyTransition();
+    expect(boot.late?.outcome).not.toBe('conflict');
+    expect(await loja(ns.StoreName.SETTINGS).getItem('map_notes_Terceiro')).toEqual({ title: 'Nota da nova' });
+});
+
+it('mapa criado pela antiga sem feição mas com VISTA SALVA é trabalho dela: conflito, nada descartado', async () => {
+    await seed24();
+    const { transition, ns, loja } = await transicao();
+    await destinoCriaTerceiroComNota(loja, ns);
+    await seedDatabase('ebgeo_maps', { Terceiro: mapaCriadoNaAntiga({ zoom: 11, center_lat: -15.8, center_long: -47.9 }) });
+    await expect(transition.prepareLegacyTransition()).rejects.toMatchObject({ code: 'legacy_changes' });
+});
+
+it('mapa criado pela antiga sem feição mas com OUTRA BASE é trabalho dela: conflito', async () => {
+    await seed24();
+    const { transition, ns, loja } = await transicao();
+    await destinoCriaTerceiroComNota(loja, ns);
+    await seedDatabase('ebgeo_maps', { Terceiro: mapaCriadoNaAntiga({ baseLayer: 'imagens' }) });
+    await expect(transition.prepareLegacyTransition()).rejects.toMatchObject({ code: 'legacy_changes' });
+});

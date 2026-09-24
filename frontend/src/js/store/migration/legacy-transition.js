@@ -425,6 +425,29 @@ function destinoTemFeicaoQueAAntigaApagou(antiga, nova, desde) {
 }
 
 /**
+ * Is a map the legacy side CREATED still the untouched default a first boot writes, in every field
+ * a person can change on the map document itself (base layer, saved view, analysis and catalog
+ * layers)? "No feature" alone is not enough: an old version that opened the default Principal,
+ * saved a view or picked a base layer and drew nothing has done work, and taking the destination's
+ * map would drop it in silence. A field equal to the destination's is not work either.
+ * @param {Object} antiga - Legacy map (migrated).
+ * @param {Object} nova - Destination map of the same key.
+ * @returns {boolean}
+ */
+function mapaPadraoIntocado(antiga, nova) {
+    const igual = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+    const vazio = (v) => v == null || (typeof v === 'object' && Object.keys(v).length === 0);
+    const padroes = { baseLayer: 'carta-topografica', zoom: null, center_lat: null, center_long: null, bearing: null, pitch: null };
+    for (const [campo, padrao] of Object.entries(padroes)) {
+        if (!igual(antiga?.[campo], padrao) && !igual(antiga?.[campo], nova?.[campo])) return false;
+    }
+    for (const campo of ['analysisLayers', 'catalogLayers']) {
+        if (!vazio(antiga?.[campo]) && !igual(antiga?.[campo], nova?.[campo])) return false;
+    }
+    return true;
+}
+
+/**
  * The LEGACY map records that changed without carrying work the destination lacks: the mirror of
  * {@link inertMapChanges}, for the side that rewrote the map this time.
  *
@@ -468,7 +491,7 @@ async function inertLegacyMapChanges(destination, stagingScope, migratedBase, st
         if (nomes.some((n) => apagados.has(n))) continue;
         if (destinoTemFeicaoQueAAntigaApagou(antiga, nova, desde)) continue;
         const criadaNaAntiga = !base.has(JSON.stringify([id, key]));
-        if (!mapHoldsOwnWork(antiga, nova) || (criadaNaAntiga && semFeicoes(antiga))) inert.push([id, key]);
+        if (!mapHoldsOwnWork(antiga, nova) || (criadaNaAntiga && semFeicoes(antiga) && mapaPadraoIntocado(antiga, nova))) inert.push([id, key]);
     }
     return inert;
 }
