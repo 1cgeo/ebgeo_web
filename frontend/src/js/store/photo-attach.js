@@ -111,9 +111,11 @@ async function removerSeNoMesmoAtlas(escopo, id) {
  * single byte is written: a local atlas keeps its photos as they are until it goes up, and the
  * boundary converts them there (`buildServerImportPayload`).
  *
- * NULL MEANS "WRITE AS BEFORE": nothing inline goes up, no server atlas is connected, or the upload
- * could not be registered, in which case every byte stored here is dropped again. Leaving the photo
- * inline is never worse than today; converting without a registered upload would lose it.
+ * NULL MEANS "WRITE AS BEFORE": nothing inline goes up, no server atlas is connected, the upload
+ * could not be registered, or the disk refused a write (a full quota, 2026-09-24 review), in which
+ * case every byte stored here is dropped again. Leaving the photo inline is never worse than today;
+ * converting without a registered upload would lose it, and throwing would make an edit that has
+ * nothing to do with the photo (a rename) fail because of it. IT NEVER THROWS.
  *
  * @param {Array} fotos - The entity's `images` array
  * @param {Object} [opcoes]
@@ -158,8 +160,9 @@ export async function converterFotosInline(fotos, { origem = 'foto-convertida' }
             novas.push({ ...semBytes, id, type: mime });
         }
     } catch (error) {
-        await descartar();
-        throw error;
+        console.warn('[photo-attach] could not convert an inline photo; the edit keeps it inline:', error);
+        await descartar().catch(() => {});
+        return null;
     }
     if (feitos.length === 0) return null;
     return {
@@ -178,7 +181,9 @@ export async function converterFotosInline(fotos, { origem = 'foto-convertida' }
  * nothing worth uploading. Only in a server atlas, as {@link converterFotosInline} decides.
  *
  * Called INSIDE the transaction's work, where the items are known; the funnel confirms after the
- * transaction and drops on a throw.
+ * transaction, and ALSO after a throw (`comConversao`). It never throws either: an item whose photos
+ * could not be converted is written as before, inline, and an item already converted keeps its
+ * conversion, because its operation data now cites the new ids.
  *
  * @param {Array<{type: string, data?: Object}>} operacoes - The edit's operations
  * @param {Object} [opcoes]
@@ -191,19 +196,14 @@ export async function converterFotosDasOperacoes(operacoes, { origem = 'foto-con
     const descartar = async () => {
         for (const conversao of conversoes) await conversao.descartar();
     };
-    try {
-        for (const op of operacoes) {
-            if (op?.type === OperationType.DELETE || !op?.data) continue;
-            const conversao = await converterFotosInline(op.data.images, { origem });
-            if (!conversao) continue;
-            op.data.images = conversao.fotos;
-            // The PREVIOUS side travels too (the envelope carries `previousData`): see fotosSemBytes.
-            if (op.previous && op.previous !== op.data) op.previous = { ...op.previous, images: fotosSemBytes(op.previous.images) };
-            conversoes.push(conversao);
-        }
-    } catch (error) {
-        await descartar();
-        throw error;
+    for (const op of operacoes) {
+        if (op?.type === OperationType.DELETE || !op?.data) continue;
+        const conversao = await converterFotosInline(op.data.images, { origem });
+        if (!conversao) continue;
+        op.data.images = conversao.fotos;
+        // The PREVIOUS side travels too (the envelope carries `previousData`): see fotosSemBytes.
+        if (op.previous && op.previous !== op.data) op.previous = { ...op.previous, images: fotosSemBytes(op.previous.images) };
+        conversoes.push(conversao);
     }
     if (conversoes.length === 0) return null;
     return {

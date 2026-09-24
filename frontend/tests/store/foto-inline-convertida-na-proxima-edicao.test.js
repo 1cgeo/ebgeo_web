@@ -34,6 +34,8 @@ const h = vi.hoisted(() => ({
     registrado: true,
     /** A gravação da entidade falha? */
     falharGravacao: false,
+    /** O armazém de imagens recusa a escrita (cota)? */
+    falharArmazem: false,
     escopo: { atual: Object.freeze({ kind: 'remote', atlasId: 'atlas-1', dbSuffix: 'remote-atlas-1' }) },
     mapManager: {
         getCurrentMapName: vi.fn(() => 'Mapa'),
@@ -88,7 +90,10 @@ vi.mock('../../src/js/store/sync/permission-guard.js', () => ({
 vi.mock('../../src/js/store/map.operations.js', () => ({ isCurrentMapLockedSync: vi.fn(() => false) }));
 
 vi.mock('../../src/js/store/settings.operations.js', () => ({
-    storeImage: vi.fn(async (id, blob) => { h.imagens.set(id, blob); }),
+    storeImage: vi.fn(async (id, blob) => {
+        if (h.falharArmazem) throw new DOMException('Cota excedida', 'QuotaExceededError');
+        h.imagens.set(id, blob);
+    }),
     removeImage: vi.fn(async (id) => { h.imagens.delete(id); })
 }));
 
@@ -181,6 +186,7 @@ beforeEach(() => {
     h.online = true;
     h.registrado = true;
     h.falharGravacao = false;
+    h.falharArmazem = false;
     const documento = getEmptyMapData();
     documento.id = 'uuid-mapa';
     documento.name = MAPA;
@@ -255,6 +261,19 @@ describe('feição de atlas de servidor com foto inline: a próxima edição con
         const citada = op.data.properties.images[0].id;
         expect(h.envios).toEqual([expect.objectContaining({ id: citada, enviado: true, descartado: false })]);
         expect(h.imagens.has(citada)).toBe(true);
+    });
+
+    // O DISCO CHEIO NÃO DERRUBA A EDIÇÃO (revisão da fase 2c, 2026-09-24, item 4): renomear uma
+    // feição não pode falhar porque a foto dela não coube no armazém. A edição sai como antes, com a
+    // foto inline, e nada fica registrado pela metade.
+    it('cota estourada no armazém: a edição sai como antes, inline, sem pendência pela metade', async () => {
+        h.falharArmazem = true;
+        await updateFeatureProperty('points', 'p1', 'nome', 'Depois', MAPA);
+        const [op] = opsDeFeicao();
+        expect(op.data.properties.nome).toBe('Depois');
+        expect(op.data.properties.images[0].data).toBe(INLINE);
+        expect(h.envios).toEqual([]);
+        expect(h.imagens.size).toBe(0);
     });
 
     it('a próxima edição de uma feição JÁ convertida não converte de novo', async () => {
