@@ -24,6 +24,28 @@ const ICONS = {
  * @param {string} featureType - Tipo da feature
  * @returns {Promise<void>}
  */
+/**
+ * A frase da recusa de uma chave que já existe na feição.
+ *
+ * RENOMEAR PARA ELA APAGAVA O VALOR DELA, e criá-la de novo trocava o valor dela como se fosse
+ * edição, os dois em silêncio (medido em 2026-09-24, `tests/e2e-ui/cobertura-aba-atributos.spec.js`).
+ * A tabela de atributos já recusava a coluna repetida; a aba recusa do mesmo jeito.
+ */
+const CHAVE_JA_EXISTE = 'Já existe um atributo com esse nome. Escolha outro nome ou edite o valor dele na lista.';
+
+/**
+ * Se a feição já tem a chave, lida da store (e não do que a aba desenhou: um colega pode tê-la
+ * criado depois).
+ * @param {string} featureId
+ * @param {string} featureType
+ * @param {string} key
+ * @returns {Promise<boolean>}
+ */
+async function chaveJaExiste(featureId, featureType, key) {
+    const atuais = await userDataManager.getAttributes(featureId, featureType);
+    return Object.hasOwn(atuais ?? {}, key);
+}
+
 export async function renderAttributesContent(container, featureId, featureType) {
     container.innerHTML = '';
     // Adiciona a classe sem remover as existentes (ex: feature-tab-content, active)
@@ -138,6 +160,12 @@ function createInlineAddForm(featureId, featureType, parentContainer, onCancel) 
             keyInput.focus();
             return;
         }
+        // Chave que JÁ existe não é sobrescrita por aqui: ver `CHAVE_JA_EXISTE`.
+        if (await chaveJaExiste(featureId, featureType, key)) {
+            showError(parentContainer, CHAVE_JA_EXISTE);
+            keyInput.focus();
+            return;
+        }
 
         await userDataManager.setAttribute(featureId, featureType, key, value);
         onCancel();
@@ -224,6 +252,11 @@ function createAttributeRow(key, value, featureId, featureType, parentContainer)
                     const validation = userDataManager.validateAttributeKey(newKey);
                     if (!validation.valid) {
                         showError(parentContainer, validation.reason);
+                        input.focus();
+                        return;
+                    }
+                    if (await chaveJaExiste(featureId, featureType, newKey)) {
+                        showError(parentContainer, CHAVE_JA_EXISTE);
                         input.focus();
                         return;
                     }
