@@ -767,13 +767,17 @@ const MIN_CREATE_RUN = 2;
  * @param {string} mapId
  * @returns {boolean}
  */
-function joinsCreateRun(operation, mapId, previousMapId) {
+/** The verbs a run can carry. One verb per run, so the events keep the single path's order. */
+const RUN_VERBS = new Set([OperationType.CREATE, OperationType.UPDATE, OperationType.DELETE]);
+
+function joinsCreateRun(operation, mapId, previousMapId, verb) {
     return operation?.entityType === EntityType.FEATURE
-        && operation.operationType === OperationType.CREATE
+        && RUN_VERBS.has(operation.operationType)
+        && operation.operationType === verb
         && !!operation.entityId
         && !!mapId
         && operation.mapId === mapId
-        && !!operation.data?.properties
+        && (verb === OperationType.DELETE || !!operation.data?.properties)
         && movedFrom(operation) === previousMapId;
 }
 
@@ -788,8 +792,8 @@ function movedFrom(operation) {
 }
 
 /**
- * The run of plain feature creates starting at `start`: consecutive, on the same map, each entity
- * once.
+ * The run of feature operations starting at `start`: consecutive, the same verb (create, update or
+ * delete), on the same map, each entity once, and creates sharing one move origin.
  * @param {Object[]} operations
  * @param {number} start
  * @returns {Object[]}
@@ -797,15 +801,102 @@ function movedFrom(operation) {
 function createRunAt(operations, start) {
     const mapId = operations[start]?.mapId;
     const previousMapId = movedFrom(operations[start]);
+    const verb = operations[start]?.operationType;
     const run = [];
     const ids = new Set();
     for (let i = start; i < operations.length; i++) {
         const operation = operations[i];
-        if (!joinsCreateRun(operation, mapId, previousMapId) || ids.has(operation.entityId)) break;
+        if (!joinsCreateRun(operation, mapId, previousMapId, verb) || ids.has(operation.entityId)) break;
         ids.add(operation.entityId);
         run.push(operation);
     }
     return run;
+}
+
+/**
+ * Writes a run of CREATEs or UPDATEs into the map document, IN PLACE, with the single path's rules:
+ * a create is idempotent by id (an echo replaces), an update of an absent feature is a no-op, and
+ * the analysis output is re-derived from its input. One index per bucket instead of one scan per op.
+ * @param {Object} mapData - The map document.
+ * @param {Object[]} run - Operations of one verb.
+ * @param {string} mapId
+ * @param {string} verb - `OperationType.CREATE` or `OperationType.UPDATE`.
+ * @returns {Array<[string, Object]>} The events to emit, in the run's order.
+ */
+function writeRunToDocument(mapData, run, mapId, verb) {
+    const positions = new Map();
+    const events = [];
+    for (const operation of run) {
+        const sourceType = operation.data.properties.source || 'point';
+        const storageType = getStorageTypeFromSource(sourceType);
+        if (!mapData.features[storageType]) mapData.features[storageType] = [];
+        const features = mapData.features[storageType];
+        if (!positions.has(storageType)) {
+            positions.set(storageType, new Map(features.map((feature, index) => [feature?.properties?.id, index])));
+        }
+        const index = positions.get(storageType).get(operation.entityId);
+        if (verb === OperationType.UPDATE) {
+            if (index === undefined) continue;
+            const previousFeature = features[index];
+            features[index] = operation.data;
+            replaceDerivedOutput(mapData.features, storageType, operation.entityId, operation.data);
+            events.push([EventTypes.FEATURE_MODIFIED, {
+                featureId: operation.entityId, featureType: sourceType, mapId, feature: operation.data, previousFeature,
+            }]);
+            continue;
+        }
+        if (index === undefined) {
+            positions.get(storageType).set(operation.entityId, features.length);
+            features.push(operation.data);
+        } else {
+            // Idempotent by id, as in the single path: an echoed CREATE replaces.
+            features[index] = operation.data;
+        }
+        // The analysis output is derived here too, as in the single path: a line of sight or a
+        // viewshed inside a run would otherwise land without its visible halves.
+        replaceDerivedOutput(mapData.features, storageType, operation.entityId, operation.data);
+        events.push([EventTypes.FEATURE_CREATED, {
+            featureId: operation.entityId, featureType: sourceType, mapId, feature: operation.data,
+        }]);
+    }
+    return events;
+}
+
+/**
+ * Removes a run of DELETEs from the map document, IN PLACE, with the single path's rules: every
+ * bucket is searched (a delete carries no body), an absent feature is a no-op, and the derived
+ * analysis output leaves with its input. One pass per bucket instead of one scan per op.
+ * @param {Object} mapData - The map document.
+ * @param {Object[]} run - DELETE operations.
+ * @param {string} mapId
+ * @returns {Array<[string, Object]>} The events to emit, in the run's order.
+ */
+function deleteRunFromDocument(mapData, run, mapId) {
+    const wanted = new Set(run.map((operation) => operation.entityId));
+    const deleted = new Map();
+    for (const [bucketName, bucket] of Object.entries(mapData.features ?? {})) {
+        if (!Array.isArray(bucket)) continue;
+        const kept = [];
+        for (const feature of bucket) {
+            const id = feature?.properties?.id;
+            if (wanted.has(id) && !deleted.has(id)) {
+                deleted.set(id, { feature, bucketName });
+            } else {
+                kept.push(feature);
+            }
+        }
+        if (kept.length !== bucket.length) mapData.features[bucketName] = kept;
+    }
+    const events = [];
+    for (const operation of run) {
+        const hit = deleted.get(operation.entityId);
+        if (!hit) continue;
+        replaceDerivedOutput(mapData.features, hit.bucketName, operation.entityId, null);
+        events.push([EventTypes.FEATURE_DELETED, {
+            featureId: operation.entityId, featureType: hit.feature.properties?.source || 'point', mapId,
+        }]);
+    }
+    return events;
 }
 
 /** Returned by {@link applyRemoteCreateRun} when the run must be applied one operation at a time. */
@@ -886,35 +977,12 @@ async function applyRemoteCreateRun(run, options) {
             const repo = handlerRepository();
             const mapData = await repo.getMap(mapId);
             if (!mapData) return RUN_FALLBACK;
-            const positions = new Map();
-            for (const operation of run) {
-                const storageType = getStorageTypeFromSource(operation.data.properties.source || 'point');
-                if (!mapData.features[storageType]) mapData.features[storageType] = [];
-                const features = mapData.features[storageType];
-                if (!positions.has(storageType)) {
-                    positions.set(storageType, new Map(features.map((feature, index) => [feature?.properties?.id, index])));
-                }
-                const index = positions.get(storageType).get(operation.entityId);
-                if (index === undefined) {
-                    positions.get(storageType).set(operation.entityId, features.length);
-                    features.push(operation.data);
-                } else {
-                    // Idempotent by id, as in the single path: an echoed CREATE replaces.
-                    features[index] = operation.data;
-                }
-                // The analysis output is derived here too, as in the single path: a line of sight
-                // or a viewshed inside a run would otherwise land without its visible halves.
-                replaceDerivedOutput(mapData.features, storageType, operation.entityId, operation.data);
-            }
-            await repo.saveMap(mapId, mapData);
-            for (const operation of run) {
-                emit(EventTypes.FEATURE_CREATED, {
-                    featureId: operation.entityId,
-                    featureType: operation.data.properties.source || 'point',
-                    mapId,
-                    feature: operation.data,
-                });
-            }
+            const verb = run[0].operationType;
+            const events = verb === OperationType.DELETE
+                ? deleteRunFromDocument(mapData, run, mapId)
+                : writeRunToDocument(mapData, run, mapId, verb);
+            if (events.length > 0) await repo.saveMap(mapId, mapData);
+            for (const [type, payload] of events) emit(type, payload);
             emit(EventTypes.LAYERS_CHANGED, { mapName: mapId });
             return true;
         });
@@ -923,6 +991,18 @@ async function applyRemoteCreateRun(run, options) {
         applyContext?.assertActive();
         for (const operation of run) {
             markAppliedVersion(operation.entityId, operation.serverVersion);
+            if (operation.operationType === OperationType.DELETE) {
+                // As the single path: a DELETE clears it, so a re-create starts fresh.
+                lastRemoteAppliedVersion.delete(operation.entityId);
+                record(TraceStage.APPLY_PERSIST, {
+                    opId: operation.id, traceId: operation.traceId,
+                    entityType: operation.entityType, operationType: operation.operationType,
+                    entityId: operation.entityId, mapId, serverVersion: operation.serverVersion,
+                    outcome: TraceOutcome.OK,
+                });
+                emit(EventTypes.REMOTE_OPERATION_APPLIED, { operation });
+                continue;
+            }
             markRemoteApplied(operation.entityId, operation.serverVersion);
             if (!operation.localRepair) announceOverwrite(operation.entityId, operation.authorUserId);
             record(TraceStage.APPLY_PERSIST, {

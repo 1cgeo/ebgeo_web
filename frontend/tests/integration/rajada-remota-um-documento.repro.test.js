@@ -315,6 +315,55 @@ describe('applyRemoteOperations: criacoes do mesmo quadro', () => {
         expect(mapDataStore.get('map-1').features.points.map((f) => f.properties.id)).toEqual(['rep-presente']);
     });
 
+    // B6.1 em escala (2026-09-24): a mesma escrita unica vale para ATUALIZACOES e EXCLUSOES. Medido
+    // com 1 000 pontos: o estilo em massa levava 134 s ate o servidor e 60 s de long task no par, e
+    // o refazer de uma exclusao de 1 000, 50 s e 35 s, uma leitura e uma escrita do documento por op.
+    it('25 atualizacoes custam uma leitura e uma escrita, e cada uma leva o seu anterior', async () => {
+        const base = Array.from({ length: 25 }, (_, i) => create(`u${i}`));
+        await applyRemoteOperations(base);
+        calls.getMap = 0; calls.saveMap = 0; eventBus.emit.mockClear();
+        const updates = base.map((op) => {
+            version += 1;
+            return { ...op, id: `upd-${op.id}`, operationType: OperationType.UPDATE, serverVersion: version,
+                data: { ...op.data, properties: { ...op.data.properties, nome: 'novo' } } };
+        });
+        const ausente = { ...updates[0], id: 'upd-ausente', entityId: 'nao-existe', data: { ...updates[0].data, properties: { ...updates[0].data.properties, id: 'nao-existe' } } };
+        expect(await applyRemoteOperations([...updates, ausente])).toBe(true);
+        expect(calls).toEqual({ getMap: 1, saveMap: 1 });
+        const pontos = mapDataStore.get('map-1').features.points;
+        expect(pontos.every((f) => f.properties.nome === 'novo')).toBe(true);
+        expect(pontos).toHaveLength(25);
+        const modificados = emitted(EventTypes.FEATURE_MODIFIED);
+        expect(modificados).toHaveLength(25);
+        expect(modificados[0][1].previousFeature.properties.nome).toBe(base[0].entityId);
+        expect(emitted(EventTypes.REMOTE_OPERATION_APPLIED)).toHaveLength(26);
+    });
+
+    it('25 exclusoes custam uma escrita, levam a saida derivada, e a ausente nao faz nada', async () => {
+        const losId = '33333333-3333-4333-8333-333333333333';
+        const base = [...Array.from({ length: 24 }, (_, i) => create(`d${i}`)), create(losId, { data: {
+            type: 'Feature', geometry: { type: 'MultiLineString', coordinates: [[[0, 0], [1, 1]], [[1, 1], [2, 2]]] },
+            properties: { id: losId, source: 'los', nome: 'Visada', width: 5, opacity: 1 } } })];
+        await applyRemoteOperations(base.slice(0, 24));
+        await applyRemoteOperation(base[24]);
+        expect((mapDataStore.get('map-1').features.processed_los ?? []).length).toBe(2);
+        calls.getMap = 0; calls.saveMap = 0; eventBus.emit.mockClear();
+        const deletes = [...base, create('nunca-existiu')].map((op) => {
+            version += 1;
+            return { id: `del-${op.id}`, entityType: EntityType.FEATURE, operationType: OperationType.DELETE,
+                entityId: op.entityId, mapId: 'map-1', serverVersion: version, data: null };
+        });
+        expect(await applyRemoteOperations(deletes)).toBe(true);
+        expect(calls).toEqual({ getMap: 1, saveMap: 1 });
+        const doc = mapDataStore.get('map-1').features;
+        expect(doc.points).toEqual([]);
+        expect(doc.los).toEqual([]);
+        expect(doc.processed_los ?? []).toEqual([]);
+        const apagados = emitted(EventTypes.FEATURE_DELETED);
+        expect(apagados).toHaveLength(25);
+        expect(apagados.find(([, pl]) => pl.featureId === losId)[1].featureType).toBe('los');
+    });
+
     it('a falha de gravacao sobe, como no caminho unico', async () => {
         const { getRepository } = await import('../../src/js/store/repositories/index.js');
         getRepository.mockImplementationOnce(() => ({
