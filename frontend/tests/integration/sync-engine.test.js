@@ -882,8 +882,9 @@ describe('connect: o cursor durável decide entre cauda e retrato', () => {
         await syncEngine.connect(cursorAtlas);
 
         expect(apiClientMock.pullSync).toHaveBeenCalledWith(cursorAtlas, 12, { signal: expect.any(AbortSignal) });
+        // O NÍVEL que o socket anunciou carimba a geração (2026-09-23): o recorte é por nível.
         expect(JSON.parse(globalThis.localStorage.getItem(generationKey()))).toEqual({
-            active: generation, known: [generation], cursor: 12,
+            active: generation, known: [generation], cursor: 12, nivel: 'editor',
         });
     });
 

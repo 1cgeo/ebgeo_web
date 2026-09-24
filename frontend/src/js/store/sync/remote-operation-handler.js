@@ -2584,6 +2584,11 @@ export function applyRemoteSnapshot(snapshot, options = {}) {
             // a generation staged for someone else.
             writeGeneration(context.scope, {
                 ...latest, active: generation, cursor: snapshot.currentVersion, principal,
+                // THE LEVEL goes with it only when the session already KNOWS it (a resync after a
+                // change of level); a connect's first pull precedes the socket that tells the level,
+                // and the generation is stamped there (`_markRecorteLevel`, `sync-engine.js`). The
+                // previous generation's level must not be inherited by a fresh snapshot.
+                nivel: options.nivel ?? undefined,
             });
             activated = true;
             // This tab now READS the new generation, and says so with a lock, so that the pruning

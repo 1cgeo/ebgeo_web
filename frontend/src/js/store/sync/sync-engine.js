@@ -500,6 +500,11 @@ class SyncEngine {
                 username: sessionContext.username,
             });
         }
+        // THE RECORTE ALSO DEPENDS ON THE LEVEL, and only the socket tells it: see
+        // `_markRecorteLevel`. A generation staged under another level is re-pulled in full.
+        if (this._markRecorteLevel(session, payload?.permission)) {
+            this.resync().catch((error) => console.warn('[sync] re-pull after a change of level failed:', error));
+        }
 
         // Apply the per-atlas config overlay from the snapshot's settings (no extra round-trip).
         await this._applyAtlasSettingsOverlay(atlasId, snapshot?.atlas?.settings, session);
@@ -634,6 +639,41 @@ class SyncEngine {
         } catch {
             return false;
         }
+    }
+
+    /**
+     * @private Stamps the active generation with the per-atlas LEVEL the server answers for this
+     * session, and says when it was staged under ANOTHER one.
+     *
+     * THE SERVER CUTS THE SNAPSHOT BY LEVEL, not only by principal: a `read` snapshot carries no
+     * spatial comment and a `read` tail filters them out (`getAtlasSnapshot`, `pullOperations`).
+     * A Leitor promoted to Comentarista therefore held a generation without the comments made before
+     * the promotion, and every later connect asked only for the tail from that cursor: those
+     * comments never arrived. The level is only known once the socket answers (`connected`, or a
+     * live `sharing_updated`), after the first pull, so the stamp happens here: a generation with no
+     * level (a snapshot this connect just staged) is stamped; one staged under a different level has
+     * its cursor zeroed, which makes both the next connect and the "same version" shortcut of
+     * `applyRemoteSnapshot` pull and stage in full, and the caller re-pulls now.
+     *
+     * @param {import('./sync-session.js').SyncSession} session - The session the level belongs to.
+     * @param {string|undefined} permission - The server permission (`read`, `comment`, ...).
+     * @returns {boolean} True when the generation was staged under another level.
+     */
+    _markRecorteLevel(session, permission) {
+        if (session?.scope?.kind !== 'remote' || typeof permission !== 'string' || permission.length === 0) return false;
+        session.nivel = permission;
+        let record;
+        try {
+            record = readGeneration(session.scope);
+        } catch {
+            return false;
+        }
+        if (!record.active || record.nivel === permission) return false;
+        const outroNivel = Object.hasOwn(record, 'nivel');
+        writeGeneration(session.scope, outroNivel
+            ? { ...record, nivel: permission, cursor: 0 }
+            : { ...record, nivel: permission });
+        return outroNivel;
     }
 
     /**
@@ -1428,6 +1468,10 @@ class SyncEngine {
             if (sessionContext.isAdmin()) return;
             if ((msg.action === 'user_updated' || msg.action === 'user_added') && msg.role) {
                 sessionContext.updateRole(msg.role);
+            }
+            // A change of level changes the recorte of the snapshot (`_markRecorteLevel`).
+            if (this._session && this._markRecorteLevel(this._session, msg?.permission)) {
+                this.resync().catch((error) => console.warn('[sync] re-pull after a change of level failed:', error));
             }
         });
 

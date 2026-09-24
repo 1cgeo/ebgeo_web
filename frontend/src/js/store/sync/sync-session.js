@@ -14,6 +14,8 @@ export class SyncSession {
         this.controller = new AbortController();
         this.flushPromise = null;
         this.recovering = true;
+        /** Per-atlas server permission, once the socket tells it (`SyncEngine._markRecorteLevel`). */
+        this.nivel = null;
     }
 
     get signal() { return this.controller.signal; }

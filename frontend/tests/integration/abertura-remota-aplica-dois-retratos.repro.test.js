@@ -58,6 +58,8 @@ const h = vi.hoisted(() => {
         versaoMinima: 0,
         retratosServidos: 0,
         caudasServidas: 0,
+        /** O nível por atlas que o socket anuncia no `connected`. */
+        permissao: 'owner',
         /** @type {Object[]} As operações que o pull HTTP do `connect` devolve como cauda. */
         cauda: [],
         /** @type {() => Object} Posto pelo `beforeEach`, que é quem conhece o escopo montado. */
@@ -87,7 +89,7 @@ const h = vi.hoisted(() => {
             this.sent = [];
             sockets.push(this);
             queueMicrotask(() => this.entregar({
-                type: 'connected', sessionId: 's1', userId: 'user-1', permission: 'owner', role: 'owner',
+                type: 'connected', sessionId: 's1', userId: 'user-1', permission: servidor.permissao, role: 'owner',
             }));
         }
 
@@ -226,6 +228,7 @@ beforeEach(async () => {
     h.servidor.retratosServidos = 0;
     h.servidor.caudasServidas = 0;
     h.servidor.cauda = [];
+    h.servidor.permissao = 'owner';
     h.servidor.montarRetrato = () => ({
         atlas: { ...createAtlas('Atlas remoto'), id: atlasId, settings: {} },
         maps: [{ ...getEmptyMapData(), id: '51000000-0000-4000-8000-000000000009', name: 'Mapa 1' }],
@@ -272,7 +275,7 @@ describe('abertura de atlas remoto: quantos retratos completos ela encena', () =
         expect(geracoesCunhadas.size).toBe(1);
         expect(readGeneration(escopo)).toEqual({
             // O PRINCIPAL viaja com o cursor desde 2026-09-23 (o retrato é recortado por quem pede).
-            active: ativacoes[0], known: [ativacoes[0]], cursor: 0, principal: null,
+            active: ativacoes[0], known: [ativacoes[0]], cursor: 0, principal: null, nivel: 'owner',
         });
     });
 
@@ -360,7 +363,7 @@ describe('abertura de atlas remoto: quantos retratos completos ela encena', () =
         // O WIPE DE ENTRADA, e só ele: os bancos esvaziam, o ponteiro fica.
         await clearAtlasDatabases(escopo);
         expect(readGeneration(escopo), 'o ponteiro sobrevive ao wipe, que é a premissa do caso')
-            .toEqual({ active: primeira, known: [primeira], cursor: 7, principal: 'user-1' });
+            .toEqual({ active: primeira, known: [primeira], cursor: 7, principal: 'user-1', nivel: 'owner' });
 
         syncEngine.disconnect();
         h.ws.disconnect();
@@ -447,7 +450,7 @@ describe('o cursor durável anda com a cauda aplicada', () => {
         await abrirEFechar();
 
         expect(h.servidor.retratosServidos, 'nenhum retrato novo foi servido').toBe(1);
-        expect(readGeneration(escopo)).toEqual({ active: geracao, known: [geracao], cursor: 12, principal: 'user-1' });
+        expect(readGeneration(escopo)).toEqual({ active: geracao, known: [geracao], cursor: 12, principal: 'user-1', nivel: 'owner' });
         // A operação está MESMO no disco: o cursor andou sobre dado gravado, não sobre promessa.
         const mapa = await localRepository.getMap(MAPA);
         expect((mapa?.features?.points ?? []).map(f => f.properties.id)).toContain(id);
@@ -491,7 +494,7 @@ describe('o cursor durável anda com a cauda aplicada', () => {
         expect(readGeneration(escopo).cursor, 'nada disso escreveu').toBe(7);
 
         expect(syncEngine._advanceDurableCursor(sessao, 9, geracao)).toBe(true);
-        expect(readGeneration(escopo)).toEqual({ active: geracao, known: [geracao], cursor: 9, principal: 'user-1' });
+        expect(readGeneration(escopo)).toEqual({ active: geracao, known: [geracao], cursor: 9, principal: 'user-1', nivel: 'owner' });
     });
 
     it('abertura de PRIMEIRA vez (retrato) não passa por aqui: o cursor é o do retrato', async () => {
@@ -501,5 +504,68 @@ describe('o cursor durável anda com a cauda aplicada', () => {
         await assentar();
         expect(h.pedidosHttp).toEqual([0]);
         expect(readGeneration(escopo).cursor).toBe(7);
+    });
+});
+
+// ============================================================================
+// O RECORTE É POR PRINCIPAL E POR NÍVEL (2026-09-23)
+// ============================================================================
+
+/**
+ * O servidor recorta o retrato por QUEM pede e com QUE NÍVEL (`getAtlasSnapshot`): um retrato de
+ * `read` não traz comentário, e as definições de catálogo passam pelo predicado de acesso de quem
+ * pede. O cursor durável vale, portanto, só para o principal e o nível para quem a geração foi
+ * encenada. Os dois casos abaixo têm, cada um, o seu controle negativo no commit que os criou.
+ */
+describe('o cursor durável só vale para o mesmo principal e o mesmo nível', () => {
+    const abrirEFechar = async () => {
+        await syncEngine.connect(atlasId);
+        await assentar();
+        syncEngine.disconnect();
+        h.ws.disconnect();
+        h.pedidosHttp.length = 0;
+        syncEngine._session = null;
+        syncEngine._lastVersion = 0;
+    };
+
+    it('uma geração encenada para OUTRO principal não dá cauda: a abertura pede o retrato do zero', async () => {
+        h.servidor.versao = 7;
+        await abrirEFechar();
+        const registro = readGeneration(escopo);
+        expect(registro.cursor, 'PISO: há cursor a recusar').toBe(7);
+        // A geração passa a ser de outra conta (a visita pública, ou outra pessoa neste computador).
+        globalThis.localStorage.setItem(CHAVE_GERACAO + escopo.dbSuffix,
+            JSON.stringify({ ...registro, principal: 'outra-conta' }));
+        const retratosAntes = h.servidor.retratosServidos;
+
+        await syncEngine.connect(atlasId);
+        await assentar();
+
+        expect(h.pedidosHttp[0], 'a abertura não pediu a cauda sobre o recorte alheio').toBe(0);
+        expect(h.servidor.retratosServidos).toBe(retratosAntes + 1);
+        expect(readGeneration(escopo).principal).not.toBe('outra-conta');
+    });
+
+    it('uma geração encenada sob OUTRO nível é repuxada inteira quando o socket diz o nível novo', async () => {
+        h.servidor.versao = 7;
+        h.servidor.permissao = 'read';
+        await abrirEFechar();
+        expect(readGeneration(escopo).nivel, 'a geração foi carimbada com o nível do socket').toBe('read');
+        const ativacoesAntes = ativacoes.length;
+
+        // A pessoa foi promovida: a próxima abertura recebe o nível novo do socket, e a nova
+        // tomada do retrato sai sozinha dali (sem chamada do teste, que mediria a si mesma).
+        h.servidor.permissao = 'comment';
+        await syncEngine.connect(atlasId);
+        await assentar();
+        await syncEngine._session?.resyncPromise;
+        await assentar();
+
+        // ENCENADO, e não só servido: o atalho "mesma versão, nada a fazer" pularia um retrato
+        // servido sobre o cursor antigo, e o recorte de leitor ficaria.
+        expect(ativacoes.length, 'o recorte de leitor foi encenado de novo').toBe(ativacoesAntes + 1);
+        const registro = readGeneration(escopo);
+        expect(registro.nivel).toBe('comment');
+        expect(registro.cursor).toBe(7);
     });
 });
