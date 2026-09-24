@@ -1,0 +1,125 @@
+# Cobertura: visibilidade e bloqueio (feição, camada, grupo, mapa travado)
+
+Worktree `C:\Users\diniz\ebgeo_hunt\backend-sync`, branch `hunt/cob-bloqueio` (a partir de `integracao_backend` `c777d8c5`). Portas do Playwright desta worktree: `EBGEO_UI_E2E_APP_PORT=4338 EBGEO_UI_E2E_BACKEND_PORT=3928`.
+
+## Premissa (arquitetura)
+Só `maps.locked` tem imposição no servidor. `layers.locked`, `groups.locked` e `properties.bloqueado` são convenção do CLIENTE: o servidor persiste e não consulta. A store (`updateFeature`, `removeFeature`, `deleteSelectedFeatures`) também não consulta nenhum dos três; a convenção vive nas PORTAS de seleção e de gesto. Portanto o que se prova aqui é que toda porta de escrita do cliente respeita a convenção.
+
+Três predicados de trava coexistem no cliente, e a diferença entre eles é a origem dos defeitos:
+- `isFeatureEffectivelyLocked` (`store/feature.operations.js`): feição + camada + grupo. Desde 8b0b1cef delega a `featureLockState`, que diz QUAL trava segura a feição.
+- `layerManager.isFeatureEffectivelyLocked` (`layers/layer.manager.js`): feição + camada, SEM grupo.
+- `isEditSurfaceInert` (`tool_manager/edit-surface.js`) e `semEdicaoSync` (`store/edicao-indisponivel.js`): mapa travado + papel, nada de feição/camada/grupo.
+
+Visibilidade: `properties.visivel` da feição, `visible` da camada e `visible` do grupo são os três ESTADO COMPARTILHADO (viajam por op de sync, o servidor os persiste: `features.properties`, `layers.visible`, `groups.visible`, e o snapshot os devolve). Estado da PESSOA é outra coisa (mapa base, interruptor temporal, câmera, camada ativa). O desenho 2D oculta pelo filtro de `layers/visibility-filter.js`: `visivel != false` E camada na lista de visíveis E janela temporal. O filtro NÃO conhece grupo.
+
+## Achados
+
+### Defeito 1, CORRIGIDO em `8b0b1cef` (fix(lock))
+Camada travada ou grupo em camada travada pelo Dono: o Editor selecionava a feição pela ABA DE CAMADAS (o clique checava só `properties.bloqueado`, `handleFeatureClick` em `features_tab/feature-item.component.js`; o membro de grupo checava só `groupData.locked`), o painel abria e Delete apagava a feição no servidor (`deleted_at` preenchido); a TABELA DE ATRIBUTOS editava célula de feição travada sem perguntar nada. Conserto no funil: `SelectionManager.selectFeature`, `toggleFeatureSelection` e `_selectGroup` recusam feição efetivamente travada; a célula da tabela continua desenhada e recusa nomeando QUAL trava (`featureLockNotice(featureLockState(f))`, frases em `store/denial-phrases.js`). Repro: `frontend/tests/e2e-ui/trava-de-camada-e-grupo-pela-arvore-e-tabela.repro.spec.js` (3 casos, cada um com controle destravado). Medido: 3/3 Chromium, 3/3 Firefox, controle negativo (conserto revertido) 3 vermelhos. Teto de peso: módulos em 801 (mantido, frases foram para `denial-phrases.js` em vez de arquivo novo); bytes 11933 kB contra teto 11930, deixado vermelho e citado no commit, conforme a regra.
+
+### Defeito 2, CORRIGIDO em `5106cbc4` (fix(visibility))
+GRUPO OCULTO SÓ SOME NA SESSÃO DE QUEM OCULTOU. `toggleGroupVisibility` (`features_tab/group-item.component.js`) grava `groups.visible=false` (viaja, o servidor persiste) e depois só faz um patch de `visivel` na FONTE MapLibre dos membros, local e de sessão. Medido com dois navegadores (sonda `frontend/tests/e2e-ui/_sonda-grupo-oculto.spec.js`, temporária):
+- Dono oculta o grupo: no Dono os 2 membros somem (fica só a feição fora do grupo).
+- Editor: a árvore mostra o grupo OCULTO (botão "Mostrar grupo"), e os 2 membros continuam DESENHADOS (`queryRenderedFeatures` acha os 3), com `visivel: true` no store.
+- Dono dá F5: os 2 membros VOLTAM a ser desenhados, com a árvore dizendo que o grupo está oculto.
+Efeitos colaterais do mesmo desenho, lidos no código (a provar no repro): mostrar o grupo pinta `visivel: true` na fonte de um membro que estava oculto INDIVIDUALMENTE (store diz oculto, mapa desenha); desagrupar um grupo oculto deixa os membros ocultos na fonte sem nada que o diga.
+Conserto (5106cbc4): a regra foi para o filtro de `layers/visibility-filter.js` (`hiddenGroupMemberIds` + `setHiddenFeatureIds`, ids na chave de cache, saídas processadas de LOS e visibilidade incluídas), recalculada em `layer_setup.js` a cada montagem, em LAYERS_CHANGED e em GROUPS_CHANGED (op do colega e retrato); o olho do grupo não escreve mais `visivel` nenhum e lê o estado GUARDADO (sem o remendo de fonte a árvore não se refazia e o segundo clique repetia o primeiro, pego pelo repro). Repro `frontend/tests/e2e-ui/grupo-oculto-no-colega-e-no-f5.repro.spec.js` (2 casos: colega + F5 + controle mostrar; membro oculto por conta própria continua oculto): 3/3 por caso no Chromium, 2/2 no Firefox, `--retries=0`; controle negativo (cláusula desligada) 2 vermelhos, e 5 dos 13 casos de `frontend/tests/unit/grupo-oculto-no-filtro.test.js` (filtro avaliado pelo `featureFilter` do próprio MapLibre). Teto de peso (a): 11938 kB contra 11930, deixado vermelho e citado.
+
+### Defeito 3, CORRIGIDO em `ce6ab35f` (fix(lock))
+A TRAVA QUE CHEGA COM A FEIÇÃO JÁ SELECIONADA deixava a seleção editável. Medido com dois navegadores (sonda): Editor com a feição selecionada (painel aberto), Dono trava a camada, a trava chega ao store do Editor, o painel continua aberto, a feição continua selecionada, e Delete + confirmar apagou a feição no servidor (`deleted_at` preenchido). Além disso, o olho e o cadeado da feição na aba de camadas tentavam desmarcar por um método que nunca existiu no SelectionManager (no-op mudo).
+Conserto: `SelectionManager.watchEffectiveLocks` (ligado em `map_sig.js`) ouve LAYERS_CHANGED, GROUPS_CHANGED e FEATURE_MODIFIED e, se uma feição selecionada ficou travada, desmarca SEM salvar o painel e nomeia a trava; `deleteSelectedFeatures` recusa feição travada venha de onde vier (tecla, botão do painel, menu) e apaga o resto; a aba de camadas desmarca por `toggleFeatureSelection(..., true)`. Repro `frontend/tests/e2e-ui/trava-chega-com-feicao-selecionada.repro.spec.js` (camada, grupo e feição travados chegando; o caso de camada termina com o controle destravado apagando): 3/3 por caso no Chromium, 2/2 no Firefox; controle negativo (as duas metades desligadas) 3/3 vermelhos no navegador e 5/8 em `frontend/tests/unit/trava-que-chega-derruba-a-selecao.test.js`, que é o único vermelho do filtro de exclusão sozinho. Teto de peso (a): 11943 kB contra 11930, deixado vermelho.
+
+### Defeito 4, CORRIGIDO em `a7240052` (fix(lock), decisão do dono registrada em docs/decisions): camada ATIVA travada recebia desenho
+Medido por sonda de dois navegadores: com a camada ativa travada pelo Dono, um ponto desenhado pelo Dono e um pelo Editor chegaram ao servidor com o `layer_id` da camada travada, sem aviso. O código já tinha a regra "camada travada não é ativa" (`activateLayer` recusa; a exclusão escolhe uma destravada), e travar a camada que já era a ativa furava a regra. Decisão do coordenador: opção (a), recusar nomeando o estado.
+Conserto: (1) portão de ativação em `ToolManager.setActiveTool` (`setActivationGate`, ligado em `map_sig.js` a `lockedActiveLayerRefusal`, `tool_manager/helpers/feature-creation-context.js`): ferramenta que cria feição (`criaFeicao`, lido da coluna `tipoDeFeicao` do registro de ferramentas) não ativa com a camada ativa travada; a ferramenta continua desenhada e o clique recusa com "Camada ativa bloqueada. Desbloqueie-a ou escolha outra camada na aba Camadas."; a continuação pela ponta passa `{ continuation: true }` e não é perguntada (escreve na camada da própria feição). (2) guarda única no funil de criação LOCAL da store (`refuseCreationInLockedLayer` em `addFeature`/`addFeatures`, `store/feature.operations.js`), que pega a trava que chega no MEIO do desenho: nada gravado, nada pintado (as ferramentas só pintam o que a store devolveu). (3) o balde de debounce do aviso EXPLÍCITO passou a ser por texto (`store/store-error-listener.js`): o aviso de seleção derrubada engolia por 3 s a recusa da ferramenta clicada logo depois. (4) `addFeatures` devolve `true` quando gravou, e `ClipboardManager.paste` lê: recusa por camada travada não pinta nem anuncia "colada(s) com sucesso".
+Censo dos caminhos que criam feição (pedido do coordenador): ferramentas de desenho, militares (símbolo, medida, declinação, seta, limite, frente, linha de coordenação), análise (visada, visibilidade) e azimute-distância: portão + guarda (todas passam por `captureFeatureCreation` → `saveCreatedFeature` → `addFeature`). "Salvar como feição" da régua: guarda (mesmo funil; a régua é ativável porque não cria feição ao ser ativada). Colar, "Colar Aqui", "Duplicar Seleção": guarda em `addFeatures` + leitura do retorno em `paste`. Pontos em lote (modal): guarda; o modal ignorava o retorno e anunciava sucesso, corrigido na mesma leva (só conta e pinta o que a store gravou). Importação: NÃO SE APLICA, toda importação cria camada nova (`createLayerForImport`). Saída de processamento: NÃO SE APLICA, cria camada nova (`processing-runner.js`). Trajetória: NÃO SE APLICA, é propriedade de feição existente (edição, coberta pela trava de seleção). Mesclar mapas: NÃO SE APLICA, cria camadas novas destravadas. Transferir camada para outro mapa e desfazer/refazer: FORA da guarda por declaração (mapa não corrente; `featureIntent` de restauração), a conferir à parte na linha "desfazer/refazer atravessando o bloqueio". Op REMOTA: nunca recusada (não passa por `addFeature`).
+
+### Defeito 5, CORRIGIDO em `5c1673ef` (fix(lock)): arrastar na árvore movia PARA e DE camada travada
+Medido com dois navegadores e arrasto real de mouse (sonda): com a trava do Dono na primeira camada, o arrasto do Editor pôs uma feição da segunda camada DENTRO da travada, no servidor. O menu de contexto já filtrava destino travado; o arrasto (`initFeatureSortable`) e a store (`moveFeaturesToLayer`) não perguntavam nada. Conserto: `refuseLockedLayerMove` em `moveFeaturesToLayer` (destino travado, ou feição efetivamente travada na origem: feição, camada ou grupo), decidido antes de tocar o documento, frase nomeando a trava; `store.js` devolve o resultado; a árvore se refaz da store quando recusado (o Sortable já tinha movido a linha no DOM) e o menu de contexto não pinta nem anuncia. Repro `frontend/tests/e2e-ui/arrasto-na-arvore-respeita-trava.repro.spec.js`: o arrasto termina pelo `onEnd` do próprio Sortable do elemento, porque o arrasto real de mouse do Sortable mediu instável neste harness (o arrasto de controle não moveu numa de duas rodadas); o caso de controle destravado prova o instrumento. Chromium 2/2 + 1, Firefox 2/2; controle negativo vermelho no navegador e em 3 dos 4 casos novos de `frontend/tests/store/move-features-layer.test.js`.
+
+### Ajustes de spec pela regra (A) (`78a971d3`, test)
+Regra confirmada pelo coordenador: feição efetivamente travada não se seleciona por caminho nenhum, e a seleção cai quando a trava chega. `frontend/tests/e2e-ui/browser-collab-conversao-linear.spec.js`, caso "ESTADO (camada travada)", chegava ao menu de conversão pela porta da árvore que 8b0b1cef fechou; agora afirma que o clique na árvore não abre painel, nada é escrito, e destravada converte. `frontend/tests/e2e-ui/browser-group-lifecycle.spec.js` destrava o grupo antes de mover os membros. 21/21 em 3 rodadas. A frase desatualizada das regras (em `.claude/rules/sync-e-colaboracao.md` na integração) foi atualizada pelo coordenador.
+
+### Nota de método: `bcc022f9` NÃO entra
+A entrada de a7240052 em docs/decisions citava `activateLayer` (não existe; o certo é `setActiveLayer`). O `docs-integridade` passou no meu ciclo porque uma sonda NÃO RASTREADA da worktree continha a palavra: o verificador mediu outra cópia do sujeito. O coordenador já tinha corrigido na integração (22dd976f), então `bcc022f9`, o mesmo conserto no meu branch, fica de fora do lote. Daqui em diante, sondas temporárias saem da árvore antes da rodada que vale.
+
+### Defeito 6, CORRIGIDO em `861a9f00` (fix(lock)): desfazer/refazer atravessava a trava
+Medido com dois navegadores (sonda): o Editor desenhou um ponto, o Dono travou a camada, e o Ctrl+Z do Editor removeu o ponto no servidor, sem aviso. Conserto: `refuseUndoRedoAcrossLock` (`store/store.js`) pergunta, ANTES de tirar a entrada da pilha (`peekUndoAction`/`peekRedoAction`), por cada feição da entrada, como ela está agora (ou como a entrada a guardou, se não existe mais); travada, recusa nomeando a trava, e `undoLastAction`/`redoLastAction` devolvem `null`, que o executor lê como "recusado e já dito" em vez de "Nada para desfazer". A entrada fica na pilha e desfaz depois de destravar. Repro `frontend/tests/e2e-ui/desfazer-nao-atravessa-trava.repro.spec.js` (recusa + o MESMO Ctrl+Z desfazendo depois de destravar): Chromium 3/3 + 1, Firefox 2/2; controle negativo vermelho no navegador e em 2 dos 3 casos novos de `frontend/tests/store/undo-redo-lock-guard.test.js`.
+
+### Defeito 7, CORRIGIDO em `29374907` (fix(lock), decisão do dono P5): camada travada era excluída; grupo travado se dissolvia
+Camada: a árvore excluía camada TRAVADA (com cascata das feições no servidor) depois da confirmação de sempre, enquanto o menu da própria camada já recusava MOVÊ-la. Agora o botão de excluir fica desenhado com `aria-disabled` e o motivo no título, e o clique recusa ANTES da confirmação ("Esta camada está bloqueada. Desbloqueie-a para excluí-la."); `deleteLayer` na store recusa a trava que chega entre a confirmação e a escrita; e os dois tratadores da árvore passaram a perguntar à store PRIMEIRO e só então limpar as fontes do mapa (antes, uma recusa deixava o desenho da camada apagado da tela com tudo guardado). Renomear e opacidade continuam livres. Censo de GRUPO: desagrupar e combinar dissolvem o grupo e com ele a trava que segura os membros, então recusam grupo travado (`LOCKED_GROUP_DISSOLVE_NOTICE`); o menu de contexto que os oferece não é alcançável para grupo travado (membros não se selecionam), por isso essa metade é presa por unidade (`frontend/tests/store/group-operations.test.js`). "Excluir grupo" NÃO EXISTE como gesto (não se aplica); criar grupo com feição travada não é alcançável (feição travada não se seleciona). Repro `frontend/tests/e2e-ui/excluir-camada-travada.repro.spec.js`: Chromium e Firefox verdes; controles negativos, um por metade (guarda da árvore, guarda da store, ordem antiga das fontes, guarda de grupo), todos vermelhos.
+Fora do escopo, declarado: ao excluir a camada ATIVA quando todas as outras estão travadas, `LayerManager.deleteLayer` destrava uma delas para torná-la ativa (comportamento anterior, com op própria).
+
+### Defeito 8, CORRIGIDO em `ce654104` (fix(visibility)): legenda do PDF e KMZ ignoravam o que o mapa oculta
+Ocultar é filtro: as fontes guardam toda feição. A legenda do PDF contava das fontes só com a janela temporal (medido: 5 pontos na legenda, 1 desenhado, com uma feição oculta, uma camada oculta e um grupo oculto), e o KMZ levava o `visivel` da feição e o `visible` da camada mas exportava o membro de grupo oculto como visível. Conserto: `isDrawnByVisibilityRule` (`layers/visibility-filter.js`), a regra do filtro como predicado, perguntada pela legenda ao lado da regra temporal; o KMZ lê os grupos do repositório (o mapa exportado pode não ser o corrente) e marca o membro de grupo oculto com `visivel: false` sem tocar a feição guardada. Repro `frontend/tests/e2e-ui/visibilidade-nas-saidas.repro.spec.js` (contagem pelo método da própria aba sobre o mapa vivo; KMZ pelo serviço, com o download descompactado): Chromium e Firefox verdes; controle negativo (5 na legenda, membros visíveis no KMZ). O teste de unidade avalia o predicado e o filtro do MapLibre sobre o mesmo corpus.
+
+### Não-defeito verificado
+Tipo do membro de grupo depois do F5: o snapshot devolve `features: [{type, id}]` com o mesmo `type` (`point`) que o cliente grava, e `sync` montado por `buildSyncMetadata`; `getFeatureGroup` acha o grupo depois do F5 (sonda, caso "tipo do membro depois do F5"). Ou seja, a trava de GRUPO continua valendo depois do F5 para o predicado da store.
+
+## Matriz
+
+Legenda: COBERTO por `<spec>` (caso) | DEFEITO `<sha>` | LACUNA | a conferir (spec existe, asserção não conferida ainda).
+
+### Bloqueio: gesto x trava
+
+| gesto | feição `bloqueado` | camada `locked` | grupo `locked` | mapa travado (Dono trava, Editor tenta) |
+|---|---|---|---|---|
+| selecionar no mapa (clique) | LACUNA | LACUNA | LACUNA | a conferir: `browser-collab-lock.spec.js` (2º caso, esconde a barra de desenho no Editor) |
+| selecionar pela aba de camadas | LACUNA | DEFEITO `8b0b1cef`, coberto pelo repro (caso 1) | DEFEITO `8b0b1cef` (membro de grupo em camada travada, caso 2); grupo travado sozinho: LACUNA | LACUNA |
+| arrastar | LACUNA | LACUNA | LACUNA | LACUNA |
+| editar vértice | LACUNA | LACUNA | LACUNA | LACUNA (`drawing-delayed-map-lock.spec.js` cobre só desenho recusado) |
+| painel (nome, estilo, atributos) | LACUNA | coberto indiretamente (painel não abre, repro caso 1) | LACUNA | LACUNA |
+| aba Atributos | LACUNA | idem | LACUNA | LACUNA |
+| tabela de atributos, editar célula | LACUNA | DEFEITO `8b0b1cef`, repro caso 3 (recusa nomeia "Camada bloqueada", controle destravado grava) | LACUNA (a frase de grupo existe, não medida) | LACUNA |
+| excluir por tecla | LACUNA | DEFEITO `8b0b1cef` (repro casos 1 e 2) | LACUNA | a conferir: `browser-lock-authz.spec.js` (recusa por op no servidor) |
+| excluir por menu | LACUNA | LACUNA | LACUNA | LACUNA |
+| excluir por seleção em caixa com travadas | LACUNA | LACUNA | LACUNA | LACUNA |
+| colar / colar aqui / importar DENTRO da camada travada | n/a | LACUNA | n/a | LACUNA |
+| mover feições PARA / DE camada travada (arrasto na árvore, menu de contexto) | DEFEITO `5c1673ef` (unidade: feição bloqueada não sai) | DEFEITO `5c1673ef`, repro `arrasto-na-arvore-respeita-trava.repro.spec.js` (PARA e DE) | DEFEITO `5c1673ef` (unidade: membro de grupo travado não sai) | LACUNA |
+| transferir camada travada para outro mapa | n/a | LACUNA | n/a | a conferir: `frontend/tests/store/layer-transfer.test.js` (destino travado, unidade) |
+| desfazer/refazer atravessando o bloqueio | DEFEITO `861a9f00` (unidade: feição bloqueada) | DEFEITO `861a9f00`, repro `desfazer-nao-atravessa-trava.repro.spec.js` | DEFEITO `861a9f00` (mesma guarda, grupo via `featureLockState`) | já coberto: `undoLastAction` recusa com o mapa travado (`undo-redo-lock-guard.test.js`) |
+| converter | LACUNA | LACUNA | LACUNA | LACUNA |
+| cortar | LACUNA | LACUNA | LACUNA | LACUNA |
+| continuar pela ponta | LACUNA | LACUNA | LACUNA | coberto pela regra da alça (arquitetura §Continuar), spec a conferir |
+| estilo em massa | LACUNA | LACUNA | LACUNA | LACUNA |
+| recusa nomeia o estado | COBERTO (trava-chega... caso 3, "Feição bloqueada") | COBERTO (tabela, repro caso 3; trava-chega... caso 1) | COBERTO (trava-chega... caso 2, "Grupo bloqueado") | a conferir: `browser-collab-lock.spec.js` (menu de mapa `aria-disabled` + aviso "bloqueado") |
+| colega vê a trava chegar e sair ao vivo | COBERTO (chegar: trava-chega... caso 3) | COBERTO (repro casos 1 e 3: chega e sai) | COBERTO (chegar: trava-chega... caso 2) | a conferir: `browser-collab-lock.spec.js`, `lock.spec.js` |
+| F5 nos dois lados | LACUNA | LACUNA | LACUNA | a conferir: `lock.spec.js` (snapshot reflete a trava) |
+| a trava chega com a feição JÁ selecionada (seleção velha continua editável?) | DEFEITO `ce6ab35f`, repro caso 3 | DEFEITO `ce6ab35f`, repro caso 1 (+ controle) | DEFEITO `ce6ab35f`, repro caso 2 | a conferir |
+| camada ativa travada recebe desenho novo? | n/a | DEFEITO `a7240052`, repro `camada-ativa-travada-nao-recebe-desenho.repro.spec.js` | n/a | n/a |
+| excluir a CAMADA travada | n/a | DEFEITO `29374907`, repro `excluir-camada-travada.repro.spec.js` | desagrupar/combinar grupo travado: DEFEITO `29374907` (unidade) | já coberto: `deleteLayer` recusa com o mapa travado |
+
+### Visibilidade
+
+| pergunta | feição `visivel` | camada `visible` | grupo `visible` |
+|---|---|---|---|
+| estado compartilhado ou da pessoa (código) | compartilhado (op de feição) | compartilhado (op de camada) | compartilhado (op de grupo, coluna `groups.visible`) |
+| persiste no servidor | COBERTO (`visibilidade-compartilhada-no-colega.spec.js` caso 1, `features.properties.visivel`) | COBERTO (idem caso 2, `layers.visible`) | COBERTO (`grupo-oculto-no-colega-e-no-f5.repro.spec.js`, `groups.visible`) |
+| colega DEIXA DE VER no desenho | COBERTO (`visibilidade-compartilhada-no-colega.spec.js` caso 1) | COBERTO (idem caso 2) | DEFEITO `5106cbc4`, repro caso 1 |
+| F5 continua oculto | COBERTO (F5 do colega, idem caso 1) | COBERTO (F5 do colega, idem caso 2) | DEFEITO `5106cbc4`, repro caso 1 (F5 do Dono) |
+| mostrar o grupo não desoculta membro oculto por conta própria | n/a | n/a | DEFEITO `5106cbc4`, repro caso 2 |
+| seleção em caixa pega a oculta? | não, por construção: `rectangle_selection_control.js` seleciona de `queryRenderedFeatures` (só o desenhado); sem spec próprio | idem | idem, e desde `5106cbc4` o membro de grupo oculto também não é desenhado |
+| tabela de atributos | lista a oculta: é vista de DADOS, como a tabela de SIG de mesa; não é defeito (declarado) | idem | idem |
+| busca | acha a oculta e, ao escolher, seleciona e abre o painel dela (observação: proposta ao dono se a busca deve revelar ou pular a oculta; não mexido) | idem | idem |
+| exportação .ebgeo / KMZ / PDF | .ebgeo leva o dado (visivel, visible, grupos) por desenho; KMZ já marcava; imagem do PDF sai do estilo do mapa (`getCleanMapStyle` leva os filtros) | idem, KMZ em pasta com visibility 0 | KMZ: DEFEITO `ce654104` |
+| legenda do PDF | DEFEITO `ce654104` | DEFEITO `ce654104` | DEFEITO `ce654104` (repro caso 1) |
+| 3D / 360 | NÃO SE APLICA: os marcadores do 3D e do 360 são entidades próprias (stores laterais), não feições de camada; a visibilidade deles é só a temporal (`isVisibleUnderTemporal`) | idem | idem |
+| linha do tempo | a oculta continua contando nos limites da linha do tempo (observação, não medido como defeito) | idem | idem |
+
+## PRÓXIMO PASSO (exato, para retomar)
+
+Estado na PAUSA pedida pelo dono (até 12h10): HEAD de `hunt/cob-bloqueio` = `c406dcd4`, worktree LIMPA (nada sem commit, nenhuma sonda `_sonda-*` na árvore, nenhum servidor ou navegador meu de pé). Commitados nesta frente: 8b0b1cef, 5106cbc4, ce6ab35f, a7240052, 78a971d3, 5c1673ef, 861a9f00, 29374907, ce654104, c406dcd4. `bcc022f9` fica FORA do lote (duplicado de 22dd976f, já na integração).
+
+Feito:
+1. P2 (`ce6ab35f`): a trava que chega com a feição já selecionada derruba a seleção; `deleteSelectedFeatures` recusa feição travada.
+2. P3 (`a7240052`, decisão do dono registrada): camada ATIVA travada não recebe feição nova (portão na ativação da ferramenta + guarda única em `addFeature`/`addFeatures`). Resto declarado: a colagem num atlas de servidor já subiu o blob de imagem antes da recusa (blob órfão, raro); o modal de pontos em lote não tem teste próprio (só a guarda da store, que tem).
+3. P4 (`5c1673ef`): mover PARA/DE camada travada (arrasto na árvore e menu) recusa.
+4. Desfazer/refazer (`861a9f00`): não atravessa trava de feição, camada ou grupo; a entrada fica na pilha.
+5. P5 (`29374907`): camada travada não é excluída (botão com `aria-disabled`, recusa antes da confirmação; `deleteLayer` recusa a trava que chega depois dela; a árvore pergunta à store antes de limpar as fontes). Censo de GRUPO travado: desagrupar e combinar recusam (unidade, porque o menu não é alcançável); "excluir grupo" não existe; criar grupo com feição travada não é alcançável.
+6. Visibilidade (`5106cbc4`, `ce654104`, `c406dcd4`): grupo oculto no colega e no F5; legenda do PDF e KMZ; feição e camada ocultas no colega e no F5. Matriz de visibilidade preenchida.
+
+A fazer, na ordem, ao retomar:
+a. Spec de cobertura para as linhas de bloqueio que ainda dizem LACUNA e caem POR CONSTRUÇÃO (feição efetivamente travada não se seleciona por porta nenhuma; arrastar, vértice, painel, converter, cortar, continuar pela ponta e estilo em massa exigem seleção): provar a SELEÇÃO no mapa por clique (`clicarNoMapaUI`, `frontend/tests/e2e-ui/helpers/collab-helpers.js`) e por caixa (`selection_tools/rectangle_selection_control.js`, nenhum spec o dirige ainda: achar o botão da barra) para as três travas (feição `bloqueado` pelo cadeado da árvore, grupo pelo cadeado do grupo, camada pelo cadeado da camada), com uma feição livre de controle que SE seleciona; e o F5 nos dois lados mantendo a trava. Commit `test(e2e)`.
+b. Linha "transferir camada travada para outro mapa": conferir o que `layer-transfer.operations.js` (`refuse('layer_locked', mode)`) e `frontend/tests/store/layer-transfer.test.js` já afirmam e marcar a matriz.
+c. Observações para o dono, sem conserto: a busca acha feição oculta e, ao escolher, a seleciona e abre o painel; feição oculta conta nos limites da linha do tempo; ao excluir a camada ATIVA com todas as outras travadas, `deleteLayer` do gerente destrava uma delas para torná-la ativa.
+d. Balanço ao coordenador a cada ~2 h.

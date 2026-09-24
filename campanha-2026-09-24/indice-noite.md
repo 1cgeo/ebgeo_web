@@ -1,0 +1,8 @@
+- 2026-09-23: a saída da Linha de Visada e do Viewshed é derivada por cada cliente e nunca viaja (o servidor recusava o id dela e o par nunca via a análise), [registro](decisions-2026.md).
+- 2026-09-23: o fim involuntário da sessão resgata a fila de todo atlas de servidor com pendência, não só a do montado, [registro](decisions-2026.md).
+- 2026-09-23: a janela da versão antiga aberta durante a virada é espera sem comando, não a tela que oferecia apagar os dados, [registro](decisions-2026.md).
+- 2026-09-24: abrir a versão antiga depois de um rollback não cria um Recuperado falso, [registro](decisions-2026.md).
+- 2026-09-23: cauda de pull acima de 500 ops ou 2 MiB vira retrato no HTTP e pedido de ressincronização no socket, [registro](decisions-2026.md).
+- 2026-09-24: "Duplicar" mapa num atlas de servidor usa a rota de duplicação do servidor, [registro](decisions-2026.md).
+- 2026-09-23: a importação de arquivo preserva o nome e as colunas reservadas e não inventa atributos de estilo, [registro](decisions-2026.md).
+- 2026-09-23: polyfill local de `toReversed` para Chrome e Edge 105 a 109; política de navegador mínimo pendente, [registro](decisions-2026.md).
