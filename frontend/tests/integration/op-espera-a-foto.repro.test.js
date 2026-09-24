@@ -47,6 +47,7 @@ vi.mock('@js/import_export/atlas-image-upload.js', () => ({
 import {
     registrarBlob,
     enviarBlobRegistrado,
+    enfileirarBlobs,
     retomarBlobsPendentes,
     esquecerPendenciasEmMemoria,
 } from '@store/sync/blob-upload-queue.js';
@@ -246,6 +247,31 @@ describe('uma subida por vez, e o censo de saída conta a que falta', () => {
         soltar();
         await Promise.all([primeiro, segundo]);
         expect(h.maximoNoFio).toBe(1);
+    });
+
+    // A CÓPIA NÃO ESPERA A FILA (revisão, 2026-09-24, item 7): colar, "Duplicar Seleção" e transferir
+    // camada aguardam a subida dos PRÓPRIOS blobs antes de gravar as feições; atrás de uma foto
+    // subindo num link lento, eles congelavam a tela por minutos.
+    it('a cópia de blob não espera uma foto que está subindo', async () => {
+        const scope = getActiveScope();
+        const foto1 = await registrarBlob({ imageId: crypto.randomUUID(), blob: blob(), atlasId: scope.atlasId, origem: 'foto-anexa' });
+        let soltar;
+        h.segurar = new Promise((resolve) => { soltar = resolve; });
+        const subindo = enviarBlobRegistrado(foto1, blob());
+        await vi.waitFor(() => expect(h.noFio).toBe(1));
+        const copia = crypto.randomUUID();
+        const segundaChamada = [];
+        const original = h.segurar;
+        h.segurar = null;
+        const resultado = await Promise.race([
+            enfileirarBlobs([[copia, blob()]], { atlasId: scope.atlasId, origem: 'paste' }).then((r) => { segundaChamada.push('copia'); return r; }),
+            new Promise((resolve) => setTimeout(() => resolve('esperou'), 1500)),
+        ]);
+        h.segurar = original;
+        soltar();
+        await subindo;
+        expect(resultado, 'a cópia terminou sem esperar a foto').not.toBe('esperou');
+        expect(resultado.confirmados).toEqual([copia]);
     });
 
     it('a subida PENDENTE conta como trabalho não enviado do atlas, mesmo sem op nenhuma', async () => {

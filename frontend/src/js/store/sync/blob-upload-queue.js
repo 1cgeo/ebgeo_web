@@ -300,7 +300,8 @@ function operacaoCita(op, imageId) {
  * called `enviar` N times without awaiting, and N transfers shared a link sized for one: at 40 kbps
  * each one falls under the 2000 B/s floor its deadline is sized for, all are cut, and the cycle can
  * repeat (the same arithmetic as {@link _emVoo}). The resumption was already serial; this puts the
- * first attempts and the copies in the same line.
+ * first attempts in the same line. The COPIES stay out of it ({@link enfileirarBlobs}): a gesture
+ * awaits them, and a gesture must not wait for a photo that is not its own.
  * @type {Promise<void>}
  */
 let _filaDeTransferencia = Promise.resolve();
@@ -744,9 +745,13 @@ export async function enfileirarBlobs(pares, { atlasId, origem = 'copia' }) {
     try {
         let veredictos;
         try {
-            veredictos = await emSerie(() => transferirLote(
+            // NOT IN LINE ({@link emSerie}), on purpose (2026-09-24, review): a COPY gesture (paste,
+            // "Duplicar Seleção", a layer copied to another map) awaits this before it writes its
+            // features, and behind a photo still uploading on a slow link it froze the screen for
+            // minutes. The copy competes for the link instead of waiting for it.
+            veredictos = await transferirLote(
                 atlasId, registros.map(r => [r.imageId, bytesPorId.get(r.imageId)])
-            ));
+            );
         } catch (error) {
             const desfecho = { confirmado: false, ...classificarErro(error) };
             veredictos = new Map(registros.map(r => [r.imageId, desfecho]));
