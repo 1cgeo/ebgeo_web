@@ -37,6 +37,11 @@ export const PendenciaClasse = Object.freeze({
     CONFLITO: 'conflito',
     /** O servidor recusou por política, integridade ou conteúdo: repetir não muda o desfecho. */
     RECUSA: 'recusa',
+    /**
+     * Não foi recusada por ela mesma: saiu na mesma parte de uma ação que outra, e o servidor
+     * aplica ou recusa a parte inteira. A culpada vem nomeada no recibo (`batchFailedOperationId`).
+     */
+    JUNTO: 'recusada-junto',
     /** Não foi recusada: está atrás de outra que está. Sai sozinha quando aquela sair. */
     DEPENDENCIA: 'dependencia',
     /** Intenção de um protocolo anterior, retida para revisão antes de qualquer reenvio. */
@@ -65,6 +70,7 @@ export const PendenciaOrigem = Object.freeze({
 const CLASSE_LABEL = Object.freeze({
     [PendenciaClasse.CONFLITO]: 'Conflito',
     [PendenciaClasse.RECUSA]: 'Recusa do servidor',
+    [PendenciaClasse.JUNTO]: 'Recusada junto',
     [PendenciaClasse.DEPENDENCIA]: 'Aguardando outra',
     [PendenciaClasse.REVISAO]: 'De versão anterior',
     [PendenciaClasse.UPLOAD_PENDENTE]: 'Figura à espera de envio',
@@ -79,6 +85,9 @@ const CLASSE_EXPLICACAO = Object.freeze({
     [PendenciaClasse.RECUSA]:
         'O servidor não aceita esta alteração como ela está, e reenviar não muda isso. Exporte '
         + 'uma cópia se ela importa e aceite o que está no servidor para liberar as próximas.',
+    [PendenciaClasse.JUNTO]:
+        'O servidor não recusou esta alteração por ela mesma: ela saiu junto com outra que ele '
+        + 'não aceitou. O que você decidir sobre aquela vale também para esta.',
     [PendenciaClasse.DEPENDENCIA]:
         'Esta alteração não foi recusada: ela está parada atrás de outra que foi. Resolva a que '
         + 'está na frente e esta sai sozinha.',
@@ -183,6 +192,81 @@ export function localDoItem(mapa) {
     if (mapa.nome) return `, no mapa «${mapa.nome}»`;
     if (mapa.ausente === true) return ', num mapa removido';
     return `, no mapa «${mapa.id}»`;
+}
+
+/**
+ * O item de uma linha como a pessoa o reconhece: "Feição «P12», no mapa «Principal»", com o id no
+ * lugar do nome que não resolveu. Mora aqui, e não no painel, porque as frases de "recusada junto"
+ * e de "parada atrás" nomeiam OUTRA linha, e as duas descrições não podem divergir.
+ * @param {{tipoLabel: string, nome: (string|null), id: (string|null)}} entidade - `linha.entidade`.
+ * @param {Object|null} mapa - `linha.mapa`.
+ * @returns {string}
+ */
+export function descricaoDoItem(entidade, mapa) {
+    const nome = entidade?.nome ?? entidade?.id;
+    const alvo = nome ? `${entidade.tipoLabel} «${nome}»` : (entidade?.tipoLabel ?? 'Item');
+    return `${alvo}${localDoItem(mapa)}`;
+}
+
+/**
+ * O MOTIVO DE UMA IRMÃ, que não é o motivo da culpada.
+ *
+ * O servidor aplica ou recusa uma parte inteira, e devolve TODAS as operações dela com o motivo
+ * da que falhou. Mostrado em cada irmã, ele dizia "O item foi excluido no servidor." sobre 199
+ * feições que ninguém excluiu (medido em 2026-09-24). A irmã diz o que de fato aconteceu com ela e
+ * nomeia a culpada, cujo motivo continua na linha dela.
+ * @param {string|null} culpada - `descricaoDoItem` da culpada, ou `null` quando ela não está na lista.
+ * @returns {string}
+ */
+export function recusadaJuntoFrase(culpada) {
+    return culpada
+        ? `Recusada junto com outra alteração desta ação: ${culpada}.`
+        : 'Recusada junto com outra alteração desta ação, que o servidor não aceitou.';
+}
+
+/**
+ * O que a linha da CULPADA acrescenta: quantas voltaram por causa dela.
+ * @param {number} quantas - Irmãs da culpada nesta lista.
+ * @returns {string|null}
+ */
+export function levouJuntoFrase(quantas) {
+    if (!Number.isFinite(quantas) || quantas <= 0) return null;
+    return quantas === 1
+        ? 'Por causa dela, outra alteração voltou recusada.'
+        : `Por causa dela, outras ${Math.trunc(quantas)} alterações voltaram recusadas.`;
+}
+
+/**
+ * A linha de uma dependência: atrás de QUEM ela está, pelo nome, e o id só quando o nome falta.
+ * @param {string|null} descricao - `descricaoDoItem` da linha da frente.
+ * @param {string|null} id - O id da operação da frente.
+ * @returns {string|null}
+ */
+export function paradaAtrasFrase(descricao, id) {
+    if (descricao) return `Parada atrás de ${descricao}.`;
+    return id ? `Parada atrás da alteração ${id}.` : null;
+}
+
+/**
+ * O RESUMO dos grupos recusados: quantas voltaram por causa de quantas, e o que fazer.
+ * @param {{recusadas: number, culpadas: number, paradas: number}|null|undefined} juntos - `modelo.juntos`.
+ * @returns {string|null} `null` quando nenhuma voltou junto com outra.
+ */
+export function juntoResumo(juntos) {
+    const recusadas = Number.isFinite(juntos?.recusadas) ? Math.trunc(juntos.recusadas) : 0;
+    const culpadas = Number.isFinite(juntos?.culpadas) ? Math.trunc(juntos.culpadas) : 0;
+    const paradas = Number.isFinite(juntos?.paradas) ? Math.trunc(juntos.paradas) : 0;
+    if (recusadas <= 0 || culpadas <= 0) return null;
+    const quantas = recusadas === 1
+        ? '1 alteração foi recusada só por ir'
+        : `${recusadas} alterações foram recusadas só por irem`;
+    const atras = paradas > 0
+        ? `, e ${paradas} ${paradas === 1 ? 'está parada' : 'estão paradas'} atrás delas`
+        : '';
+    const decida = culpadas === 1
+        ? 'O que você decidir sobre ela vale para o grupo inteiro.'
+        : 'O que você decidir sobre cada uma vale para o grupo dela.';
+    return `${quantas} junto com ${culpadas} que o servidor não aceitou${atras}. ${decida}`;
 }
 
 /** A lista vazia HONESTA: nada guardado, nada a caminho, e a leitura funcionou. */
@@ -456,15 +540,19 @@ export function bloqueioFrase(bloqueio) {
  *
  * O número é obrigatório e não decorativo: aceitar o servidor sobre uma tentativa leva junto tudo
  * o que estava parado atrás dela, e uma pergunta que diga só "esta alteração" mente sobre o
- * tamanho do que a pessoa está aceitando perder.
+ * tamanho do que a pessoa está aceitando perder. Numa parte recusada o grupo inclui também as que
+ * VOLTARAM JUNTO, e a frase diz as duas origens em vez de chamar todas de "paradas atrás".
  * @param {number} quantas - Total de tentativas que serão descartadas, esta inclusive.
+ * @param {Object} [opcoes]
+ * @param {boolean} [opcoes.doGrupo=false] - A tentativa pertence a uma parte recusada.
  * @returns {{titulo: string, mensagem: string, confirmar: string}}
  */
-export function confirmacaoDeAceitar(quantas) {
+export function confirmacaoDeAceitar(quantas, { doGrupo = false } = {}) {
     const total = Number.isFinite(quantas) && quantas > 0 ? Math.trunc(quantas) : 1;
+    const origem = doGrupo === true ? 'que voltaram junto com ela ou estão paradas atrás' : 'que estão paradas atrás dela';
     const corpo = total === 1
         ? 'Esta tentativa será descartada e o EBGeo vai buscar do servidor o estado atual do item.'
-        : `Esta tentativa e as outras ${total - 1} que estão paradas atrás dela serão descartadas, `
+        : `Esta tentativa e as outras ${total - 1} ${origem} serão descartadas, `
             + 'e o EBGeo vai buscar do servidor o estado atual dos itens.';
     return {
         titulo: 'Ficar com o que está no servidor?',

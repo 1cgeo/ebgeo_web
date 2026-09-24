@@ -46,7 +46,10 @@ import {
     classeExplicacao,
     classeLabel,
     dataLabel,
+    descricaoDoItem,
     origemLabel,
+    paradaAtrasFrase,
+    recusadaJuntoFrase,
     tipoDeEntidadeLabel,
     unidadeLabel,
 } from './pendencias-phrases.js';
@@ -231,6 +234,11 @@ function linhaDeOperacao({
         quandoMs,
         quandoLabel: dataLabel(quandoMs),
         bloqueadaPor,
+        // Preenchidos por `agruparRecusadasJunto`, que precisa da lista inteira para nomear a
+        // OUTRA linha (a culpada, a da frente).
+        bloqueio: null,
+        recusadaJuntoCom: null,
+        levouJunto: 0,
         atlasId,
         operationId: operation?.id ?? null,
         envelope: operation ?? null,
@@ -272,11 +280,71 @@ function linhaDeUpload(registro) {
         quandoMs,
         quandoLabel: dataLabel(quandoMs),
         bloqueadaPor: null,
+        bloqueio: null,
+        recusadaJuntoCom: null,
+        levouJunto: 0,
         atlasId: registro?.atlasId ?? null,
         operationId: null,
         envelope: registro ?? null,
         resultado: null,
     };
+}
+
+/**
+ * AS PARTES RECUSADAS: a irmã fala por ela mesma, e a culpada conta quantas levou junto.
+ *
+ * O servidor aplica ou recusa uma parte de uma ação inteira, e devolve TODAS as operações dela com
+ * o motivo da que falhou e com `batchFailedOperationId` nomeando essa culpada (`recusarLoteInteiro`,
+ * `backend/src/modules/sync/sync.service.js`). Mostrado em cada irmã, aquele motivo era falso:
+ * medido em 2026-09-24, uma feição apagada pelo colega no meio de 1000 estilos pôs 199 linhas
+ * "O item foi excluido no servidor." no painel, sobre feições que ninguém excluiu. A irmã vira
+ * `PendenciaClasse.JUNTO` e o motivo dela nomeia a culpada; a culpada guarda o dela.
+ *
+ * O grupo é por ORIGEM e por atlas, porque a mesma operação pode estar na fila e numa quarentena
+ * de outro atlas, e uma não decide a outra. Muta as linhas; devolve o que o resumo conta.
+ * @param {Array<Object>} linhas - As linhas já montadas.
+ * @returns {{recusadas: number, culpadas: number, paradas: number}}
+ */
+function agruparRecusadasJunto(linhas) {
+    const chave = (linha, id) => `${linha.origem}|${linha.atlasId ?? ''}|${id}`;
+    const porOperacao = new Map();
+    for (const linha of linhas) {
+        if (linha.operationId) porOperacao.set(chave(linha, linha.operationId), linha);
+    }
+
+    const culpadas = new Set();
+    const noGrupo = new Set();
+    let recusadas = 0;
+    for (const linha of linhas) {
+        const culpadaId = linha.resultado?.batchFailedOperationId;
+        if (typeof culpadaId !== 'string' || culpadaId === '' || culpadaId === linha.operationId) continue;
+        const culpada = porOperacao.get(chave(linha, culpadaId)) ?? null;
+        const descricao = culpada ? descricaoDoItem(culpada.entidade, culpada.mapa) : null;
+        linha.classe = PendenciaClasse.JUNTO;
+        linha.classeLabel = classeLabel(PendenciaClasse.JUNTO);
+        linha.classeExplicacao = classeExplicacao(PendenciaClasse.JUNTO);
+        linha.recusadaJuntoCom = { operationId: culpadaId, descricao };
+        linha.motivo = recusadaJuntoFrase(descricao);
+        // As unidades e a comparação de um conflito são DA CULPADA: na irmã elas não existem.
+        linha.unidades = [];
+        if (culpada) culpada.levouJunto += 1;
+        culpadas.add(chave(linha, culpadaId));
+        noGrupo.add(chave(linha, culpadaId));
+        noGrupo.add(chave(linha, linha.operationId));
+        recusadas += 1;
+    }
+
+    let paradas = 0;
+    for (const linha of linhas) {
+        if (!linha.bloqueadaPor) continue;
+        const frente = porOperacao.get(chave(linha, linha.bloqueadaPor)) ?? null;
+        linha.bloqueio = paradaAtrasFrase(
+            frente ? descricaoDoItem(frente.entidade, frente.mapa) : null,
+            linha.bloqueadaPor,
+        );
+        if (noGrupo.has(chave(linha, linha.bloqueadaPor))) paradas += 1;
+    }
+    return { recusadas, culpadas: culpadas.size, paradas };
 }
 
 /**
@@ -316,7 +384,8 @@ function contagemOuNula(valor) {
  *   mapa. Sem ele, NADA é afirmado sobre mapa nenhum: o padrão é `undefined` (desconhecido) e
  *   nunca `null`, que diria a toda linha que o mapa dela foi removido.
  * @returns {{estado: string, linhas: Array<Object>, contadores: Object<string, number>,
- *   total: number, aCaminho: number|null}}
+ *   juntos: {recusadas: number, culpadas: number, paradas: number}, total: number,
+ *   aCaminho: number|null}}
  */
 export function montarPendencias({
     falhaDeLeitura = false,
@@ -331,6 +400,7 @@ export function montarPendencias({
         // então um número sobrevivente aqui seria o censo de uma leitura que não aconteceu.
         return {
             estado: PendenciaEstado.FALHA, linhas: [], contadores: {}, total: 0, aCaminho: null,
+            juntos: { recusadas: 0, culpadas: 0, paradas: 0 },
         };
     }
 
@@ -373,6 +443,9 @@ export function montarPendencias({
         linhas.push(linhaDeUpload(registro));
     }
 
+    // ANTES da contagem, porque ele muda a classe das irmãs de uma parte recusada.
+    const juntos = agruparRecusadasJunto(linhas);
+
     // MAIS RECENTE PRIMEIRO, e a linha sem data vai para o fim: ela é a que menos se casa com uma
     // lembrança da pessoa, então não pode ocupar a primeira posição da lista.
     linhas.sort((a, b) => (b.quandoMs ?? 0) - (a.quandoMs ?? 0));
@@ -388,6 +461,7 @@ export function montarPendencias({
         estado: linhas.length === 0 ? PendenciaEstado.VAZIO : PendenciaEstado.LISTA,
         linhas,
         contadores,
+        juntos,
         total: linhas.length,
         aCaminho: contagemOuNula(aCaminho),
     };

@@ -178,6 +178,12 @@ export function acoesDaLinha(linha, {
 
 /**
  * As tentativas que somem junto com esta, ela inclusive.
+ *
+ * NUMA PARTE RECUSADA O GRUPO É A PARTE INTEIRA, pela culpada. O servidor recusou a culpada e as
+ * irmãs como uma coisa só (`batchFailedOperationId`, lido por `pendencias-rows.js` em
+ * `recusadaJuntoCom`), e decidir uma sem as outras deixava 199 linhas para 199 cliques, cada uma
+ * segurando as que vêm atrás. A culpada, qualquer irmã, e o que está parado atrás de qualquer uma
+ * delas saem juntos, com a linha clicada primeiro.
  * @param {Object} linha - A linha alvo.
  * @param {Array<Object>} linhas - Todas as linhas do modelo.
  * @returns {string[]} Ids de operação.
@@ -185,10 +191,23 @@ export function acoesDaLinha(linha, {
 export function idsQueSaemJunto(linha, linhas = []) {
     const alvo = linha?.operationId;
     if (!alvo) return [];
+    const mesmaOrigem = (outra) => outra.origem === linha.origem && (outra.atlasId ?? null) === (linha.atlasId ?? null);
+    const culpada = linha.recusadaJuntoCom?.operationId
+        ?? (linhas.some((outra) => mesmaOrigem(outra) && outra.recusadaJuntoCom?.operationId === alvo) ? alvo : null);
+
+    const grupo = new Set([alvo]);
+    if (culpada) {
+        for (const outra of linhas) {
+            if (!outra.operationId || !mesmaOrigem(outra)) continue;
+            if (outra.operationId === culpada || outra.recusadaJuntoCom?.operationId === culpada) {
+                grupo.add(outra.operationId);
+            }
+        }
+    }
     const dependentes = linhas
-        .filter((outra) => outra.bloqueadaPor === alvo && outra.operationId)
+        .filter((outra) => outra.operationId && !grupo.has(outra.operationId) && grupo.has(outra.bloqueadaPor))
         .map((outra) => outra.operationId);
-    return [alvo, ...dependentes];
+    return [...grupo, ...dependentes];
 }
 
 /**

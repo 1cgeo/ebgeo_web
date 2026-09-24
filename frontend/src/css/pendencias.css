@@ -112,7 +112,8 @@
     border-left-color: var(--color-error);
 }
 
-.pendencias__linha[data-classe='dependencia'] {
+.pendencias__linha[data-classe='dependencia'],
+.pendencias__linha[data-classe='recusada-junto'] {
     border-left-color: var(--color-info);
 }
 

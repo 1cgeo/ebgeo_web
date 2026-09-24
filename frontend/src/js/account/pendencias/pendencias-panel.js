@@ -66,8 +66,10 @@ import {
     confirmacaoDeAceitar,
     confirmacaoDeDescartar,
     contadoresVisiveis,
+    descricaoDoItem,
     estadoVazio,
-    localDoItem,
+    juntoResumo,
+    levouJuntoFrase,
     reaplicacaoFeita,
     tituloDoPainel,
     transitoNota,
@@ -342,6 +344,17 @@ export class PendenciasPanel extends ModalBase {
         }
         this._resumo.appendChild(fileira);
 
+        // QUANTAS VOLTARAM POR CAUSA DE UMA SÓ, que os contadores sozinhos não dizem: eles contam
+        // as classes, não quem derrubou quem.
+        const junto = juntoResumo(modelo.juntos);
+        if (junto) {
+            const grupo = document.createElement('p');
+            grupo.className = 'pendencias__transito';
+            grupo.setAttribute('data-testid', 'pendencias-junto');
+            grupo.textContent = junto;
+            this._resumo.appendChild(grupo);
+        }
+
         if (nota) {
             const transito = document.createElement('p');
             transito.className = 'pendencias__transito';
@@ -450,6 +463,15 @@ export class PendenciasPanel extends ModalBase {
             item.appendChild(motivo);
         }
 
+        const levou = levouJuntoFrase(linha.levouJunto);
+        if (levou) {
+            const junto = document.createElement('p');
+            junto.className = 'pendencias__motivo';
+            junto.setAttribute('data-testid', 'pendencias-levou-junto');
+            junto.textContent = levou;
+            item.appendChild(junto);
+        }
+
         if (linha.unidades.length > 0) {
             item.appendChild(this._desenharUnidades(linha.unidades));
         }
@@ -457,10 +479,10 @@ export class PendenciasPanel extends ModalBase {
         const comparacao = this._desenharComparacao(linha);
         if (comparacao) item.appendChild(comparacao);
 
-        if (linha.bloqueadaPor) {
+        if (linha.bloqueio) {
             const bloqueio = document.createElement('p');
             bloqueio.className = 'pendencias__bloqueio';
-            bloqueio.textContent = `Parada atrás da alteração ${linha.bloqueadaPor}.`;
+            bloqueio.textContent = linha.bloqueio;
             item.appendChild(bloqueio);
         }
 
@@ -540,7 +562,8 @@ export class PendenciasPanel extends ModalBase {
      */
     async _aceitar(linha) {
         const quantas = idsQueSaemJunto(linha, this._modelo?.linhas ?? []).length;
-        const pergunta = confirmacaoDeAceitar(quantas);
+        const doGrupo = Boolean(linha.recusadaJuntoCom) || linha.levouJunto > 0;
+        const pergunta = confirmacaoDeAceitar(quantas, { doGrupo });
         const confirmado = await showConfirm(pergunta.titulo, {
             message: pergunta.mensagem,
             confirmText: pergunta.confirmar,
@@ -642,9 +665,7 @@ export class PendenciasPanel extends ModalBase {
      * @private
      */
     _descreverItem(linha) {
-        const nome = linha.entidade.nome ?? linha.entidade.id;
-        const alvo = nome ? `${linha.entidade.tipoLabel} «${nome}»` : linha.entidade.tipoLabel;
-        return `${alvo}${localDoItem(linha.mapa)}`;
+        return descricaoDoItem(linha.entidade, linha.mapa);
     }
 
     /**
