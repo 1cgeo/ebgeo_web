@@ -190,8 +190,12 @@ describe('O laco de flush so olha o enviavel', () => {
         // CONTROLE POSITIVO, no mesmo laco: uma op enviavel acorda o flush e a telemetria. Sem
         // esta metade, um gate que nunca disparasse passaria verde na metade de cima.
         await operationQueue.enqueue(op('enviavel'));
-        await new Promise(resolve => setTimeout(resolve, 120));
-        expect(engine.flush).toHaveBeenCalled();
-        expect(uso.registros).toContainEqual([EventoDeUso.SYNC_RESULTADO, PropDeUso.SYNC_SUCESSO]);
+        // Waits for the STATE, not a fixed 120 ms: under a loaded machine the 20 ms tick plus the
+        // queue census can take longer, and the fixed wait failed with the gate working
+        // (2026-09-24, the night's integration runs; 3 of 3 green alone).
+        await vi.waitFor(() => {
+            expect(engine.flush).toHaveBeenCalled();
+            expect(uso.registros).toContainEqual([EventoDeUso.SYNC_RESULTADO, PropDeUso.SYNC_SUCESSO]);
+        }, { timeout: 5000 });
     });
 });
