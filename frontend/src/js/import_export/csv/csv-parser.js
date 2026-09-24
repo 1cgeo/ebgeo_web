@@ -4,6 +4,8 @@
  * @fileoverview Lightweight CSV parser with configurable separator.
  * Handles quoted fields (RFC 4180), mixed line endings, whitespace trimming.
  * No external dependencies.
+ * A quote opens quoting only at the START of a field; mid-field it is a literal, as in GMS
+ * `22°57'6.898"S` (tests/unit/csv-aspas-no-meio-do-campo.repro.test.js).
  * @dependencies None
  */
 
@@ -31,7 +33,7 @@ const MAX_PREVIEW_ROWS = 5;
  * @returns {{ headers: string[], rows: Object[], totalRows: number }}
  */
 export function parseCSV(text, separator) {
-    const lines = _splitLines(text);
+    const lines = _splitLines(text, [separator]);
     if (lines.length === 0) {
         return { headers: [], rows: [], totalRows: 0 };
     }
@@ -63,7 +65,7 @@ export function parseCSV(text, separator) {
  * @returns {{ headers: string[], previewRows: string[][], totalRows: number }}
  */
 export function parseCSVPreview(text, separator) {
-    const lines = _splitLines(text);
+    const lines = _splitLines(text, [separator]);
     if (lines.length === 0) {
         return { headers: [], previewRows: [], totalRows: 0 };
     }
@@ -96,24 +98,16 @@ export function parseCSVPreview(text, separator) {
  * @returns {string} Best separator character
  */
 export function detectSeparator(text) {
-    const sampleLines = _splitLines(text).slice(0, 10);
+    const candidates = [',', ';', '\t'];
+    const sampleLines = _splitLines(text, candidates).slice(0, 10);
     if (sampleLines.length === 0) return ',';
 
-    const candidates = [',', ';', '\t'];
     let bestSeparator = ',';
     let bestScore = -1;
 
     for (const sep of candidates) {
         // Count occurrences per line, score = minimum across lines (consistency)
-        const counts = sampleLines.map(line => {
-            let count = 0;
-            let inQuotes = false;
-            for (const ch of line) {
-                if (ch === '"') inQuotes = !inQuotes;
-                else if (ch === sep && !inQuotes) count++;
-            }
-            return count;
-        });
+        const counts = sampleLines.map(line => _parseLine(line, sep).length - 1);
 
         const minCount = Math.min(...counts);
         // Prefer separators that appear consistently and frequently
@@ -143,20 +137,32 @@ function _isEmptyLine(values) {
  * Splits text into lines, handling mixed line endings.
  * Respects quoted fields that may contain newlines.
  * @param {string} text - Raw CSV text
+ * @param {string[]} separators - Field separators
  * @returns {string[]}
  */
-function _splitLines(text) {
+function _splitLines(text, separators) {
     const lines = [];
     let current = '';
     let inQuotes = false;
+    let atFieldStart = true;
 
     for (let i = 0; i < text.length; i++) {
         const ch = text[i];
 
-        if (ch === '"') {
-            inQuotes = !inQuotes;
+        if (inQuotes) {
+            // "" stays inside; a lone " closes.
+            if (ch === '"' && text[i + 1] === '"') {
+                current += '""';
+                i++;
+            } else {
+                if (ch === '"') inQuotes = false;
+                current += ch;
+            }
+        } else if (ch === '"' && atFieldStart) {
+            inQuotes = true;
+            atFieldStart = false;
             current += ch;
-        } else if (!inQuotes && (ch === '\r' || ch === '\n')) {
+        } else if (ch === '\r' || ch === '\n') {
             // Handle \r\n as single line ending
             if (ch === '\r' && i + 1 < text.length && text[i + 1] === '\n') {
                 i++;
@@ -165,7 +171,10 @@ function _splitLines(text) {
                 lines.push(current);
             }
             current = '';
+            atFieldStart = true;
         } else {
+            if (separators.includes(ch)) atFieldStart = true;
+            else if (ch !== ' ' && ch !== '\t') atFieldStart = false;
             current += ch;
         }
     }
@@ -208,7 +217,7 @@ function _parseLine(line, separator) {
                 i++;
             }
         } else {
-            if (ch === '"') {
+            if (ch === '"' && current.trim() === '') {
                 inQuotes = true;
                 i++;
             } else if (ch === separator) {
