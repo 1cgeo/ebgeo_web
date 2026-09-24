@@ -52,7 +52,9 @@ import {
 import { countPendingOperationsFor } from '@js/session/unsynced-work-exit.js';
 
 const aceita = () => (_a, uploads) => ({ mapping: Object.fromEntries(uploads.map(u => [u.localId, u.localId])), failed: [], transportErrors: 0 });
-const recusa = () => (_a, uploads) => ({ mapping: {}, failed: uploads.map(u => ({ localId: u.localId, error: 'Invalid file type' })), transportErrors: 0 });
+const recusa = () => (_a, uploads) => ({ mapping: {}, failed: uploads.map(u => ({ localId: u.localId, error: 'Invalid file type', permanent: true })), transportErrors: 0 });
+/** O servidor respondeu e NÃO conseguiu gravar (disco, banco): `permanent: false`. */
+const falhaDoServidor = () => (_a, uploads) => ({ mapping: {}, failed: uploads.map(u => ({ localId: u.localId, error: 'Unknown error', permanent: false })), transportErrors: 0 });
 const blob = () => new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], { type: 'image/jpeg' });
 const foto = (id) => ({ id, name: `${id}.jpg`, type: 'image/jpeg', thumbnail: 'data:image/jpeg;base64,/9j/' });
 
@@ -142,6 +144,43 @@ describe('a op que cita uma foto pendente espera os bytes', () => {
         const scope = getActiveScope();
         const feicao = await editarFeicao(scope, [foto(crypto.randomUUID())]);
         expect(await prontas()).toContain(feicao);
+    });
+});
+
+// A RECUSA DE UMA FOTO CONVERTIDA NÃO PODE LIBERAR A OP (revisão, 2026-09-24, item 1). O servidor
+// ainda tem os bytes da foto INLINE na entidade; a op que os trocaria pela referência é justamente o
+// que não pode sair. E uma falha por item que não seja de validação (disco cheio, erro de banco) é
+// TRANSITÓRIA: antes ela fechava a foto de vez, e a conversão perdia a única cópia no servidor.
+describe('a recusa e a falha do servidor numa foto CONVERTIDA', () => {
+    it('recusa de foto convertida vira PROBLEMA nas ops que a citam, e nada sai', async () => {
+        const scope = getActiveScope();
+        const p = crypto.randomUUID();
+        h.resposta = recusa();
+        const registrado = await registrarBlob({ imageId: p, blob: blob(), atlasId: scope.atlasId, origem: 'foto-convertida' });
+        const feicao = await editarFeicao(scope, [foto(p)]);
+        await enviarBlobRegistrado(registrado, blob());
+        expect(await prontas()).not.toContain(feicao);
+        expect((await operationQueue.countByState()).problemas).toBe(1);
+    });
+
+    it('falha do servidor que não é validação fica PENDENTE e a op continua esperando', async () => {
+        const scope = getActiveScope();
+        const p = crypto.randomUUID();
+        h.resposta = falhaDoServidor();
+        const registrado = await registrarBlob({ imageId: p, blob: blob(), atlasId: scope.atlasId, origem: 'foto-convertida' });
+        const feicao = await editarFeicao(scope, [foto(p)]);
+        const final = await enviarBlobRegistrado(registrado, blob());
+        expect(final.estado).toBe('pendente');
+        expect(await prontas()).not.toContain(feicao);
+        expect((await operationQueue.countByState()).problemas).toBe(0);
+    });
+
+    it('a foto ANEXADA aqui e recusada (a única cópia) conta como trabalho não enviado', async () => {
+        const scope = getActiveScope();
+        h.resposta = recusa();
+        const registrado = await registrarBlob({ imageId: crypto.randomUUID(), blob: blob(), atlasId: scope.atlasId, origem: 'foto-anexa' });
+        await enviarBlobRegistrado(registrado, blob());
+        expect(await countPendingOperationsFor(scope.atlasId)).toBe(1);
     });
 });
 

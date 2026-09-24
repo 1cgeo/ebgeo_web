@@ -55,6 +55,8 @@ export const CausaDeFalha = Object.freeze({
     PERMISSAO: 'permissao',
     /** The file itself is the problem: format the server does not take, or size above its limit. */
     ARQUIVO: 'arquivo',
+    /** The server answered and could not store it (its disk, its database). Retried. */
+    SERVIDOR: 'servidor',
     /** The bytes are no longer in this browser, so nothing can ever be sent. */
     SEM_BYTES: 'sem-bytes',
 });
@@ -145,6 +147,9 @@ export function fraseDeFalhaDeBlob({ causa, motivo = null, status = null } = {})
         case CausaDeFalha.SEM_RESPOSTA:
             return 'O servidor não respondeu sobre esta figura. O envio é retomado sozinho na '
                 + 'próxima tentativa.';
+        case CausaDeFalha.SERVIDOR:
+            return 'O servidor não conseguiu guardar esta figura agora. O envio é retomado sozinho '
+                + `na próxima tentativa.${dito}`;
         case CausaDeFalha.REDE:
         default:
             return 'A rede não completou o envio desta figura. Ele é retomado sozinho quando a '

@@ -47,4 +47,15 @@ describe.skipIf(E2E_SKIP)('E2E bulk image upload preserves client id', () => {
         expect(blob).toBeTruthy();
         expect(blob.size).toBeGreaterThan(0);
     });
+
+    // O CONTRATO DA FALHA POR ITEM (2026-09-24): a fila de blobs do cliente só fecha de vez o que o
+    // servidor chama de `permanent`; uma validação vem com `permanent: true`.
+    it('a falha de validação volta com permanent: true, que é o que o cliente lê', async () => {
+        const localId = generateUUID();
+        const res = await api.bulkUploadImages(atlasId, [
+            { localId, filename: 'c.jpg', mimeType: 'image/jpeg', data: PNG_1x1 },
+        ]);
+        expect(res.failed).toHaveLength(1);
+        expect(res.failed[0]).toMatchObject({ localId, permanent: true });
+    });
 });

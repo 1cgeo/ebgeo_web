@@ -32,6 +32,16 @@ export const BLOB_UPLOAD_KEY_PREFIX = 'upload_pendente__';
  */
 export const BLOB_UPLOAD_PENDENTE = 'pendente';
 
+/** State of a pendency the server refused for good. Re-exported as `BlobUploadState.RECUSADO`. */
+export const BLOB_UPLOAD_RECUSADO = 'recusado';
+
+/**
+ * Prefix of the `origem` of a photo ATTACHED in this browser (`foto-anexa`, `foto-anexa-3d`,
+ * `foto-anexa-360`, written by `store/photo-attach.js`). A refused one is the only copy of the photo
+ * anywhere, which is why the exit census counts it (`session/unsynced-work-exit.js`).
+ */
+export const ORIGEM_FOTO_ANEXA = 'foto-anexa';
+
 /**
  * Empties the IMAGES store of one scope, KEEPING the uploads the server has not received and the
  * bytes those uploads name.

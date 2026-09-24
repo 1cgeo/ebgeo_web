@@ -271,6 +271,13 @@ export async function listImages(atlasId) {
  * Uploads multiple images from base64 data.
  * Used for bulk import from offline/IndexedDB storage.
  * Returns a mapping of localId -> serverId for each image.
+ *
+ * EVERY FAILED ITEM SAYS WHETHER A RETRY CAN CHANGE IT (`permanent`, 2026-09-24). The answer is a
+ * 201 with the failures inside, so the status says nothing per item, and the client used to treat
+ * every per-item failure as final: a full disk (ENOSPC) or a database error on one item became a
+ * definitive refusal, and a photo whose edit had just dropped its inline bytes lost its only copy on
+ * the server. `permanent: true` is VALIDATION only (type, encoding, size, content, an id taken by
+ * other bytes); everything else is `permanent: false`, and the client retries it.
  */
 export async function bulkUploadImages(atlasId, images, userId) {
   const results = {
@@ -301,6 +308,7 @@ export async function bulkUploadImages(atlasId, images, userId) {
         results.failed.push({
           localId: image.localId,
           error: `Invalid file type: ${image.mimeType}`,
+          permanent: true,
         });
         continue;
       }
@@ -315,6 +323,7 @@ export async function bulkUploadImages(atlasId, images, userId) {
         results.failed.push({
           localId: image.localId,
           error: 'Invalid base64 data',
+          permanent: true,
         });
         continue;
       }
@@ -323,6 +332,7 @@ export async function bulkUploadImages(atlasId, images, userId) {
         results.failed.push({
           localId: image.localId,
           error: `File too large: ${Math.round(buffer.length / 1024 / 1024)}MB (max: ${config.images.maxSizeMb}MB)`,
+          permanent: true,
         });
         continue;
       }
@@ -333,6 +343,7 @@ export async function bulkUploadImages(atlasId, images, userId) {
         results.failed.push({
           localId: image.localId,
           error: 'Content does not match declared type',
+          permanent: true,
         });
         continue;
       }
@@ -359,6 +370,7 @@ export async function bulkUploadImages(atlasId, images, userId) {
           results.failed.push({
             localId: image.localId,
             error: 'Este id de imagem já pertence a outro atlas.',
+          permanent: true,
           });
           continue;
         }
@@ -381,6 +393,8 @@ export async function bulkUploadImages(atlasId, images, userId) {
           error: storedHash === null
             ? 'Este id de imagem já existe e o conteúdo dele não pôde ser conferido.'
             : 'Este id de imagem já existe com outro conteúdo.',
+          // Other bytes under this id is final; bytes that could not be read may be readable later.
+          permanent: storedHash !== null,
         });
         continue;
       }
@@ -480,6 +494,8 @@ export async function bulkUploadImages(atlasId, images, userId) {
       results.failed.push({
         localId: image.localId,
         error: safeErrorMessage(failure, 'Unknown error'),
+        // A disk, a database or a file-system failure: nothing about the image, so a retry may pass.
+        permanent: false,
       });
     }
   }

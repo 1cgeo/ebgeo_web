@@ -84,10 +84,13 @@ const redeCaiu = () => (_atlasId, uploads) => ({
     transportErrors: 1
 });
 
-/** Desfecho "o servidor recusou este item": 201 com o item em `failed`, sem erro de transporte. */
+/**
+ * Desfecho "o servidor recusou este item": 201 com o item em `failed`, sem erro de transporte, e
+ * `permanent: true`, que é como o servidor diz VALIDAÇÃO desde 2026-09-24 (`bulkUploadImages`).
+ */
 const recusa = (motivo = 'Invalid file type: image/gif') => (_atlasId, uploads) => ({
     mapping: {},
-    failed: uploads.map(u => ({ localId: u.localId, error: motivo })),
+    failed: uploads.map(u => ({ localId: u.localId, error: motivo, permanent: true })),
     transportErrors: 0
 });
 

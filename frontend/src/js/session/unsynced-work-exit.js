@@ -45,8 +45,8 @@ import {
     RESCUE_VETO_GRACE_MS,
 } from '@store/remote-atlas.api.js';
 import { operationQueue, operationBelongsToScope } from '@store/sync/operation-queue.js';
-// Leaf with zero imports: the pendency key and state, without the upload queue's graph.
-import { BLOB_UPLOAD_KEY_PREFIX, BLOB_UPLOAD_PENDENTE } from '@store/sync/blob-upload-keys.js';
+// Leaf with zero imports: the pendency key and states, without the upload queue's graph.
+import { BLOB_UPLOAD_KEY_PREFIX, BLOB_UPLOAD_PENDENTE, BLOB_UPLOAD_RECUSADO, ORIGEM_FOTO_ANEXA } from '@store/sync/blob-upload-keys.js';
 import {
     ExitOutcome,
     exitPreservedSummary,
@@ -289,6 +289,12 @@ const COUNT_BATCH_SIZE = 200;
  * only copy: a teardown that counts only the operation queue destroys them without asking, and the
  * server keeps a reference to a picture it will never receive. Each PENDENTE record counts as one.
  *
+ * A REFUSED PHOTO ATTACHED HERE COUNTS TOO (2026-09-24, review). The server refused its bytes for
+ * good and the edit left with the reference, so this browser holds the ONLY copy of that photo; a
+ * teardown that did not count it destroyed it without asking. A refused photo CONVERTED by an edit is
+ * not counted here: its operations became durable issues (`aplicarRecusa`, `blob-upload-queue.js`),
+ * which the operation census already counts, and the server keeps its inline copy.
+ *
  * A read failure THROWS, on purpose: the callers answer NaN ("unknown") in their own catch, and
  * unknown preserves. Answering 0 here would authorise destruction.
  * @param {Object} scope - The scope whose IMAGES store is read.
@@ -303,6 +309,8 @@ async function countPendingBlobUploadsIn(scope) {
         const registros = await Promise.all(keys.slice(i, i + COUNT_BATCH_SIZE).map(key => store.getItem(key)));
         for (const registro of registros) {
             if (registro?.estado === BLOB_UPLOAD_PENDENTE) total += 1;
+            else if (registro?.estado === BLOB_UPLOAD_RECUSADO
+                && typeof registro.origem === 'string' && registro.origem.startsWith(ORIGEM_FOTO_ANEXA)) total += 1;
         }
     }
     return total;

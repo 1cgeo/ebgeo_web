@@ -86,7 +86,7 @@ import { operationQueue } from './operation-queue.js';
 import { EntityType } from './operation-types.js';
 import { idsDeFotosDaEntidade } from '@js/user_data/photo-refs.js';
 import { connectionState } from './connection-state.js';
-import { BLOB_UPLOAD_KEY_PREFIX, BLOB_UPLOAD_PENDENTE } from './blob-upload-keys.js';
+import { BLOB_UPLOAD_KEY_PREFIX, BLOB_UPLOAD_PENDENTE, BLOB_UPLOAD_RECUSADO } from './blob-upload-keys.js';
 import {
     CausaDeFalha,
     FALHA_SEM_BYTES,
@@ -119,7 +119,7 @@ export const BlobUploadState = Object.freeze({
     /** The server holds the bytes under this id. */
     CONFIRMADO: 'confirmado',
     /** The server refused for a reason no retry changes (type, size, id taken by other bytes). */
-    RECUSADO: 'recusado'
+    RECUSADO: BLOB_UPLOAD_RECUSADO
 });
 
 /** HTTP statuses whose refusal no retry repairs. */
@@ -447,12 +447,14 @@ async function liberarOperacoes(entityId, { soFotos = false } = {}) {
  * @param {string} entityId - The image id.
  * @param {string} motivo - pt-BR reason, shown to whoever reviews the pendency.
  * @param {number|null} status - HTTP status, when there was one.
+ * @param {Object} [opcoes]
+ * @param {boolean} [opcoes.citantes=false] - Also the operations that cite it as a PHOTO.
  * @returns {Promise<number>} How many operations received an issue.
  */
-async function marcarProblema(entityId, motivo, status) {
+async function marcarProblema(entityId, motivo, status, { citantes = false } = {}) {
     try {
         const todas = await operationQueue.getAll();
-        const minhas = todas.filter(op => op.entityId === entityId);
+        const minhas = todas.filter(op => op.entityId === entityId || (citantes && operacaoCita(op, entityId)));
         for (const op of minhas) {
             await operationQueue.recordIssue(op, { rejected: true, reason: motivo, status });
         }
@@ -515,7 +517,7 @@ async function transferirLote(atlasId, pares) {
     if (uploads.length === 0) return veredictos;
 
     const { mapping, failed, transportErrors } = await uploadImagesInChunks(apiClient, atlasId, uploads);
-    const motivoPorId = new Map((failed ?? []).map(item => [item?.localId, item?.error]));
+    const falhaPorId = new Map((failed ?? []).map(item => [item?.localId, item]));
     for (const { localId } of uploads) {
         if (mapping[localId]) {
             veredictos.set(localId, {
@@ -523,20 +525,26 @@ async function transferirLote(atlasId, pares) {
             });
             continue;
         }
-        // `uploadImagesInChunks` folds a transport failure into `failed` too, so the count of chunks
-        // that never got an answer is the ONLY thing separating "the server refused" from "the
-        // network dropped". Without it every outage would read as a definitive refusal and the retry
-        // this module exists for would never happen. The count is per REQUEST, not per item, so a
-        // batch that lost one chunk treats its unanswered items as transient, which is the safe side.
-        veredictos.set(localId, transportErrors > 0
-            ? {
-                confirmado: false, definitiva: false, status: null,
-                causa: CausaDeFalha.REDE, motivo: mensagemCrua(motivoPorId.get(localId))
-            }
-            : {
-                confirmado: false, definitiva: true, status: null,
-                causa: CausaDeFalha.RECUSA, motivo: mensagemCrua(motivoPorId.get(localId))
+        const falha = falhaPorId.get(localId);
+        const motivo = mensagemCrua(falha?.error);
+        // ONLY THE SERVER CALLS A FAILURE FINAL, per item (`permanent`, 2026-09-24). Every per-item
+        // failure used to be read as a refusal whenever the request itself arrived, and a full disk or
+        // a database error on the server (`bulkUploadImages`) closed a photo for good: a converted
+        // photo's edit had already dropped its inline bytes, so that was the last copy on the server.
+        // Now the server says which failures are VALIDATION (`permanent: true`); anything else is
+        // retried. `uploadImagesInChunks` folds a chunk that got no answer into `failed` too, with no
+        // `permanent`, and the count of such chunks names the network as the cause.
+        if (falha?.permanent === true) {
+            veredictos.set(localId, {
+                confirmado: false, definitiva: true, status: null, causa: CausaDeFalha.RECUSA, motivo
             });
+        } else {
+            veredictos.set(localId, {
+                confirmado: false, definitiva: false, status: null,
+                causa: falha?.permanent === false || transportErrors === 0 ? CausaDeFalha.SERVIDOR : CausaDeFalha.REDE,
+                motivo
+            });
+        }
     }
     return veredictos;
 }
@@ -592,11 +600,42 @@ async function assentar(scope, registro, desfecho) {
     if (atualizado.estado === BlobUploadState.CONFIRMADO) {
         await liberarOperacoes(atualizado.imageId);
     } else if (atualizado.estado === BlobUploadState.RECUSADO) {
-        await marcarProblema(atualizado.imageId, atualizado.ultimoErro, desfecho.status ?? null);
-        // A refused PHOTO is not an issue on the entity that cites it (see operacaoEsperaBlob).
-        await liberarOperacoes(atualizado.imageId, { soFotos: true });
+        await aplicarRecusa(atualizado, desfecho.status ?? null);
     }
     return atualizado;
+}
+
+/** Prefix of the `origem` of a photo converted from inline bytes by an edit (`photo-attach.js`). */
+const ORIGEM_CONVERTIDA = 'foto-convertida';
+
+/**
+ * Whether a record is the upload of an INLINE photo that an edit converted to a reference.
+ * @param {Object} registro
+ * @returns {boolean}
+ */
+function ehConversao(registro) {
+    return typeof registro?.origem === 'string' && registro.origem.startsWith(ORIGEM_CONVERTIDA);
+}
+
+/**
+ * What a definitive refusal does to the operations that were waiting for these bytes.
+ *
+ * THREE CASES, AND THE THIRD IS THE ONE THAT LOST A PHOTO (2026-09-24, review).
+ *  - An IMAGE FEATURE is its blob: its operations become durable issues, as always.
+ *  - A photo ATTACHED here (phase 2b) never existed on the server in any other shape: the edit leaves
+ *    with the reference, the thumbnail keeps drawing, and the local blob stays the only copy, which
+ *    the exit census counts (`unsynced-work-exit.js`).
+ *  - A photo CONVERTED by an edit (phase 2c) is different: the server still holds its bytes INLINE
+ *    in the entity, and the operation that would replace them with the reference is exactly what
+ *    must not leave. Its operations become durable issues too, and the server keeps its copy.
+ * @param {Object} registro - The record, as it now stands on disk.
+ * @param {number|null} status
+ * @returns {Promise<void>}
+ */
+async function aplicarRecusa(registro, status) {
+    const conversao = ehConversao(registro);
+    await marcarProblema(registro.imageId, registro.ultimoErro, status, { citantes: conversao });
+    if (!conversao) await liberarOperacoes(registro.imageId, { soFotos: true });
 }
 
 /** A verdict for an id the answer did not mention. Transient, because silence is not a refusal. */
