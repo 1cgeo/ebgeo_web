@@ -118,3 +118,111 @@ describe('wireRemoteFeatureRender (bug E)', () => {
         expect(busMock.off).toHaveBeenCalledTimes(4); // FEATURE_CREATED/MODIFIED/DELETED + MAP_MODIFIED
     });
 });
+
+/**
+ * A rajada de operacoes remotas pagava UMA reconstrucao inteira por operacao: com o mapa grande,
+ * aplicar uma op leva mais que os 80 ms do debounce, e nada impedia uma segunda reconstrucao de
+ * comecar com a primeira rodando. Medido em 2026-09-23 no Chromium, 300 criacoes remotas num mapa
+ * de 3 000 pontos: 161 a 220 reconstrucoes e 33 a 45 s para convergir; com as regras abaixo, 45 a
+ * 52 e 16 a 24 s (tres rodadas intercaladas de cada). Os casos contam agendamentos, nao relogio.
+ */
+describe('wireRemoteFeatureRender: rajada longa', () => {
+    const deferred = () => {
+        let resolve;
+        const promise = new Promise((r) => { resolve = r; });
+        return { promise, resolve };
+    };
+    const settle = async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
+
+    it('nunca sobrepoe duas reconstrucoes: o evento no meio de uma agenda UMA depois dela', async () => {
+        const pending = deferred();
+        const refresh = vi.fn(() => pending.promise);
+        const armed = [];
+        wireRemoteFeatureRender(refresh, { scheduler: (fn, ms) => { armed.push({ fn, ms }); return armed.length; } });
+
+        fire(EventTypes.FEATURE_CREATED);
+        expect(armed).toHaveLength(1);
+        armed[0].fn();
+        await settle();
+        expect(refresh).toHaveBeenCalledTimes(1);
+
+        // Varios eventos enquanto a reconstrucao roda: nenhum timer novo.
+        for (let i = 0; i < 20; i++) fire(EventTypes.FEATURE_CREATED);
+        expect(armed).toHaveLength(1);
+
+        pending.resolve();
+        await settle();
+        // Exatamente UMA reconstrucao a mais, para desenhar o que chegou durante a anterior.
+        expect(armed).toHaveLength(2);
+        armed[1].fn();
+        await settle();
+        expect(refresh).toHaveBeenCalledTimes(2);
+    });
+
+    it('sem evento durante a reconstrucao, nada mais e agendado', async () => {
+        const refresh = vi.fn();
+        const armed = [];
+        wireRemoteFeatureRender(refresh, { scheduler: (fn, ms) => { armed.push({ fn, ms }); return 1; } });
+        fire(EventTypes.FEATURE_MODIFIED);
+        armed[0].fn();
+        await settle();
+        expect(refresh).toHaveBeenCalledTimes(1);
+        expect(armed).toHaveLength(1);
+    });
+
+    it('a espera seguinte e o dobro da reconstrucao anterior, nunca menos que o debounce', async () => {
+        let clock = 0;
+        const refresh = vi.fn(() => { clock += 300; });
+        const armed = [];
+        wireRemoteFeatureRender(refresh, {
+            now: () => clock,
+            scheduler: (fn, ms) => { armed.push({ fn, ms }); return armed.length; },
+        });
+
+        fire(EventTypes.FEATURE_CREATED);
+        expect(armed[0].ms).toBe(80);
+        armed[0].fn();
+        await settle();
+
+        fire(EventTypes.FEATURE_CREATED);
+        expect(armed[1].ms).toBe(600);
+        armed[1].fn();
+        await settle();
+
+        // Uma reconstrucao barata devolve a espera ao piso.
+        refresh.mockImplementation(() => { clock += 10; });
+        fire(EventTypes.FEATURE_CREATED);
+        armed[2].fn();
+        await settle();
+        fire(EventTypes.FEATURE_CREATED);
+        expect(armed[3].ms).toBe(80);
+    });
+
+    it('a reconstrucao que falha nao trava as seguintes', async () => {
+        const refresh = vi.fn(() => Promise.reject(new Error('falhou')));
+        const armed = [];
+        const erro = vi.spyOn(console, 'error').mockImplementation(() => {});
+        wireRemoteFeatureRender(refresh, { scheduler: (fn, ms) => { armed.push({ fn, ms }); return 1; } });
+        fire(EventTypes.FEATURE_CREATED);
+        armed[0].fn();
+        await settle();
+        fire(EventTypes.FEATURE_CREATED);
+        expect(armed).toHaveLength(2);
+        erro.mockRestore();
+    });
+
+    it('depois de desligar, o fim de uma reconstrucao em curso nao agenda outra', async () => {
+        const pending = deferred();
+        const refresh = vi.fn(() => pending.promise);
+        const armed = [];
+        const unwire = wireRemoteFeatureRender(refresh, { scheduler: (fn, ms) => { armed.push({ fn, ms }); return 1; } });
+        fire(EventTypes.FEATURE_CREATED);
+        armed[0].fn();
+        await settle();
+        fire(EventTypes.FEATURE_CREATED);
+        unwire();
+        pending.resolve();
+        await settle();
+        expect(armed).toHaveLength(1);
+    });
+});
