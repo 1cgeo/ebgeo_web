@@ -42,6 +42,12 @@ import { isValidUUID } from '../utilities/uuid.js';
 import { syncEngine } from '@store/sync/sync-engine.js';
 import { apiClient, ApiError } from '@store/sync/api-client.js';
 import { connectionState } from '@store/sync/connection-state.js';
+import { esperarEnvioDoMapa, DesfechoDaEspera } from '@store/sync/espera-do-envio-do-mapa.js';
+import {
+    avisoDeCopiaComPendencias, PortaDeCopia, FRASE_DA_ESPERA_DA_COPIA
+} from '@store/sync/copia-no-servidor-phrases.js';
+import { showConfirm } from '@modals/confirm.modal.js';
+import { showToast } from '@utils/toast_service.js';
 
 const MAP_LIMIT = 100;
 
@@ -242,7 +248,8 @@ class MapManager {
      * @param {string} mapName - Map being duplicated.
      * @param {string} trimmed - Name of the copy.
      * @param {Object} originalMapData - The document of the map being duplicated.
-     * @returns {Promise<{success: boolean, message: string}>}
+     * @returns {Promise<{success: boolean, message: string, cancelled?: boolean}>} `cancelled` when the
+     *   person declined to copy without this computer's pending work; nothing to say then.
      * @private
      */
     async _duplicateOnServer(mapName, trimmed, originalMapData) {
@@ -256,6 +263,25 @@ class MapManager {
         // What this client still has in the queue for the source is not on the server yet, and
         // the server copies what IT has. Best effort: an op that cannot go now stays in the queue.
         await syncEngine.flush().catch(() => {});
+        // THE FLUSH DOES NOT RELEASE A PICTURE PLACED A MOMENT AGO: its feature is held until the
+        // bytes are confirmed, so the copy came out without it (2026-09-24,
+        // `tests/e2e-ui/copia-sem-figura-recem-posta.repro.spec.js`). The door waits briefly for the
+        // map's debt to reach zero, and asks instead of copying in silence when it does not.
+        const espera = await esperarEnvioDoMapa({
+            mapId: originalMapData.id,
+            mapData: originalMapData,
+            flush: () => syncEngine.flush(),
+            aoEsperar: () => showToast(FRASE_DA_ESPERA_DA_COPIA, 'info'),
+        });
+        if (espera !== DesfechoDaEspera.ENVIADO) {
+            const aviso = avisoDeCopiaComPendencias(PortaDeCopia.MAPA, {
+                desconhecido: espera === DesfechoDaEspera.DESCONHECIDO,
+            });
+            const seguir = await showConfirm(aviso.titulo, {
+                message: aviso.corpo, confirmText: aviso.confirmar, cancelText: aviso.cancelar,
+            });
+            if (!seguir) return { success: false, cancelled: true, message: '' };
+        }
         try {
             await apiClient.duplicateMap(atlasId, originalMapData.id, { name: trimmed });
         } catch (error) {

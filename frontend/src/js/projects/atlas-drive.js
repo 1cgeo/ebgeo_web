@@ -43,6 +43,8 @@
 
 import { showCreateAtlasModal } from '@modals/create-atlas.modal.js';
 import { showConfirm } from '@modals/confirm.modal.js';
+import { pendenciasDoAtlasNesteComputador } from './pendencias-do-atlas.js';
+import { avisoDeCopiaComPendencias, PortaDeCopia } from '@store/sync/copia-no-servidor-phrases.js';
 import { showPrompt } from '@modals/prompt.modal.js';
 // Import DIRETO do arquivo, NUNCA `@modals` (o barrel): `modal.base.js` alcança dois módulos ao
 // todo (ele mesmo e `@utils/event-cleanup.js`), enquanto o barrel arrasta a store para uma página
@@ -1524,8 +1526,22 @@ export class AtlasDrive {
      *
      * A frase de posse também faltava: a cópia nasce em posse de quem clonou, e é essa a razão de
      * a poda existir (o que o novo dono não enxerga não viaja).
+     *
+     * O QUE ESTE COMPUTADOR AINDA NÃO ENVIOU NÃO ESTÁ NA CÓPIA, e até 2026-09-24 a porta não dizia.
+     * O servidor copia o que ELE tem: uma edição ainda na fila, ou uma figura cujos bytes ainda
+     * sobem (com a feição dela retida atrás deles), fica de fora. A pergunta vem ANTES do pedido e
+     * deixa copiar mesmo assim, porque a pessoa pode querer justamente o estado do servidor
+     * (`tests/e2e-ui/copia-sem-figura-recem-posta.repro.spec.js`).
      */
     async _duplicate(project) {
+        const pendentes = await pendenciasDoAtlasNesteComputador(project?.id);
+        if (pendentes !== 0) {
+            const aviso = avisoDeCopiaComPendencias(PortaDeCopia.ATLAS, { desconhecido: Number.isNaN(pendentes) });
+            const seguir = await showConfirm(aviso.titulo, {
+                message: aviso.corpo, confirmText: aviso.confirmar, cancelText: aviso.cancelar,
+            });
+            if (!seguir) return;
+        }
         try {
             const copia = await apiClient.cloneAtlas(project.id, {
                 name: `${project?.name ?? 'Atlas'} (cópia)`,
