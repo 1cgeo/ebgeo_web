@@ -82,4 +82,29 @@ describe('editor de estilo de camada com o colega editando a mesma camada', () =
         await gravar(painel);
         expect(h.stored.styleOverrides).toEqual({ fill: { 'fill-color': '#123456' } });
     });
+
+    it('o que ja foi salvo nao volta no proximo ajuste: salvar vermelho, o colega poe azul, eu mudo a espessura', async () => {
+        const painel = abrirPainel();
+        painel._setOverride('line', 'line-color', '#ff0000');
+        await gravar(painel);
+        expect(h.stored.styleOverrides.line['line-color']).toBe('#ff0000');
+        // O colega troca a cor para azul.
+        h.stored = { ...h.stored, styleOverrides: { line: { ...h.stored.styleOverrides.line, 'line-color': '#0000ff' } } };
+        // Eu mexo so na espessura.
+        painel._setOverride('line', 'line-width', 7);
+        await gravar(painel);
+        expect(h.stored.styleOverrides).toEqual({ line: { 'line-color': '#0000ff', 'line-width': 7 } });
+    });
+
+    it('restaurar o padrao salvo nao volta a limpar o que o colega fez depois', async () => {
+        const painel = abrirPainel();
+        painel._fillBody = () => {};
+        painel._resetToDefault();
+        await gravar(painel);
+        expect(h.stored.styleOverrides).toEqual({});
+        h.stored = { ...h.stored, styleOverrides: { line: { 'line-color': '#00ff00' } } };
+        painel._setOverride('fill', 'fill-opacity', 0.3);
+        await gravar(painel);
+        expect(h.stored.styleOverrides).toEqual({ line: { 'line-color': '#00ff00' }, fill: { 'fill-opacity': 0.3 } });
+    });
 });

@@ -597,12 +597,13 @@ export class LayerStylePanel {
         // "Restaurar padrão" is the one edit that means the whole value: it clears first.
         const touched = [...this._touched.values()].map(entry => deepClone(entry));
         const reset = this._resetPending;
-        this._persist.schedule(PERSIST_KEY, () => {
+        const resetGeneration = this._resetGeneration ?? 0;
+        this._persist.schedule(PERSIST_KEY, async () => {
             if (getActiveScope() !== this._scope) {
                 showWarning('O atlas mudou antes de salvar o estilo. Reabra a camada no atlas original para reaplicar a alteração.');
                 return false;
             }
-            return updateCatalogLayer(this._layer.id, (current) => {
+            const resultado = await updateCatalogLayer(this._layer.id, (current) => {
                 const styleOverrides = reset ? {} : deepClone(current?.styleOverrides || {});
                 for (const { subKey, prop, value } of touched) {
                     const sub = styleOverrides[subKey];
@@ -611,7 +612,29 @@ export class LayerStylePanel {
                 }
                 return { styleOverrides };
             }, this._mapName);
+            if (resultado !== false) this._forgetPersisted(touched, reset, resetGeneration);
+            return resultado;
         });
+    }
+
+    /**
+     * Forgets the edits a successful write already persisted, so the NEXT write carries only what
+     * changed after it. Kept for the panel's whole life they were re-applied on every later save,
+     * and a colleague's change to a property this panel had saved earlier was overwritten by this
+     * panel's next, unrelated adjustment. An entry whose value changed again after the snapshot
+     * stays, and so does a reset pressed again meanwhile.
+     * @private
+     * @param {Array<{subKey: string, prop: string, value: *}>} touched - What the write carried.
+     * @param {boolean} reset - Whether the write carried a reset.
+     * @param {number} resetGeneration - Reset generation when the write was scheduled.
+     */
+    _forgetPersisted(touched, reset, resetGeneration) {
+        for (const { subKey, prop, value } of touched) {
+            const key = `${subKey}\u0000${prop}`;
+            const current = this._touched.get(key);
+            if (current && JSON.stringify(current.value) === JSON.stringify(value)) this._touched.delete(key);
+        }
+        if (reset && (this._resetGeneration ?? 0) === resetGeneration) this._resetPending = false;
     }
 
     /** Clears all overrides, re-applies config defaults and rebuilds the form. @private */
@@ -619,6 +642,7 @@ export class LayerStylePanel {
         this._overrides = {};
         this._touched.clear();
         this._resetPending = true;
+        this._resetGeneration = (this._resetGeneration ?? 0) + 1;
         this._applyLive();
         this._fillBody(this._body);
         this._schedulePersist();
