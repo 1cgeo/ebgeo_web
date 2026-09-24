@@ -178,19 +178,28 @@
     transition: background var(--transition-fast), opacity var(--transition-fast), transform var(--transition-fast);
 }
 
-.processing-panel__execute-btn:hover:not(:disabled) {
+.processing-panel__execute-btn:hover:not(:disabled, [aria-disabled="true"]) {
     background: var(--primary-hover);
     transform: translateY(-1px);
     box-shadow: var(--shadow-control);
 }
 
-.processing-panel__execute-btn:active:not(:disabled) {
+.processing-panel__execute-btn:active:not(:disabled, [aria-disabled="true"]) {
     transform: translateY(0);
 }
 
-.processing-panel__execute-btn:disabled {
+.processing-panel__execute-btn:disabled,
+.processing-panel__execute-btn[aria-disabled="true"] {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+/* Why a Leitor sees no execute button (the POSTO hides the command) */
+.processing-panel__posto {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--gray-600);
+    text-align: center;
 }
 
 /* Progress */

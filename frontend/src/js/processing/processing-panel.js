@@ -5,11 +5,15 @@
  * Wraps the algorithm form with execution logic.
  */
 
-import { isCurrentMapLockedSync } from '@store/map.operations.js';
+import { assinarEdicaoIndisponivel, edicaoIndisponivelSync } from '@store/edicao-indisponivel.js';
+import { unavailableEditNotice } from '@store/denial-phrases.js';
 import { addDomListener, setupCleanup, cleanup } from '@utils/event-cleanup.js';
 import { escapeHtml } from '@utils/html-escape.js';
 import { runProcessing } from './processing-runner.js';
 import { PROCESSING_ICONS } from './processing.constants.js';
+
+/** What running an algorithm exercises: it creates a layer and features in the current map. */
+const PROCESSING_ACTION = 'CREATE_FEATURE';
 
 // ============================================================================
 // PUBLIC API
@@ -31,8 +35,6 @@ export function createProcessingPanel(options) {
     const panelCleanup = {};
     setupCleanup(panelCleanup);
 
-    const mapLocked = isCurrentMapLockedSync();
-
     const panelResult = algorithm.createPanel({ stateManager, eventBus });
     const { element, getParams, validate, ui } = panelResult;
 
@@ -43,13 +45,25 @@ export function createProcessingPanel(options) {
         element.dataset.testid = 'processing-panel';
     }
 
-    if (mapLocked && ui?.executeBtn) {
-        ui.executeBtn.disabled = true;
-        ui.executeBtn.title = 'Mapa bloqueado para edição';
-    }
-
+    // THE POSTO HIDES THE COMMAND, THE STATE REFUSES THE CLICK (CLAUDE.md), and both follow the
+    // answer LIVE. The panel used to read the lock once, at birth, and set `disabled`: opened on a
+    // locked map the button stayed dead after the owner unlocked it, a lock arriving later never
+    // reached it, and a Leitor clicked it and read "Falha ao criar camada de saída" about a
+    // refusal of his level (`processamento-trava-e-posto.repro.spec.js`).
+    let stopFollowing = null;
     if (ui?.executeBtn) {
+        const postoNote = document.createElement('p');
+        postoNote.className = 'processing-panel__posto';
+        postoNote.hidden = true;
+        ui.executeBtn.before(postoNote);
+        stopFollowing = assinarEdicaoIndisponivel(() => _applyEditAvailability(ui.executeBtn, postoNote));
+
         addDomListener(panelCleanup, ui.executeBtn, 'click', async () => {
+            const refusal = unavailableEditNotice(edicaoIndisponivelSync(PROCESSING_ACTION));
+            if (refusal) {
+                _showResult(ui, refusal, false);
+                return;
+            }
             const validation = validate();
             if (!validation.valid) {
                 _showResult(ui, validation.message, false);
@@ -63,6 +77,7 @@ export function createProcessingPanel(options) {
     return {
         element,
         cleanup() {
+            stopFollowing?.();
             if (panelResult.cleanup) panelResult.cleanup();
             cleanup(panelCleanup);
         },
@@ -72,6 +87,29 @@ export function createProcessingPanel(options) {
 // ============================================================================
 // PRIVATE
 // ============================================================================
+
+/**
+ * Draws the execute button for the answer of `edicaoIndisponivelSync` right now.
+ *
+ * A refusal of the POSTO is permanent from this screen: the button is not drawn and one sentence
+ * says why, since an empty panel reads as a broken one. A refusal of STATE (the map locked) is
+ * reversible, possibly by whoever reads it: the button stays drawn with `aria-disabled`, never the
+ * `disabled` property, because a disabled button fires no click and the click is how the reason
+ * reaches the person.
+ * @private
+ * @param {HTMLButtonElement} button
+ * @param {HTMLElement} postoNote
+ */
+function _applyEditAvailability(button, postoNote) {
+    const edicao = edicaoIndisponivelSync(PROCESSING_ACTION);
+    const byPosto = edicao.motivo === 'permissao';
+    const byState = edicao.bloqueado && !byPosto;
+    button.hidden = byPosto;
+    postoNote.hidden = !byPosto;
+    postoNote.textContent = byPosto ? unavailableEditNotice(edicao) : '';
+    button.setAttribute('aria-disabled', byState ? 'true' : 'false');
+    button.title = byState ? unavailableEditNotice(edicao) : '';
+}
 
 /**
  * Executes the algorithm and updates the progress/result UI.
@@ -108,7 +146,8 @@ async function _executeAlgorithm(algorithm, params, ui, stateManager, eventBus) 
         });
 
         if (progressContainer) progressContainer.classList.add('processing-panel__progress--hidden');
-        const msg = `${result.featureCount} ${result.featureCount === 1 ? 'feição criada' : 'feições criadas'} na camada "${escapeHtml(params.outputLayerName)}"`;
+        // Plain text: `_showResult` escapes it, and escaping here too showed "Zona &amp; Norte".
+        const msg = `${result.featureCount} ${result.featureCount === 1 ? 'feição criada' : 'feições criadas'} na camada "${params.outputLayerName}"`;
         _showResult(ui, msg, true);
         executeBtn.textContent = 'EXECUTAR';
         executeBtn.disabled = false;
