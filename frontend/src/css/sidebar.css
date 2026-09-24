@@ -608,6 +608,13 @@
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
+/* The `display: flex` above beats the [hidden] attribute, and the rank gates hide these buttons
+   with it ("Novo mapa" for a Leitor, `_updateActionsVisibility` in maps.tab.js): without this
+   rule the button the rank forbids stayed on the screen. */
+.sidebar-section-header-btn[hidden] {
+    display: none;
+}
+
 .sidebar-section-header-btn:hover {
     background: var(--primary-hover);
     transform: scale(1.05);

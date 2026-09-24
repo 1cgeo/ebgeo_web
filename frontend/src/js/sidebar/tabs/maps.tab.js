@@ -213,6 +213,11 @@ export class MapsTab {
         // creating a map is a WRITE (`GuardAction.CREATE_MAP`), and this button used to offer it
         // to a Leitor, who was asked for a name and only then refused by the store.
         this._newMapBtn = newMapBtn;
+        // AND gated NOW: the grid's own pass ran above, before this button existed, and the next
+        // pass comes only with a session or connection event. The tab is built on its first
+        // opening, usually long after the atlas connected, so without this line the Leitor kept
+        // the button for the whole session.
+        this._updateActionsVisibility();
         sectionHeader.appendChild(newMapBtn);
 
         this._container.appendChild(sectionHeader);
