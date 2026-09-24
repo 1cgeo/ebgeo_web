@@ -37,7 +37,7 @@ Outros branches hunt/ que existam na máquina original e não estão no origin n
 
 ### Fora do repositório, de propósito
 
-As instruções de nginx para o engenheiro (nginx-srv-arquivos-2026-09-23.txt e nginx-srv-arquivos-ebgeo-envio-2026-09-24.txt) descrevem os servidores de produção e NÃO estão no GitHub, porque este repositório é público. Elas ficaram na pasta Downloads da máquina original e precisam ser levadas à mão. O essencial delas está no item 5.5 abaixo.
+As instruções de nginx para o engenheiro (nginx-srv-arquivos-2026-09-23.txt e nginx-srv-arquivos-ebgeo-envio-2026-09-24.txt) descrevem os servidores de produção e NÃO estão no GitHub, porque este repositório é público. Elas ficaram na pasta Downloads da máquina original e precisam ser levadas à mão. O essencial delas está no passo 6 do item 5 abaixo.
 
 ## 0.1 Como retomar numa máquina nova
 
@@ -150,20 +150,21 @@ O detalhe e o próximo comando estão na seção PRÓXIMO PASSO do relatório de
 ## 5. Passos finais antes do deploy
 
 1. Fechar os itens 1.1 a 1.3, e também 1.4 e 1.5 se entrarem no lançamento.
-2. Remedir e APERTAR os tetos de peso da página do mapa. A fonte ficou com folga larga de propósito durante a campanha.
-3. npm run lint e npm test na raiz, em comandos separados.
-4. O Playwright inteiro, em fatias paralelas com portas e bancos próprios, com retries desligado ou lendo a contagem de flaky antes de declarar verde.
-5. nginx (instruções completas nos arquivos fora do repositório citados no item 0):
+2. Rodar as seis frentes do item 6, na ordem de risco, e integrar o que elas acharem.
+3. Remedir e APERTAR os tetos de peso da página do mapa. A fonte ficou com folga larga de propósito durante a campanha.
+4. npm run lint e npm test na raiz, em comandos separados.
+5. O Playwright inteiro, em fatias paralelas com portas e bancos próprios, com retries desligado ou lendo a contagem de flaky antes de declarar verde.
+6. nginx (instruções completas nos arquivos fora do repositório citados no item 0):
    - limite de corpo de 60 MB nos blocos do EBGeo, porque o padrão do nginx é 1 MB e o sync e o import o ultrapassam;
    - cabeçalhos de Upgrade do WebSocket no bloco de produção, na troca;
    - X-Forwarded-For.
 
    TRUST_PROXY_HOPS precisa bater com o número de proxies do caminho: 3 em produção, 4 no ambiente de teste.
-6. METEOROLOGIA_URL: o padrão é a API pública da Open-Meteo, chamada pelo navegador de cada usuário. Se a coordenada não pode sair da rede, aponte para uma Open-Meteo interna em https, ou desligue o painel na aba Sistema.
+7. METEOROLOGIA_URL: o padrão é a API pública da Open-Meteo, chamada pelo navegador de cada usuário. Se a coordenada não pode sair da rede, aponte para uma Open-Meteo interna em https, ou desligue o painel na aba Sistema.
 
-## 6. Áreas que nenhuma frente cobriu
+## 6. Frentes aprovadas e ainda não feitas
 
-Propostas em 2026-09-24 e adiadas pelo dono ("não vamos abrir frentes novas por enquanto"). Tudo o que a campanha mediu foi com 2 ou 3 pessoas, e estas áreas ficaram só com os testes que já existiam. Em ordem de risco:
+APROVADAS pelo dono: são trabalho a fazer antes do lançamento, e não ideias. Elas foram propostas em 2026-09-24 e ficaram paradas só porque o limite de sessão da API não comportava mais agentes naquele momento. Tudo o que a campanha mediu foi com 2 ou 3 pessoas, e estas áreas ficaram só com os testes que já existiam. Cada uma é uma frente no molde da campanha: worktree própria, portas e bancos próprios, matriz de cobertura, repro com controle negativo para cada defeito, relatório com PRÓXIMO PASSO. As regras dadas aos agentes estão no BRIEF-COMUM.md do branch hunt/relatorios. Rode no máximo três agentes ao mesmo tempo, e a revisão de código conta como um. A ordem é a de risco:
 
 1. Segurança e acesso. A noite de 23 para 24 achou falhas desta classe sem ninguém procurando, todas já corrigidas:
    - token de link público revogado que voltava a valer;
