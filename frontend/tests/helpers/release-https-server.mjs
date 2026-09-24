@@ -38,6 +38,12 @@ const server = https.createServer({ key: readFileSync(key), cert: readFileSync(c
     if (!file.startsWith(root + sep) || !existsSync(file) || !statSync(file).isFile()) {
         res.writeHead(404); res.end(); return;
     }
+    // No socket reuse for static files. Measured 2026-09-24: with keep-alive, 4 of 96 boots of the
+    // bundle lost a stylesheet to net::ERR_TOO_MANY_RETRIES (a reused-socket race of this Node
+    // server with Chromium; a longer keepAliveTimeout made it 3 of 48), and the unstyled page left
+    // the first-person container over the map, so a spec failed far from its subject. 0 of 96 with
+    // this header. It is this rehearsal server's defect, not the product's: production is NGINX.
+    res.setHeader('Connection', 'close');
     res.writeHead(200, { 'Content-Type': types[extname(file)] || 'application/octet-stream',
         'Cache-Control': extname(file) === '.html' || pathname === '/release.json' ? 'no-cache' : 'public, max-age=31536000, immutable' });
     createReadStream(file).pipe(res);
