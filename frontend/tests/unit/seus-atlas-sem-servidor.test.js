@@ -388,6 +388,14 @@ describe('B6 — a frase de chegada exige sessão', () => {
             .toBe('Este atlas foi excluído pelo proprietário.');
     });
 
+    it('o tempo real recusado tem frase própria, que não manda verificar a conexão (2026-09-23)', () => {
+        const frase = arrivalNotice('abertura-sem-tempo-real', { signedIn: true });
+        expect(frase).toContain('conexão em tempo real não abriu');
+        expect(frase).toContain('avise o administrador');
+        expect(frase).not.toContain('Verifique sua conexão');
+        expect(arrivalNotice('abertura-sem-tempo-real', { signedIn: false })).toBeNull();
+    });
+
     it('código desconhecido nunca é ecoado, com sessão ou sem', () => {
         // `toString` E `constructor` NÃO SÃO ENFEITE DA LISTA, e a lição está no livro-razão
         // (2026-08-24, `teste-que-nao-prende`): `TABELA[codigo] ?? null` não distingue "esta

@@ -75,6 +75,8 @@ describe('WsClient — handshake', () => {
         sock.close(1006, 'upgrade rejected');
 
         await expect(p).rejects.toThrow(/handshake/);
+        // The code, not the text, is what the opening reads to say the live connection did not open.
+        await expect(p).rejects.toMatchObject({ code: 'WS_HANDSHAKE_CLOSED' });
     });
 
     it('reports the close code and keeps trying to reconnect after the rejection', async () => {

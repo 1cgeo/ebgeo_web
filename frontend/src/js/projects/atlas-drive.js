@@ -2338,6 +2338,12 @@ const ARRIVAL_NOTICES = Object.freeze({
     'abertura-sem-acesso': 'Você não tem acesso a este atlas.',
     'abertura-nao-encontrada': 'Atlas não encontrado ou sem acesso.',
     'abertura-falhou': 'Não foi possível abrir o atlas. Verifique sua conexão e tente de novo.',
+    // O SERVIDOR RESPONDEU E SÓ O TEMPO REAL NÃO ABRIU (2026-09-23). A abertura puxa o atlas por
+    // HTTP e depois espera o WebSocket; quando um proxy ou firewall recusa o WebSocket, toda
+    // tentativa volta para cá, e a frase de cima mandava verificar uma conexão que funciona (esta
+    // página acabou de carregar a lista do servidor). A ação útil é avisar quem cuida da rede.
+    'abertura-sem-tempo-real': 'Não foi possível abrir o atlas: o servidor respondeu, mas a conexão '
+        + 'em tempo real não abriu. Tente de novo; se continuar, avise o administrador.',
 });
 
 /**

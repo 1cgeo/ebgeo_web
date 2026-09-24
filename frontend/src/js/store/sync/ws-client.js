@@ -52,6 +52,12 @@ const COALESCABLE_TYPES = new Set(['cursor', 'cursors', 'selection']);
 /** Drop coalescable presence frames when the local outbound buffer exceeds this (bytes). */
 const PRESENCE_BUFFER_LIMIT = 1 << 20; // 1 MiB
 
+/**
+ * `code` of the error a `connect()` rejects with when the socket closes before the server's
+ * `connected` frame (see `_onClose`).
+ */
+export const WS_HANDSHAKE_CLOSED = 'WS_HANDSHAKE_CLOSED';
+
 /** Close code used for an intentional client-side disconnect. */
 const CLOSE_INTENTIONAL = 1000;
 
@@ -642,9 +648,14 @@ export class WsClient {
             const rejectHandshake = this._connectReject;
             this._connectResolve = null;
             this._connectReject = null;
-            rejectHandshake(new Error(
+            // THE CODE IS WHAT LETS THE OPENING SAY SOMETHING TRUE (2026-09-23). A handshake that
+            // closes here comes after the HTTP pull succeeded, so the server IS reachable and only
+            // the live connection did not open (a proxy refusing the upgrade, a firewall, an upgrade
+            // refused for the account). Without a code the boot could only match the message text,
+            // or fall back to telling the person to check a connection that works.
+            rejectHandshake(Object.assign(new Error(
                 `Conexão encerrada antes do handshake (code ${event?.code ?? 'n/d'})`
-            ));
+            ), { code: WS_HANDSHAKE_CLOSED }));
         }
 
         this._scheduleReconnect();
