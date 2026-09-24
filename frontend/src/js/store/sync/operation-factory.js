@@ -501,7 +501,8 @@ export const MAX_OPS_PER_LOGICAL_BATCH = 200;
  * WHAT IT READS, and why it needs nothing stored. `batchIndex` is contiguous across the parts, and
  * a part leaves only after the previous one was applied, so the first index of the refused part is
  * exactly how many operations of the gesture already arrived. The parts after it are the queued
- * operations reachable from the refused ones through `dependsOn` (the chain between parts).
+ * operations reachable from the refused ones through the PART link in `dependsOn` (a dependency
+ * that is not the op's own `baseOperationId`, which is the author's edit chain).
  *
  * @param {Object[]} refusedOps - The operations of the refused batch.
  * @param {Object[]} queuedOps - Every operation still in the queue, refused ones included.
@@ -521,7 +522,10 @@ export function describeRefusedPart(refusedOps, queuedOps, maxPerBatch = MAX_OPS
         grew = false;
         for (const op of queuedOps ?? []) {
             if (!op?.batchId || batchesIn.has(op.batchId)) continue;
-            if (!(op.dependsOn ?? []).some(id => reached.has(id))) continue;
+            // Only the PART link counts. The author's edit chain also lives in `dependsOn`, but its
+            // link is the op's own `baseOperationId`, and following it turned the refusal of an
+            // ordinary batch into "parte 1 de 1" (review finding 5, 2026-09-24).
+            if (!(op.dependsOn ?? []).some(id => id !== op.baseOperationId && reached.has(id))) continue;
             batchesIn.add(op.batchId);
             for (const member of queuedOps) {
                 if (member?.batchId !== op.batchId) continue;

@@ -273,6 +273,15 @@ describe('a frase da parte recusada', () => {
             .toContain('parte 3 de 3 desta ação. 400 de 450 alterações já chegaram; as outras 50');
     });
 
+    it('um lote comum recusado com uma EDICAO encadeada atras nao vira "parte 1 de 1" (achado 5)', () => {
+        // O encadeamento de edicao do despachante tambem usa `dependsOn`, mas o elo dele e a propria
+        // base da op (`baseOperationId`). Segui-lo transformava a recusa de um lote comum de 6 em
+        // "O servidor recusou a parte 1 de 1 desta acao. 0 de 7...", onde antes nao havia frase.
+        const recusada = Array.from({ length: 6 }, (_, k) => ({ id: `c${k}`, batchId: 'C', batchIndex: k }));
+        const edicao = { id: 'e0', batchId: 'E', batchIndex: 0, dependsOn: ['c5'], baseOperationId: 'c5' };
+        expect(describeRefusedPart(recusada, [...recusada, edicao])).toBeNull();
+    });
+
     it('um lote alheio na fila, sem elo, nao entra na conta', () => {
         const recusada = parte(200, 400, 'B', 'op199');
         const alheio = Array.from({ length: 30 }, (_, k) => ({ id: `z${k}`, batchId: 'Z', batchIndex: k }));
