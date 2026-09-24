@@ -1,7 +1,7 @@
 // Path: js/import_export/import.control.js
 import JSZip from 'jszip';
 import * as toGeoJSON from '@tmcw/togeojson';
-import shp from 'shpjs';
+import shp from '@js/vendor/shpjs.js';
 import { addFeatures, createLayerForImport, getLayers, getCurrentMapNameSync, getEventBus } from '@store';
 import { IDUtils } from '@utils/id_utils.js';
 import { showSuccess, showError, showWarning } from '@utils/toast_service.js';
