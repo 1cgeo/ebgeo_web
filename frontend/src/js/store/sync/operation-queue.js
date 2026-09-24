@@ -14,7 +14,7 @@ import {
 } from '@store/atlas-namespace.js';
 import { appendJournal, journalHeadKey, materializeJournal, purgeJournalEntries, JournalKey } from './queue-journal.js';
 import { captureRemoteWriteFence } from '../remote-write-fence.js';
-import { fenceStore } from '../fenced-store.js';
+import { fenceStore, openStoreDatabase } from '../fenced-store.js';
 import { legacyQueueIssue } from './legacy-queue.js';
 import { IssueClass, classifyIssue } from './issue-classes.js';
 import { openGestureBatchId } from './gesture-batch.js';
@@ -72,6 +72,52 @@ export function operationBelongsToScope(operation, scopeSuffix) {
     const born = operation?.scopeSuffix;
     if (born === null || born === undefined) return true;
     return born === scopeSuffix;
+}
+
+/**
+ * The keys of the queue database that start with `prefix`, and ONLY those.
+ *
+ * WHY NOT `store.keys()`. The queue database holds more than envelopes: every envelope brings an
+ * identity and a head record, and {@link JournalKey.FEATURE_LATEST} is KEPT after the ack, one per
+ * feature this client ever wrote in the atlas (`purgeJournalEntries` says why). localforage's
+ * `keys()` walks ALL of them with a cursor, one callback per key, and three callers ran it on
+ * every flush cycle: the census of the 1,5 s tick, `peek` and `dequeue` once per push of 25.
+ * Measured on 2026-09-23 in Chromium: after importing 8 000 features the idle tick cost 40 ms with
+ * the queue EMPTY, forever, and draining those 8 000 cost 75 s of client time on top of the
+ * network, growing with the square of the queue (2 000 ops drained in 9 s).
+ *
+ * A key range reads exactly the prefix, in one request. The upper bound is the prefix with its
+ * last code unit incremented, exclusive, which is the exact prefix range under IndexedDB's
+ * code-unit string order. Anything that is not a real IndexedDB store (the in-memory adapters of
+ * the shape tests, another driver) and any failure of the native path fall back to the full
+ * listing, filtered, which is the previous behaviour.
+ *
+ * @param {object} store - The queue store of one scope.
+ * @param {string} prefix - Key prefix to list.
+ * @returns {Promise<string[]>} Matching keys, in ascending order.
+ */
+export async function listKeysWithPrefix(store, prefix) {
+    if (store.config && globalThis.indexedDB && globalThis.IDBKeyRange) {
+        try {
+            await store.ready();
+            if (store.driver() === 'asyncStorage') {
+                const db = await openStoreDatabase(store);
+                const storeName = store.config('storeName');
+                const upper = prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1);
+                return await new Promise((resolve, reject) => {
+                    const request = db.transaction(storeName, 'readonly')
+                        .objectStore(storeName)
+                        .getAllKeys(IDBKeyRange.bound(prefix, upper, false, true));
+                    request.onsuccess = () => resolve(request.result.filter(key => typeof key === 'string'));
+                    request.onerror = () => reject(request.error);
+                });
+            }
+        } catch {
+            // Fall through to the full listing: a stale or missing native handle must not turn a
+            // read into a failure the old path would not have had.
+        }
+    }
+    return (await store.keys()).filter(key => typeof key === 'string' && key.startsWith(prefix)).sort();
 }
 
 function operationIdFromKey(key) {
@@ -264,13 +310,16 @@ class OperationQueue {
         const wanted = new Set(operationIds);
 
         const { store, assertWritable } = this._context();
-        const removals = [];
-        for (const key of await store.keys()) {
+        const matches = [];
+        for (const key of await this._getOrderedKeys(store)) {
             const opId = operationIdFromKey(key);
             if (opId === null || !wanted.has(opId)) continue;
-            const operation = await store.getItem(key);
-            removals.push({ key, id: opId, entityId: operation?.entityId, entityType: operation?.entityType });
+            matches.push({ key, id: opId });
         }
+        const envelopes = await Promise.all(matches.map(({ key }) => store.getItem(key)));
+        const removals = matches.map(({ key, id }, i) => ({
+            key, id, entityId: envelopes[i]?.entityId, entityType: envelopes[i]?.entityType,
+        }));
         await purgeJournalEntries(store, removals, assertWritable);
         return removals.length;
     }
@@ -301,27 +350,27 @@ class OperationQueue {
      * record is written, and disagree in the dangerous direction on any future rule the loader
      * gains and this method does not.
      *
-     * The metadata comes from the KEY LIST, not from a read per operation: an issue key and a
+     * The metadata comes from KEY LISTS, not from a read per operation: an issue key and a
      * prepared-state key exist only while they are true (`materializeJournal` deletes the state
-     * key), so presence IS the fact, and it costs nothing on top of the listing the count
-     * already pays for. Envelopes are still read in parallel batches, because the count decides
-     * a rescue and sits on the critical path of the click on "Sair".
+     * key), so presence IS the fact. Each list is a key range over its own prefix
+     * ({@link listKeysWithPrefix}), never the whole database, because this runs on every 1,5 s
+     * tick of the auto-flush. Envelopes are still read in parallel batches, because the count
+     * decides a rescue and sits on the critical path of the click on "Sair".
      * @returns {Promise<{pendentes: number, preparadas: number, problemas: number}>}
      */
     async countByState() {
         const { store, scopeSuffix } = this._context();
         const census = { pendentes: 0, preparadas: 0, problemas: 0 };
 
-        const keys = await store.keys();
-        const operationKeys = keys.filter(key => key.startsWith(KEY_PREFIX)).sort();
+        const operationKeys = await this._getOrderedKeys(store);
         if (operationKeys.length === 0) return census;
 
-        const issued = new Set();
-        const prepared = new Set();
-        for (const key of keys) {
-            if (key.startsWith(JournalKey.ISSUE)) issued.add(key.slice(JournalKey.ISSUE.length));
-            else if (key.startsWith(JournalKey.STATE)) prepared.add(key.slice(JournalKey.STATE.length));
-        }
+        const [issueKeys, stateKeys] = await Promise.all([
+            listKeysWithPrefix(store, JournalKey.ISSUE),
+            listKeysWithPrefix(store, JournalKey.STATE),
+        ]);
+        const issued = new Set(issueKeys.map(key => key.slice(JournalKey.ISSUE.length)));
+        const prepared = new Set(stateKeys.map(key => key.slice(JournalKey.STATE.length)));
 
         const blockade = new PendingBlockade();
         /** @type {Set<string>} Batches with an unsendable member, as in `_loadOperations`. */
@@ -441,10 +490,7 @@ class OperationQueue {
     }
 
     async _getOrderedKeys(store = this._context().store) {
-        const keys = await store.keys();
-        return keys
-            .filter(k => k.startsWith(KEY_PREFIX))
-            .sort();
+        return (await listKeysWithPrefix(store, KEY_PREFIX)).sort();
     }
 
     /**
