@@ -82,6 +82,9 @@ import { fenceStore } from '../fenced-store.js';
 import { generateUUID } from '@utils/uuid.js';
 import { apiClient } from './api-client.js';
 import { operationQueue } from './operation-queue.js';
+// Leaf modules (zero imports).
+import { EntityType } from './operation-types.js';
+import { idsDeFotosDaEntidade } from '@js/user_data/photo-refs.js';
 import { connectionState } from './connection-state.js';
 import { BLOB_UPLOAD_KEY_PREFIX, BLOB_UPLOAD_PENDENTE } from './blob-upload-keys.js';
 import {
@@ -255,6 +258,74 @@ export function blobUploadPending(imageId) {
 }
 
 /**
+ * Whether an operation has to wait for bytes the server has not confirmed yet.
+ *
+ * TWO WAYS TO CITE A BLOB, ONE RULE. An image feature IS its blob (its `entityId` is the image id),
+ * and that was the only case until 2026-09-24. An attached photo has an id of its own, cited from
+ * the entity's `properties.images` (a feature) or `images` (a 3D or 360 item), and the review of
+ * phases 2b/2c found the loss it allowed: on a 40 kbps link, renaming a feature whose photo was just
+ * converted sent the operation in a second while the photo took minutes; "Sair" counted zero pending
+ * operations and asked nothing, the namespace and the bytes died, and the server kept a reference to
+ * a picture it would never receive, for everyone. The operation now waits for every photo it cites,
+ * exactly like the image feature waits for itself.
+ *
+ * A REFUSED photo does not hold (only a pending one does): the operation leaves with the reference,
+ * the thumbnail keeps drawing, and the notice already named the photo.
+ *
+ * @param {{entityType: string, entityId: string, data?: Object}} op
+ * @param {Set<string>} [pendentes] - Ids with pending bytes; the memory mirror by default, the disk
+ *   read (`idsComBlobPendente`) where the mirror can be empty (the snapshot inside a connect)
+ * @returns {boolean}
+ */
+export function operacaoEsperaBlob(op, pendentes = _pendentes) {
+    if (!op) return false;
+    if (op.entityType === EntityType.FEATURE && pendentes.has(op.entityId)) return true;
+    return idsDeFotosDaEntidade(op.data).some((id) => pendentes.has(id));
+}
+
+/**
+ * Whether an operation cites an image id: as its own blob (an image feature) or as a photo.
+ * @param {Object} op
+ * @param {string} imageId
+ * @returns {boolean}
+ */
+function operacaoCita(op, imageId) {
+    return op?.entityId === imageId || idsDeFotosDaEntidade(op?.data).includes(imageId);
+}
+
+/**
+ * The single line every transfer of this page waits in: ONE blob on the wire at a time.
+ *
+ * WHY (2026-09-24, review). An edit that converts N inline photos, or N photos attached in a row,
+ * called `enviar` N times without awaiting, and N transfers shared a link sized for one: at 40 kbps
+ * each one falls under the 2000 B/s floor its deadline is sized for, all are cut, and the cycle can
+ * repeat (the same arithmetic as {@link _emVoo}). The resumption was already serial; this puts the
+ * first attempts and the copies in the same line.
+ * @type {Promise<void>}
+ */
+let _filaDeTransferencia = Promise.resolve();
+
+/**
+ * Image ids WAITING in {@link _filaDeTransferencia}, not yet on the wire. A second send of the same
+ * id steps aside as it does for one on the wire ({@link _emVoo}): queueing it would upload the same
+ * bytes twice, and a caller waiting behind its own first attempt would never return.
+ * @type {Set<string>}
+ */
+const _naFila = new Set();
+
+/**
+ * Runs one transfer when the ones before it have ended. Never rejects on behalf of an earlier one.
+ * @template T
+ * @param {() => Promise<T>} transferir
+ * @returns {Promise<T>}
+ */
+function emSerie(transferir) {
+    const vez = _filaDeTransferencia.then(transferir);
+    _filaDeTransferencia = vez.then(() => undefined, () => undefined);
+    return vez;
+}
+
+/**
  * The image ids whose bytes are still owed to the server, READ FROM DISK.
  *
  * IT EXISTS BECAUSE THE MEMORY MIRROR IS EMPTY EXACTLY WHEN THE HANDSHAKE NEEDS THE ANSWER. The
@@ -344,13 +415,20 @@ export function blobUploadRefusal(imageId) {
  * UPDATE while its CREATE stays prepared would leave the queue exactly as blocked, and the release
  * would look like it worked. `getAll` is the only reader that returns prepared envelopes too,
  * which is why the filter happens here and not through `peek`.
- * @param {string} entityId - The image id, which for an image feature is also its feature id.
+ *
+ * AN OPERATION THAT STILL WAITS FOR ANOTHER BLOB STAYS HELD (2026-09-24): an edit that cites two
+ * photos leaves when the SECOND one is confirmed, never in between.
+ * @param {string} entityId - The image id: an image feature's own id, or a photo's.
+ * @param {Object} [opcoes]
+ * @param {boolean} [opcoes.soFotos=false] - Release only the operations that cite it as a PHOTO
+ *   (the refusal of a photo; an image feature refused becomes an issue instead).
  * @returns {Promise<number>} How many operations were released.
  */
-async function liberarOperacoes(entityId) {
+async function liberarOperacoes(entityId, { soFotos = false } = {}) {
     try {
         const todas = await operationQueue.getAll();
-        const minhas = todas.filter(op => op.entityId === entityId);
+        const minhas = todas.filter(op => (!soFotos || op.entityId !== entityId)
+            && operacaoCita(op, entityId) && !operacaoEsperaBlob(op));
         if (minhas.length > 0) await operationQueue.markMaterialized(minhas);
         return minhas.length;
     } catch (error) {
@@ -515,6 +593,8 @@ async function assentar(scope, registro, desfecho) {
         await liberarOperacoes(atualizado.imageId);
     } else if (atualizado.estado === BlobUploadState.RECUSADO) {
         await marcarProblema(atualizado.imageId, atualizado.ultimoErro, desfecho.status ?? null);
+        // A refused PHOTO is not an issue on the entity that cites it (see operacaoEsperaBlob).
+        await liberarOperacoes(atualizado.imageId, { soFotos: true });
     }
     return atualizado;
 }
@@ -620,9 +700,9 @@ export async function enfileirarBlobs(pares, { atlasId, origem = 'copia' }) {
     try {
         let veredictos;
         try {
-            veredictos = await transferirLote(
+            veredictos = await emSerie(() => transferirLote(
                 atlasId, registros.map(r => [r.imageId, bytesPorId.get(r.imageId)])
-            );
+            ));
         } catch (error) {
             const desfecho = { confirmado: false, ...classificarErro(error) };
             veredictos = new Map(registros.map(r => [r.imageId, desfecho]));
@@ -728,8 +808,19 @@ export async function descartarBlobRegistrado({ scope, registro }) {
  *   causa: (string|null), status: (number|null)}>}
  */
 export async function enviarBlobRegistrado({ scope, registro }, blob) {
-    _reservados.delete(registro.imageId);
-    const final = await tentar(scope, registro, blob);
+    const id = registro.imageId;
+    const final = _emVoo.has(id) || _naFila.has(id)
+        ? { ...registro, emVoo: true }
+        : await (() => {
+            _naFila.add(id);
+            // The reservation is lifted when THIS transfer's turn comes, not before: a resumption
+            // landing while it waits in line must still step aside ({@link emSerie}).
+            return emSerie(() => {
+                _naFila.delete(id);
+                _reservados.delete(id);
+                return tentar(scope, registro, blob);
+            });
+        })();
     return {
         registrado: true,
         emVoo: final.emVoo === true,
@@ -769,7 +860,7 @@ export async function retomarBlobsPendentes(atlasId) {
         // wire for the same id ({@link _emVoo}), or a record another attempt already settled while
         // this loop was waiting. Trying the copy read at the start would write its verdict over a
         // newer one (a CONFIRMADO turned back into PENDENTE).
-        if (_emVoo.has(lido.imageId) || _reservados.has(lido.imageId)) continue;
+        if (_emVoo.has(lido.imageId) || _reservados.has(lido.imageId) || _naFila.has(lido.imageId)) continue;
         let registro = lido;
         try {
             registro = (await loja(scope).getItem(chaveDe(lido.tentativaId))) ?? null;
@@ -777,7 +868,8 @@ export async function retomarBlobsPendentes(atlasId) {
             console.warn('[blob-upload-queue] could not re-read a pending upload:', error);
         }
         if (!registro || registro.estado !== BlobUploadState.PENDENTE
-            || _emVoo.has(registro.imageId) || _reservados.has(registro.imageId)) continue;
+            || _emVoo.has(registro.imageId) || _reservados.has(registro.imageId)
+            || _naFila.has(registro.imageId)) continue;
 
         let blob = null;
         try {
@@ -806,7 +898,7 @@ export async function retomarBlobsPendentes(atlasId) {
             continue;
         }
 
-        const final = await tentar(scope, registro, blob);
+        const final = await emSerie(() => tentar(scope, registro, blob));
         if (final.estado === BlobUploadState.CONFIRMADO) resumo.confirmadas += 1;
         else if (final.estado === BlobUploadState.RECUSADO) resumo.recusadas += 1;
         else resumo.pendentes += 1;
@@ -823,6 +915,9 @@ export function esquecerPendenciasEmMemoria() {
     _pendentes.clear();
     _recusados.clear();
     _reservados.clear();
+    // A new scope starts a new line: a transfer of the scope left behind must not hold this one's.
+    _naFila.clear();
+    _filaDeTransferencia = Promise.resolve();
     if (_retomadaAgendada) clearTimeout(_retomadaAgendada);
     _retomadaAgendada = null;
     _falhasSeguidas = 0;

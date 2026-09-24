@@ -15,10 +15,14 @@
  * REGISTERED before the entity is saved, so an F5 in between still finds the pendency on disk; the
  * transfer starts after the save (`confirmar`), ALSO after a save that threw (the intention may
  * already be in the journal, see `comConversao`), and only a CLEAN refusal drops both (`descartar`).
- * One deliberate difference: the entity's operation does NOT wait for the blob. The
- * gallery draws the thumbnail, which travels with the entity, so there is no hole to prevent, and
- * holding the operation would hold every later edit behind a slow photo. Opening the WHOLE photo
- * before its bytes reach the server says so (`photoNotArrivedNotice`) and can be tried again.
+ *
+ * AND THE ENTITY'S OPERATION WAITS FOR THE BLOB, as the image feature's does (`operacaoEsperaBlob`,
+ * `sync/blob-upload-queue.js`). Phase 2b let it leave first, on the argument that the thumbnail
+ * travels with the entity and a slow photo should not hold later edits. The review of 2026-09-24
+ * found what that cost: an operation already sent made the exit census count zero, "Sair" asked
+ * nothing, the namespace and the only copy of the bytes were destroyed, and the server kept a
+ * reference to a picture nobody would ever upload. Holding later edits behind a photo on a slow link
+ * is the price, paid in time, never in data.
  *
  * In a local atlas nothing is registered and nothing is sent: the blob stays in the local store.
  * The store owns no toast; the callers word what the person reads.

@@ -45,6 +45,8 @@ import {
     RESCUE_VETO_GRACE_MS,
 } from '@store/remote-atlas.api.js';
 import { operationQueue, operationBelongsToScope } from '@store/sync/operation-queue.js';
+// Leaf with zero imports: the pendency key and state, without the upload queue's graph.
+import { BLOB_UPLOAD_KEY_PREFIX, BLOB_UPLOAD_PENDENTE } from '@store/sync/blob-upload-keys.js';
 import {
     ExitOutcome,
     exitPreservedSummary,
@@ -245,7 +247,9 @@ export function rescueVetoRecorded(atlasId) {
 export async function countPendingOperations() {
     try {
         const census = await operationQueue.countByState();
-        const count = census.pendentes + census.preparadas + census.problemas;
+        const scope = getActiveScope();
+        const blobs = scope ? await countPendingBlobUploadsIn(scope) : 0;
+        const count = census.pendentes + census.preparadas + census.problemas + blobs;
         return Number.isFinite(count) ? count : NaN;
     } catch (error) {
         console.warn('[unsynced-work] pending operation count failed:', error);
@@ -276,6 +280,33 @@ const QUEUE_KEY_PREFIX = 'op_';
  * @type {number}
  */
 const COUNT_BATCH_SIZE = 200;
+
+/**
+ * How many blob uploads of a scope the server has not confirmed yet, read from its IMAGES store.
+ *
+ * THEY ARE UNSENT WORK TOO (2026-09-24, review of the attached photos). The bytes of a photo or an
+ * image feature travel by their own door, and until they are confirmed the local store holds the
+ * only copy: a teardown that counts only the operation queue destroys them without asking, and the
+ * server keeps a reference to a picture it will never receive. Each PENDENTE record counts as one.
+ *
+ * A read failure THROWS, on purpose: the callers answer NaN ("unknown") in their own catch, and
+ * unknown preserves. Answering 0 here would authorise destruction.
+ * @param {Object} scope - The scope whose IMAGES store is read.
+ * @returns {Promise<number>}
+ */
+async function countPendingBlobUploadsIn(scope) {
+    const store = getStoreFor(StoreName.IMAGES, scope);
+    const keys = (await store.keys())
+        .filter(key => typeof key === 'string' && key.startsWith(BLOB_UPLOAD_KEY_PREFIX));
+    let total = 0;
+    for (let i = 0; i < keys.length; i += COUNT_BATCH_SIZE) {
+        const registros = await Promise.all(keys.slice(i, i + COUNT_BATCH_SIZE).map(key => store.getItem(key)));
+        for (const registro of registros) {
+            if (registro?.estado === BLOB_UPLOAD_PENDENTE) total += 1;
+        }
+    }
+    return total;
+}
 
 /**
  * The pending-operation count of a NAMED server atlas, for a page that has no map and therefore no
@@ -310,9 +341,10 @@ export async function countPendingOperationsFor(atlasId) {
         const store = getStoreFor(StoreName.OPERATION_QUEUE, scope);
         const keys = (await store.keys())
             .filter(key => typeof key === 'string' && key.startsWith(QUEUE_KEY_PREFIX));
-        if (keys.length === 0) return 0;
+        // The blob uploads the server has not confirmed are unsent work of this atlas as well.
+        let total = await countPendingBlobUploadsIn(scope);
+        if (keys.length === 0) return total;
 
-        let total = 0;
         for (let i = 0; i < keys.length; i += COUNT_BATCH_SIZE) {
             const lote = keys.slice(i, i + COUNT_BATCH_SIZE);
             const envelopes = await Promise.all(lote.map(key => store.getItem(key)));

@@ -34,7 +34,7 @@ import { operationQueue } from './operation-queue.js';
 import { observeServerVersion, assertSnapshotCurrent } from './snapshot-frontier.js';
 // A pergunta "esta feição ainda deve bytes ao servidor", lida do DISCO: ver o uso em
 // `applyRemoteSnapshot`, que roda dentro do connect em que o espelho de memória ainda está vazio.
-import { idsComBlobPendente } from './blob-upload-queue.js';
+import { idsComBlobPendente, operacaoEsperaBlob } from './blob-upload-queue.js';
 import {
     adoptActiveGeneration,
     dropGenerationDatabases,
@@ -3195,7 +3195,8 @@ async function applyRemoteSnapshotInner(snapshot) {
     const projected = [];
     for (const op of pending) {
         if (!await applyRemoteOperationInner({ ...op, localRepair: true }, false)) continue;
-        if (op.entityType === EntityType.FEATURE && pendentesDeBlob.has(op.entityId)) continue;
+        // The image feature and, since 2026-09-24, any entity citing a PHOTO still pending.
+        if (operacaoEsperaBlob(op, pendentesDeBlob)) continue;
         projected.push(op);
     }
     if (applyContext?.staging) applyContext.markMaterialized = () => queue.markMaterialized?.(projected);

@@ -145,7 +145,14 @@ collabTest('offline: a foto anexada sem rede sobe na volta, sob o mesmo id, e o 
     }
 });
 
-collabTest('link lento: a edição chega em segundos e a foto depois; F5 no meio retoma sob o mesmo id', async ({ collab, browserName }) => {
+/**
+ * A EDIÇÃO ESPERA A FOTO (revisão das fases 2b e 2c, 2026-09-24). Até então a edição saía na frente
+ * e a foto depois; num link lento o "Sair" contava zero pendências, e o servidor ficava com a
+ * referência de uma foto que nunca chegaria. Agora a op que cita a foto nasce preparada e só sai
+ * quando o blob confirma: o servidor NUNCA tem a referência sem a linha de `images`, nem quando um F5
+ * cai no meio da subida.
+ */
+collabTest('link lento: a edição espera a foto, e o servidor nunca tem a referência sem os bytes, nem com F5 no meio', async ({ collab, browserName }) => {
     collabTest.skip(browserName !== 'chromium', 'CDP throttling');
     const A = collab.author;
     const B = collab.peers[0];
@@ -155,20 +162,38 @@ collabTest('link lento: a edição chega em segundos e a foto depois; F5 no meio
     await cdp.send('Network.emulateNetworkConditionsByRule', {
         matchedNetworkConditions: [{ urlPattern: `${collab.baseUrl}/*`, latency: 300, downloadThroughput: 5000, uploadThroughput: 5000 }],
     });
-    const t0 = Date.now();
-    await anexarPelaGaleria(A, await fotoDeCamera(A));
-    await expect.poll(async () => (await noServidor(collab.db, linha)).foto?.id ?? null, { timeout: 30000 }).not.toBeNull();
-    const edicaoMs = Date.now() - t0;
-    const { foto } = await noServidor(collab.db, linha);
-    expect((await noServidor(collab.db, linha)).imagem, 'a foto ainda está subindo').toBeNull();
-    console.log(`FOTO_REF_LENTO edicao=${edicaoMs}ms`);
-    expect(edicaoMs, 'a edição não espera a foto').toBeLessThan(20000);
+    // A INVARIANTE, amostrada o tempo todo: sempre que a linha da feição cita a foto, a linha da imagem existe.
+    const violacoes = [];
+    const estado = { amostrando: true };
+    const amostrar = (async () => {
+        while (estado.amostrando) {
+            const r = await collab.db.raw.oneOrNone(
+                `SELECT f.properties->'images'->0->>'id' AS foto,
+                        (SELECT count(*)::int FROM images i WHERE i.id::text = f.properties->'images'->0->>'id') AS imagens
+                   FROM features f WHERE f.id = $1`, [linha]);
+            if (r?.foto && r.imagens === 0) violacoes.push(r.foto);
+            await delay(150);
+        }
+    })();
+    try {
+        await anexarPelaGaleria(A, await fotoDeCamera(A));
+        await expect.poll(() => fotoNaFeicao(A, linha), { timeout: 20000 }).not.toBeNull();
+        const foto = await fotoNaFeicao(A, linha);
+        await delay(4000);
+        expect((await noServidor(collab.db, linha)).foto, 'a edição espera a foto').toBeNull();
 
-    // F5 with the upload on the wire.
-    await cdp.detach().catch(() => {});
-    await A.reload();
-    await expect.poll(async () => (await noServidor(collab.db, linha)).imagem?.id ?? null, { timeout: 90000 }).toBe(foto.id);
-    expect(await larguraNoVisualizador(B, linha)).toBe(1600);
+        // F5 with the upload on the wire.
+        await cdp.detach().catch(() => {});
+        await A.reload();
+        await expect.poll(async () => (await noServidor(collab.db, linha)).foto?.id ?? null, { timeout: 120000 }).toBe(foto.id);
+        expect((await noServidor(collab.db, linha)).imagem?.id).toBe(foto.id);
+        console.log(`FOTO_REF_LENTO violacoes=${violacoes.length}`);
+        expect(violacoes, 'o servidor nunca teve a referência sem a imagem').toEqual([]);
+        expect(await larguraNoVisualizador(B, linha)).toBe(1600);
+    } finally {
+        estado.amostrando = false;
+        await amostrar;
+    }
 });
 
 collabTest('recusa: o aviso nomeia a foto, a edição sai com a referência e o colega fica na miniatura', async ({ collab }) => {

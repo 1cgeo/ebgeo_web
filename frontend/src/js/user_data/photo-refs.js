@@ -90,3 +90,26 @@ export function idsDeFotosPorReferencia(documento) {
     percorrerImagens(documento?.streetview360, colher);
     return ids;
 }
+
+/**
+ * The ids of the photos an ENTITY payload cites by reference: the `properties.images` of a feature
+ * and the `images` of a 3D or 360 item. Inline photos carry their bytes and are not cited.
+ *
+ * It is what the outbound hold asks (`operacaoEsperaBlob`, `store/sync/blob-upload-queue.js`): an
+ * operation that cites a photo whose bytes the server has not confirmed stays prepared, the rule of
+ * the image feature extended to the photo (2026-09-24, review of phases 2b/2c).
+ *
+ * @param {*} dados - The `data` of an operation (a feature, or a 3D/360 item)
+ * @returns {string[]}
+ */
+export function idsDeFotosDaEntidade(dados) {
+    const ids = [];
+    for (const lista of [dados?.properties?.images, dados?.images]) {
+        if (!Array.isArray(lista)) continue;
+        for (const foto of lista) {
+            const id = idDeFotoPorReferencia(foto);
+            if (id) ids.push(id);
+        }
+    }
+    return ids;
+}

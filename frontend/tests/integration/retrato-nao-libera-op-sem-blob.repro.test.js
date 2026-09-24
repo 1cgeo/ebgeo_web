@@ -140,6 +140,28 @@ describe('o retrato do servidor e a op que ainda espera bytes', () => {
         expect(await idsProntos()).toContain(featureId);
     });
 
+    // A FOTO ANEXA (revisão das fases 2b e 2c, 2026-09-24): a feição comum que CITA uma foto com
+    // bytes pendentes também fica fora do peek depois do retrato, pelo mesmo filtro lido do disco.
+    it('REPRO: a op de uma feição que CITA uma foto pendente continua FORA do peek depois do retrato', async () => {
+        const scope = getActiveScope();
+        const mapId = crypto.randomUUID();
+        const featureId = crypto.randomUUID();
+        const fotoId = crypto.randomUUID();
+        await persistOperationIntents([{
+            entityType: EntityType.FEATURE,
+            operationType: OperationType.CREATE,
+            entityId: featureId,
+            mapId,
+            data: { type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] },
+                properties: { id: featureId, source: 'point', images: [{ id: fotoId, name: 'f.jpg', thumbnail: 'data:image/jpeg;base64,/9j/' }] } },
+            previousData: null
+        }], { scope, traceId: `traco-${featureId}` });
+        await pendenciaDeBlob(fotoId, scope);
+
+        await applyRemoteSnapshot(retratoComMapa(mapId, scope));
+
+        expect(await idsProntos()).not.toContain(featureId);
+    });
     it('CONTROLE: a pendência de OUTRA imagem não segura esta op', async () => {
         const scope = getActiveScope();
         const mapId = crypto.randomUUID();

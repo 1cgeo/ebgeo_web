@@ -15,7 +15,7 @@ import { generateUUID, isValidUUID } from '../../utilities/uuid.js';
 import { record } from './diag/trace-core.js';
 import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
 import { markLocalEditPending, CONVERGENCE_GUARDED } from './remote-operation-handler.js';
-import { blobUploadPending, blobUploadRefusal } from './blob-upload-queue.js';
+import { operacaoEsperaBlob, blobUploadRefusal } from './blob-upload-queue.js';
 import { checkPermission, GuardAction } from './permission-guard.js';
 import { isDerivedOutputBucket } from '../analysis-output.js';
 
@@ -233,9 +233,11 @@ export async function persistOperationIntents(allDescriptions, { scope, traceId 
             const recusa = blobUploadRefusal(op.entityId);
             await queue.recordIssue(op, { rejected: true, reason: recusa.motivo, status: recusa.status });
         }
+        // THE PHOTOS COUNT TOO since 2026-09-24: an operation that cites an attached photo whose
+        // bytes are pending waits like the image feature waits for itself (`operacaoEsperaBlob`).
         const prontas = created.filter(op => !(
-            op.entityType === EntityType.FEATURE
-            && (blobUploadPending(op.entityId) || blobUploadRefusal(op.entityId))
+            operacaoEsperaBlob(op)
+            || (op.entityType === EntityType.FEATURE && blobUploadRefusal(op.entityId))
         ));
         await queue.markMaterialized(prontas);
         for (const op of created) {

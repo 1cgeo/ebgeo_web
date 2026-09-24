@@ -56,7 +56,7 @@ vi.mock('@store/atlas-namespace.js', () => ({
     atlasMountLockName: (suffix) => `mount#${suffix}`,
     getActiveScope: () => null,
     readLocalAtlasRegistry: async () => ns.registro,
-    StoreName: Object.freeze({ OPERATION_QUEUE: 'operationQueue' }),
+    StoreName: Object.freeze({ OPERATION_QUEUE: 'operationQueue', IMAGES: 'images' }),
     getStoreFor: (storeId, scope) => {
         ns.lidos.push({ storeId, dbSuffix: scope.dbSuffix });
         const banco = ns.filas.get(scope.dbSuffix) ?? new Map();
@@ -239,7 +239,10 @@ describe('preserveUnsyncedWorkOnLostSession', () => {
 
         expect(r.pendingOps).toBe(2);
         expect(ns.lidos.map(l => l.dbSuffix)).toContain(SUFIXO);
-        expect(ns.lidos.every(l => l.storeId === 'operationQueue')).toBe(true);
+        // A fila de operações E o banco de imagens (as subidas de blob pendentes são trabalho não
+        // enviado desde 2026-09-24), os dois DAQUELE atlas.
+        expect([...new Set(ns.lidos.map(l => l.storeId))].sort()).toEqual(['images', 'operationQueue']);
+        expect(ns.lidos.every(l => l.dbSuffix === SUFIXO)).toBe(true);
         // CONTROLE NEGATIVO: sem o filtro de escopo a contagem seria 7, e sem leitura nenhuma
         // seria 0. Os dois defeitos produzem números diferentes deste.
         expect(r.pendingOps).not.toBe(7);
