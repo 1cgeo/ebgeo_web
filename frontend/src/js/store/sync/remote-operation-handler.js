@@ -628,7 +628,42 @@ export async function resolveLocalEdits(entries) {
     if (repairs.length > 0) await applyRemoteOperations(repairs, context);
     context.assertActive();
     for (const entityId of settled) remoteVersions.delete(entityId);
-    for (const entityId of settled) await replayDeferred(entityId, context);
+    await replayDeferredTogether(settled, context);
+}
+
+/**
+ * {@link replayDeferred} for many entities, with the replays applied TOGETHER.
+ *
+ * THE AUTHOR'S OWN ECHO IS WHAT FILLS THIS BUFFER in a large gesture: the broadcast of a push comes
+ * back over the socket before the HTTP receipt, while the entity is still marked pending, so every
+ * echo is deferred and replayed at the receipt. Replayed one by one it cost a read and a write of
+ * the whole map document per feature: importing 1 000 points took 552 document reads on the author
+ * (measured on 2026-09-24 in Chromium). In server arrival order and through
+ * {@link applyRemoteOperations}, consecutive creates of one map cost one.
+ *
+ * If the batch stops (a member answered `false`), every entity falls back to its own
+ * {@link replayDeferred}, which keeps what it could not apply; re-applying the members the batch
+ * already wrote is idempotent (same server version, same document).
+ * @param {string[]} entityIds - Entities whose last pending edit was just resolved.
+ * @param {Object} context - The apply context of the resolution.
+ * @returns {Promise<void>}
+ */
+async function replayDeferredTogether(entityIds, context) {
+    const buffers = deferredRemoteOps.forScope(context.scope);
+    const replays = [];
+    for (const entityId of entityIds) {
+        for (const op of buffers.get(entityId) ?? []) replays.push(op);
+    }
+    if (replays.length === 0) return;
+    replays.sort((a, b) => (a.serverVersion ?? 0) - (b.serverVersion ?? 0));
+    context.assertActive();
+    const applied = await applyRemoteOperations(replays, context);
+    context.assertActive();
+    if (applied === false) {
+        for (const entityId of entityIds) await replayDeferred(entityId, context);
+        return;
+    }
+    for (const entityId of entityIds) buffers.delete(entityId);
 }
 
 async function replayDeferred(entityId, context) {
@@ -919,10 +954,14 @@ export async function applyRemoteOperations(operations, options = {}) {
             index += run.length;
             continue;
         }
-        const end = index + Math.max(1, run.length);
-        for (; index < end; index++) {
-            if (await applyRemoteOperation(operations[index], options) === false) return false;
-        }
+        // ONE operation through the single path, then the run is measured again from the next one.
+        // A run falls back because a member is pending (the author's own echo arrives before the
+        // receipt) or older; with `waitForDeferred` the single path WAITS for that member's
+        // receipt, after which the rest of the run is usually clear. Applying the whole remainder
+        // one by one made the author pay a document read and write per operation for the rest of
+        // every push (753 of 1 000 on an import, measured on 2026-09-24).
+        if (await applyRemoteOperation(operations[index], options) === false) return false;
+        index += 1;
     }
     return true;
 }

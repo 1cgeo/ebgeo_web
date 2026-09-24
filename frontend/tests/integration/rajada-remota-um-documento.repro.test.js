@@ -198,6 +198,32 @@ describe('applyRemoteOperations: criacoes do mesmo quadro', () => {
         expect(mapDataStore.get('map-1').features.points[0].properties.nome).toBe('depois');
     });
 
+    it('os ecos do autor adiados ate o recibo sao reaplicados numa escrita so', async () => {
+        // O eco de um push volta pelo socket antes do recibo HTTP: cada feicao ainda esta pendente,
+        // o eco e adiado, e o recibo o reaplica. Um a um, importar 1 000 pontos custava 552 leituras
+        // do documento no autor (medido em 2026-09-24).
+        const ops = Array.from({ length: 40 }, (_, i) => create(`eco${i}`, { localRepair: true }));
+        for (const op of ops) markLocalEditPending(op.entityId);
+        for (const op of ops) expect(await applyRemoteOperation(op)).toBe(false);
+        expect(calls.saveMap).toBe(0);
+        await resolveLocalEdits(ops.map((op) => ({ entityId: op.entityId, serverVersion: op.serverVersion, localOp: null })));
+        expect(calls.saveMap).toBe(1);
+        expect(mapDataStore.get('map-1').features.points.map((f) => f.properties.id)).toEqual(ops.map((op) => op.entityId));
+    });
+
+    it('um membro pendente no inicio do quadro nao condena o resto a uma escrita por op', async () => {
+        // O eco do autor: o primeiro membro esta pendente e espera o recibo (`waitForDeferred`);
+        // depois do recibo os outros 24 estao livres e sao escritos juntos, e nao um a um.
+        const frame = Array.from({ length: 25 }, (_, i) => create(`pend${i}`, { localRepair: true }));
+        markLocalEditPending(frame[0].entityId);
+        const aplicando = applyRemoteOperations(frame, { waitForDeferred: true });
+        await vi.waitFor(() => expect(calls.getMap).toBe(0));
+        await resolveLocalEdits([{ entityId: frame[0].entityId, serverVersion: frame[0].serverVersion, localOp: null }]);
+        expect(await aplicando).toBe(true);
+        expect(mapDataStore.get('map-1').features.points).toHaveLength(25);
+        expect(calls.saveMap).toBe(2);
+    });
+
     it('o eco do proprio autor entra na corrida: uma escrita, sem aviso de sobrescrita', async () => {
         const eco = [create('r1', { localRepair: true, authorUserId: 'eu' }), create('r2', { localRepair: true, authorUserId: 'eu' })];
         await applyRemoteOperations(eco);
