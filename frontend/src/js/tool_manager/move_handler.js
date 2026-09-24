@@ -5,9 +5,10 @@
  * Implements tool-centric architecture for feature movement calculations.
  */
 
-import { getStateManager, isFeatureEffectivelyLocked } from '../store';
+import { getStateManager, isFeatureEffectivelyLocked, getCurrentMapFeatures, getStorageTypeFromSource } from '../store';
 import { isEditSurfaceInert } from './edit-surface.js';
 import { queryFeaturesAtPoint, rankHitRows } from './helpers/feature-hit-test.helpers.js';
+import { rebaseOnStored } from './helpers/pending-edit.helpers.js';
 
 class MoveHandler {
     /**
@@ -500,8 +501,12 @@ class MoveHandler {
      * @private
      */
     async _endDrag(finalPosition) {
-        // Guard against duplicate calls (race between mouse/touch events)
+        // Guard against duplicate calls (race between mouse/touch events). Claimed before the
+        // first await: the reread below would otherwise let the second call through.
         if (!this.selectedFeatures) return;
+        const moving = this.selectedFeatures;
+        const offsets = this.offsets;
+        this.selectedFeatures = null;
 
         if (this.rafId) {
             cancelAnimationFrame(this.rafId);
@@ -520,10 +525,17 @@ class MoveHandler {
         const tolerance = 2 / Math.pow(2, this.map.getZoom());
 
         if (distanceMoved > tolerance) {
-            this.tempCoords.lng = finalPosition.lng;
-            this.tempCoords.lat = finalPosition.lat;
+            const target = { lng: finalPosition.lng, lat: finalPosition.lat };
+            // THE MOVE IS APPLIED TO THE FEATURE AS STORED, not to the copy the selection took
+            // (2026-09-24). A peer's op does not reach that copy, and the move writes the WHOLE
+            // feature: it gave back the name a colleague changed and the keypoint he removed, on an
+            // up-to-date base (`tests/e2e-ui/trajetoria-arrasto-copia-velha.repro.spec.js`). The
+            // window left is the one between this read and the document lock of the write.
+            const base = await this._rebaseOnStore(moving);
+            this.tempCoords.lng = target.lng;
+            this.tempCoords.lat = target.lat;
 
-            const updatedFeatures = this._batchUpdateFeaturesToolCentric(this.selectedFeatures, dx, dy, this.tempCoords);
+            const updatedFeatures = this._batchUpdateFeaturesToolCentric(base, dx, dy, this.tempCoords, offsets);
 
             this.uiManager.shiftSelectionBoxes(dx, dy, true);
 
@@ -538,9 +550,33 @@ class MoveHandler {
             this.uiManager.updatePanels();
         }
 
-        this.selectedFeatures = null;
-        this.offsets = null;
-        this.initialCoordinates = null;
+        // A drag that started during the awaits above owns these now.
+        if (this.offsets === offsets) {
+            this.offsets = null;
+            this.initialCoordinates = null;
+        }
+    }
+
+    /**
+     * Each moving feature with the properties it has in the store now (`rebaseOnStored`).
+     * A failed read keeps the selection copies, which is the behaviour before the reread.
+     * @param {Array<Object>} features
+     * @returns {Promise<Array<Object>>}
+     * @private
+     */
+    async _rebaseOnStore(features) {
+        let stored;
+        try {
+            stored = await getCurrentMapFeatures();
+        } catch (error) {
+            console.warn('Move: could not reread the stored features:', error);
+            return features;
+        }
+        return features.map((feature) => {
+            const list = stored?.[getStorageTypeFromSource(feature.properties.source)];
+            const current = Array.isArray(list) ? list.find((f) => f.properties?.id === feature.properties.id) : null;
+            return rebaseOnStored(feature, current);
+        });
     }
 
     /**
@@ -605,15 +641,15 @@ class MoveHandler {
      * Batch update features using tool-centric approach.
      * @private
      */
-    _batchUpdateFeaturesToolCentric(features, dx, dy, newPos) {
+    _batchUpdateFeaturesToolCentric(features, dx, dy, newPos, offsets = this.offsets) {
         const updatedFeatures = new Array(features.length);
 
         for (let i = 0; i < features.length; i++) {
             const feature = features[i];
             const featureId = feature.properties.id;
 
-            if (featureId !== null && this.offsets.has(featureId)) {
-                const { offset } = this.offsets.get(featureId);
+            if (featureId !== null && offsets?.has(featureId)) {
+                const { offset } = offsets.get(featureId);
 
                 this.coordsPool.lng = newPos.lng + offset[0];
                 this.coordsPool.lat = newPos.lat + offset[1];

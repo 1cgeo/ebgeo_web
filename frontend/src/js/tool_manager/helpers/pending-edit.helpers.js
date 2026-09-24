@@ -112,3 +112,34 @@ export function mergePendingEdits(currentFeature, selectedFeature, initialProper
 
     return { ...currentFeature, properties, geometry };
 }
+
+/**
+ * A cópia MOSTRADA (seleção, editor de rota) reposta sobre a feição GUARDADA, para um gesto que
+ * escreve a feição inteira e não tem edição de painel a reaplicar: o arrasto (`move_handler.js`) e
+ * o arrasto da âncora da rota (`trajectory-edit-control.js`).
+ *
+ * A cópia da seleção é tirada quando a feição é selecionada, e a op do par não chega nela. Mover
+ * a partir dela devolvia o nome que o colega trocou e o ponto-chave que ele removeu, com a base
+ * já atualizada, então o servidor aceitava (2026-09-24,
+ * `tests/e2e-ui/trajetoria-arrasto-copia-velha.repro.spec.js`).
+ *
+ * As PROPRIEDADES vêm da guardada. Da mostrada ficam a GEOMETRIA, que é de onde o gesto partiu (a
+ * posição deslocada pela linha do tempo inclusive), e as chaves de RUNTIME (`_`, que
+ * `cleanFeature` descarta ao gravar), porque `_temporalHome` decide se o arrasto reancora a rota.
+ * Sem a guardada (o par a excluiu), devolve a mostrada, e a escrita não acha a feição.
+ *
+ * @param {Object} shown - A cópia de onde o gesto partiu.
+ * @param {Object} [stored] - A feição como está guardada agora.
+ * @returns {Object} Uma feição NOVA quando há guardada; senão, `shown`.
+ */
+export function rebaseOnStored(shown, stored) {
+    if (!shown?.properties || !stored?.properties) return shown;
+    const properties = { ...stored.properties };
+    for (const chave of Object.keys(shown.properties)) {
+        if (chave.startsWith('_')) properties[chave] = shown.properties[chave];
+    }
+    if (properties.source === undefined && shown.properties.source !== undefined) {
+        properties.source = shown.properties.source;
+    }
+    return { ...shown, properties };
+}

@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { mergePendingEdits, pendingPropertyEdits } from '../../src/js/tool_manager/helpers/pending-edit.helpers.js';
+import { mergePendingEdits, pendingPropertyEdits, rebaseOnStored } from '../../src/js/tool_manager/helpers/pending-edit.helpers.js';
 
 const feicao = (props, geometry = { type: 'LineString', coordinates: [[0, 0], [1, 1]] }) => ({
     type: 'Feature',
@@ -144,5 +144,52 @@ describe('mergePendingEdits', () => {
         expect(mergePendingEdits(null, feicao({}), {})).toBe(null);
         const f = feicao({});
         expect(mergePendingEdits(f, null, {})).toBe(f);
+    });
+});
+
+describe('rebaseOnStored', () => {
+    // O caso de ponta a ponta, com dois navegadores, é
+    // `tests/e2e-ui/trajetoria-arrasto-copia-velha.repro.spec.js`.
+    const ponto = (props, coordinates = [0, 0]) => ({
+        type: 'Feature', properties: { id: 'f1', source: 'military_symbol', ...props },
+        geometry: { type: 'Point', coordinates },
+    });
+
+    it('as propriedades vêm da guardada: o nome do par e a rota sem o ponto que ele removeu', () => {
+        const mostrada = ponto({ nome: 'antigo', trajetoria: [{ t: 1 }, { t: 2 }, { t: 3 }] });
+        const guardada = ponto({ nome: 'do par', trajetoria: [{ t: 1 }, { t: 2 }] });
+        const r = rebaseOnStored(mostrada, guardada);
+        expect(r.properties.nome).toBe('do par');
+        expect(r.properties.trajetoria).toEqual([{ t: 1 }, { t: 2 }]);
+    });
+
+    it('a chave que o par APAGOU não volta da mostrada', () => {
+        const r = rebaseOnStored(ponto({ temporalFim: 5 }), ponto({}));
+        expect('temporalFim' in r.properties).toBe(false);
+    });
+
+    it('a geometria mostrada e as chaves de runtime ficam (a posição deslocada e a casa)', () => {
+        const mostrada = ponto({ _temporalHome: [0, 0], nome: 'a' }, [7, 7]);
+        const guardada = ponto({ nome: 'b' }, [0, 0]);
+        const r = rebaseOnStored(mostrada, guardada);
+        expect(r.geometry.coordinates).toEqual([7, 7]);
+        expect(r.properties._temporalHome).toEqual([0, 0]);
+        expect(r.properties.nome).toBe('b');
+    });
+
+    it('sem a guardada (o par a excluiu) devolve a própria mostrada', () => {
+        const mostrada = ponto({ nome: 'a' });
+        expect(rebaseOnStored(mostrada, null)).toBe(mostrada);
+        expect(rebaseOnStored(mostrada, undefined)).toBe(mostrada);
+        expect(rebaseOnStored(null, ponto({}))).toBe(null);
+    });
+
+    it('guardada sem `source` herda o da mostrada, e nenhuma das duas é mutada', () => {
+        const mostrada = ponto({ nome: 'a' });
+        const guardada = { type: 'Feature', properties: { id: 'f1', nome: 'b' }, geometry: { type: 'Point', coordinates: [0, 0] } };
+        const r = rebaseOnStored(mostrada, guardada);
+        expect(r.properties.source).toBe('military_symbol');
+        expect(mostrada.properties.nome).toBe('a');
+        expect(guardada.properties.source).toBeUndefined();
     });
 });
