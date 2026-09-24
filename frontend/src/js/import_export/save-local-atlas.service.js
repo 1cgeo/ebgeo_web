@@ -8,7 +8,6 @@
 
 import { buildServerImportPayload } from './local-atlas-to-server.js';
 import { buildImageUploads } from './atlas-image-upload.js';
-import { blobDeDataUrl } from '@utils/image_utils.js';
 import { classifyMissingImages, missingImagesUploadConfirm, uploadCancelledError } from './ebgeo-missing-images.js';
 import { getImage, getAllMapNamesStore } from '@store';
 import { generateUUID } from '@utils/uuid.js';
@@ -25,7 +24,7 @@ import { tamanhoDoEnvio } from '@js/projects/server-send-phrases.js';
  * 2c das fotos anexas) e sao procurados ali primeiro.
  * @param {string[]} imageIds - Ids LOCAIS dos blobs.
  * @param {Object} imageIdMap - `{ localId: novoId }`.
- * @param {Map<string, string>} [inlineImages] - Data URL de cada foto inline, pelo id local.
+ * @param {Map<string, Blob>} [inlineImages] - Os bytes de cada foto inline, pelo id local.
  * @returns {Promise<{ uploads: Array<Object>, skipped: string[], missing: string[] }>} `missing`
  *   holds LOCAL ids.
  */
@@ -33,8 +32,7 @@ async function collectImageUploads(imageIds, imageIdMap, inlineImages = new Map(
     const found = [];
     const missing = [];
     for (const id of imageIds) {
-        const inline = inlineImages.get(id);
-        const blob = inline ? blobDeDataUrl(inline) : await getImage(id);
+        const blob = inlineImages.get(id) ?? await getImage(id);
         if (!blob) { missing.push(id); continue; }
         found.push([imageIdMap[id] || id, blob]);
     }

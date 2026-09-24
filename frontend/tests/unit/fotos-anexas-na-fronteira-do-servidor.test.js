@@ -114,7 +114,7 @@ describe('buildServerImportPayload: a foto anexa na fronteira do servidor', () =
         expect(new Set(imageIds)).toEqual(new Set([ids.inline, ids.ref, ids.m3d, ids.s360]));
     });
 
-    it('a inline perde os bytes no payload, guarda miniatura e nome, e os bytes voltam em inlineImages', () => {
+    it('a inline perde os bytes no payload, guarda miniatura e nome, e os bytes voltam em inlineImages', async () => {
         const ids = novosIds();
         const dados = documento(ids);
         const sondagem = buildServerImportPayload(dados, { name: 'A' });
@@ -131,7 +131,10 @@ describe('buildServerImportPayload: a foto anexa na fronteira do servidor', () =
         // A duplicata cita o MESMO id novo, e os bytes aparecem uma vez só.
         expect(segunda.properties.images[0].id).toBe(imageIdMap[ids.inline]);
         expect([...built.inlineImages.keys()].sort()).toEqual([ids.inline, ids.m3d].sort());
-        expect(built.inlineImages.get(ids.inline)).toBe(dados.maps['Mapa A'].features.points[0].properties.images[0].data);
+        // Os bytes DECODIFICADOS (item 7 da revisão): a mesma foto, tipada pelos bytes.
+        const bytesDaInline = built.inlineImages.get(ids.inline);
+        expect(bytesDaInline.type).toBe('image/jpeg');
+        expect(new Uint8Array(await bytesDaInline.arrayBuffer())).toEqual(jpegBytes('inline'));
 
         const marcador3d = built.payload.maps[0].cesium3dData.find((r) => r.data_type === 'marker');
         expect(marcador3d.data.images).toEqual([{ id: imageIdMap[ids.m3d], name: 'm.png', type: 'image/png', thumbnail: MINIATURA }]);
@@ -165,9 +168,25 @@ describe('buildServerImportPayload: a foto anexa na fronteira do servidor', () =
         expect(built.inlineImages.size).toBe(0);
         expect(built.payload.maps[0].features[0].properties.images[0].data).toBe(grande);
         // Controle do próprio caso: um byte abaixo do teto, a mesma foto sobe.
-        const cabe = `data:image/jpeg;base64,${cabeca}${'A'.repeat(Math.floor((10 * 1024 * 1024 - 12) * 4 / 3))}`;
-        dados.maps.M.features.points[0].properties.images[0].data = cabe;
+        const cabe = `data:image/jpeg;base64,${cabeca}${'A'.repeat(Math.floor((10 * 1024 * 1024 - 12) / 3) * 4)}`;
+        // Um objeto NOVO, como num documento novo: a decisão é memorizada por objeto de foto.
+        dados.maps.M.features.points[0].properties.images[0] = { id, data: cabe, thumbnail: MINIATURA };
         expect(buildServerImportPayload(dados, { name: 'A' }).imageIds).toEqual([id]);
+    });
+
+    // DECODIFICA ANTES DE DECIDIR (revisão, item 7): uma cabeça de JPEG válida sobre um corpo que não
+    // decodifica perdia o `data` e chegava ao servidor como referência sem bytes, contada como
+    // ausente. Agora fica inline, e o que é citado e o que é convertido não podem discordar.
+    it('foto inline cujo corpo não decodifica fica inline e não é citada', () => {
+        const id = generateUUID();
+        // A cabeça (os primeiros bytes, que decidem o tipo) decodifica; o corpo, não.
+        const quebrada = `${dataUrl('image/jpeg', jpegBytes('x'.repeat(60)))}@@@corpo-quebrado`;
+        const dados = { maps: { M: { features: { points: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: { id: generateUUID(), source: 'point', images: [{ id, data: quebrada, thumbnail: MINIATURA }] } }] } } } };
+        const built = buildServerImportPayload(dados, { name: 'A' });
+        expect(built.imageIds).toEqual([]);
+        expect(built.inlineImages.size).toBe(0);
+        expect(built.payload.maps[0].features[0].properties.images[0].data).toBe(quebrada);
+        expect(importImageIds(built.payload).size).toBe(0);
     });
 
     it('foto inline SEM miniatura fica inline: a galeria desenha a de referência pela miniatura', () => {

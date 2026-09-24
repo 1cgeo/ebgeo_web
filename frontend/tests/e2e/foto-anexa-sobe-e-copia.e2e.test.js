@@ -15,7 +15,6 @@ import { describe, it, beforeAll, expect } from 'vitest';
 import { E2E_SKIP, makeApi, registerAndLogin } from './helpers/harness.js';
 import { buildServerImportPayload } from '../../src/js/import_export/local-atlas-to-server.js';
 import { buildImageUploads } from '../../src/js/import_export/atlas-image-upload.js';
-import { blobDeDataUrl } from '../../src/js/utilities/image_utils.js';
 import { generateUUID } from '../../src/js/utilities/uuid.js';
 
 // `FileReader` não é global do Node, e `blobToBase64` depende dele. Lê o blob de verdade.
@@ -72,8 +71,7 @@ describe.skipIf(E2E_SKIP)('e2e: a foto anexa sobe ao servidor e sobrevive à có
         const imageIdMap = Object.fromEntries(sondagem.imageIds.map((id) => [id, generateUUID()]));
         const built = buildServerImportPayload(exportData, { name: 'Atlas com fotos', imageIdMap });
         const found = built.imageIds.map((id) => {
-            const inline = built.inlineImages.get(id);
-            return [imageIdMap[id], inline ? blobDeDataUrl(inline) : discoLocal.get(id)];
+            return [imageIdMap[id], built.inlineImages.get(id) ?? discoLocal.get(id)];
         });
         const { uploads, skipped } = await buildImageUploads(found);
         expect(skipped).toEqual([]);

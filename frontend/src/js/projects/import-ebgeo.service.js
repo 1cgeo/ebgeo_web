@@ -21,7 +21,6 @@ import { migrateImportDataToV2 } from '@js/import_export/import-normalize.js';
 import { generateUUID } from '@utils/uuid.js';
 import { buildServerImportPayload } from '@js/import_export/local-atlas-to-server.js';
 import { buildImageUploads } from '@js/import_export/atlas-image-upload.js';
-import { blobDeDataUrl } from '@utils/image_utils.js';
 import { classifyMissingImages, missingImagesUploadConfirm, uploadCancelledError } from '@js/import_export/ebgeo-missing-images.js';
 import { atlasNameFromFilename } from './ebgeo-filename.js';
 
@@ -99,10 +98,8 @@ export async function importEbgeoAsAtlas(file, { apiClient, name, confirmMissing
     // THE INLINE PHOTO GOES UP AS A BLOB TOO (phase 2c of the attached photos): a file written by a
     // local atlas before phase 2b carries its photos as data URLs inside the document, and the
     // transform took them out of the payload, so their bytes travel from here.
-    for (const [id, dataUrl] of built.inlineImages) {
+    for (const [id, blob] of built.inlineImages) {
         if (!wanted.has(id)) continue;
-        const blob = blobDeDataUrl(dataUrl);
-        if (!blob) continue;
         foundIds.add(id);
         found.push([imageIdMap[id], blob]);
     }

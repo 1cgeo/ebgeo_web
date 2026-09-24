@@ -52,7 +52,6 @@ import { countAtlasContents } from '@store/atlas-contents.js';
 import { buildServerImportPayload } from '@js/import_export/local-atlas-to-server.js';
 import { tamanhoDoEnvio } from './server-send-phrases.js';
 import { buildImageUploads } from '@js/import_export/atlas-image-upload.js';
-import { blobDeDataUrl } from '@utils/image_utils.js';
 import { generateUUID } from '@utils/uuid.js';
 import { classifyMissingImages, missingImagesUploadConfirm, uploadCancelledError } from '../import_export/ebgeo-missing-images.js';
 
@@ -409,8 +408,7 @@ export async function sendLocalAtlasToServer(entry, { apiClient, scopeOf, name, 
     for (const id of built.imageIds) {
         // An INLINE photo goes up as a blob from here on, and its bytes are in the document, not
         // in the store (phase 2c, `buildServerImportPayload`).
-        const inline = built.inlineImages.get(id);
-        const blob = inline ? blobDeDataUrl(inline) : await getStoreFor(StoreName.IMAGES, scope).getItem(id);
+        const blob = built.inlineImages.get(id) ?? await getStoreFor(StoreName.IMAGES, scope).getItem(id);
         // A MISSING ORIGINAL IS A QUESTION, NOT A REFUSAL (2026-09-21). It used to throw here, and
         // one picture with no file made the whole atlas unpublishable, forever, without saying
         // which picture. See `missingImagesUploadConfirm`.

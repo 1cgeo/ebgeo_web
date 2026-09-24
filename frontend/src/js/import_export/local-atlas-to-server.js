@@ -29,7 +29,7 @@ import { pruneCatalogLayerDefinitions } from '@catalog/catalog-layer.ref.js';
 import { normalizeLegacyDeclinationProperties, ensureMapDataShape } from '@store/repository.utils.js';
 import { normalizeSlideControls } from '@js/briefing/slide-controls.js';
 import { isDerivedOutputBucket } from '@store/analysis-output.js';
-import { mimeDeFotoInlineQueSobe } from '@utils/image_utils.js';
+import { mimeDeFotoInlineQueSobe, blobDeDataUrl } from '@utils/image_utils.js';
 import { fotoTemBytesInline, idDeFotoPorReferencia } from '@js/user_data/photo-refs.js';
 
 /** Server-accepted feature types (mirror of backend `VALID_FEATURE_TYPES`). */
@@ -119,40 +119,68 @@ function slideResourceRef(value) {
     return ref;
 }
 
+/** The decoding of each inline photo, once per photo object for both passes (see below). */
+const _decodificadas = new WeakMap();
+
+/**
+ * The type and the DECODED bytes of an inline photo that goes up as a blob, or null when it stays
+ * inline (`mimeDeFotoInlineQueSobe`, `utilities/image_utils.js`, says which ones stay and why:
+ * staying is how they always travelled, so it costs nothing).
+ *
+ * DECODED BEFORE ANYTHING IS DECIDED (2026-09-24, review, item 7). The head of a data URL can be a
+ * valid JPEG over a body that does not decode; the photo used to lose its `data` first, then the
+ * decode failed, and the picture reached the server as a reference with no bytes anywhere and was
+ * counted as missing. A photo that does not decode now stays inline, and `collectImageIds` and
+ * `converterFotos` ask this same question, so what is cited and what is converted cannot disagree.
+ * Memoised by the photo object: the send builds the payload twice (the probe and the real one) over
+ * the same document, and each photo is decoded once.
+ *
+ * @param {*} foto - An item of an `images` array
+ * @returns {{mime: string, blob: Blob}|null}
+ */
+function fotoInlineQueSobe(foto) {
+    if (!foto || typeof foto !== 'object') return null;
+    if (_decodificadas.has(foto)) return _decodificadas.get(foto);
+    const mime = mimeDeFotoInlineQueSobe(foto);
+    const blob = mime ? blobDeDataUrl(foto.data) : null;
+    const resposta = mime && blob ? { mime, blob } : null;
+    _decodificadas.set(foto, resposta);
+    return resposta;
+}
+
 /**
  * The image id a photo item makes the caller upload: a reference, or an inline photo that goes up
- * (`mimeDeFotoInlineQueSobe`, `utilities/image_utils.js`, which says which ones stay inline and why:
- * staying is how they always travelled, so it costs nothing).
+ * ({@link fotoInlineQueSobe}).
  * @param {*} foto - An item of an `images` array
  * @returns {string|null}
  */
 function idDeFotoQueSobe(foto) {
-    return mimeDeFotoInlineQueSobe(foto) ? foto.id : idDeFotoPorReferencia(foto);
+    return fotoInlineQueSobe(foto) ? foto.id : idDeFotoPorReferencia(foto);
 }
 
 /**
  * Rewrites an `images` array (the photos of a feature, of a 3D or 360 item) for the server.
  *
- * A reference points at its uploaded id. An inline photo that goes up (`mimeDeFotoInlineQueSobe`)
+ * A reference points at its uploaded id. An inline photo that goes up ({@link fotoInlineQueSobe})
  * loses `data`, keeps everything else (the `thumbnail` above all, which the entity carries so the
- * gallery draws without fetching the photo) and records its bytes in `fotosInline` under the LOCAL
- * id, first occurrence winning: a duplicated feature carries the same photo twice, and it is one
+ * gallery draws without fetching the photo) and records its DECODED bytes in `fotosInline` under the
+ * LOCAL id, first occurrence winning: a duplicated feature carries the same photo twice, and it is one
  * blob. `type` follows the bytes, because an old item kept the type of the file that was picked,
  * not of the JPEG it was re-encoded into.
  *
  * @param {Array} fotos
  * @param {Object} imageIdMap - `{ localId: serverId }`.
- * @param {Map<string, string>} fotosInline - Mutated: local id to data URL.
+ * @param {Map<string, Blob>} fotosInline - Mutated: local id to the decoded bytes.
  * @returns {Array}
  */
 function converterFotos(fotos, imageIdMap, fotosInline) {
     return fotos.map((foto) => {
         if (typeof foto === 'string') return imageIdMap[foto] || foto;
-        const mime = mimeDeFotoInlineQueSobe(foto);
-        if (mime) {
-            if (!fotosInline.has(foto.id)) fotosInline.set(foto.id, foto.data);
+        const sobe = fotoInlineQueSobe(foto);
+        if (sobe) {
+            if (!fotosInline.has(foto.id)) fotosInline.set(foto.id, sobe.blob);
             const { data: _bytes, ...semBytes } = foto;
-            return { ...semBytes, id: imageIdMap[foto.id] || foto.id, type: mime };
+            return { ...semBytes, id: imageIdMap[foto.id] || foto.id, type: sobe.mime };
         }
         if (!fotoTemBytesInline(foto) && foto?.id && imageIdMap[foto.id]) return { ...foto, id: imageIdMap[foto.id] };
         return foto;
@@ -165,7 +193,7 @@ function converterFotos(fotos, imageIdMap, fotosInline) {
  * rewrite.
  * @param {Object} item
  * @param {Object} imageIdMap - `{ localId: serverId }`.
- * @param {Map<string, string>} fotosInline - Mutated: local id to data URL.
+ * @param {Map<string, Blob>} fotosInline - Mutated: local id to the decoded bytes.
  * @returns {Object}
  */
 function rewriteItemImages(item, imageIdMap, fotosInline) {
@@ -386,9 +414,9 @@ function collectImageIds(buckets, c3d, sv, sink) {
  *   `data`): `{ maps, layers, groups, cesium3d, streetview360, temporal, gridStyle, mapNotes,
  *   colorUsage, briefings, customIcons, mapOrder, currentMap }`.
  * @param {Object} meta - `{ name, description, imageIdMap? }`; `imageIdMap` is `{ localId: serverId }`.
- * @returns {{ payload: Object, imageIds: string[], inlineImages: Map<string, string>, stats: Object, mapNameToId: Object }}
+ * @returns {{ payload: Object, imageIds: string[], inlineImages: Map<string, Blob>, stats: Object, mapNameToId: Object }}
  *   `payload` ready for `apiClient.importAtlas`; `imageIds` (LOCAL ids) to bulk-upload;
- *   `inlineImages` the data URL of every inline photo among them, by local id; `mapNameToId`
+ *   `inlineImages` the decoded bytes of every inline photo among them, by local id; `mapNameToId`
  *   maps local map names → assigned server map UUIDs (for briefing/ref resolution + UI).
  */
 export function buildServerImportPayload(exportData, meta = {}) {
