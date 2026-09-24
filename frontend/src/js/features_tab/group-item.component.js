@@ -293,42 +293,43 @@ export function toggleGroupExpansion(container, groupId, setCollapsed) {
 /**
  * Toggles group visibility.
  *
+ * The members' `visivel` is NOT written, on the store or on the source: a hidden group is a clause
+ * of the render filter (`setHiddenFeatureIds`, `layers/visibility-filter.js`), read from the
+ * group's own `visible`, which is what reaches a peer and survives an F5. Until 2026-09-24 this
+ * function patched each member's `visivel` on the author's MapLibre source instead, so only the
+ * author's session ever stopped drawing the group, and showing it again painted `visivel: true`
+ * over a member that was hidden on its own.
+ *
  * @param {string} groupId - Group ID
  * @param {boolean} currentVisibility - Current visibility state
- * @param {Function} propagatePropertyToSource - Function to propagate to map source
+ * @param {Function} reapplyGroupVisibility - Reapplies the render filter from the stored groups
  * @param {Function} updateVisualState - Function to update visual state
  */
 export async function toggleGroupVisibility(
     groupId,
     currentVisibility,
-    propagatePropertyToSource,
+    reapplyGroupVisibility,
     updateVisualState
 ) {
     try {
-        const newVisibility = !currentVisibility;
+        // THE STORED STATE, NOT THE ONE THE ROW WAS DRAWN WITH. The row's click handler closes over
+        // the `visible` of the render that built it, and the tree is not rebuilt after this toggle
+        // (it used to be, by accident: the source patch this function wrote fired `sourcedata`).
+        // Trusting the argument made the second click on the same row repeat the first one.
+        const stored = getMapGroups(getCurrentMapNameSync())?.[groupId];
+        const visibleNow = stored ? stored.visible !== false : currentVisibility;
+        const newVisibility = !visibleNow;
 
         // THE STORE'S ANSWER DECIDES (2026-09-21). A refusal does not throw: the facade returns a
         // falsy value for role, locked map and a map the atlas no longer has, and the refusal
         // already speaks through the global listener. Ignoring it painted the new state on the
-        // MapLibre source and on this row while the store kept the old one.
+        // map and on this row while the store kept the old one.
         const updated = await updateGroupProperty(groupId, 'visible', newVisibility);
         if (!updated) return;
 
-        const currentMapName = getCurrentMapNameSync();
-        const groups = getMapGroups(currentMapName);
-        const group = groups[groupId];
-        if (group) {
-            for (const featureRef of group.features) {
-                const storageType = getStorageTypeFromSource(featureRef.type);
-                if (!storageType) {
-                    console.error(`Could not convert type ${featureRef.type} to storage type`);
-                    continue;
-                }
-                await propagatePropertyToSource(storageType, featureRef.id, 'visivel', newVisibility);
-            }
-        }
+        reapplyGroupVisibility();
 
-        updateVisualState(groupId, newVisibility, currentVisibility);
+        updateVisualState(groupId, newVisibility, visibleNow);
     } catch (error) {
         console.error('Error changing group visibility:', error);
     }

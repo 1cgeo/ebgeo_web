@@ -13,10 +13,80 @@
 
 import { FEATURE_LAYER_IDS, HATCH_PATTERN_LAYERS, LAYER_ADDITIONAL_FILTERS } from './layer.constants.js';
 import { getVisibleLayerIds } from '../store';
+import { isActive } from '../store/sync/sync-metadata.js';
 
 const VISIBLE_FILTER = ['!=', ['get', 'visivel'], false];
 
 let cachedVisibleLayerIds = null;
+
+/**
+ * Ids of the features a HIDDEN GROUP holds, kept out of every feature layer.
+ *
+ * A GROUP'S VISIBILITY IS SHARED STATE, and until 2026-09-24 only its author ever saw it. The
+ * group's `visible` travels by sync operation and the server persists it (`groups.visible`), but
+ * hiding a group used to be a session-only patch of each member's `visivel` on the author's
+ * MapLibre source. Measured with two browsers: the peer's tree showed the group hidden while the
+ * members stayed drawn, and the author's own F5 drew them again under a tree that still said
+ * hidden. The same patch also broke the member's OWN state: showing the group wrote
+ * `visivel: true` over a member hidden on its own. So the rule moved here, next to the layer
+ * membership clause it mirrors: a member of a hidden group is not drawn, whoever hid it and
+ * whenever the map was loaded, and the feature's `visivel` is never touched.
+ *
+ * Pushed rather than read, so this module keeps a single import from the store barrel (several
+ * unit suites mock that barrel with `getVisibleLayerIds` alone). `layers/layer_setup.js` is the
+ * writer, from the groups of the current map, on every group or layer change.
+ * @type {string[]}
+ */
+let hiddenFeatureIds = [];
+let hiddenFeatureKey = '';
+
+/**
+ * Replaces the set of feature ids hidden by their group. Caller must follow with
+ * updateAllLayerFilters() to take effect.
+ * @param {Iterable<string>|null|undefined} ids
+ */
+export function setHiddenFeatureIds(ids) {
+    const unique = new Set();
+    for (const id of ids || []) {
+        if (typeof id === 'string' && id !== '') unique.add(id);
+    }
+    hiddenFeatureIds = [...unique].sort();
+    hiddenFeatureKey = hiddenFeatureIds.join(',');
+}
+
+/**
+ * The feature ids to hide because their group is hidden.
+ *
+ * Only ACTIVE groups count (`isActive`, the rule the layers tab and the lock predicate use), so
+ * a deleted group hides nothing. The processed outputs of line of sight and visibility carry
+ * their parent's id with a suffix (`add_los_control.js`, `add_visibility_control.js`), and they
+ * go too, or hiding a group would leave its analysis drawn without the line that produced it.
+ * @param {Object<string, Object>|null|undefined} groups - Groups of one map, keyed by id.
+ * @returns {string[]}
+ */
+export function hiddenGroupMemberIds(groups) {
+    const ids = [];
+    if (!groups || typeof groups !== 'object') return ids;
+    for (const group of Object.values(groups)) {
+        if (!group || group.visible !== false || !isActive(group.sync)) continue;
+        for (const ref of Array.isArray(group.features) ? group.features : []) {
+            if (typeof ref?.id !== 'string' || ref.id === '') continue;
+            ids.push(ref.id);
+            if (ref.type === 'los' || ref.type === 'visibility') {
+                ids.push(`${ref.id}-visible`, `${ref.id}-obstructed`);
+            }
+        }
+    }
+    return ids;
+}
+
+/**
+ * @returns {Array<Array>} The hidden-group clause ([] when no group is hidden).
+ */
+function hiddenGroupClauses() {
+    if (hiddenFeatureIds.length === 0) return [];
+    return [['!', ['in', ['get', 'id'], ['literal', hiddenFeatureIds]]]];
+}
 
 /**
  * Active temporal window [start, end] (epoch ms), or null when temporal control
@@ -124,7 +194,7 @@ function buildLayerFilter(visibleLayerIds) {
  */
 export function createLayerVisibilityFilter(visibleLayerIds, additionalFilters) {
     const layerFilter = buildLayerFilter(visibleLayerIds);
-    const extra = [...(additionalFilters || []), ...temporalClauses()];
+    const extra = [...(additionalFilters || []), ...hiddenGroupClauses(), ...temporalClauses()];
     if (extra.length) {
         return ['all', VISIBLE_FILTER, layerFilter, ...extra];
     }
@@ -142,7 +212,7 @@ export function createHatchLayerFilter(visibleLayerIds, hatchEnabled) {
         ? [['==', ['get', 'hatchEnabled'], true], ['has', 'hatchPatternId']]
         : [['!=', ['get', 'hatchEnabled'], true]];
 
-    return ['all', VISIBLE_FILTER, buildLayerFilter(visibleLayerIds), ...hatchFilters, ...temporalClauses()];
+    return ['all', VISIBLE_FILTER, buildLayerFilter(visibleLayerIds), ...hatchFilters, ...hiddenGroupClauses(), ...temporalClauses()];
 }
 
 /**
@@ -156,7 +226,7 @@ export function updateAllLayerFilters(mapInstance) {
     // Cheap cache key (runs every frame during playback): join the ids instead of
     // JSON.stringify — layer ids are plain strings, so a delimiter join is unique
     // enough and avoids the per-frame serializer cost.
-    const cacheKey = `${activeTemporalCursor}|${activeTemporalCursorEnd}|${revealMode}|${visibleLayerIds.join(',')}`;
+    const cacheKey = `${activeTemporalCursor}|${activeTemporalCursorEnd}|${revealMode}|${visibleLayerIds.join(',')}|${hiddenFeatureKey}`;
     if (cachedVisibleLayerIds === cacheKey) return;
     cachedVisibleLayerIds = cacheKey;
 

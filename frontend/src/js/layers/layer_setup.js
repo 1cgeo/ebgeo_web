@@ -6,7 +6,7 @@ import { loadImageToMap } from '../utilities/map-image-loader.js';
  * @fileoverview Main layer setup orchestrator for MapLibre.
  */
 
-import { getCurrentMapFeatures, getImage, hasImage, getCurrentMapNameSync, getGridStyle, getCatalogLayers, getControl } from '../store';
+import { getCurrentMapFeatures, getImage, hasImage, getCurrentMapNameSync, getGridStyle, getCatalogLayers, getControl, getMapGroups } from '../store';
 import { getImageRegenerator } from './image-regen-registry.js';
 
 import { collectImageResourceFeatures, collectImageResourceRatios } from './feature-images.js';
@@ -21,7 +21,10 @@ import { generatePointImage, needsPerFeatureImage, pointImageSignature } from '.
 import { parseCustomMarker, registerCustomFeatureImage } from '../draw_tools/point_tool/point-custom-icons.js';
 import { clearAllMeasurementMarkers } from '../draw_tools/line_tool/line_measurement.js';
 import { resolveSetupMode } from './setup-mode.js';
-import { updateAllLayerFilters, invalidateFilterCache, updateMeasurementLabelVisibility } from './visibility-filter.js';
+import {
+    updateAllLayerFilters, invalidateFilterCache, updateMeasurementLabelVisibility,
+    setHiddenFeatureIds, hiddenGroupMemberIds,
+} from './visibility-filter.js';
 import { applyLayerOpacities, invalidateOpacityCache } from './layer-opacity-applier.js';
 import { installEmptySourceVisibility } from './empty-source-visibility.js';
 import {
@@ -504,12 +507,40 @@ async function setupGridLayers(mapInstance) {
 let layerVisibilityUnsub = null;
 
 function setupLayerVisibilityListener(mapInstance, eventBus) {
-    return eventBus.on(EventTypes.LAYERS_CHANGED, () => {
+    const offLayers = eventBus.on(EventTypes.LAYERS_CHANGED, () => {
         invalidateFilterCache();
+        pushHiddenGroupMembers();
         updateAllLayerFilters(mapInstance);
         updateMeasurementLabelVisibility();
         applyLayerOpacities(mapInstance);
     });
+    // A group's visibility reaches this map by GROUPS_CHANGED when it comes from a peer or from a
+    // snapshot (`remote-operation-handler.js` emits it for both); the local toggle calls
+    // `applyGroupVisibility` directly, because `updateGroupProperty` leaves the event to its
+    // caller.
+    const offGroups = eventBus.on(EventTypes.GROUPS_CHANGED, () => applyGroupVisibility(mapInstance));
+    return () => {
+        offLayers?.();
+        offGroups?.();
+    };
+}
+
+/** Pushes the members of the current map's hidden groups to the visibility filter. */
+function pushHiddenGroupMembers() {
+    setHiddenFeatureIds(hiddenGroupMemberIds(getMapGroups(getCurrentMapNameSync())));
+}
+
+/**
+ * Re-reads the hidden groups of the current map and reapplies the feature filters.
+ *
+ * The one entry for "a group's visibility changed": the filter owns it (see `setHiddenFeatureIds`
+ * in `visibility-filter.js`), so no caller writes `visivel` on a source to hide a group.
+ * @param {Object} mapInstance - MapLibre map instance
+ */
+export function applyGroupVisibility(mapInstance) {
+    if (!mapInstance) return;
+    pushHiddenGroupMembers();
+    updateAllLayerFilters(mapInstance);
 }
 
 /**
@@ -624,6 +655,7 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
 
         if (layerVisibilityUnsub) layerVisibilityUnsub();
         layerVisibilityUnsub = setupLayerVisibilityListener(mapInstance, eventBus);
+        pushHiddenGroupMembers();
         updateAllLayerFilters(mapInstance);
         applyLayerOpacities(mapInstance);
 

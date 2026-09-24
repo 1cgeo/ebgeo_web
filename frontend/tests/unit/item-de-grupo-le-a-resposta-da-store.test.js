@@ -33,9 +33,12 @@ function corpoDe(nome) {
     return resto.slice(0, fim === -1 ? undefined : fim);
 }
 
+// O efeito no MAPA de cada gesto. O do olho deixou de ser um remendo de `visivel` na fonte em
+// 2026-09-24 (grupo oculto só sumia na sessão de quem ocultou): ele reaplica o filtro de desenho a
+// partir dos grupos guardados, e é essa chamada que a recusa tem de preceder.
 const GESTOS = [
-    { funcao: 'toggleGroupVisibility', propriedade: 'visible', efeito: 'updateVisualState(' },
-    { funcao: 'toggleGroupLock', propriedade: 'locked', efeito: 'updateLockState(' },
+    { funcao: 'toggleGroupVisibility', propriedade: 'visible', mapa: 'reapplyGroupVisibility(', efeito: 'updateVisualState(' },
+    { funcao: 'toggleGroupLock', propriedade: 'locked', mapa: 'propagatePropertyToSource(', efeito: 'updateLockState(' },
 ];
 
 describe('o olho e o cadeado do grupo leem a resposta da store', () => {
@@ -50,7 +53,7 @@ describe('o olho e o cadeado do grupo leem a resposta da store', () => {
         it(`${g.funcao}: a recusa sai ANTES de propagar para o mapa e ANTES de pintar a linha`, () => {
             const corpo = corpoDe(g.funcao);
             const leitura = corpo.search(/if \(!updated\) return;/);
-            const propaga = corpo.indexOf('propagatePropertyToSource(');
+            const propaga = corpo.indexOf(g.mapa);
             const efeito = corpo.indexOf(g.efeito);
             expect(leitura, 'a resposta da store deixou de ser lida').toBeGreaterThan(-1);
             expect(propaga).toBeGreaterThan(-1);

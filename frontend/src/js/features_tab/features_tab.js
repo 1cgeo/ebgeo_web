@@ -73,6 +73,7 @@ import { assinarEdicaoIndisponivel, semEdicaoSync } from '@store/edicao-indispon
 import { getActiveScope } from '@store/atlas-namespace.js';
 import { EventTypes } from '@events';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+import { applyGroupVisibility } from '@layers/layer_setup.js';
 import { showConfirm, showLayerTransferModal } from '@modals';
 import { isViewer3DOpen } from '@utils/viewer3d-state.js';
 import { showError, showSuccess } from '@utils';
@@ -699,7 +700,7 @@ export class FeaturesTab {
         await toggleGroupVisibility(
             groupId,
             currentVisibility,
-            (type, id, prop, val) => this._propagateFeaturePropertyToSource(type, id, prop, val),
+            () => applyGroupVisibility(this.map),
             (id, visible) => updateGroupVisualState(this.container, id, visible)
         );
     }
