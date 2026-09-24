@@ -14,6 +14,7 @@ import {
     handleQuillImageUpload
 } from '@utils/quill-helpers.js';
 import { showSuccess, showError } from '@utils/index.js';
+import { escapeHtml } from '@utils/html-escape.js';
 
 // Re-export for backward compatibility
 export { sanitizeQuillHtml, cleanQuillContent } from '@utils/quill-helpers.js';
@@ -323,8 +324,11 @@ export async function createNotesPanelContent({ mapName, readOnly = false }) {
  * @param {string} mapName - Map name for filename
  */
 function _downloadNotes(notesData, mapName) {
-    const title = notesData.title || 'Sem título';
-    const description = notesData.description || '';
+    // The file is a render point like the panel: notes come from colleagues and from `.ebgeo`
+    // files, and the person opens this one in the browser
+    // (tests/e2e-ui/cobertura-exportar-notas.spec.js).
+    const title = escapeHtml(notesData.title || 'Sem título');
+    const description = sanitizeQuillHtml(notesData.description || '');
 
     const html = `<!DOCTYPE html>
 <html lang="pt-BR">
