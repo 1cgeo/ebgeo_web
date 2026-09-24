@@ -538,6 +538,23 @@ class MapManager {
     }
 
     /**
+     * The action the next undo would run, without taking it off the stack. Read by the lock
+     * question of `undoLastAction` (`store.js`), which has to refuse BEFORE the pop so the
+     * refused entry stays available once the lock is lifted.
+     * @returns {Object|null}
+     */
+    peekUndoAction() {
+        const stack = this._getUndoStack();
+        return stack.length ? stack[stack.length - 1] : null;
+    }
+
+    /** Twin of {@link peekUndoAction} for the redo stack. @returns {Object|null} */
+    peekRedoAction() {
+        const stack = this._getRedoStack();
+        return stack.length ? stack[stack.length - 1] : null;
+    }
+
+    /**
      * Releases image blobs for delete actions that have been evicted from undo
      * history (so the deletion is now permanent). Handles single 'removeWithProcessed'
      * actions and 'batch' wrappers. Best-effort and async — never throws into

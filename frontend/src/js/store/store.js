@@ -17,7 +17,7 @@ import {
 } from './repository.utils.js';
 import { ATLAS_SCHEMA_VERSION } from './atlas/atlas.entity.js';
 import { resetMemoryStore, memoryStore } from './memory-store.js';
-import { setStoreErrorEventBus } from './store-errors.js';
+import { setStoreErrorEventBus, emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { registerStoreErrorListeners } from './store-error-listener.js';
 import {
     initializeRepository,
@@ -82,8 +82,11 @@ import {
     addFeatureToMap,
     removeFeatureFromMap,
     rederiveAnalysisOutput,
-    moveFeaturesToLayer as moveFeaturesToLayerBase
+    moveFeaturesToLayer as moveFeaturesToLayerBase,
+    getFeatureById,
+    featureLockState
 } from './feature.operations.js';
+import { featureLockNotice } from './denial-phrases.js';
 import {
     setMapDependencies,
     getCurrentMapNameSync,
@@ -905,12 +908,90 @@ const undoRedoExecutors = {
 };
 
 /**
+ * The features an undo/redo entry would write, as [storageType, feature] pairs.
+ *
+ * `moveBetweenMaps` is left out: it writes into another map, out of the scope the client locks
+ * answer for (the layer memory holds the current map only).
+ * @param {Object|null} action
+ * @param {Array} [out]
+ * @returns {Array<[string, Object]>}
+ */
+function undoRedoFeatures(action, out = []) {
+    if (!action || typeof action !== 'object') return out;
+    switch (action.type) {
+        case 'add':
+        case 'remove':
+            out.push([action.featureType, action.feature]);
+            break;
+        case 'update':
+            out.push([action.featureType, action.newFeature ?? action.oldFeature]);
+            break;
+        case 'removeWithProcessed':
+            out.push([action.mainFeatureType, action.mainFeature]);
+            break;
+        case 'updateWithProcessed':
+            out.push([action.mainFeatureType, action.newFeature ?? action.oldFeature]);
+            break;
+        case 'addMultiple':
+            for (const [type, features] of Object.entries(action.features || {})) {
+                for (const feature of features || []) out.push([type, feature]);
+            }
+            break;
+        case 'batch':
+            for (const op of action.operations || []) undoRedoFeatures(op, out);
+            break;
+        default:
+            break;
+    }
+    return out;
+}
+
+/**
+ * UNDO AND REDO DO NOT CROSS A CLIENT LOCK (2026-09-24). The feature, layer and group locks are
+ * conventions of this client, and the undo engine writes through executors that ask none of them:
+ * with the owner's lock on the layer, the editor's Ctrl+Z removed the point he had drawn there, on
+ * the server (measured with two browsers). The entry is checked BEFORE it leaves the stack, so a
+ * refused undo stays available once the lock is lifted, and the refusal names the lock.
+ *
+ * Each feature is asked as it is NOW when it still exists (a peer may have locked the feature
+ * itself since), and as the entry kept it otherwise (an undo that restores a deleted feature).
+ * @param {Object|null} action
+ * @param {string} operation - 'undo' or 'redo', for the event.
+ * @returns {Promise<boolean>} True when refused (already announced).
+ */
+async function refuseUndoRedoAcrossLock(action, operation) {
+    for (const [storage, feature] of undoRedoFeatures(action)) {
+        const id = feature?.properties?.id;
+        const current = id && storage ? await getFeatureById(storage, id).catch(() => null) : null;
+        let state = null;
+        try {
+            state = featureLockState(current ?? feature);
+        } catch (error) {
+            // A question that cannot be answered does not become a refusal: the undo keeps the
+            // behaviour it had before this guard existed.
+            console.warn('[undo] lock check failed:', error);
+        }
+        if (!state) continue;
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation,
+            message: featureLockNotice(state),
+            reason: 'feature_locked',
+            timestamp: Date.now()
+        });
+        return true;
+    }
+    return false;
+}
+
+/**
  * Undoes the last action.
  *
- * @returns {Promise<Object|false>} The undone action object, or false if nothing to undo
+ * @returns {Promise<Object|false|null>} The undone action object, false if nothing to undo, or
+ *   null when a client lock refused it (the refusal has already been announced)
  */
 export async function undoLastAction() {
     if (isCurrentMapLockedSync()) return false;
+    if (await refuseUndoRedoAcrossLock(mapManager.peekUndoAction?.() ?? null, 'undo')) return null;
 
     try {
         return await mapManager.undoLastAction(undoRedoExecutors);
@@ -923,10 +1004,12 @@ export async function undoLastAction() {
 /**
  * Redoes the last undone action.
  *
- * @returns {Promise<Object|false>} The redone action object, or false if nothing to redo
+ * @returns {Promise<Object|false|null>} The redone action object, false if nothing to redo, or
+ *   null when a client lock refused it (see `refuseUndoRedoAcrossLock`)
  */
 export async function redoLastAction() {
     if (isCurrentMapLockedSync()) return false;
+    if (await refuseUndoRedoAcrossLock(mapManager.peekRedoAction?.() ?? null, 'redo')) return null;
 
     try {
         return await mapManager.redoLastAction(undoRedoExecutors);

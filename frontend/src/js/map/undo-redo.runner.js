@@ -56,6 +56,9 @@ export async function runUndoRedo(direcao, { selectionManager, baseLayerControl 
     try {
         selectionManager?.deselectAllFeatures?.({ skipSave: true });
         const acao = direcao === 'undo' ? await undoLastAction() : await redoLastAction();
+        // NULL IS A REFUSAL (a client lock holds a feature of the entry), and it has already been
+        // said: "Nada para desfazer" over it would be false, the entry is still there.
+        if (acao === null) return false;
         if (!acao) {
             showInChannel(
                 'undo-redo',

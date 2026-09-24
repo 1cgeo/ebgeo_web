@@ -147,6 +147,40 @@ describe('undo/redo has a single, lock-guarded entry point', () => {
         });
     });
 
+    describe('a CLIENT lock on the entry refuses it before it leaves the stack (2026-09-24)', () => {
+        // The browser half is tests/e2e-ui/desfazer-nao-atravessa-trava.repro.spec.js. Here the
+        // entry's feature carries its own `bloqueado`, the lock `featureLockState` answers without
+        // any manager, so the question is isolated from the layer and group doubles.
+        const entradaTravada = {
+            type: 'add',
+            featureType: 'points',
+            feature: { type: 'Feature', properties: { id: 'p-travado', source: 'point', bloqueado: true } },
+        };
+
+        afterEach(() => {
+            delete mockMapManager.peekUndoAction;
+            delete mockMapManager.peekRedoAction;
+        });
+
+        it('undo: returns null (refused, not "nothing to undo") and never reaches the engine', async () => {
+            mockMapManager.peekUndoAction = vi.fn(() => entradaTravada);
+            expect(await undoLastAction()).toBeNull();
+            expect(mockMapManager.undoLastAction).not.toHaveBeenCalled();
+        });
+
+        it('redo: the same, from the redo stack', async () => {
+            mockMapManager.peekRedoAction = vi.fn(() => ({ type: 'batch', operations: [entradaTravada] }));
+            expect(await redoLastAction()).toBeNull();
+            expect(mockMapManager.redoLastAction).not.toHaveBeenCalled();
+        });
+
+        it('CONTROL: an entry whose feature is not locked goes through', async () => {
+            mockMapManager.peekUndoAction = vi.fn(() => ({ type: 'moveBetweenMaps', movedFeatures: {} }));
+            expect(await undoLastAction()).toEqual({ type: 'undone' });
+            expect(mockMapManager.undoLastAction).toHaveBeenCalledTimes(1);
+        });
+    });
+
     describe('edge cases', () => {
         it('an engine failure is swallowed as false, not propagated', async () => {
             mockMapManager.undoLastAction.mockImplementation(async () => { throw new Error('IDB failure'); });
