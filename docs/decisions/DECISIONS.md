@@ -214,3 +214,11 @@ que envelheceu na decisão seguinte.)
 - 2026-09-23: o Recuperado das alterações tardias abre direto, e o anterior sai só se ninguém trabalhou nele e nenhuma aba o tem aberto, [registro](decisions-2026.md).
 - 2026-09-23: os dados solares e lunares do PITCIC entram num painel do menu de contexto (hora de Brasília, D a D+2, CSV), conferidos contra o USNO; a faixa na barra temporal, a caixa no PDF e o Dia D do mapa ficaram de fora por decisão do dono, [registro](decisions-2026.md).
 - 2026-09-23: a previsão da matriz do PITCIC entra num painel próprio, separado da luminosidade, consultado pelo navegador direto na Open-Meteo (sem credencial nem Referer, ponto arredondado a 0,1°, modelo GFS fixo), com a bandeira ligada por padrão por decisão do dono, [registro](decisions-2026.md).
+- 2026-09-23: a saída da Linha de Visada e do Viewshed é derivada por cada cliente e nunca viaja (o servidor recusava o id dela e o par nunca via a análise), [registro](decisions-2026.md).
+- 2026-09-23: o fim involuntário da sessão resgata a fila de todo atlas de servidor com pendência, não só a do montado, [registro](decisions-2026.md).
+- 2026-09-23: a janela da versão antiga aberta durante a virada é espera sem comando, não a tela que oferecia apagar os dados, [registro](decisions-2026.md).
+- 2026-09-24: abrir a versão antiga depois de um rollback não cria um Recuperado falso, [registro](decisions-2026.md).
+- 2026-09-23: cauda de pull acima de 500 ops ou 2 MiB vira retrato no HTTP e pedido de ressincronização no socket, [registro](decisions-2026.md).
+- 2026-09-24: "Duplicar" mapa num atlas de servidor usa a rota de duplicação do servidor, [registro](decisions-2026.md).
+- 2026-09-23: a importação de arquivo preserva o nome e as colunas reservadas e não inventa atributos de estilo, [registro](decisions-2026.md).
+- 2026-09-23: polyfill local de `toReversed` para Chrome e Edge 105 a 109; política de navegador mínimo pendente, [registro](decisions-2026.md).
