@@ -75,4 +75,35 @@ describe('saida de analise nao viaja', () => {
         // O carimbo de balde e só para a decisão local: ele não viaja no envelope.
         expect(Object.hasOwn(fila[0], 'storage')).toBe(false);
     });
+
+    it('as saidas que um cliente ANTIGO enfileirou (sem carimbo) saem da fila, com a recusa duravel, e so elas', async () => {
+        const scope = await escopoLimpo('55555555-5555-4555-8555-555555555555');
+        // Sem `storage`: e' a forma que uma versao anterior a 2026-09-23 gravou no diario.
+        await (await persistOperationIntents([
+            { entityType: 'feature', operationType: 'create', entityId: `${LOS}-visible`, mapId: MAPA,
+                data: feicao(`${LOS}-visible`, 'los'), previousData: null },
+        ], { scope }))();
+        await (await persistOperationIntents([
+            { entityType: 'feature', operationType: 'create', entityId: `${LOS}-obstructed`, mapId: MAPA,
+                data: feicao(`${LOS}-obstructed`, 'visibility'), previousData: null },
+            { entityType: 'feature', operationType: 'create', entityId: LOS, mapId: MAPA,
+                data: feicao(LOS, 'los'), previousData: null },
+            { entityType: 'feature', operationType: 'create', entityId: 'linha-visible', mapId: MAPA,
+                data: feicao('linha-visible', 'line'), previousData: null },
+        ], { scope }))();
+        const fila = new OperationQueue(scope);
+        const [recusada] = await fila.getAll();
+        await fila.recordIssue(recusada, { rejected: true, success: false, reason: 'Alteração descartada: identificador ou valor com formato inválido.' });
+        expect((await fila.countByState()).problemas, 'a premissa: a recusa duravel esta la').toBeGreaterThan(0);
+
+        expect(await fila.discardDerivedOutputOperations()).toBe(2);
+
+        const resto = await new OperationQueue(scope).getAll();
+        // A entrada fica; o id nao-UUID de OUTRO tipo (linha) fica tambem, e o servidor o recusa alto.
+        expect(resto.map((op) => op.entityId).sort()).toEqual([LOS, 'linha-visible'].sort());
+        expect(await new OperationQueue(scope).getIssues()).toEqual([]);
+        expect((await new OperationQueue(scope).countByState()).problemas).toBe(0);
+        // Idempotente: uma segunda passada nao acha nada.
+        expect(await new OperationQueue(scope).discardDerivedOutputOperations()).toBe(0);
+    });
 });

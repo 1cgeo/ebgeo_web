@@ -452,6 +452,7 @@ class SyncEngine {
 
         await this._ensureProtocol(session);
         await this._prepareLegacyQueue(session);
+        await this._discardDerivedOutputs(session);
 
         // EVERY CONNECT STARTS WITHOUT A CLAIM. Only the initial pull can grant completeness, and
         // it is a claim about the disk of THIS atlas: a connect that skips the pull must not
@@ -791,6 +792,20 @@ class SyncEngine {
         session.protocolReady = true;
     }
 
+    /**
+     * Once per session, drops the queued writes of a derived analysis output that a version before
+     * 2026-09-23 journaled (see `discardDerivedOutputOperations`). Before the first flush, so they
+     * are never pushed again, and in `connect` too, because a queue holding only refusals is never
+     * flushed at all.
+     * @param {import('./sync-session.js').SyncSession} session
+     */
+    async _discardDerivedOutputs(session) {
+        if (session.scope?.kind !== 'remote' || session.derivedOutputsDiscarded) return;
+        await session.queue.discardDerivedOutputOperations?.();
+        session.assertActive();
+        session.derivedOutputsDiscarded = true;
+    }
+
     async _prepareLegacyQueue(session) {
         if (session.scope?.kind !== 'remote' || session.legacyReviewed) return;
         const pending = await reconcileLegacyQueue(session.queue,
@@ -804,6 +819,7 @@ class SyncEngine {
     async _flushSession(session) {
         await this._ensureProtocol(session);
         await this._prepareLegacyQueue(session);
+        await this._discardDerivedOutputs(session);
         let pushed = 0;
         let needsRecovery = false;
         // MODO DE ISOLAMENTO: uma vez ligado, o lote vira de tamanho 1 e assim fica até

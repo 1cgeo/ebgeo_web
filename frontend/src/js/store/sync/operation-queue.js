@@ -18,6 +18,7 @@ import { fenceStore, openStoreDatabase } from '../fenced-store.js';
 import { legacyQueueIssue } from './legacy-queue.js';
 import { IssueClass, classifyIssue } from './issue-classes.js';
 import { openGestureBatchId } from './gesture-batch.js';
+import { isDerivedOutputOperation } from '../analysis-output.js';
 
 function queueScope() {
     return getActiveScope() ?? UNMOUNTED_QUEUE_SCOPE;
@@ -477,6 +478,23 @@ class OperationQueue {
         const context = this._context();
         const keys = await this._getOrderedKeys(context.store);
         return this._loadOperations(keys, context);
+    }
+
+    /**
+     * Removes every queued write of a DERIVED analysis output, refused or still pending, with its
+     * journal metadata (the durable refusal included), through the same `dequeue` a receipt uses.
+     *
+     * Those writes stopped being produced on 2026-09-23 (the output is derived per client and never
+     * travels), but the ones journaled before are still here, and the server refuses every one: left
+     * alone they are "Recusas" forever. Nothing is lost by dropping them, because the output is
+     * re-derived from its input, which does travel. Only the derived type is matched
+     * (`isDerivedOutputOperation`), never "every non-UUID id".
+     * @returns {Promise<number>} How many operations were removed.
+     */
+    async discardDerivedOutputOperations() {
+        const derived = (await this.getAll()).filter(isDerivedOutputOperation);
+        if (derived.length === 0) return 0;
+        return this.dequeue(derived.map(op => op.id));
     }
 
     async getByEntityType(entityType) {

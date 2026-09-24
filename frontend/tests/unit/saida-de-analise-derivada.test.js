@@ -35,7 +35,7 @@ vi.mock('@js/terrain', () => ({
 
 const {
     deriveAnalysisOutput, replaceDerivedOutput, rederiveAllAnalysisOutputs,
-    derivedOutputBucketOf, isDerivedOutputBucket, derivedOutputIdsOf,
+    derivedOutputBucketOf, isDerivedOutputBucket, derivedOutputIdsOf, isDerivedOutputOperation,
 } = await import('@store/analysis-output.js');
 const { default: AddLOSGeometry } = await import('../../src/js/analysis_tools/los_tool/add_los_geometry.js');
 const { default: AddVisibilityGeometry } = await import(
@@ -131,6 +131,33 @@ describe('a divisao da saida, em absoluto', () => {
         expect(isDerivedOutputBucket('los')).toBe(false);
         expect(isDerivedOutputBucket(undefined)).toBe(false);
         expect(derivedOutputIdsOf('x')).toEqual(['x-visible', 'x-obstructed']);
+    });
+});
+
+describe('reconhecer a op de saida de um cliente antigo, pelo TIPO', () => {
+    const op = (entityId, source, extra = {}) => ({
+        entityType: 'feature', entityId,
+        data: { type: 'Feature', properties: { id: entityId, source }, geometry: {} }, ...extra,
+    });
+
+    it('metade de visada e de viewshed, no create e no delete (payload so em previousData)', () => {
+        expect(isDerivedOutputOperation(op(`${LOS_ID}-visible`, 'los'))).toBe(true);
+        expect(isDerivedOutputOperation(op(`${VIS_ID}-obstructed`, 'visibility'))).toBe(true);
+        const apagar = { entityType: 'feature', entityId: `${LOS_ID}-obstructed`, data: null,
+            previousData: { properties: { id: `${LOS_ID}-obstructed`, source: 'los' } } };
+        expect(isDerivedOutputOperation(apagar)).toBe(true);
+    });
+
+    it('nao reconhece: a entrada, outro tipo com o mesmo sufixo, outra entidade, payload ausente', () => {
+        expect(isDerivedOutputOperation(op(LOS_ID, 'los'))).toBe(false);
+        expect(isDerivedOutputOperation(op('linha-visible', 'line'))).toBe(false);
+        expect(isDerivedOutputOperation({ ...op(`${LOS_ID}-visible`, 'los'), entityType: 'group' })).toBe(false);
+        expect(isDerivedOutputOperation({ entityType: 'feature', entityId: `${LOS_ID}-visible`, data: null, previousData: null })).toBe(false);
+        expect(isDerivedOutputOperation(null)).toBe(false);
+        // O payload nomeia OUTRA feicao: nao e' a metade que o id diz.
+        const trocado = op(`${LOS_ID}-visible`, 'los');
+        trocado.data.properties.id = 'outra';
+        expect(isDerivedOutputOperation(trocado)).toBe(false);
     });
 });
 

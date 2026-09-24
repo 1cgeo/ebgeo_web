@@ -169,3 +169,26 @@ export function rederiveAllAnalysisOutputs(features) {
     }
     return features;
 }
+
+/** The suffixes the tools append to an input's id to name its two halves. */
+const DERIVED_ID_SUFFIX = /-(visible|obstructed)$/;
+
+/**
+ * True for a queued FEATURE operation that writes a derived output, recognized WITHOUT the
+ * `storage` stamp: the operations journaled before 2026-09-23 never carried it, and the server
+ * refused every one of them, so a person who used the tools before the fix keeps them as durable
+ * refusals ("Recusas: 2") that nothing else will ever clear.
+ *
+ * The recognition is still by TYPE and never by id shape alone: the id must be a half's id AND the
+ * payload's `source` must be an analysis input, which is exactly what `deriveAnalysisOutput`
+ * writes. A non-UUID id of any other feature is not matched and keeps failing loudly.
+ * @param {Object} operation - A queued operation envelope
+ * @returns {boolean}
+ */
+export function isDerivedOutputOperation(operation) {
+    if (operation?.entityType !== 'feature' || typeof operation.entityId !== 'string') return false;
+    if (!DERIVED_ID_SUFFIX.test(operation.entityId)) return false;
+    const payload = operation.data ?? operation.previousData;
+    if (payload?.properties?.id !== undefined && payload.properties.id !== operation.entityId) return false;
+    return derivedOutputBucketOf(payload?.properties?.source) !== null;
+}
