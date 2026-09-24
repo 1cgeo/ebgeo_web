@@ -145,3 +145,33 @@ export function frasePoda(prunedResourceRefs) {
     return `O servidor descartou ${comEs(itens)}, porque o modelo 3D ou o projeto 360 usado não `
         + 'está no catálogo dele. Peça ao administrador para cadastrá-los e envie de novo.';
 }
+
+/**
+ * O ENVIO GRANDE DEMAIS (HTTP 413), nas duas portas do envio.
+ *
+ * NÃO MANDA TENTAR DE NOVO, e é o ponto: a frase genérica da falha na preparação diz "tente de novo
+ * sem alterar o atlas", que é verdade para a rede que caiu e mentira para o 413, que se repete a
+ * cada tentativa. O que pesa num atlas herdado são as FOTOS ANEXAS às feições, que as duas linhas do
+ * produto guardam como data URL dentro de `properties.images`, e elas vão no documento do envio.
+ *
+ * @param {number|null|undefined} bytes - O tamanho do documento que subiria, quando medido.
+ * @returns {string}
+ */
+export function fraseDeEnvioGrandeDemais(bytes) {
+    const tamanho = Number.isFinite(bytes) && bytes > 0 ? ` (cerca de ${Math.ceil(bytes / (1024 * 1024))} MB)` : '';
+    return `Este atlas é grande demais para enviar ao servidor de uma vez${tamanho}. Remova fotos anexas `
+        + 'grandes das feições ou divida-o em atlas menores; se precisar dele inteiro no servidor, avise o '
+        + 'administrador.';
+}
+
+/**
+ * @param {Object} payload - O documento que o envio sobe.
+ * @returns {number|null} O tamanho dele em bytes UTF-8, ou null se não der para medir.
+ */
+export function tamanhoDoEnvio(payload) {
+    try {
+        return new TextEncoder().encode(JSON.stringify(payload)).length;
+    } catch {
+        return null;
+    }
+}

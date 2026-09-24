@@ -36,7 +36,7 @@ import { atlasContentsLines } from '@store/atlas-contents.js';
 // segundo `if (status === 401)` seria a quarta cópia da mesma regra.
 import { classifyRequestFailure, RequestFailure } from '@utils/request-failure.js';
 import {
-    comEs, contado, fraseDoServidor, frasePoda, numero,
+    comEs, contado, fraseDeEnvioGrandeDemais, fraseDoServidor, frasePoda, numero,
 } from './server-send-phrases.js';
 
 /** Severity of a notice, matching the three toast helpers of `@utils/toast_service.js`. */
@@ -515,6 +515,10 @@ export function sendFailureNotice(error, { name = null } = {}) {
     }
 
     const local = 'O atlas local continua neste navegador, intacto.';
+    // O 413 SE REPETE a cada tentativa, então ele não recebe a frase que manda tentar de novo.
+    if (stage === 'preparation' && error?.status === 413) {
+        return { kind: NoticeKind.ERROR, message: `${fraseDeEnvioGrandeDemais(error?.tamanhoDoEnvio)} ${local}` };
+    }
     if (stage === 'preparation') {
         return { kind: NoticeKind.ERROR,
             message: `Não foi possível concluir ou confirmar o envio de ${alvo}. ${local} `

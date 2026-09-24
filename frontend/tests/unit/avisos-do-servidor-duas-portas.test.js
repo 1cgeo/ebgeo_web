@@ -10,7 +10,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { avisosDoServidor } from '@js/projects/server-send-phrases.js';
-import { sendToServerNotice, NoticeKind } from '@js/projects/local-atlas-notices.js';
+import { sendFailureNotice, sendToServerNotice, NoticeKind } from '@js/projects/local-atlas-notices.js';
 
 describe('avisosDoServidor', () => {
     it('nomeia a poda de item 3D e 360 com o motivo', () => {
@@ -47,5 +47,33 @@ describe('avisosDoServidor', () => {
         const notice = sendToServerNotice(result);
         expect(notice.kind).toBe(NoticeKind.WARNING);
         for (const frase of avisosDoServidor(result)) expect(notice.message).toContain(frase);
+    });
+});
+
+describe('o envio grande demais (413) não manda tentar de novo', () => {
+    const MB = 1024 * 1024;
+    const erro413 = () => Object.assign(new Error('Não foi possível concluir ou confirmar a importação.'), {
+        stage: 'preparation', status: 413, tamanhoDoEnvio: 57.2 * MB,
+    });
+
+    it('diz que o atlas é grande demais, com o tamanho, e o que fazer', () => {
+        const n = sendFailureNotice(erro413(), { name: 'Acervo com fotos' });
+        expect(n.kind).toBe(NoticeKind.ERROR);
+        expect(n.message).toContain('grande demais');
+        expect(n.message).toContain('58 MB');
+        expect(n.message).toMatch(/fotos anexas/i);
+        expect(n.message).toContain('continua neste navegador');
+    });
+
+    it('não promete que repetir resolve: um 413 se repete a cada tentativa', () => {
+        expect(sendFailureNotice(erro413(), { name: 'X' }).message).not.toMatch(/tente de novo|tente novamente/i);
+    });
+
+    it('sem o tamanho medido a frase continua dizendo o que fazer', () => {
+        const e = erro413();
+        delete e.tamanhoDoEnvio;
+        const n = sendFailureNotice(e, { name: 'X' });
+        expect(n.message).toContain('grande demais');
+        expect(n.message).not.toContain('MB');
     });
 });

@@ -125,6 +125,36 @@ describe('the enlarged bulk JSON parser is reachable only by an authenticated pr
     assert.equal(res.status, 401, 'the auth contract of the route is unchanged');
   });
 
+  // THE BEGIN OF AN ATOMIC IMPORT (2026-09-23). It carries the whole atlas document, and a
+  // feature's attached photos travel INSIDE it as data URLs (`properties.images`), so an inherited
+  // acervo with four or five phone photos answered 413 forever. Measured in the browser with five
+  // 2.4 MB photos on one point (frontend/tests/e2e-ui/envio-com-fotos-anexas.repro.spec.js).
+  it('an AUTHENTICATED principal gets the enlarged parser on the import begin', async () => {
+    const res = await supertest(app)
+      .post('/api/v1/atlas/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Content-Type', 'application/json')
+      .send(overGlobalCap());
+    assert.notEqual(res.status, 413, '12mb must pass the parser of the import begin for an authenticated caller');
+  });
+
+  it('the import begin is still capped at 10mb for an anonymous caller', async () => {
+    const res = await supertest(app)
+      .post('/api/v1/atlas/imports')
+      .set('Content-Type', 'application/json')
+      .send(overGlobalCap());
+    assert.equal(res.status, 413, 'the enlarged cap of the import begin requires a verified principal');
+  });
+
+  it('the import COMMIT keeps the 10mb cap: only the begin carries the document', async () => {
+    const res = await supertest(app)
+      .post(`/api/v1/atlas/imports/${randomUUID()}/commit`)
+      .set('Authorization', `Bearer ${token}`)
+      .set('Content-Type', 'application/json')
+      .send(overGlobalCap());
+    assert.equal(res.status, 413);
+  });
+
   it('a normal JSON route is still capped at 10mb', async () => {
     const res = await supertest(app)
       .post('/api/v1/auth/login')

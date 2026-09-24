@@ -59,7 +59,7 @@ import { getControl } from '@store';
 import { getCurrentLocalAtlasId, getLocalAtlas } from '@store/local-atlas.api.js';
 import { saveLocalAtlasToServer } from '@js/import_export/save-local-atlas.service.js';
 // Pelo ARQUIVO: `projects/` não tem barril, e a folha não tem imports (as frases das duas portas do envio).
-import { avisosDoServidor } from '@js/projects/server-send-phrases.js';
+import { avisosDoServidor, fraseDeEnvioGrandeDemais } from '@js/projects/server-send-phrases.js';
 import {
     openRemoteAtlas,
     retractAtlasClaim,
@@ -1075,7 +1075,9 @@ export class AccountControl {
                 } catch (error) {
                     // "Cancelar" na pergunta das figuras é DECISÃO: nada foi publicado, nada a
                     // acusar. O erro segue adiante para o modal, que continua aberto.
-                    if (!error?.cancelled) showError('Não foi possível salvar o atlas no servidor. Tente de novo.');
+                    // O 413 se repete a cada tentativa: a frase diz o tamanho e o que fazer, não "tente de novo".
+                    if (error?.status === 413) showError(`${fraseDeEnvioGrandeDemais(error.tamanhoDoEnvio)} O atlas local continua neste navegador.`, { duration: 15000 });
+                    else if (!error?.cancelled) showError('Não foi possível salvar o atlas no servidor. Tente de novo.');
                     console.error('[AccountControl] saveLocalAtlasToServer failed:', error);
                     throw error;
                 }

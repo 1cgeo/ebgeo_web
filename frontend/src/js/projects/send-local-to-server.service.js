@@ -50,6 +50,7 @@ import { getDefaultLayer, ensureCoordinationLines, storedMapName } from '@store/
 // aviso, e ele so serve para isso se for independente do numerador. Do ARQUIVO, como os vizinhos.
 import { countAtlasContents } from '@store/atlas-contents.js';
 import { buildServerImportPayload } from '@js/import_export/local-atlas-to-server.js';
+import { tamanhoDoEnvio } from './server-send-phrases.js';
 import { buildImageUploads } from '@js/import_export/atlas-image-upload.js';
 import { generateUUID } from '@utils/uuid.js';
 import { classifyMissingImages, missingImagesUploadConfirm, uploadCancelledError } from '../import_export/ebgeo-missing-images.js';
@@ -425,6 +426,9 @@ export async function sendLocalAtlasToServer(entry, { apiClient, scopeOf, name, 
             missingImageIds: missing.map((id) => imageIdMap[id]),
         });
     } catch (error) {
+        // Medido só no 413, que é quando a frase precisa dizer o tamanho: serializar o documento
+        // inteiro de novo não é de graça num atlas que acabou de ser recusado por ser grande.
+        if (error?.status === 413) error.tamanhoDoEnvio = tamanhoDoEnvio(built.payload);
         throw comEtapa(error, 'preparation');
     }
 

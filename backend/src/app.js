@@ -124,8 +124,16 @@ export function createApp() {
   const jsonParser = express.json({ limit: '10mb' });
   const bulkJsonParser = express.json({ limit: `${config.images.maxBulkUploadMb}mb` });
   const IMPORT_IMAGES_PATH = /^\/api\/v1\/atlas\/imports\/[0-9a-f-]{36}\/images\/?$/i;
+  // THE BEGIN OF AN ATOMIC IMPORT carries the WHOLE atlas document in one body, and a feature's
+  // attached photos live INSIDE it as data URLs (`properties.images`: both this product line and
+  // the one before it keep a photo under 2 MB as it came). Four or five phone photos put an
+  // inherited acervo over the 10mb cap, and "Enviar ao servidor" answered 413 on every try
+  // (measured 2026-09-23 with five 2.4 MB photos on one point). Same two guards as the image
+  // routes: the anchored path and a verified principal. The commit and every other route keep 10mb.
+  const IMPORT_BEGIN_PATH = /^\/api\/v1\/atlas\/imports\/?$/i;
   app.use((req, res, next) => {
-    if (req.method === 'POST' && req.user && (BULK_IMAGES_PATH.test(req.path) || IMPORT_IMAGES_PATH.test(req.path))) {
+    if (req.method === 'POST' && req.user && (BULK_IMAGES_PATH.test(req.path) || IMPORT_IMAGES_PATH.test(req.path)
+        || IMPORT_BEGIN_PATH.test(req.path))) {
       return bulkJsonParser(req, res, next);
     }
     return jsonParser(req, res, next);

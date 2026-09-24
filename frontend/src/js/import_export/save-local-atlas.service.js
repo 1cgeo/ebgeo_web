@@ -11,6 +11,7 @@ import { buildImageUploads } from './atlas-image-upload.js';
 import { classifyMissingImages, missingImagesUploadConfirm, uploadCancelledError } from './ebgeo-missing-images.js';
 import { getImage, getAllMapNamesStore } from '@store';
 import { generateUUID } from '@utils/uuid.js';
+import { tamanhoDoEnvio } from '@js/projects/server-send-phrases.js';
 
 /**
  * Reads the blobs for `imageIds` from the LOCAL image store and builds the bulk-upload items.
@@ -63,11 +64,18 @@ export async function saveLocalAtlasToServer(apiClient, exportService, { name, d
     // ASKED BEFORE ANY NETWORK WRITE, and the answer decides: see `missingImagesUploadConfirm`.
     const question = missingImagesUploadConfirm(classifyMissingImages(missing, exportData), { from: 'disco', exportData });
     if (question && !(await confirmMissingImages?.(question))) throw uploadCancelledError();
-    const atlas = await apiClient.importAtlas(built.payload, {
-        images: uploads,
-        source: { exportData, name, description },
-        missingImageIds: missing.map((id) => imageIdMap[id] || id),
-    });
+    let atlas;
+    try {
+        atlas = await apiClient.importAtlas(built.payload, {
+            images: uploads,
+            source: { exportData, name, description },
+            missingImageIds: missing.map((id) => imageIdMap[id] || id),
+        });
+    } catch (error) {
+        // A frase do 413 diz o tamanho (`fraseDeEnvioGrandeDemais`); medido só quando é ele.
+        if (error?.status === 413) error.tamanhoDoEnvio = tamanhoDoEnvio(built.payload);
+        throw error;
+    }
     const atlasId = atlas.id;
 
     return {
