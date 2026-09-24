@@ -239,6 +239,7 @@ function linhaDeOperacao({
         bloqueio: null,
         recusadaJuntoCom: null,
         levouJunto: 0,
+        mesmaAcao: null,
         atlasId,
         operationId: operation?.id ?? null,
         envelope: operation ?? null,
@@ -283,6 +284,7 @@ function linhaDeUpload(registro) {
         bloqueio: null,
         recusadaJuntoCom: null,
         levouJunto: 0,
+        mesmaAcao: null,
         atlasId: registro?.atlasId ?? null,
         operationId: null,
         envelope: registro ?? null,
@@ -348,6 +350,37 @@ function agruparRecusadasJunto(linhas) {
 }
 
 /**
+ * AS RECUSAS IGUAIS DA MESMA AÇÃO viram um grupo: mesma origem, mesmo atlas, mesmo `traceId` (que
+ * `runTransaction` cunha por transação) e o mesmo motivo.
+ *
+ * Sem lote não há `batchFailedOperationId`: as operações de excluir e estilizar em massa saem
+ * independentes (decisão do dono de 2026-09-24), e um mapa travado ou um papel rebaixado no meio de
+ * 1000 exclusões devolvia 1000 linhas e pedia 1000 cliques (achado da revisão). Só RECUSA entra, e só
+ * da fila: um conflito é de cada feição, e a quarentena não tem "Aceitar o servidor". Muta as
+ * linhas; devolve os grupos para o resumo, o maior primeiro.
+ * @param {Array<Object>} linhas - As linhas já montadas.
+ * @returns {Array<{total: number, motivo: string}>}
+ */
+function agruparMesmaAcao(linhas) {
+    const grupos = new Map();
+    for (const linha of linhas) {
+        const traceId = linha.envelope?.traceId;
+        if (linha.classe !== PendenciaClasse.RECUSA || linha.origem !== PendenciaOrigem.FILA) continue;
+        if (typeof traceId !== 'string' || traceId === '' || typeof linha.motivo !== 'string') continue;
+        const chave = `${linha.atlasId ?? ''}|${traceId}|${linha.motivo}`;
+        if (!grupos.has(chave)) grupos.set(chave, []);
+        grupos.get(chave).push(linha);
+    }
+    const resumo = [];
+    for (const [chave, membros] of grupos) {
+        if (membros.length < 2) continue;
+        for (const linha of membros) linha.mesmaAcao = { chave, total: membros.length };
+        resumo.push({ total: membros.length, motivo: membros[0].motivo });
+    }
+    return resumo.sort((a, b) => b.total - a.total);
+}
+
+/**
  * A contagem do que está a caminho, ou `null` quando ela NÃO é uma contagem.
  *
  * `null` é o produto principal e não o caso degenerado, pela mesma razão de `toPendingCount` em
@@ -384,7 +417,8 @@ function contagemOuNula(valor) {
  *   mapa. Sem ele, NADA é afirmado sobre mapa nenhum: o padrão é `undefined` (desconhecido) e
  *   nunca `null`, que diria a toda linha que o mapa dela foi removido.
  * @returns {{estado: string, linhas: Array<Object>, contadores: Object<string, number>,
- *   juntos: {recusadas: number, culpadas: number, paradas: number}, total: number,
+ *   juntos: {recusadas: number, culpadas: number, paradas: number},
+ *   mesmaAcao: Array<{total: number, motivo: string}>, total: number,
  *   aCaminho: number|null}}
  */
 export function montarPendencias({
@@ -401,6 +435,7 @@ export function montarPendencias({
         return {
             estado: PendenciaEstado.FALHA, linhas: [], contadores: {}, total: 0, aCaminho: null,
             juntos: { recusadas: 0, culpadas: 0, paradas: 0 },
+            mesmaAcao: [],
         };
     }
 
@@ -445,6 +480,7 @@ export function montarPendencias({
 
     // ANTES da contagem, porque ele muda a classe das irmãs de uma parte recusada.
     const juntos = agruparRecusadasJunto(linhas);
+    const mesmaAcao = agruparMesmaAcao(linhas);
 
     // MAIS RECENTE PRIMEIRO, e a linha sem data vai para o fim: ela é a que menos se casa com uma
     // lembrança da pessoa, então não pode ocupar a primeira posição da lista.
@@ -462,6 +498,7 @@ export function montarPendencias({
         linhas,
         contadores,
         juntos,
+        mesmaAcao,
         total: linhas.length,
         aCaminho: contagemOuNula(aCaminho),
     };

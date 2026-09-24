@@ -204,6 +204,15 @@ export function idsQueSaemJunto(linha, linhas = []) {
             }
         }
     }
+    // As recusas iguais da mesma ação (`mesmaAcao`, montado em `pendencias-rows.js`): sem lote,
+    // não há culpada, e o grupo é a ação com o motivo.
+    if (linha.mesmaAcao?.chave) {
+        for (const outra of linhas) {
+            if (outra.operationId && mesmaOrigem(outra) && outra.mesmaAcao?.chave === linha.mesmaAcao.chave) {
+                grupo.add(outra.operationId);
+            }
+        }
+    }
     const dependentes = linhas
         .filter((outra) => outra.operationId && !grupo.has(outra.operationId) && grupo.has(outra.bloqueadaPor))
         .map((outra) => outra.operationId);
@@ -222,7 +231,7 @@ export function idsQueSaemJunto(linha, linhas = []) {
  * @returns {Array<Object>}
  */
 export function linhasParaExportar(linha, linhas = []) {
-    const doGrupo = Boolean(linha?.recusadaJuntoCom) || linha?.levouJunto > 0;
+    const doGrupo = Boolean(linha?.recusadaJuntoCom) || linha?.levouJunto > 0 || Boolean(linha?.mesmaAcao);
     if (!doGrupo) return [linha];
     const ids = new Set(idsQueSaemJunto(linha, linhas));
     return linhas.filter((outra) => ids.has(outra.operationId));

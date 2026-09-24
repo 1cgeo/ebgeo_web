@@ -71,6 +71,8 @@ import {
     estadoVazio,
     juntoResumo,
     levouJuntoFrase,
+    mesmaAcaoFrase,
+    mesmaAcaoResumo,
     reaplicacaoFeita,
     tituloDoPainel,
     transitoNota,
@@ -355,6 +357,13 @@ export class PendenciasPanel extends ModalBase {
             grupo.textContent = junto;
             this._resumo.appendChild(grupo);
         }
+        for (const frase of mesmaAcaoResumo(modelo.mesmaAcao)) {
+            const grupo = document.createElement('p');
+            grupo.className = 'pendencias__transito';
+            grupo.setAttribute('data-testid', 'pendencias-mesma-acao');
+            grupo.textContent = frase;
+            this._resumo.appendChild(grupo);
+        }
 
         if (nota) {
             const transito = document.createElement('p');
@@ -464,7 +473,7 @@ export class PendenciasPanel extends ModalBase {
             item.appendChild(motivo);
         }
 
-        const levou = levouJuntoFrase(linha.levouJunto);
+        const levou = levouJuntoFrase(linha.levouJunto) ?? mesmaAcaoFrase(linha.mesmaAcao?.total);
         if (levou) {
             const junto = document.createElement('p');
             junto.className = 'pendencias__motivo';
@@ -564,7 +573,7 @@ export class PendenciasPanel extends ModalBase {
     async _aceitar(linha) {
         const quantas = idsQueSaemJunto(linha, this._modelo?.linhas ?? []).length;
         const doGrupo = Boolean(linha.recusadaJuntoCom) || linha.levouJunto > 0;
-        const pergunta = confirmacaoDeAceitar(quantas, { doGrupo });
+        const pergunta = confirmacaoDeAceitar(quantas, { doGrupo, mesmoMotivo: Boolean(linha.mesmaAcao) });
         const confirmado = await showConfirm(pergunta.titulo, {
             message: pergunta.mensagem,
             confirmText: pergunta.confirmar,

@@ -272,6 +272,37 @@ export function juntoResumo(juntos) {
     return `${quantas} junto com ${culpadas} que o servidor não aceitou${atras}. ${decida}`;
 }
 
+/**
+ * O que uma linha de um grupo "mesma ação, mesmo motivo" acrescenta: quantas outras estão com ela.
+ * @param {number} total - Tamanho do grupo, esta inclusive.
+ * @returns {string|null}
+ */
+export function mesmaAcaoFrase(total) {
+    if (!Number.isFinite(total) || total < 2) return null;
+    const outras = Math.trunc(total) - 1;
+    return outras === 1
+        ? 'Outra alteração desta ação foi recusada pelo mesmo motivo.'
+        : `Outras ${outras} alterações desta ação foram recusadas pelo mesmo motivo.`;
+}
+
+/**
+ * O RESUMO das recusas iguais de uma ação só: uma frase por grupo.
+ *
+ * Sem lote não há culpada a nomear (as operações de excluir e estilizar em massa saem independentes,
+ * decisão do dono de 2026-09-24), e um mapa travado no meio de 1000 exclusões devolve 1000 recusas
+ * com o mesmo motivo. O grupo é a mesma ação (`traceId`) com o mesmo motivo, e as duas ações que
+ * valem para todas são as que a frase nomeia.
+ * @param {Array<{total: number, motivo: string}>|null|undefined} grupos - `modelo.mesmaAcao`.
+ * @returns {string[]}
+ */
+export function mesmaAcaoResumo(grupos) {
+    if (!Array.isArray(grupos)) return [];
+    return grupos
+        .filter((grupo) => Number.isFinite(grupo?.total) && grupo.total >= 2)
+        .map((grupo) => `${Math.trunc(grupo.total)} alterações da mesma ação foram recusadas pelo mesmo `
+            + `motivo: ${grupo.motivo} Aceitar o servidor ou Exportar em qualquer uma delas vale para todas.`);
+}
+
 /** A lista vazia HONESTA: nada guardado, nada a caminho, e a leitura funcionou. */
 export const ESTADO_VAZIO_TITULO = 'Nenhuma pendência';
 
@@ -548,11 +579,15 @@ export function bloqueioFrase(bloqueio) {
  * @param {number} quantas - Total de tentativas que serão descartadas, esta inclusive.
  * @param {Object} [opcoes]
  * @param {boolean} [opcoes.doGrupo=false] - A tentativa pertence a uma parte recusada.
+ * @param {boolean} [opcoes.mesmoMotivo=false] - A tentativa pertence a um grupo de recusas iguais da
+ *   mesma ação.
  * @returns {{titulo: string, mensagem: string, confirmar: string}}
  */
-export function confirmacaoDeAceitar(quantas, { doGrupo = false } = {}) {
+export function confirmacaoDeAceitar(quantas, { doGrupo = false, mesmoMotivo = false } = {}) {
     const total = Number.isFinite(quantas) && quantas > 0 ? Math.trunc(quantas) : 1;
-    const origem = doGrupo === true ? 'que voltaram junto com ela ou estão paradas atrás' : 'que estão paradas atrás dela';
+    let origem = 'que estão paradas atrás dela';
+    if (doGrupo === true) origem = 'que voltaram junto com ela ou estão paradas atrás';
+    if (mesmoMotivo === true) origem = 'desta ação, recusadas pelo mesmo motivo ou paradas atrás delas,';
     const corpo = total === 1
         ? 'Esta tentativa será descartada e o EBGeo vai buscar do servidor o estado atual do item.'
         : `Esta tentativa e as outras ${total - 1} ${origem} serão descartadas, `
