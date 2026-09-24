@@ -871,7 +871,12 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // 2026-09-23 (night): 796, with `catalog/resource-share-launcher.js`, the on-demand door of the
         // resource share dialog, which left the map's boot (see the `catalog` line of ORCAMENTO and
         // the case "the resource share dialog" below). One new file; nothing else moved in this graph.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(796);
+        // 2026-09-23 (night): 795, with `projects/server-send-phrases.js`, measured by this case's
+        // own failure (795 against 794). The account menu's "Salvar no servidor" now says what the
+        // server pruned, with the same sentences as the `atlas.html` card; the leaf (7 kB, ZERO
+        // imports) was split out of `projects/local-atlas-notices.js` precisely so the map does
+        // not carry the chooser's 35 kB notice module to say them. Eager, one small file.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(797);
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);

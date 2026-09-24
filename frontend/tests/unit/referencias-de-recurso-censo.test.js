@@ -226,11 +226,12 @@ const CENSO = [
     { arquivo: 'src/js/presence/presence-store.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/presence/presence-store.js', campo: 'photoName', classe: RUNTIME },
     // HOMÓNIMOS DE VOCABULÁRIO, nove de uma vez, e nenhum deles é um campo: em
-    // `local-atlas-notices.js` os nove nomes aparecem DENTRO DAS CHAVES da tabela `ROTULO_DE_PODA`
+    // `server-send-phrases.js` os nove nomes aparecem DENTRO DAS CHAVES da tabela `ROTULO_DE_PODA`
     // (`briefing.slide.modelId`, `mapa.baseLayer`, `settings.available_3d_models` e as demais), que
     // traduz para pt-BR as superfícies do RELATÓRIO DE PODA que o servidor devolve em
     // `summary.prunedResourceRefs`. Entraram em 2026-09-07, quando a frase do envio passou a dizer
-    // o que o servidor descartou em vez de calar.
+    // o que o servidor descartou em vez de calar, e mudaram de `local-atlas-notices.js` para a folha em
+    // 2026-09-23, quando o "Salvar no servidor" do mapa passou a dizer a mesma poda.
     //
     // O QUE PASSA POR ALI É CONTAGEM, nunca id: o relatório do servidor é `{superfície: número}`
     // por decisão dele (o nome de um recurso privado é metadado do recurso, e o resumo vai para a
@@ -238,15 +239,15 @@ const CENSO = [
     // retira referência de documento nenhum e não escreve nada: é uma função pura que devolve uma
     // string para um toast. Mesma classe e mesma razão de `admin/uso-phrases.js` acima, que também
     // só carrega o NOME da superfície.
-    { arquivo: 'src/js/projects/local-atlas-notices.js', campo: 'modelId', classe: RUNTIME },
-    { arquivo: 'src/js/projects/local-atlas-notices.js', campo: 'photoId', classe: RUNTIME },
-    { arquivo: 'src/js/projects/local-atlas-notices.js', campo: 'baseLayer', classe: RUNTIME },
-    { arquivo: 'src/js/projects/local-atlas-notices.js', campo: 'catalogLayers', classe: RUNTIME },
-    { arquivo: 'src/js/projects/local-atlas-notices.js', campo: 'default_basemap', classe: RUNTIME },
-    { arquivo: 'src/js/projects/local-atlas-notices.js', campo: 'available_data_layers', classe: RUNTIME },
-    { arquivo: 'src/js/projects/local-atlas-notices.js', campo: 'available_analysis_layers', classe: RUNTIME },
-    { arquivo: 'src/js/projects/local-atlas-notices.js', campo: 'available_3d_models', classe: RUNTIME },
-    { arquivo: 'src/js/projects/local-atlas-notices.js', campo: 'available_360_views', classe: RUNTIME },
+    { arquivo: 'src/js/projects/server-send-phrases.js', campo: 'modelId', classe: RUNTIME },
+    { arquivo: 'src/js/projects/server-send-phrases.js', campo: 'photoId', classe: RUNTIME },
+    { arquivo: 'src/js/projects/server-send-phrases.js', campo: 'baseLayer', classe: RUNTIME },
+    { arquivo: 'src/js/projects/server-send-phrases.js', campo: 'catalogLayers', classe: RUNTIME },
+    { arquivo: 'src/js/projects/server-send-phrases.js', campo: 'default_basemap', classe: RUNTIME },
+    { arquivo: 'src/js/projects/server-send-phrases.js', campo: 'available_data_layers', classe: RUNTIME },
+    { arquivo: 'src/js/projects/server-send-phrases.js', campo: 'available_analysis_layers', classe: RUNTIME },
+    { arquivo: 'src/js/projects/server-send-phrases.js', campo: 'available_3d_models', classe: RUNTIME },
+    { arquivo: 'src/js/projects/server-send-phrases.js', campo: 'available_360_views', classe: RUNTIME },
     // O leitor de namespace de "Enviar ao servidor" na tela de escolha: lê os dois campos do
     // documento de mapa no IndexedDB e os entrega a `buildServerImportPayload`, que é quem poda.
     { arquivo: 'src/js/projects/send-local-to-server.service.js', campo: 'baseLayer', n: 1, classe: PERSISTE },

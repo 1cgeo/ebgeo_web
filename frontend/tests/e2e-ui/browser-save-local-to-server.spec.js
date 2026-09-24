@@ -363,4 +363,64 @@ describeOrSkip('Salvar atlas local no servidor (UI, item 2)', () => {
             }
         });
     });
+
+    /**
+     * O SERVIDOR PODA, E A FRASE DO MAPA TEM DE DIZER.
+     *
+     * O import descarta item 3D e 360 cujo recurso não está no catálogo dele e relata a poda em
+     * `summary.prunedResourceRefs`. O "Enviar ao servidor" de `atlas.html` lê esse campo desde
+     * 2026-09-07 e troca o tom para aviso; este, o do menu da conta no MAPA, jogava a resposta fora
+     * e dizia "Atlas salvo no servidor" em VERDE. A pessoa que veio da versão anterior com posições
+     * de câmera, marcadores e medições 3D lia que tudo subiu, e o atlas de servidor, que é o que ela
+     * passa a usar, nasceu sem eles. Medido em 2026-09-23 com o acervo `03-completo-2.4` escrito pela
+     * main real: 2 posições de câmera, 4 marcadores, 2 medições e 2 bacias de visada 3D, mais 2
+     * orientações e 4 marcadores 360 e 2 slides, descartados.
+     */
+    test('a poda do servidor chega à frase, em tom de aviso', async ({ browser }) => {
+        test.setTimeout(120000);
+        const { ctx, page } = await driveSaveLocalToServer(browser, state.baseUrl, {
+            seed: async (p, featureId) => {
+                await p.evaluate(async (fid) => {
+                    window.__toasts = [];
+                    new MutationObserver((mutacoes) => {
+                        for (const m of mutacoes) {
+                            for (const no of m.addedNodes) {
+                                if (no.nodeType !== 1) continue;
+                                const alvo = no.classList?.contains('toast') ? no : no.querySelector?.('.toast');
+                                if (alvo) window.__toasts.push(`${alvo.className}\n${alvo.textContent}`);
+                            }
+                        }
+                    }).observe(document.body, { childList: true, subtree: true });
+                    const ns = await import('/src/js/store/atlas-namespace.js');
+                    let chave = null;
+                    await ns.getStore(ns.StoreName.MAPS).iterate((doc, k) => {
+                        if (JSON.stringify(doc?.features ?? {}).includes(fid)) chave = k;
+                    });
+                    // Um modelo que o catálogo do arnês não tem: o servidor o poda no import.
+                    await ns.getStore(ns.StoreName.CESIUM3D).setItem(`cesium3d_${chave}`, {
+                        cameraPositions: {
+                            'modelo-fora-do-catalogo': {
+                                id: crypto.randomUUID(), tilesetId: 'modelo-fora-do-catalogo', savedAt: Date.now(),
+                                position: { latitude: -22.9, longitude: -43.2, height: 500 },
+                                orientation: { heading: 0, pitch: -30, roll: 0 },
+                            },
+                        },
+                        markers: [], measurements: [], viewsheds: [],
+                    });
+                }, featureId);
+            },
+        });
+        try {
+            let frase = '';
+            await expect.poll(async () => {
+                const lista = await page.evaluate(() => window.__toasts ?? []);
+                frase = lista.find((t) => t.includes('salvo no servidor')) ?? '';
+                return frase;
+            }, { timeout: 30000 }).toContain('salvo no servidor');
+            expect(frase, 'a frase nomeia o que o servidor descartou').toContain('descartou 1 posição de câmera 3D');
+            expect(frase, 'perda parcial não sai em tom de sucesso').toContain('toast--warning');
+        } finally {
+            await ctx.close();
+        }
+    });
 });

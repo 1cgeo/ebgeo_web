@@ -57,6 +57,8 @@ import {
 import { getControl } from '@store';
 import { getCurrentLocalAtlasId, getLocalAtlas } from '@store/local-atlas.api.js';
 import { saveLocalAtlasToServer } from '@js/import_export/save-local-atlas.service.js';
+// Pelo ARQUIVO: `projects/` não tem barril, e a folha não tem imports (as frases das duas portas do envio).
+import { avisosDoServidor } from '@js/projects/server-send-phrases.js';
 import {
     openRemoteAtlas,
     retractAtlasClaim,
@@ -1057,7 +1059,18 @@ export class AccountControl {
                             ? '. Subiu sem 1 figura que não tinha arquivo'
                             : `. Subiu sem ${imageStats.missing} figuras que não tinham arquivo`;
                     }
-                    showSuccess(msg);
+                    // O QUE O SERVIDOR NÃO GRAVOU vem da resposta dele, e troca o tom: a pessoa passa
+                    // a trabalhar neste atlas, e uma perda dita em verde é uma perda não dita.
+                    const avisos = avisosDoServidor({
+                        summary: result.atlas?.summary,
+                        sent: { maps: stats.maps, features: stats.features },
+                    });
+                    if (avisos.length > 0) {
+                        showWarning(`${msg}. ${avisos.join(' ')} O atlas local continua neste navegador.`,
+                            { duration: 15000 });
+                    } else {
+                        showSuccess(msg);
+                    }
                 } catch (error) {
                     // "Cancelar" na pergunta das figuras é DECISÃO: nada foi publicado, nada a
                     // acusar. O erro segue adiante para o modal, que continua aberto.
