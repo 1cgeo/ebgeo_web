@@ -225,3 +225,36 @@ describe('buildApiErrorMessage — bordas', () => {
         expect(buildApiErrorMessage({}, 418)).toBe('HTTP 418');
     });
 });
+
+// O 413 DO PUSH PRECISA CHEGAR AO MOTOR COMO 413, de onde quer que venha. O corpo do `/sync` tem
+// limite no backend (JSON `{ error: { code: 'PAYLOAD_TOO_LARGE' } }`) e em cada proxy do caminho,
+// e o nginx responde com uma página HTML. Se o status se perdesse no parse do corpo, o motor
+// (`PERMANENT_PUSH_REJECTIONS`, `store/sync/sync-engine.js`) leria uma falha de rede e reenviaria
+// o mesmo lote para sempre.
+describe('pushOperations — 413 do servidor e do proxy', () => {
+    it('um 413 com corpo HTML de proxy vira ApiError com status 413', async () => {
+        const html = '<html><head><title>413 Request Entity Too Large</title></head>'
+            + '<body><center><h1>413 Request Entity Too Large</h1></center><hr><center>nginx</center></body></html>';
+        const fetchImpl = vi.fn(async () => ({
+            ok: false, status: 413, headers: { get: () => null }, text: async () => html,
+        }));
+        const api = makeClient(fetchImpl);
+        api.setTokens({ accessToken: 'tok' });
+
+        await expect(api.pushOperations('atlas-1', [{ id: 'op-1' }])).rejects.toMatchObject({
+            name: 'ApiError', status: 413,
+        });
+    });
+
+    it('um 413 do backend (envelope JSON) também', async () => {
+        const fetchImpl = vi.fn(async () => resp(413, {
+            error: { code: 'PAYLOAD_TOO_LARGE', message: 'request entity too large' },
+        }));
+        const api = makeClient(fetchImpl);
+        api.setTokens({ accessToken: 'tok' });
+
+        await expect(api.pushOperations('atlas-1', [{ id: 'op-1' }])).rejects.toMatchObject({
+            status: 413, code: 'PAYLOAD_TOO_LARGE',
+        });
+    });
+});

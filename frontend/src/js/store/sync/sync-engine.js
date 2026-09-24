@@ -111,6 +111,17 @@ const LOTE_GRANDE_DEMAIS = `Esta ação gerou mais de ${LOTE_MAX_OPS} alteraçõ
     + 'não aceita enviá-las juntas. Ela está guardada nas pendências para revisão.';
 
 /**
+ * The pt-BR reason stored (and shown) when a piece that cannot be split any further still exceeds
+ * the body limit of the push (413). The raw `error.message` would be the Express default
+ * ("request entity too large") or, from a proxy answering with HTML, `HTTP 413`, and the pending
+ * list shows the stored reason verbatim. Retrying the same bytes gets the same 413, so the sentence
+ * names the only thing that helps.
+ * @type {string}
+ */
+const CORPO_GRANDE_DEMAIS = 'Esta alteração é grande demais para o servidor receber de uma vez '
+    + 'e ficou nas pendências. Divida a importação em partes menores e tente de novo.';
+
+/**
  * What the public-link visitor reads when the live connection cannot come back: the link's token
  * is ephemeral, has no refresh, and the upgrade refuses it once expired (`decidirReconexao`,
  * `ws-client.js`). Reloading re-resolves the link and gets a new one. A signed-in person never
@@ -788,7 +799,11 @@ class SyncEngine {
         // primeiro push aceito faria o lote grande falhar de novo a cada op boa que
         // precede a ofensora (um round-trip perdido por op, em vez de um por op).
         let isolating = false;
-        let ops = await session.queue.peek(FLUSH_BATCH_SIZE);
+        // THE CUT OF THE NEXT PEEK, which only a 413 moves: it halves while the SUM of the bytes
+        // is over the body limit, and it goes back to the full cut once an indivisible piece that
+        // is too large on its own has been set aside (the rest may well fit whole).
+        let recorte = FLUSH_BATCH_SIZE;
+        let ops = await session.queue.peek(recorte);
         while (ops && ops.length > 0) {
             session.assertActive();
             const opIds = ops.map(op => op.id);
@@ -816,7 +831,7 @@ class SyncEngine {
                     // Headless (tests, worker): no UI to tell.
                 }
                 isolating = false;
-                ops = await session.queue.peek(FLUSH_BATCH_SIZE);
+                ops = await session.queue.peek(recorte);
                 continue;
             }
             record(TraceStage.FLUSH_PUSH, {
@@ -861,11 +876,27 @@ class SyncEngine {
                 // nenhuma op irmã pode ter sido descartada por engano, porque irmã só
                 // sai da fila quando o servidor a aceita.
                 if (PERMANENT_PUSH_REJECTIONS.has(error?.status)) {
+                    // A 413 IS ABOUT THE SUM OF THE BYTES, NOT ABOUT ONE OP, so it HALVES the cut
+                    // instead of isolating: isolating would send every remaining op alone for the
+                    // rest of the flush (up to 25 times the pushes), while halving finds the largest
+                    // cut that fits in a few round trips. `peek` never splits a logical batch, so
+                    // when halving hands back the same piece it is indivisible, and it is refused
+                    // below like any poison piece.
+                    const corpoGrande = error?.status === 413;
+                    if (corpoGrande && ops.length > 1) {
+                        const metade = Math.max(1, Math.floor(ops.length / 2));
+                        const menor = await session.queue.peek(metade);
+                        if (menor.length < ops.length) {
+                            recorte = metade;
+                            ops = menor;
+                            continue;
+                        }
+                    }
                     // `!isolating` E NÃO SÓ O TAMANHO, desde que o recorte respeita o lote. Um
                     // `peek(1)` devolve o menor pedaço INDIVISÍVEL, que é um lote inteiro quando a
                     // primeira op pertence a um: sem esta condição, um lote de N envenenado
                     // reduziria para N a cada volta e o laço giraria para sempre.
-                    if (!isolating && ops.length > 1) {
+                    if (!corpoGrande && !isolating && ops.length > 1) {
                         isolating = true;
                         ops = await session.queue.peek(1);
                         continue;
@@ -876,7 +907,8 @@ class SyncEngine {
                     // enviáveis e o gesto seria reenviado pela metade na volta seguinte.
                     for (const operation of ops) {
                         await session.queue.recordIssue(operation, {
-                            rejected: true, reason: error.message, status: error.status,
+                            rejected: true, reason: corpoGrande ? CORPO_GRANDE_DEMAIS : error.message,
+                            status: error.status,
                             ...(operation.batchId ? {
                                 batchId: operation.batchId, batchFailedOperationId: poison.id,
                             } : {}),
@@ -898,14 +930,14 @@ class SyncEngine {
                     // mente, o servidor nunca a viu, e o próximo snapshot desfaz a ação
                     // do usuário sem explicação.
                     try {
-                        showWarning(
-                            'Uma alteração foi recusada pelo servidor. Ela está guardada nas pendências para revisão.'
-                        );
+                        showWarning(corpoGrande ? CORPO_GRANDE_DEMAIS
+                            : 'Uma alteração foi recusada pelo servidor. Ela está guardada nas pendências para revisão.');
                     } catch {
                         // Headless (tests, worker): no UI to tell.
                     }
                     isolating = false;
-                    ops = await session.queue.peek(FLUSH_BATCH_SIZE);
+                    recorte = FLUSH_BATCH_SIZE;
+                    ops = await session.queue.peek(recorte);
                     continue;
                 }
 
@@ -979,7 +1011,7 @@ class SyncEngine {
                 );
             }
             pushed += removed;
-            ops = await session.queue.peek(isolating ? 1 : FLUSH_BATCH_SIZE);
+            ops = await session.queue.peek(isolating ? 1 : recorte);
         }
         session.assertActive();
         if (needsRecovery) await this.resync();

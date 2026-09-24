@@ -32,7 +32,7 @@
  *    segunda porta não existia (o INSERT é gateado por um EXISTS sobre `maps` que não olha
  *    `deleted_at`, e daí a aposta) e a medição a desmentiu: o gate está antes do INSERT.
  *  - **Permissão alterada não vira problema durável, e isso é o desenho certo.** O rebaixamento
- *    responde 403, que NÃO está entre as recusas permanentes do flush (só 400 e 422), então o
+ *    responde 403, que NÃO está entre as recusas permanentes do flush (400, 413 e 422), então o
  *    flush LANÇA, nada é guardado e nada sai da fila: o trabalho espera a permissão voltar, e
  *    volta a sair sozinho quando ela volta. Guardar um problema ali seria pedir decisão humana
  *    sobre um estado que outra pessoa desfaz. E o 403 vem da ROTA

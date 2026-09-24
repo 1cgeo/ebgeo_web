@@ -1409,6 +1409,27 @@ describe('lote envenenado: isolamento e descarte da op ofensora', () => {
         expect(result).toEqual({ pushed: 3 });
     });
 
+    // O 413 PELA SOMA NÃO PODE ISOLAR, e isolar era o que o primeiro conserto fazia: o recorte
+    // virava 1 até o fim da descarga, 25 pushes onde cabiam 4. O recorte cai pela METADE até
+    // caber, e fica ali.
+    it('413 pela SOMA: o recorte cai à metade até caber, e não isola op a op', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        queueState.ops = Array.from({ length: 25 }, (_, i) => ({ id: `op-${i}` }));
+        // Cabem até 6 ops por corpo.
+        apiClientMock.pushOperations.mockImplementation(async (_atlasId, ops) => {
+            if (ops.length > 6) throw httpError(413);
+            return { results: ops.map(op => ({ operationId: op.id, success: true, currentVersion: 1 })), serverVersion: 1 };
+        });
+
+        const result = await syncEngine.flush();
+
+        const tamanhos = apiClientMock.pushOperations.mock.calls.map(([, ops]) => ops.length);
+        expect(tamanhos).toEqual([25, 12, 6, 6, 6, 6, 1]);
+        expect(queueState.issues).toEqual([]);
+        expect(result).toEqual({ pushed: 25 });
+        expect(h.showWarningMock).not.toHaveBeenCalled();
+    });
+
     it('413 de UMA op sozinha: ela vai para as pendências e as irmãs seguem', async () => {
         await syncEngine.connect('atlas-1', { initialPull: false });
         queueState.ops = [{ id: 'op-boa-1' }, { id: 'op-enorme' }, { id: 'op-boa-2' }];
@@ -1423,7 +1444,16 @@ describe('lote envenenado: isolamento e descarte da op ofensora', () => {
         expect(queueState.issues.map(issue => issue.operation.id)).toEqual(['op-enorme']);
         expect(queueState.issues[0].result.status).toBe(413);
         expect(result).toEqual({ pushed: 2 });
+        // O MOTIVO GUARDADO É A FRASE DA CASA, e não o `error.message` cru: o painel de
+        // pendências o mostra como está, e o cru é "request entity too large" (Express) ou
+        // "HTTP 413" (proxy com corpo HTML). A frase diz o que resolve, porque reenviar os
+        // mesmos bytes recebe o mesmo 413.
+        const motivo = queueState.issues[0].result.reason;
+        expect(motivo).toMatch(/grande demais/);
+        expect(motivo).toMatch(/partes menores/);
+        expect(motivo).not.toMatch(/HTTP|entity|413/);
         expect(h.showWarningMock).toHaveBeenCalledTimes(1);
+        expect(h.showWarningMock.mock.calls[0][0]).toBe(motivo);
     });
 
     it('não gira em vazio quando a fila não avança (dequeue removeu 0)', async () => {
@@ -1801,6 +1831,24 @@ describe('lote lógico no envio', () => {
         expect(queueState.issues.map(i => i.operation.id))
             .toEqual(['gesto-ruim-0', 'gesto-ruim-1', 'gesto-ruim-2']);
         expect(queueState.issues.every(i => i.result.batchFailedOperationId === 'gesto-ruim-0')).toBe(true);
+        expect(queueState.dequeued).toEqual(['solta']);
+    });
+
+    it('413 de um gesto que não se divide: o gesto inteiro vai para as pendências, a solta segue', async () => {
+        queueState.ops = [...loteDe('gesto-grande', 3), { id: 'solta', entityId: 'solta' }];
+        apiClientMock.pushOperations.mockImplementation(async (_atlasId, ops) => {
+            if (ops.some(o => o.batchId === 'gesto-grande')) throw httpError(413);
+            return { results: ops.map(op => ({ operationId: op.id, success: true })), serverVersion: 1 };
+        });
+
+        // CONTROLE DO LAÇO: a metade de um pedaço indivisível devolve o MESMO pedaço, e sem a
+        // comparação de tamanho a divisão giraria para sempre sobre ele.
+        const result = await syncEngine.flush();
+
+        expect(result).toEqual({ pushed: 1 });
+        expect(queueState.issues.map(i => i.operation.id))
+            .toEqual(['gesto-grande-0', 'gesto-grande-1', 'gesto-grande-2']);
+        expect(queueState.issues.every(i => /partes menores/.test(i.result.reason))).toBe(true);
         expect(queueState.dequeued).toEqual(['solta']);
     });
 });
