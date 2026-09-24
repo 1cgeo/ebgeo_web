@@ -163,9 +163,11 @@ const CABECA_DE_DATA_URL = /^data:([^;,]+)(?:;[^,]*)*;base64,/;
  * (2026-09-24, review). The server sniffs the bytes and refuses a declared type that does not match
  * them, and the atomic import refuses the WHOLE atlas for one such picture; the acervo of the
  * previous line has photos whose header says one format over bytes of another (a PNG saved under a
- * `.jpg` name). Bytes of no allowed format stay inline.
+ * `.jpg` name). Bytes of no allowed format stay inline, and that includes an ANIMATED PNG: the
+ * server calls it `image/apng`, which it does not accept ({@link tipoDePng}).
  *
- * Only the head of the string is read: the data URL of a large photo is megabytes long.
+ * Only the head of the string is decoded, plus, for a PNG, the eight bytes of each chunk header up
+ * to the first image data: the data URL of a large photo is megabytes long.
  *
  * @param {*} foto - An item of an `images` array
  * @returns {string|null}
@@ -175,10 +177,134 @@ export function mimeDeFotoInlineQueSobe(foto) {
     if (typeof foto.thumbnail !== 'string' || foto.thumbnail.length === 0) return null;
     const cabeca = CABECA_DE_DATA_URL.exec(foto.data.slice(0, 256));
     if (!cabeca) return null;
-    const mime = mimeDosBytes(bytesDoBase64(foto.data.slice(cabeca[0].length, cabeca[0].length + 44)));
+    const inicio = cabeca[0].length;
+    const topo = bytesDoBase64(foto.data.slice(inicio, inicio + 44));
+    const mime = ehAssinaturaPng(topo)
+        ? tipoDePng(leitorDeBase64(foto.data, inicio), tamanhoDoBase64(foto.data, inicio))
+        : mimeDosBytes(topo);
     if (!mime || !IMAGE_CONFIG.allowedTypes.includes(mime)) return null;
     const bytes = Math.floor((foto.data.length - cabeca[0].length) * 3 / 4);
     return bytes > IMAGE_CONFIG.maxSizeBytes ? null : mime;
+}
+
+/**
+ * How many bytes the base64 payload of a data URL decodes to, without decoding it.
+ * @param {string} texto - The whole data URL
+ * @param {number} inicio - Where the payload starts
+ * @returns {number}
+ */
+function tamanhoDoBase64(texto, inicio) {
+    const caracteres = texto.length - inicio;
+    const preenchimento = texto.endsWith('==') ? 2 : texto.endsWith('=') ? 1 : 0;
+    return Math.max(0, Math.floor(caracteres * 3 / 4) - preenchimento);
+}
+
+/**
+ * A reader of `n` bytes at `pos` of the base64 payload of a data URL, decoding only the window.
+ * @param {string} texto - The whole data URL
+ * @param {number} inicio - Where the payload starts
+ * @returns {(pos: number, n: number) => (Uint8Array|null)}
+ */
+function leitorDeBase64(texto, inicio) {
+    return (pos, n) => {
+        const primeiro = Math.floor(pos / 3) * 4;
+        const ultimo = Math.ceil((pos + n) / 3) * 4;
+        const bytes = bytesDoBase64(texto.slice(inicio + primeiro, Math.min(inicio + ultimo, texto.length)));
+        if (!bytes) return null;
+        const deslocamento = pos - (primeiro / 4) * 3;
+        return bytes.subarray(deslocamento, deslocamento + n);
+    };
+}
+
+/** The eight bytes every PNG starts with. */
+const ASSINATURA_PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+/** How many chunks the server's detector reads before it settles on a still PNG. */
+const MAXIMO_DE_PEDACOS_PNG = 512;
+
+/**
+ * Whether the bytes open with the PNG signature.
+ * @param {Uint8Array|null} bytes
+ * @returns {boolean}
+ */
+function ehAssinaturaPng(bytes) {
+    return !!bytes && bytes.length >= 8 && ASSINATURA_PNG.every((valor, i) => bytes[i] === valor);
+}
+
+/**
+ * One step of the chunk walk of {@link tipoDePng}: the chunk header at `pos` either decides the type
+ * (`{ fim }`) or says where the next header is.
+ * @param {Uint8Array|null} cabecalho - The 8 bytes at `pos` (length, type)
+ * @param {number} pos
+ * @param {boolean} viuIhdr
+ * @param {number} tamanho - Size of the whole file
+ * @returns {{fim: (string|null)}|{proximo: number, viuIhdr: boolean}}
+ */
+function passoDePng(cabecalho, pos, viuIhdr, tamanho) {
+    if (!cabecalho || cabecalho.length < 8) return { fim: null };
+    // Signed, like the server's INT32_BE: a length with the high bit set is not a PNG.
+    const comprimento = (cabecalho[0] << 24) | (cabecalho[1] << 16) | (cabecalho[2] << 8) | cabecalho[3];
+    if (comprimento < 0) return { fim: null };
+    const tipo = String.fromCharCode(cabecalho[4], cabecalho[5], cabecalho[6], cabecalho[7]);
+    if (tipo === 'IHDR') {
+        if (comprimento !== 13) return { fim: null };
+        viuIhdr = true;
+    }
+    if (tipo === 'IDAT') return { fim: 'image/png' };
+    if (tipo === 'acTL') return { fim: 'image/apng' };
+    if (!viuIhdr && tipo !== 'CgBI') return { fim: null };
+    const proximo = pos + 8 + comprimento + 4;
+    // A chunk that runs past the end: the server stops there and calls it a PNG.
+    if (proximo > tamanho) return { fim: 'image/png' };
+    return { proximo, viuIhdr };
+}
+
+/**
+ * THE TYPE OF A PNG FILE, DECIDED THE WAY THE SERVER DECIDES IT (2026-09-24, second review of the
+ * attached photos). An ANIMATED PNG opens with the same eight bytes as a still one, and the server's
+ * detector (`file-type`, `detectors/png.js`, behind `fileTypeFromBuffer`) walks the chunks and calls
+ * the file `image/apng` when an `acTL` chunk comes before the first `IDAT`. The client read 32 or 33
+ * bytes and said `image/png`: the upload was refused as a declared type the bytes contradict, and the
+ * atomic import refused the WHOLE atlas for that one picture.
+ *
+ * The walk is the server's, rule by rule, so the two answer the same for the odd files too: a first
+ * chunk that is neither `IHDR` nor `CgBI`, or an `IHDR` of another length, or a negative length, is
+ * no type at all (null); a chunk running past the end, or 512 chunks without an answer, is a still
+ * PNG. `tests/e2e/tipo-de-png-como-o-servidor.e2e.test.js` sends a corpus to the real server.
+ *
+ * @param {(pos: number, n: number) => (Uint8Array|null)} ler - Reads `n` bytes at `pos` (fewer at the end)
+ * @param {number} tamanho - Size of the whole file
+ * @returns {string|null} `'image/png'`, `'image/apng'` or null
+ */
+export function tipoDePng(ler, tamanho) {
+    let pos = 8;
+    let viuIhdr = false;
+    for (let pedacos = 0; pedacos < MAXIMO_DE_PEDACOS_PNG; pedacos++) {
+        const passo = passoDePng(ler(pos, 8), pos, viuIhdr, tamanho);
+        if ('fim' in passo) return passo.fim;
+        ({ proximo: pos, viuIhdr } = passo);
+        if (pos + 8 >= tamanho) break;
+    }
+    return 'image/png';
+}
+
+/**
+ * {@link tipoDePng} over a Blob, reading one chunk header at a time.
+ * @param {Blob} blob
+ * @returns {Promise<string|null>}
+ */
+async function tipoDePngDoBlob(blob) {
+    const tamanho = blob.size;
+    let pos = 8;
+    let viuIhdr = false;
+    for (let pedacos = 0; pedacos < MAXIMO_DE_PEDACOS_PNG; pedacos++) {
+        const cabecalho = new Uint8Array(await blob.slice(pos, pos + 8).arrayBuffer());
+        const passo = passoDePng(cabecalho, pos, viuIhdr, tamanho);
+        if ('fim' in passo) return passo.fim;
+        ({ proximo: pos, viuIhdr } = passo);
+        if (pos + 8 >= tamanho) break;
+    }
+    return 'image/png';
 }
 
 /**
@@ -222,16 +348,17 @@ export function blobDeDataUrl(dataUrl) {
  *
  * The one answer to "what is this picture" that the server agrees with: it sniffs the bytes itself
  * (`fileTypeFromBuffer`, `backend/src/modules/images/images.service.js`) and refuses a declared type
- * that does not match. PNG `89 50 4E 47`, JPEG `FF D8 FF`, WebP `RIFF....WEBP`, GIF `GIF8`, BMP `BM`,
- * and SVG by its opening text.
+ * that does not match. PNG by its eight-byte signature and then its chunks ({@link tipoDePng}: still
+ * or animated), JPEG `FF D8 FF`, WebP `RIFF....WEBP`, GIF `GIF8`, BMP `BM`, and SVG by its opening text.
  *
- * @param {Uint8Array|null} bytes - At least the first 12 bytes
+ * @param {Uint8Array|null} bytes - The WHOLE file for a PNG (the chunks before the first image data
+ *   decide it); at least the first 12 bytes for the other formats
  * @returns {string|null}
  */
 export function mimeDosBytes(bytes) {
     if (!bytes || bytes.length < 2) return null;
     const b = bytes;
-    if (b.length >= 4 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';
+    if (ehAssinaturaPng(b)) return tipoDePng((pos, n) => b.subarray(pos, pos + n), b.length);
     if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
     if (b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46
         && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp';
@@ -243,13 +370,15 @@ export function mimeDosBytes(bytes) {
 }
 
 /**
- * {@link mimeDosBytes} of a Blob, reading only its head.
+ * {@link mimeDosBytes} of a Blob, reading only its head, and for a PNG its chunk headers up to the
+ * first image data ({@link tipoDePng}).
  * @param {Blob} blob
  * @returns {Promise<string|null>}
  */
 export async function mimeDoBlob(blob) {
     if (!blob || typeof blob.slice !== 'function') return null;
-    return mimeDosBytes(new Uint8Array(await blob.slice(0, 32).arrayBuffer()));
+    const topo = new Uint8Array(await blob.slice(0, 32).arrayBuffer());
+    return ehAssinaturaPng(topo) ? tipoDePngDoBlob(blob) : mimeDosBytes(topo);
 }
 
 /** Formats that can carry an alpha channel among the accepted ones. */

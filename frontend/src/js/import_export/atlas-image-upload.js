@@ -29,6 +29,16 @@ async function rasterizeSvgOnDemand(blob) {
     return rasterizeSvgToPng(blob);
 }
 
+/**
+ * Loads the APNG flattener on first use, like the SVG rasterizer above.
+ * @param {Blob} blob
+ * @returns {Promise<Blob>}
+ */
+async function flattenApngOnDemand(blob) {
+    const { achatarApngEmPng } = await import('@js/import_export/apng-to-png.js');
+    return achatarApngEmPng(blob);
+}
+
 /** Backend bulk-upload batch cap. */
 const CHUNK_SIZE = 50;
 /** MIME types the server accepts (SVG custom icons are deliberately excluded). */
@@ -99,12 +109,19 @@ function sniffImageMime(blob) {
  * `rasterizeSvg` is injected so the conversion is exercisable without a DOM; passing `null`
  * restores the pre-2026-09-19 behaviour, which is the negative control of the unit test.
  *
+ * AN ANIMATED PNG IS FLATTENED THE SAME WAY (2026-09-24, second review of the attached photos). The
+ * server calls it `image/apng` and accepts only png/jpeg/webp; declared `image/png`, as the client
+ * did while it read only the file's head, it was refused as a contradicted type, and the atomic
+ * import refused the whole atlas for it. It travels as a still PNG under the same id
+ * (`apng-to-png.js` says why the map loses nothing); `flattenApng: null` restores the refusal.
+ *
  * @param {Map<string, Blob>|Array<[string, Blob]>} blobsById
  * @param {Object} [options]
  * @param {((blob: Blob) => Promise<Blob>)|null} [options.rasterizeSvg] - SVG to PNG converter.
+ * @param {((blob: Blob) => Promise<Blob>)|null} [options.flattenApng] - APNG to still PNG converter.
  * @returns {Promise<{ uploads: Array<{localId: string, filename: string, mimeType: string, data: string}>, skipped: string[], skippedReasons: Array<{id: string, reason: string}> }>}
  */
-export async function buildImageUploads(blobsById, { rasterizeSvg = rasterizeSvgOnDemand } = {}) {
+export async function buildImageUploads(blobsById, { rasterizeSvg = rasterizeSvgOnDemand, flattenApng = flattenApngOnDemand } = {}) {
     const uploads = [];
     const skipped = [];
     const skippedReasons = [];
@@ -117,6 +134,9 @@ export async function buildImageUploads(blobsById, { rasterizeSvg = rasterizeSvg
             let mimeType = (await sniffImageMime(blob)) || blob.type || 'image/png';
             if (mimeType === 'image/svg+xml' && typeof rasterizeSvg === 'function') {
                 bytes = await rasterizeSvg(blob);
+                mimeType = (bytes ? await sniffImageMime(bytes) : null) || bytes?.type || 'image/png';
+            } else if (mimeType === 'image/apng' && typeof flattenApng === 'function') {
+                bytes = await flattenApng(blob);
                 mimeType = (bytes ? await sniffImageMime(bytes) : null) || bytes?.type || 'image/png';
             }
             if (!ALLOWED_IMAGE_MIME.has(mimeType)) {

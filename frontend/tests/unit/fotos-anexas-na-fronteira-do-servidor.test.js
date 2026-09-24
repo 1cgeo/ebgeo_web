@@ -22,6 +22,9 @@ import { generateUUID, isValidUUID } from '@utils/uuid.js';
 import { buildServerImportPayload } from '@js/import_export/local-atlas-to-server.js';
 import { blobDeDataUrl } from '@utils/image_utils.js';
 import { importImageIds } from '../../../backend/src/modules/atlas/import-image-refs.js';
+// Um PNG de verdade: o tipo de um PNG sai dos pedaços dele (`tipoDePng`), e uma assinatura seguida
+// de um byte não é PNG nem para o cliente nem para o servidor.
+import { pngSintetico } from '../helpers/png-sintetico.js';
 
 const blobs = new Map();
 
@@ -95,7 +98,7 @@ function documento(ids) {
         cesium3d: {
             'Mapa A': {
                 cameraPositions: {},
-                markers: [{ id: generateUUID(), tilesetId: 't1', images: [{ id: ids.m3d, name: 'm.png', type: 'image/png', data: dataUrl('image/png', Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 1])), thumbnail: MINIATURA }] }],
+                markers: [{ id: generateUUID(), tilesetId: 't1', images: [{ id: ids.m3d, name: 'm.png', type: 'image/png', data: dataUrl('image/png', pngSintetico()), thumbnail: MINIATURA }] }],
                 measurements: [], viewsheds: [],
             },
         },
