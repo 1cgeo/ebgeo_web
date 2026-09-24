@@ -339,8 +339,12 @@ export async function addFeature(type, feature, mapName = null, options = {}) {
  * @param {boolean} [options.preserveUserData=true] - Restore user data the incoming feature lacks.
  * @param {Object} [options.revertFrom] - Undo/redo only: the feature as the reverted edit left it.
  *   Fields changed since then keep their current value (see {@link keepLaterEdits}).
+ * @param {function(Object): Object} [options.transform] - Builds the feature to store FROM A CLONE
+ *   OF THE STORED ONE, read under the document lock; `feature` then only names the target. For a
+ *   caller whose change is a function of the current feature (the attribute manager): a copy read
+ *   before the lock would carry back whatever a peer's op wrote in between.
  */
-export async function updateFeature(type, feature, mapName = null, { preserveUserData: keepUserData = true, revertFrom = null } = {}) {
+export async function updateFeature(type, feature, mapName = null, { preserveUserData: keepUserData = true, revertFrom = null, transform = null } = {}) {
     const targetMap = resolveMap(mapName);
     if (guardWrite(GuardAction.UPDATE_FEATURE, 'updateFeature', targetMap).blocked) return;
 
@@ -360,6 +364,10 @@ export async function updateFeature(type, feature, mapName = null, { preserveUse
 
         const oldFeature = currentMapData.features[type][index];
         const oldColor = mapManager.getFeatureColor(oldFeature);
+        if (typeof transform === 'function') {
+            cleanedFeature = cleanFeature(transform(deepClone(oldFeature)));
+            if (!cleanedFeature) return;
+        }
         // Read under the document lock, like `oldFeature`: a peer's op applied between a read
         // outside it and this write would be exactly the edit the revert must not take back.
         if (revertFrom) cleanedFeature = cleanFeature(keepLaterEdits(oldFeature, cleanFeature(revertFrom), cleanedFeature));

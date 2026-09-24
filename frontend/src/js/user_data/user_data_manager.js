@@ -13,7 +13,6 @@
 
 import { getMapData, updateFeature, getCurrentMapNameSync, getStorageTypeFromSource, getEventBus } from '@store';
 import { IDUtils } from '@utils';
-import { deepClone } from '@utils/deep-utils.js';
 import { EventTypes, FeatureUpdateProperty } from '@events';
 import {
     IMAGE_CONFIG,
@@ -253,17 +252,24 @@ const userDataManager = {
             return null;
         }
 
-        // Work on a deep CLONE, never the live store object, so the store keeps holding the OLD
-        // feature: updateFeature compares old vs new (isFeatureEqual) to detect a real change, and
-        // the clone carries every existing attribute/image/descricao so the authoritative write
-        // below only changes the one field updateFn touched.
-        const updatedFeature = updateFn(deepClone(mapData.features[storageType][featureIndex]));
-
+        // THE CHANGE IS APPLIED UNDER THE DOCUMENT LOCK, to the feature as stored THEN
+        // (`transform`), never to the copy read above. That read happens outside the lock, and the
+        // inbound path takes the same lock: a colleague's op applied in between was reverted by the
+        // whole-feature write, and the patch carried the old value with an up-to-date base, so the
+        // server accepted it and the colleague's edit vanished everywhere
+        // (`frontend/tests/store/atributo-le-o-documento-sob-a-trava.repro.test.js`). The read above
+        // only answers "does it exist". updateFn still runs exactly once, on a deep clone, so the
+        // store keeps the OLD feature for `isFeatureEqual`.
+        //
         // Persist AND log a sync op via the canonical update path (a direct updateMapData write
         // emitted only a LOCAL event, so attributes/photos never reached collaborators). Pass
         // preserveUserData:false so an intentionally-emptied attributes/images collection (removing
         // the last attribute/photo) is persisted instead of being restored from the old value.
-        await updateFeature(storageType, updatedFeature, mapName, { preserveUserData: false });
+        let updatedFeature = null;
+        await updateFeature(storageType, mapData.features[storageType][featureIndex], mapName, {
+            preserveUserData: false,
+            transform: (current) => (updatedFeature = updateFn(current)),
+        });
         return updatedFeature;
     },
 
