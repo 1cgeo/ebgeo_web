@@ -1,5 +1,5 @@
 // Path: js/selection_tools/rectangle_selection_control.js
-import { getSelectionControlConfig } from '@store';
+import { getSelectionControlConfig, isFeatureEffectivelyLocked } from '@store';
 
 class RectangleSelectionControl {
     constructor(toolManager) {
@@ -168,8 +168,10 @@ class RectangleSelectionControl {
         // Select found features - await all selections
         const selectionPromises = featuresInArea
             .filter(feature => {
-                // Skip blocked features
-                if (feature.properties.bloqueado === true) return false;
+                // The SAME lock question the single click asks (`selection_manager.js`): the
+                // feature, its LAYER and its GROUP. Asking only `bloqueado` let the box select
+                // every feature of a locked layer, and Delete then erased them in one gesture.
+                if (isFeatureEffectivelyLocked(feature)) return false;
 
                 const type = feature.toolType;
                 const featureId = feature.properties.id;
