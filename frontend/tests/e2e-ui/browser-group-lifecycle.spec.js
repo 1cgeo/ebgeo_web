@@ -185,6 +185,14 @@ describeOrSkip('Group lifecycle (real Chromium + real backend, UI-first gestures
             await applyStoreOp(page, 'updateGroupProperty', [groupId, 'style', { combine: true, color: '#00ff00' }]);
             const g2 = (await readGroups(page)).find((g) => g.id === groupId);
 
+            // A LOCKED GROUP'S MEMBERS DO NOT MOVE (2026-09-24, `refuseLockedLayerMove` in
+            // `moveFeaturesToLayer`), so the lock read above is lifted before the move. This case
+            // used to move the members with the group still locked, which is the gesture the lock
+            // now refuses; the refusal itself is held by
+            // `tests/e2e-ui/arrasto-na-arvore-respeita-trava.repro.spec.js` and
+            // `tests/store/move-features-layer.test.js`.
+            await applyStoreOp(page, 'updateGroupProperty', [groupId, 'locked', false]);
+
             // ---- §2.30 "drag group to another layer" ----------------------------------
             // The group itself carries no layerId; moving the group = moving each MEMBER
             // feature's properties.layerId via the REAL moveFeaturesToLayer store op.

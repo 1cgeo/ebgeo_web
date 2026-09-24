@@ -31,7 +31,7 @@
 
 import {
     collabTest, expect,
-    drawLineUI, drawPolygonUI, readFeatures, selectFeatureUI,
+    drawLineUI, drawPolygonUI, readFeatures, selectFeatureUI, openLayersTab,
 } from './helpers/collab.fixtures.js';
 import { pollPeerFeature, pollPeerFeatureGone } from './helpers/collab-helpers.js';
 
@@ -296,7 +296,7 @@ collabTest.describe('Conversão linear — POSTO (Leitor)', () => {
 collabTest.describe('Conversão linear — ESTADO (camada travada)', () => {
     collabTest.use({ collabOptions: { peers: 1, permission: 'write' } });
 
-    collabTest('camada travada: o comando continua desenhado, o clique recusa, e nada é escrito', async ({ collab }) => {
+    collabTest('camada travada: a feição não se seleciona pela árvore, nada é escrito, e destravada converte', async ({ collab }) => {
         const A = collab.author;   // dono, e é ele quem trava
         const B = collab.peers[0]; // Editor: testemunha do que NÃO chegou
 
@@ -338,22 +338,23 @@ collabTest.describe('Conversão linear — ESTADO (camada travada)', () => {
         const setasAntesIds = (await readFeatures(A, 'arrows')).map((f) => f.id);
         const setasNoPar = (await readFeatures(B, 'arrows')).length;
 
-        const { row } = await openConversionRow(A, lineId, 'Converter para Seta');
-
+        // DESDE 2026-09-24 A FEIÇÃO DE CAMADA TRAVADA NÃO SE SELECIONA POR PORTA NENHUMA (8b0b1cef:
+        // a árvore era a única que selecionava, e por ela o painel abria editável e Delete apagava
+        // no servidor), e a seleção que já existia cai quando a trava chega (ce6ab35f). Este caso
+        // chegava ao menu de conversão justamente por aquela porta da árvore; hoje o menu não é
+        // alcançável com a camada travada, como já não era com o MAPA travado. O ramo `featureLocked`
+        // do modelo (que soma camada e grupo) continua preso por `tests/unit/conversao-linear.test.js`;
+        // aqui fica a resposta do produto: o clique
+        // na árvore não abre painel nenhum, e nada é escrito.
         expect((await readFeatures(A, 'lines')).find(f => f.id === lineId)?.props?.layerId).toBe(layerId);
         expect((await applyStoreOp(A, 'getLayers', [collab.mapName]))
             .find(layer => layer.id === layerId)?.locked).toBe(true);
-
-        // O comando CONTINUA desenhado...
-        await expect(row).toBeVisible();
-        // ...e diz que está recusado por `aria-disabled`, NUNCA pela propriedade `disabled`,
-        // que mataria o clique que carrega o motivo.
-        await expect(row).toHaveAttribute('aria-disabled', 'true');
-        expect(await row.evaluate((el) => el.disabled)).toBe(false);
-
-        // O CLIQUE é o portador: ele dispara e nomeia o ESTADO (não o papel).
-        await clickRow(row);
-        await expect(A.locator('.toast--warning', { hasText: /bloquead/i })).toBeVisible({ timeout: 8000 });
+        await openLayersTab(A);
+        for (const icon of await A.locator('.layer-expand-icon.collapsed').all()) await icon.click().catch(() => {});
+        await A.locator(`.feature-item[data-feature-id="${lineId}"] .feature-main`).first().evaluate((el) => el.click());
+        await A.waitForTimeout(1500);
+        await expect(A.locator('.feature-panel[data-expanded="true"]'), 'nenhum painel abre para a feição da camada travada')
+            .toHaveCount(0);
         await expect(A.locator('.toast--success', { hasText: /convertida/i })).toHaveCount(0);
 
         // E NADA foi escrito, nem aqui nem no par. O toast sozinho não provaria isso.
