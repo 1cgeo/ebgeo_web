@@ -2,6 +2,7 @@
 
 import { BaseGeometry } from '@tools';
 import { createTerrainSampler } from '@js/terrain';
+import { deriveAnalysisOutput } from '@store/analysis-output.js';
 
 /**
  * Line of Sight Geometry Operations
@@ -221,51 +222,11 @@ class AddLOSGeometry extends BaseGeometry {
      * @returns {Array} Array of processed features with colors (green for visible, red for obstructed)
      */
     generateProcessedFeatures(mainFeature) {
-        const properties = mainFeature.properties;
-        const processedFeatures = [];
-
-        if (mainFeature.geometry.type === 'MultiLineString') {
-            processedFeatures.push({
-                type: 'Feature',
-                id: properties.id + '-visible',
-                properties: {
-                    ...properties,
-                    id: properties.id + '-visible',
-                    color: this.VISIBLE_COLOR
-                },
-                geometry: {
-                    type: 'LineString',
-                    coordinates: mainFeature.geometry.coordinates[0]
-                }
-            });
-
-            processedFeatures.push({
-                type: 'Feature',
-                id: properties.id + '-obstructed',
-                properties: {
-                    ...properties,
-                    id: properties.id + '-obstructed',
-                    color: this.OBSTRUCTED_COLOR
-                },
-                geometry: {
-                    type: 'LineString',
-                    coordinates: mainFeature.geometry.coordinates[1]
-                }
-            });
-        } else {
-            processedFeatures.push({
-                type: 'Feature',
-                id: properties.id + '-visible',
-                properties: {
-                    ...properties,
-                    id: properties.id + '-visible',
-                    color: this.VISIBLE_COLOR
-                },
-                geometry: mainFeature.geometry
-            });
-        }
-
-        return processedFeatures;
+        // The split lives in ONE pure function, shared with the inbound path of a peer, which
+        // derives the same output from the synced line (the output itself never travels).
+        return deriveAnalysisOutput('los', mainFeature, {
+            visible: this.VISIBLE_COLOR, obstructed: this.OBSTRUCTED_COLOR,
+        });
     }
 
     /**

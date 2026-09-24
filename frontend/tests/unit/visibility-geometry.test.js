@@ -716,14 +716,19 @@ describe('AddVisibilityGeometry.generateProcessedFeatures', () => {
         expect(out[0].properties.id).toBe('v1-visible');
     });
 
-    it('OBSERVADO: cellData mais curto que as coordenadas LANCA (invariante de alinhamento)', () => {
+    // Estes dois casos LANCAVAM ate 2026-09-23. A divisao passou a ser a folha pura
+    // `deriveAnalysisOutput` (`store/analysis-output.js`), que o caminho de ENTRADA do par
+    // tambem chama, e ali um lancamento derrubaria a aplicacao inteira da op remota de um
+    // viewshed malformado. A saida vazia mantem a entrada intacta e nao desenha uma analise
+    // desalinhada.
+    it('cellData mais curto que as coordenadas -> [] (nao desenha analise desalinhada)', () => {
         const f = mk([[[[0, 0]]], [[[1, 1]]]], [{ isVisible: true }]);
-        expect(() => geom.generateProcessedFeatures(f)).toThrow(TypeError);
+        expect(geom.generateProcessedFeatures(f)).toEqual([]);
     });
 
-    it('OBSERVADO: cellData ausente LANCA', () => {
+    it('cellData ausente -> []', () => {
         const f = mk([[[[0, 0]]]], undefined);
-        expect(() => geom.generateProcessedFeatures(f)).toThrow(TypeError);
+        expect(geom.generateProcessedFeatures(f)).toEqual([]);
     });
 });
 

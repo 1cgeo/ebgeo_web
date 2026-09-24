@@ -208,3 +208,23 @@ export const FEATURE_TYPE_REGISTRY = Object.freeze([
         selectable: true, copiable: true, imageResource: true, selectionBox: true,
     }),
 ]);
+
+/**
+ * The analysis OUTPUT buckets that are DERIVED from an input bucket, keyed by the input.
+ *
+ * AN OUTPUT IS NEVER SYNCED; EACH CLIENT DERIVES IT (decision of 2026-09-23, same family as the
+ * color counts of 2026-09-21 and the regenerated military-symbol raster). The output is a pure
+ * function of the input feature (`deriveAnalysisOutput`, `store/analysis-output.js`), and its id is
+ * `<inputId>-visible` / `<inputId>-obstructed`, which is not a UUID: the server refuses it
+ * (`features.id` is a UUID column), so in an atlas of the server the output never reached anyone,
+ * the author kept two refusals forever and lost the drawing on F5, and the peer saw nothing at all
+ * (the input layers are painted with zero opacity; only the output is visible).
+ *
+ * This is the ONE list the three halves read: the dispatcher drops the output's operations by it,
+ * the inbound path and the snapshot derive by it, and the upload of a local atlas skips it.
+ * @constant {Readonly<Object<string, string>>}
+ */
+export const DERIVED_OUTPUT_BUCKET_OF = Object.freeze({
+    los: 'processed_los',
+    visibility: 'processed_visibility',
+});

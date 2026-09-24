@@ -20,6 +20,7 @@ import { getRepository } from '../repositories/index.js';
 import { localRepository } from '../repositories/local.repository.js';
 import { getStorageTypeFromSource } from '../store.constants.js';
 import { ensureMapDataShape } from '../repository.utils.js';
+import { replaceDerivedOutput, rederiveAllAnalysisOutputs } from '../analysis-output.js';
 import { applyRemoteAppearance } from '../atlas-appearance.service.js';
 import { getControl } from '../control.registry.js';
 import { mapResolver } from '../services/map-resolver.service.js';
@@ -908,10 +909,15 @@ async function applyRemoteFeatureOp(opType, featureId, mapId, data, serverVersio
             const previous = await repo.getMap(data.previousMapId);
             if (!previous) return true;
             let removed = false;
-            for (const bucket of Object.values(previous.features ?? {})) {
+            for (const [bucketName, bucket] of Object.entries(previous.features ?? {})) {
                 if (!Array.isArray(bucket)) continue;
                 const index = findFeatureIndex(bucket, featureId);
-                if (index !== -1) { bucket.splice(index, 1); removed = true; }
+                if (index !== -1) {
+                    bucket.splice(index, 1);
+                    removed = true;
+                    // The derived analysis output leaves with its input (it never travels).
+                    replaceDerivedOutput(previous.features, bucketName, featureId, null);
+                }
             }
             if (removed) {
                 await repo.saveMap(data.previousMapId, previous);
@@ -979,6 +985,10 @@ async function applyRemoteFeatureOpLocked(opType, featureId, mapId, data, server
             } else {
                 features.push(data);
             }
+            // THE ANALYSIS OUTPUT IS DERIVED HERE, never received: a line of sight or a viewshed
+            // arrives alone, and its visible drawing is re-derived from it by the same function
+            // the author's tool used (`store/analysis-output.js`). No-op for every other bucket.
+            replaceDerivedOutput(mapData.features, storageType, featureId, data);
             await repo.saveMap(mapId, mapData);
 
             emit(EventTypes.FEATURE_CREATED, {
@@ -991,6 +1001,7 @@ async function applyRemoteFeatureOpLocked(opType, featureId, mapId, data, server
             if (index !== -1) {
                 const previousFeature = features[index];
                 features[index] = data;
+                replaceDerivedOutput(mapData.features, storageType, featureId, data);
                 await repo.saveMap(mapId, mapData);
 
                 emit(EventTypes.FEATURE_MODIFIED, {
@@ -1006,12 +1017,15 @@ async function applyRemoteFeatureOpLocked(opType, featureId, mapId, data, server
             // silently dropped the delete of EVERY non-point feature type (it searched
             // only the 'points' bucket). Search ALL buckets by id and remove it.
             let deletedFeature = null;
-            for (const arr of Object.values(mapData.features)) {
+            for (const [bucketName, arr] of Object.entries(mapData.features)) {
                 if (!Array.isArray(arr)) continue;
                 const idx = findFeatureIndex(arr, featureId);
                 if (idx !== -1) {
                     deletedFeature = arr[idx];
                     arr.splice(idx, 1);
+                    // The cascade of `removeFeature` on the author, mirrored: the output is
+                    // derived, so no operation will ever come to remove it.
+                    replaceDerivedOutput(mapData.features, bucketName, featureId, null);
                     break;
                 }
             }
@@ -2189,6 +2203,11 @@ async function reshapeSnapshotMap(repo, map) {
     // setup builds no source and the tool activates, accepts clicks and draws nothing. Same
     // pure function as the other two, so the three cannot drift apart.
     const shaped = ensureMapDataShape(reshaped) ?? reshaped;
+    // THE ANALYSIS OUTPUT IS RE-DERIVED FROM ITS INPUT, and whatever the server held in the output
+    // buckets is discarded: it never travels any more, and the rows a legacy upload of a local
+    // atlas left there carry ids the derivation would never produce, so keeping them would draw a
+    // second, orphaned copy that no deletion can reach.
+    rederiveAllAnalysisOutputs(shaped.features);
     // The server's own revision of the map row, when this payload came from the server. A live
     // partial update carries none, and then nothing is stamped: `mergeRemoteMapUpdate` is the one
     // that has to FORGET the old number, because it merges into a record that already has one.

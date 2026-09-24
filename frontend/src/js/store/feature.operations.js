@@ -320,7 +320,7 @@ export async function addFeature(type, feature, mapName = null, options = {}) {
             {
                 const mapId = mapManager.getMapId(targetMap);
                 tx.recordOperation(EntityType.FEATURE, OperationType.CREATE, cleanedFeature.properties.id, mapId, cleanedFeature,
-                    options.featureIntent ? cleanedFeature : null, options);
+                    options.featureIntent ? cleanedFeature : null, { ...options, storage: type });
             }
 
             return () => updateMapDataCompat(targetMap, currentMapData);
@@ -394,7 +394,7 @@ export async function updateFeature(type, feature, mapName = null, { preserveUse
 
             {
                 const mapId = mapManager.getMapId(targetMap);
-                tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, cleanedFeature.properties.id, mapId, cleanedFeature, oldFeature);
+                tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, cleanedFeature.properties.id, mapId, cleanedFeature, oldFeature, { storage: type });
             }
 
             return () => updateMapDataCompat(targetMap, currentMapData);
@@ -462,7 +462,7 @@ export async function removeFeature(type, id, mapName = null) {
 
             {
                 const mapId = mapManager.getMapId(targetMap);
-                tx.recordOperation(EntityType.FEATURE, OperationType.DELETE, id, mapId, null, mainFeature);
+                tx.recordOperation(EntityType.FEATURE, OperationType.DELETE, id, mapId, null, mainFeature, { storage: type });
             }
 
             return async () => {
@@ -550,7 +550,7 @@ export async function removeFeatureFromMap(type, id, mapName, { logOperation = t
             // same entity after it has already reached its destination.
             if (logOperation) {
                 const mapId = mapManager.getMapId(mapName);
-                tx.recordOperation(EntityType.FEATURE, OperationType.DELETE, id, mapId, null, mainFeature);
+                tx.recordOperation(EntityType.FEATURE, OperationType.DELETE, id, mapId, null, mainFeature, { storage: type });
             }
 
             return async () => {
@@ -664,7 +664,7 @@ export async function addFeatures(featuresMap, mapName = null, options = {}) {
                 const mapId = mapManager.getMapId(targetMap);
                 for (const type of Object.keys(action.features)) {
                     for (const feat of action.features[type]) {
-                        tx.recordOperation(EntityType.FEATURE, OperationType.CREATE, feat.properties.id, mapId, feat, options.featureIntent ? feat : null, options);
+                        tx.recordOperation(EntityType.FEATURE, OperationType.CREATE, feat.properties.id, mapId, feat, options.featureIntent ? feat : null, { ...options, storage: type });
                     }
                 }
             }
@@ -844,7 +844,7 @@ export async function updateFeatureProperty(featureType, featureId, property, va
 
             {
                 const mapId = mapManager.getMapId(targetMap);
-                tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, featureId, mapId, feature, oldFeature);
+                tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, featureId, mapId, feature, oldFeature, { storage: featureType });
             }
 
             return () => updateMapDataCompat(targetMap, currentMapData);
@@ -939,7 +939,7 @@ export async function shiftMapTemporalTimes(mapName, deltaMs) {
                     // than restating the table inside the helper.
                     rederiveAutoDtg(getSourceTypeFromStorage(type), p); // keep auto DTG/GDH amplifiers in sync
                     touchUpdatedTimestamp(feature);
-                    shifted.push({ feature, oldFeature });
+                    shifted.push({ feature, oldFeature, storage: type });
                 }
             }
         }
@@ -949,8 +949,8 @@ export async function shiftMapTemporalTimes(mapName, deltaMs) {
         await runTransaction(async (tx) => {
             {
                 const mapId = mapManager.getMapId(targetMap);
-                for (const { feature, oldFeature } of shifted) {
-                    tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, feature.properties.id, mapId, feature, oldFeature);
+                for (const { feature, oldFeature, storage } of shifted) {
+                    tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, feature.properties.id, mapId, feature, oldFeature, { storage });
                 }
             }
 
@@ -1420,7 +1420,7 @@ export async function moveFeaturesToLayer(featureRefs, targetLayerId, mapName = 
                 if (shouldMove) {
                     const oldFeature = deepClone(feature);
                     feature.properties.layerId = targetLayerId;
-                    moved.push({ feature, oldFeature });
+                    moved.push({ feature, oldFeature, storage: storageType });
                     modified = true;
                 }
             }
@@ -1429,8 +1429,8 @@ export async function moveFeaturesToLayer(featureRefs, targetLayerId, mapName = 
         if (modified) {
             const mapId = mapManager.getMapId(targetMap);
             await runTransaction(async tx => {
-                for (const { feature, oldFeature } of moved) {
-                    tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, feature.properties.id, mapId, feature, oldFeature);
+                for (const { feature, oldFeature, storage } of moved) {
+                    tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, feature.properties.id, mapId, feature, oldFeature, { storage });
                 }
                 return () => updateMapDataCompat(targetMap, currentMapData);
             });

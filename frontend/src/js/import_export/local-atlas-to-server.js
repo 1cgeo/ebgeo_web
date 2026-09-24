@@ -20,6 +20,7 @@ import { generateUUID, isValidUUID } from '@utils/uuid.js';
 import { pruneCatalogLayerDefinitions } from '@catalog/catalog-layer.ref.js';
 import { normalizeLegacyDeclinationProperties, ensureMapDataShape } from '@store/repository.utils.js';
 import { normalizeSlideControls } from '@js/briefing/slide-controls.js';
+import { isDerivedOutputBucket } from '@store/analysis-output.js';
 
 /** Server-accepted feature types (mirror of backend `VALID_FEATURE_TYPES`). */
 const VALID_FEATURE_TYPES = new Set([
@@ -142,6 +143,10 @@ function buildFeatures(buckets, featureId, layerIdFor, imageIdMap, stats) {
 
     for (const [bucket, list] of Object.entries(buckets)) {
         if (!Array.isArray(list)) continue;
+        // The analysis OUTPUT does not go up: every client re-derives it from the input that does
+        // (`store/analysis-output.js`), and the snapshot discards whatever the server holds in
+        // those buckets. Not counted as dropped, because nothing is lost: the drawing comes back.
+        if (isDerivedOutputBucket(bucket)) continue;
         for (const feature of list) {
             const props = feature?.properties || {};
             const featureType = BUCKET_TO_SOURCE[bucket] || props.source;

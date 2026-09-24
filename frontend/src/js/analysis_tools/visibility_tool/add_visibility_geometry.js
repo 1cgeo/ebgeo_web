@@ -2,6 +2,7 @@
 
 import { BaseGeometry } from '@tools';
 import { createTerrainSampler } from '@js/terrain';
+import { deriveAnalysisOutput } from '@store/analysis-output.js';
 
 /**
  * Visibility Geometry Operations
@@ -522,60 +523,11 @@ class AddVisibilityGeometry extends BaseGeometry {
      * @returns {Array} Array of processed features with colors
      */
     generateProcessedFeatures(mainFeature) {
-        const properties = mainFeature.properties;
-
-        if (mainFeature.geometry.type !== 'MultiPolygon') {
-            return [];
-        }
-
-        const visibleCoords = [];
-        const obstructedCoords = [];
-
-        mainFeature.geometry.coordinates.forEach((polygonCoords, index) => {
-            const cellData = properties.cellData[index];
-            if (cellData.isVisible) {
-                visibleCoords.push(polygonCoords);
-            } else {
-                obstructedCoords.push(polygonCoords);
-            }
+        // The split lives in ONE pure function, shared with the inbound path of a peer, which
+        // derives the same output from the synced viewshed (the output itself never travels).
+        return deriveAnalysisOutput('visibility', mainFeature, {
+            visible: this.VISIBLE_COLOR, obstructed: this.OBSTRUCTED_COLOR,
         });
-
-        const shared = AddVisibilityGeometry.withoutCellData(properties);
-        const processedFeatures = [];
-
-        if (visibleCoords.length > 0) {
-            processedFeatures.push({
-                type: 'Feature',
-                id: `${properties.id}-visible`,
-                properties: {
-                    ...shared,
-                    id: `${properties.id}-visible`,
-                    color: this.VISIBLE_COLOR
-                },
-                geometry: {
-                    type: 'MultiPolygon',
-                    coordinates: visibleCoords
-                }
-            });
-        }
-
-        if (obstructedCoords.length > 0) {
-            processedFeatures.push({
-                type: 'Feature',
-                id: `${properties.id}-obstructed`,
-                properties: {
-                    ...shared,
-                    id: `${properties.id}-obstructed`,
-                    color: this.OBSTRUCTED_COLOR
-                },
-                geometry: {
-                    type: 'MultiPolygon',
-                    coordinates: obstructedCoords
-                }
-            });
-        }
-
-        return processedFeatures;
     }
 
     /**

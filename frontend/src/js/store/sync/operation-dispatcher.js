@@ -17,6 +17,7 @@ import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
 import { markLocalEditPending, CONVERGENCE_GUARDED } from './remote-operation-handler.js';
 import { blobUploadPending } from './blob-upload-queue.js';
 import { checkPermission, GuardAction } from './permission-guard.js';
+import { isDerivedOutputBucket } from '../analysis-output.js';
 
 /**
  * Whether operation logging is enabled.
@@ -72,6 +73,34 @@ function nonUuidDropReason(op) {
 }
 
 /**
+ * Keeps the descriptions that may become outbound intentions, dropping the writes of a DERIVED
+ * analysis output (`processed_*`, by the bucket the store op stamped as `storage`).
+ *
+ * The output is re-derived by every client from the synced input (`store/analysis-output.js`),
+ * so its writes are local by definition, and they must not count as "un-pushable" either: a
+ * transaction that only rewrites an output is a legitimate local write, not an edit the atlas of
+ * the server is owed. The rule is by TYPE, never by id shape: a non-UUID id of any other type
+ * still goes out and is refused loudly by the server, which is the signal a caller bug deserves.
+ * @param {Array<Object>} descriptions - Edit descriptions from `tx.recordOperation`.
+ * @returns {Array<Object>} The descriptions that are not derived output.
+ */
+function withoutDerivedOutputs(descriptions) {
+    const outbound = [];
+    for (const op of descriptions) {
+        if (op.entityType === EntityType.FEATURE && isDerivedOutputBucket(op.storage)) {
+            record(TraceStage.PREFLUSH_DROP, {
+                entityType: op.entityType, operationType: op.operationType,
+                entityId: op.entityId, mapId: op.mapId,
+                outcome: TraceOutcome.DROPPED, reason: DropReason.DERIVED_OUTPUT
+            });
+            continue;
+        }
+        outbound.push(op);
+    }
+    return outbound;
+}
+
+/**
  * Write-ahead path used by store transactions. Failure prevents entity persistence.
  *
  * THE TWO REFUSALS BELOW USED TO BE BARE RETURNS, and that is F7. Between mounting a remote
@@ -88,7 +117,8 @@ function nonUuidDropReason(op) {
  * @returns {Promise<(function(): Promise<void>)|undefined>} Materialization step, or undefined.
  * @throws {OperationIntentRefusedError} In a REMOTE scope, when no intention can be recorded.
  */
-export async function persistOperationIntents(descriptions, { scope, traceId } = {}) {
+export async function persistOperationIntents(allDescriptions, { scope, traceId } = {}) {
+    const descriptions = withoutDerivedOutputs(allDescriptions);
     if (descriptions.length === 0) return;
     if (!enabled) {
         record(TraceStage.PREFLUSH_DROP, {

@@ -274,7 +274,14 @@ describe('tipos de feicao: leitura COMPORTAMENTAL do cliente', () => {
         const { payload, stats } = buildServerImportPayload({ maps: { M: { features: buckets } } }, { name: 'A' });
         expect(check.length).toBeGreaterThanOrEqual(20); // floor, again: an empty map drops nothing
         expect(stats.droppedFeatures, 'types the client silently refuses').toBe(0);
-        expect(payload.maps[0].features.map((f) => f.feature_type).sort()).toEqual([...check].sort());
+        // The two analysis OUTPUTS do not go up since 2026-09-23: every client derives them from
+        // the input (`store/analysis-output.js`). They are left out WITHOUT counting as dropped,
+        // which the line above already holds, and the expected list names them, so a third type
+        // skipped by accident still fails here.
+        const derivadas = ['processed_los', 'processed_visibility'];
+        expect(check.filter((tipo) => derivadas.includes(tipo)).sort()).toEqual(derivadas);
+        expect(payload.maps[0].features.map((f) => f.feature_type).sort())
+            .toEqual(check.filter((tipo) => !derivadas.includes(tipo)).sort());
     });
 
     it('pass 2: a bucket outside the list is dropped, silently, exactly as described', () => {

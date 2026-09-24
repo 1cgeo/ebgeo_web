@@ -849,7 +849,13 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // answers whether the deployment offers the panel) and `meteorologia/meteorologia-phrases.js`
         // (a zero-import leaf, for the menu label). The rest arrive only by `import()`.
         // `hora-brasilia.js` MOVED out of the light module to `utilities/` and is not new.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(794);
+        //
+        // 2026-09-23 (night): 795, with `store/analysis-output.js`, the one-import leaf (the type
+        // registry) that derives the output of the line of sight and of the viewshed. It is EAGER on
+        // purpose: the inbound path and the snapshot (`store/sync/remote-operation-handler.js`) and
+        // the dispatcher reach it statically, because a peer derives the output the moment the input
+        // arrives. Measured by this case's own failure (795 against 794, no other new source file).
+        expect(completo.arquivos.size).toBeLessThanOrEqual(795);
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);

@@ -24,6 +24,13 @@
  * `feature-type.registry.js`. Para balde DESCONHECIDO (`coordenadas`, o leitor efêmero de azimute)
  * a precedência antiga fica de pé, e é por isso que o caso do `coordenadas` continua aqui: sem
  * ele, a inversão de precedência mudaria em silêncio o que aquele balde faz.
+ *
+ * DESDE 2026-09-23 O RESULTADO DA ANÁLISE NÃO SOBE MAIS, e o primeiro caso mudou de sentido por
+ * isso. A saída (`processed_*`) passou a ser DERIVADA por cada cliente a partir da entrada
+ * (`store/analysis-output.js`), e o retrato descarta o que o servidor guardar naqueles baldes.
+ * Subir as saídas deixava no servidor linhas com UUID aleatório (o id local `<entrada>-visible`
+ * não é UUID), que nenhuma exclusão da entrada alcançava. O que este arquivo continua prendendo
+ * é a regra do balde para todo balde que SOBE.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -47,8 +54,8 @@ function tiposDoEnvio(buckets) {
     return conta;
 }
 
-describe('B3-5: o resultado da analise sobe no balde dele', () => {
-    it('processed_los e processed_visibility nao viram los e visibility', () => {
+describe('B3-5: o balde decide o tipo, e o resultado da analise nao sobe', () => {
+    it('processed_los e processed_visibility nao sobem nem viram los e visibility, e nao contam como perda', () => {
         const conta = tiposDoEnvio({
             los: [feicao('los'), feicao('los'), feicao('los')],
             processed_los: [feicao('los'), feicao('los'), feicao('los'), feicao('los'), feicao('los'), feicao('los')],
@@ -57,7 +64,12 @@ describe('B3-5: o resultado da analise sobe no balde dele', () => {
                 feicao('visibility'), feicao('visibility'), feicao('visibility')],
         });
 
-        expect(conta).toEqual({ los: 3, processed_los: 6, visibility: 3, processed_visibility: 6 });
+        expect(conta).toEqual({ los: 3, visibility: 3 });
+
+        const { stats } = buildServerImportPayload({
+            maps: { M: { features: { processed_los: [feicao('los')], processed_visibility: [feicao('visibility')] } } },
+        }, { name: 'A' });
+        expect(stats.droppedFeatures).toBe(0);
     });
 
     it('o balde conhecido decide, mesmo quando o source discorda dele', () => {
@@ -72,7 +84,7 @@ describe('B3-5: o resultado da analise sobe no balde dele', () => {
     it('sem properties.source, o balde continua respondendo (o caso de sempre)', () => {
         const f = feicao('point');
         delete f.properties.source;
-        expect(tiposDoEnvio({ processed_visibility: [f] })).toEqual({ processed_visibility: 1 });
+        expect(tiposDoEnvio({ setores: [f] })).toEqual({ sector: 1 });
     });
 
     it('balde DESCONHECIDO continua caindo no source, e coordenadas continua sendo descartado', () => {
@@ -87,11 +99,11 @@ describe('B3-5: o resultado da analise sobe no balde dele', () => {
 
     it('properties.source segue no corpo da feicao, intocado', () => {
         const { payload } = buildServerImportPayload({
-            maps: { M: { features: { processed_los: [feicao('los')] } } },
+            maps: { M: { features: { military_symbols: [feicao('point')] } } },
         }, { name: 'A' });
 
         const f = payload.maps[0].features[0];
-        expect(f.feature_type).toBe('processed_los');
-        expect(f.properties.source).toBe('los');
+        expect(f.feature_type).toBe('military_symbol');
+        expect(f.properties.source).toBe('point');
     });
 });

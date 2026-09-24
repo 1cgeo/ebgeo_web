@@ -62,5 +62,7 @@ export const DropReason = Object.freeze({
     OFFLINE: 'offline',
     PARSE_ERROR: 'parse_error',
     UNKNOWN_TYPE: 'unknown_type',
+    /** Write of a derived analysis output (`processed_*`), which every client re-derives and never sends. */
+    DERIVED_OUTPUT: 'derived_output',
 });
 

@@ -29,6 +29,18 @@ import { esperarFerramentaPronta } from './helpers/ferramenta-pronta.js';
  * `store/feature-type.registry.js`, so a type born there arrives here with no edit.
  */
 import { FEATURE_TYPE_MAPPINGS } from '../../src/js/store/store.constants.js';
+import { isDerivedOutputBucket } from '../../src/js/store/analysis-output.js';
+
+/**
+ * The sources whose writes TRAVEL. Since 2026-09-23 the analysis OUTPUT (`processed_los`,
+ * `processed_visibility`) is derived by every client from its input and never synced
+ * (`store/analysis-output.js`), so the dispatcher drops its ops by design and a full-chain wait on
+ * one would time out on correct behavior. This sweep used to include them only because it seeded
+ * them with a UUID, which is not the id the tools produce (`<input>-visible`), and that is how the
+ * real defect (the server refusing every output) stayed green here. The derived path is covered in
+ * `browser-collab-analise-derivada.repro.spec.js`.
+ */
+const SYNCED_SOURCES = ALL_FEATURE_SOURCES.filter((source) => !isDerivedOutputBucket(sourceToStorage(source)));
 
 function sourceToStorage(source) {
     const storage = FEATURE_TYPE_MAPPINGS[source];
@@ -120,7 +132,7 @@ collabTest.describe('Every feature type syncs cross-client (UI draws + store op,
 
         // BATCH: A creates one feature of each type, recording (source, storage, id).
         const created = [];
-        for (const source of ALL_FEATURE_SOURCES) {
+        for (const source of SYNCED_SOURCES) {
             const storage = sourceToStorage(source);
             const drawUI = UI_DRAWERS[source];
             if (drawUI) {
@@ -144,7 +156,8 @@ collabTest.describe('Every feature type syncs cross-client (UI draws + store op,
             }
             created.push({ source, storage, id, landedOnA });
         }
-        expect(created).toHaveLength(ALL_FEATURE_SOURCES.length);
+        expect(created).toHaveLength(SYNCED_SOURCES.length);
+        expect(SYNCED_SOURCES.length, 'only the two derived outputs are left out').toBe(ALL_FEATURE_SOURCES.length - 2);
 
         // VERIFY: each type traverses the WHOLE chain to B. Collect every failure (with the link
         // it broke at) so the assertion lists exactly which types did not fully sync.
