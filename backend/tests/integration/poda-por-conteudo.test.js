@@ -486,7 +486,9 @@ describe('F13 — a poda por conteúdo alcança o carimbo errado e a coluna irm�
 
     const novo = res.body.data;
     assert.ok(novo?.id && novo.id !== mapa.id, 'a rota devolve a linha do mapa NOVO');
-    assert.match(novo.name, /\(cópia\)$/, 'com o nome derivado pelo servidor');
+    // Since 2026-09-24 the route honours the optional `{ name }` the client sends ("Duplicar" in a
+    // server atlas goes through it); before, the body was ignored and the name was derived.
+    assert.equal(novo.name, `Cópia ${sufixo}`, 'com o nome pedido no corpo');
     assert.ok('analysis_layers' in novo, 'com a coluna publicada, como o contrato promete');
     const texto = JSON.stringify(novo);
     assert.ok(!texto.includes(URL_COPIADA), 'a cópia carimbada VAZOU pela duplicação');
