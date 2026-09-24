@@ -37,23 +37,30 @@ import { registrarEnvioDeImagem, isImageSyncOnline } from './sync/image-sync.js'
 import { OperationType } from './sync/operation-types.js';
 
 /**
- * Processes a photo file, stores its bytes and registers their upload, and hands back the item the
- * entity must carry plus the two ways out.
+ * Processes a photo file and hands back the item the entity must carry, the WRITE of its bytes and
+ * upload pendency (`gravar`), and the two ways out.
+ *
+ * NOTHING IS WRITTEN HERE (2026-09-24, review, item 5). The processing (a canvas re-encode, the heavy
+ * part) runs outside the entity's transaction; `gravar` stores the bytes and registers the upload,
+ * and each door calls it INSIDE the transaction's work, under the scope stamp, the logout barrier and
+ * the per-tab pause. Before, the bytes and the pendency were written up front, so a write the
+ * transaction then refused had already stored and registered a photo for an entity never saved.
  *
  * @param {File} file - Image file, already accepted by `validateImageFile`
  * @param {Object} [opcoes]
  * @param {string} [opcoes.origem='foto-anexa'] - Label of the upload pendency
- * @returns {Promise<{item: Object, bytes: number, confirmar: () => void, descartar: () => Promise<void>}>}
- *   `item`: `{ id, name, type, size, thumbnail, addedAt }`, with no `data`. `confirmar` after the
- *   entity was saved AND after a write that THREW; `descartar` only on a CLEAN refusal (see
- *   {@link comConversao} for why an error is not a refusal).
+ * @returns {Promise<{item: Object, bytes: number, gravar: () => Promise<void>, confirmar: () => void,
+ *   descartar: () => Promise<void>}>} `item`: `{ id, name, type, size, thumbnail, addedAt }`, with no
+ *   `data`. `gravar` inside the transaction, before the intention; `confirmar` after the entity was
+ *   saved AND after a write that THREW; `descartar` only on a CLEAN refusal (see {@link comConversao}
+ *   for why an error is not a refusal). Both are no-ops when `gravar` never ran.
  */
 export async function prepararFotoAnexa(file, { origem = 'foto-anexa' } = {}) {
-    const escopo = getActiveScope();
     const { blob, thumbnail } = await processImageFile(file);
     const id = generateUUID();
-    await storeImage(id, blob);
-    const envio = await registrarEnvioDeImagem(blob, id, { origem, nomeDaFigura: () => file.name });
+    let escopo = null;
+    let gravou = false;
+    let envio = null;
     const item = {
         id,
         name: file.name,
@@ -65,11 +72,19 @@ export async function prepararFotoAnexa(file, { origem = 'foto-anexa' } = {}) {
     return {
         item,
         bytes: blob.size,
+        gravar: async () => {
+            if (gravou) return;
+            gravou = true;
+            escopo = getActiveScope();
+            await storeImage(id, blob);
+            envio = await registrarEnvioDeImagem(blob, id, { origem, nomeDaFigura: () => file.name });
+        },
         confirmar: () => {
-            envio.enviar();
+            envio?.enviar();
         },
         descartar: async () => {
-            await envio.descartar();
+            if (!gravou) return;
+            await envio?.descartar();
             await removerSeNoMesmoAtlas(escopo, id);
         },
     };

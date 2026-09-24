@@ -110,6 +110,15 @@ vi.mock('../../src/js/store/sync/image-sync.js', () => ({
     })
 }));
 
+// O PROCESSAMENTO da foto anexa usa canvas, que node não tem; o resto do módulo é o real.
+vi.mock('../../src/js/utilities/image_utils.js', async (importOriginal) => ({
+    ...(await importOriginal()),
+    processImageFile: vi.fn(async () => ({
+        blob: new Blob([Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 0xff, 0xd9])], { type: 'image/jpeg' }),
+        thumbnail: 'data:image/jpeg;base64,/9j/mini',
+    })),
+}));
+
 vi.mock('../../src/js/store/sync/index.js', async () => ({
     OperationType: (await import('../../src/js/store/sync/operation-types.js')).OperationType
 }));
@@ -153,9 +162,10 @@ vi.mock('../../src/js/events', () => ({
 }));
 
 import { updateFeature, updateFeatureProperty, setFeatureDependencies } from '../../src/js/store/feature.operations.js';
-import { updateMarker, setCesium3dDependencies } from '../../src/js/store/cesium3d.operations.js';
-import { updateMarker360, setStreetview360Dependencies } from '../../src/js/store/streetview360.operations.js';
+import { updateMarker, addMarkerImage, setCesium3dDependencies } from '../../src/js/store/cesium3d.operations.js';
+import { updateMarker360, addMarker360Image, setStreetview360Dependencies } from '../../src/js/store/streetview360.operations.js';
 import { setStoreErrorEventBus } from '../../src/js/store/store-errors.js';
+import { pauseStoreWrites } from '../../src/js/store/write-coordinator.js';
 
 const MAPA = 'Mapa';
 const MINIATURA = 'data:image/jpeg;base64,/9j/mini';
@@ -276,6 +286,22 @@ describe('feição de atlas de servidor com foto inline: a próxima edição con
         expect(h.imagens.size).toBe(0);
     });
 
+    // DENTRO DA TRANSAÇÃO (revisão da fase 2c, 2026-09-24, item 5): a conversão escreve no IndexedDB
+    // (os bytes e a pendência), e fora do trabalho da transação ela acontecia ANTES de
+    // `runTransaction` perguntar pela pausa da aba, pela barreira de saída e pelo carimbo de escopo.
+    // Uma escrita que a transação recusava já tinha gravado e registrado a foto.
+    it('escrita recusada pela pausa da aba: a conversão não grava nem registra nada', async () => {
+        const pausa = pauseStoreWrites(h.escopo.atual);
+        try {
+            await expect(updateFeatureProperty('points', 'p1', 'nome', 'Depois', MAPA)).rejects.toThrow();
+        } finally {
+            pausa.resume();
+        }
+        expect(h.imagens.size).toBe(0);
+        expect(h.envios).toEqual([]);
+        expect(opsDeFeicao()).toEqual([]);
+    });
+
     it('a próxima edição de uma feição JÁ convertida não converte de novo', async () => {
         await updateFeatureProperty('points', 'p1', 'nome', 'Uma', MAPA);
         await updateFeatureProperty('points', 'p1', 'nome', 'Duas', MAPA);
@@ -308,5 +334,49 @@ describe('marcador 3D e marcador 360: o mesmo, no funil de cada documento latera
         expect(op.data.images[0]).not.toHaveProperty('data');
         expect(JSON.stringify(op)).not.toContain(INLINE);
         expect(h.envios).toMatchObject([{ origem: 'foto-convertida-360', enviado: true }]);
+    });
+});
+
+// AS PORTAS DA FASE 2b GRAVAM DENTRO DA TRANSAÇÃO (revisão, item 5): o preparo só processa, e os
+// bytes e a pendência da foto anexa são escritos pelo trabalho da transação. Uma escrita recusada pela
+// pausa da aba não deixa foto gravada nem registrada.
+describe('anexar foto a marcador 3D e 360: nada é gravado fora da transação', () => {
+    const arquivo = () => ({ name: 'vistoria.jpg', type: 'image/jpeg', size: 10 });
+
+    it('pausa da aba: anexar ao marcador 3D não grava nem registra a foto', async () => {
+        const doc = getEmptyCesium3dData();
+        doc.markers = [{ id: 'm3d', tilesetId: 't1', properties: { nome: 'M' }, images: [] }];
+        h.laterais3d.set(MAPA, doc);
+        const pausa = pauseStoreWrites(h.escopo.atual);
+        try {
+            await expect(addMarkerImage('m3d', arquivo(), MAPA)).rejects.toThrow();
+        } finally {
+            pausa.resume();
+        }
+        expect(h.imagens.size).toBe(0);
+        expect(h.envios).toEqual([]);
+    });
+
+    it('pausa da aba: anexar ao marcador 360 não grava nem registra a foto', async () => {
+        const doc = getEmptyStreetview360Data();
+        doc.markers = [{ id: 'm360', photoName: 'p', position: { heading: 0, pitch: 0 }, properties: { nome: 'M' }, images: [], sync: { version: 1 } }];
+        h.laterais360.set(MAPA, doc);
+        const pausa = pauseStoreWrites(h.escopo.atual);
+        try {
+            await expect(addMarker360Image('m360', arquivo(), MAPA)).rejects.toThrow();
+        } finally {
+            pausa.resume();
+        }
+        expect(h.imagens.size).toBe(0);
+        expect(h.envios).toEqual([]);
+    });
+
+    it('CONTROLE: sem pausa, a foto do marcador 3D é gravada, registrada e enviada', async () => {
+        const doc = getEmptyCesium3dData();
+        doc.markers = [{ id: 'm3d', tilesetId: 't1', properties: { nome: 'M' }, images: [] }];
+        h.laterais3d.set(MAPA, doc);
+        const item = await addMarkerImage('m3d', arquivo(), MAPA);
+        expect(h.imagens.has(item.id)).toBe(true);
+        expect(h.envios).toEqual([expect.objectContaining({ id: item.id, origem: 'foto-anexa-3d', enviado: true })]);
     });
 });

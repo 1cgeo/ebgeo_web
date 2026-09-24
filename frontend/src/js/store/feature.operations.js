@@ -42,8 +42,12 @@ import { converterFotosInline, comConversao, fotosSemBytes } from './photo-attac
  * why under a new id, and why only in a server atlas). Mutates `feature.properties.images` when
  * something converted.
  *
- * The caller confirms after the transaction and drops on a throw, which is how `runTransaction`
- * refuses (lock, logout barrier, a switch of atlas).
+ * CALLED INSIDE THE TRANSACTION'S WORK (2026-09-24, review, item 5), like the 3D and 360 funnels:
+ * it writes to IndexedDB (the bytes and the upload pendency), and outside the work those writes
+ * happened before `runTransaction` asked for the scope stamp, the logout barrier and the per-tab
+ * pause, so a write the transaction then refused had already stored and registered a photo. The
+ * caller reads the conversion through `comConversao`, which sends it after the write, also after
+ * a write that threw.
  *
  * @param {Object} feature - The feature about to be written
  * @returns {Promise<{confirmar: () => void, descartar: () => Promise<void>}|null>}
@@ -459,8 +463,11 @@ export async function addFeature(type, feature, mapName = null, options = {}) {
  *   OF THE STORED ONE, read under the document lock; `feature` then only names the target. For a
  *   caller whose change is a function of the current feature (the attribute manager): a copy read
  *   before the lock would carry back whatever a peer's op wrote in between.
+ * @param {() => Promise<void>} [options.antesDaIntencao] - Async write that belongs to this edit and
+ *   must happen INSIDE the transaction, before the intention is journaled (the bytes and upload
+ *   pendency of a photo attached by `userDataManager.addImage`, `photo-attach.js`).
  */
-export async function updateFeature(type, feature, mapName = null, { preserveUserData: keepUserData = true, revertFrom = null, transform = null } = {}) {
+export async function updateFeature(type, feature, mapName = null, { preserveUserData: keepUserData = true, revertFrom = null, transform = null, antesDaIntencao = null } = {}) {
     const targetMap = resolveMap(mapName);
     if (guardWrite(GuardAction.UPDATE_FEATURE, 'updateFeature', targetMap).blocked) return;
 
@@ -499,9 +506,12 @@ export async function updateFeature(type, feature, mapName = null, { preserveUse
         if (isFeatureEqual(oldFeature, cleanedFeature)) return;
 
         touchUpdatedTimestamp(cleanedFeature);
-        const conversao = await converterFotosDaFeicao(cleanedFeature);
+        let conversao = null;
 
         await comConversao(() => conversao, runTransaction(async (tx) => {
+            conversao = await converterFotosDaFeicao(cleanedFeature);
+            // The door's own write (an attached photo's bytes and pendency), under this transaction.
+            if (typeof antesDaIntencao === 'function') await antesDaIntencao();
             currentMapData.features[type][index] = cleanedFeature;
 
             const newColor = mapManager.getFeatureColor(cleanedFeature);
@@ -953,9 +963,10 @@ export async function updateFeatureProperty(featureType, featureId, property, va
 
         feature.properties[property] = value;
         touchUpdatedTimestamp(feature);
-        const conversao = await converterFotosDaFeicao(feature);
+        let conversao = null;
 
         await comConversao(() => conversao, runTransaction(async (tx) => {
+            conversao = await converterFotosDaFeicao(feature);
             if (isColorProperty) {
                 const newColor = mapManager.getFeatureColor(feature);
                 if (oldColor !== newColor) {

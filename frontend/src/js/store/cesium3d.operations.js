@@ -307,6 +307,8 @@ async function addEntityImage(entityId, file, collectionKey, changeEvent, mapNam
                 return null;
             }
 
+            // Written HERE, inside the transaction's work (`prepararFotoAnexa`).
+            await foto.gravar();
             const imageData = foto.item;
 
             const entity = data[collectionKey][entityIndex];

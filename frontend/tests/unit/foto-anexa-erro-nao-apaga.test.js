@@ -19,9 +19,13 @@ vi.mock('@store', () => ({
     getMapData: vi.fn(async () => ({
         features: { points: [{ type: 'Feature', properties: { id: 'p1', source: 'point', images: [] }, geometry: { type: 'Point', coordinates: [0, 0] } }] },
     })),
-    updateFeature: vi.fn(async (_tipo, feicao, _mapa, { transform }) => {
+    // A transação: recusa limpa (nada roda), pausa (recusa DEPOIS do transform e ANTES do trabalho),
+    // erro depois da intenção (o trabalho rodou, a gravação lança) e sucesso.
+    updateFeature: vi.fn(async (_tipo, feicao, _mapa, { transform, antesDaIntencao }) => {
         if (h.gravacao === 'recusa') return undefined;
         transform(structuredClone(feicao));
+        if (h.gravacao === 'pausa') throw new Error('O atlas está recuperando alterações.');
+        await antesDaIntencao?.();
         if (h.gravacao === 'erro') throw new Error('IndexedDB write failed');
         return undefined;
     }),
@@ -34,6 +38,7 @@ vi.mock('@store/photo-attach.js', () => ({
         const foto = {
             item: { id: `foto-${h.fotos.length}`, name: file.name, thumbnail: 'data:image/jpeg;base64,/9j/' },
             bytes: 10,
+            gravar: vi.fn(async () => {}),
             confirmar: vi.fn(),
             descartar: vi.fn(async () => {}),
         };
@@ -59,6 +64,19 @@ describe('userDataManager.addImage: erro não é recusa', () => {
         expect(await userDataManager.addImage('p1', 'point', arquivo())).toBeNull();
         expect(h.fotos[0].confirmar).toHaveBeenCalledTimes(1);
         expect(h.fotos[0].descartar).not.toHaveBeenCalled();
+    });
+
+    // DENTRO DA TRANSAÇÃO (item 5): os bytes e a pendência são gravados pelo trabalho da transação
+    // (`antesDaIntencao`), então uma escrita recusada antes dele não grava foto nenhuma.
+    it('a escrita recusada antes do trabalho da transação não grava a foto', async () => {
+        h.gravacao = 'pausa';
+        expect(await userDataManager.addImage('p1', 'point', arquivo())).toBeNull();
+        expect(h.fotos[0].gravar).not.toHaveBeenCalled();
+    });
+
+    it('a gravação que dá certo grava a foto dentro da transação', async () => {
+        await userDataManager.addImage('p1', 'point', arquivo());
+        expect(h.fotos[0].gravar).toHaveBeenCalledTimes(1);
     });
 
     it('a recusa LIMPA (nada gravado) descarta', async () => {

@@ -686,7 +686,9 @@ export async function addMarker360Image(markerId, file, mapName = null) {
                 return null;
             }
 
-            const image = foto.item;
+            // Written HERE, inside the transaction's work (`prepararFotoAnexa`).
+        await foto.gravar();
+        const image = foto.item;
 
             const previousData = deepClone(marker);
             marker.images.push(image);

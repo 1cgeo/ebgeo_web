@@ -227,7 +227,7 @@ const userDataManager = {
      * @param {Function} updateFn - Function that receives feature and returns updated feature
      * @returns {Promise<Object|null>} Updated feature or null on failure
      */
-    async _updateFeature(featureId, featureType, updateFn) {
+    async _updateFeature(featureId, featureType, updateFn, { antesDaIntencao = null } = {}) {
         const mapName = getCurrentMapNameSync();
         if (!mapName) {
             console.warn('UserDataManager: No map currently loaded');
@@ -271,6 +271,7 @@ const userDataManager = {
         await updateFeature(storageType, mapData.features[storageType][featureIndex], mapName, {
             preserveUserData: false,
             transform: (current) => (updatedFeature = updateFn(current)),
+            antesDaIntencao,
         });
         return updatedFeature;
     },
@@ -483,7 +484,7 @@ const userDataManager = {
                     }
                     feature.properties.images.push(imageData);
                     return feature;
-                });
+                }, { antesDaIntencao: () => foto.gravar() });
             } catch (error) {
                 foto.confirmar();
                 throw error;

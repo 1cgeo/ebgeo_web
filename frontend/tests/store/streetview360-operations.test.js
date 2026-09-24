@@ -128,6 +128,7 @@ vi.mock('../../src/js/store/photo-attach.js', async () => {
             return {
                 item: { id: generateUUID(), name: file.name, type: file.type, size: file.size, thumbnail, addedAt: Date.now() },
                 bytes: file.size,
+                gravar: vi.fn(async () => {}),
                 confirmar: vi.fn(),
                 descartar: vi.fn(async () => {}),
             };

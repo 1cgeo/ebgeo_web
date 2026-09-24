@@ -1,9 +1,9 @@
 // Path: tests/unit/foto-anexa-preparo.test.js
 //
-// FASE 2b DAS FOTOS ANEXAS (2026-09-24): o preparo de uma foto. Os bytes vão para o armazém de
-// imagens e a subida é REGISTRADA antes de a entidade ser gravada; a transferência só começa depois
-// do save (`confirmar`), e um save que não aconteceu descarta a pendência e os bytes. O item que a
-// entidade guarda nunca leva `data`.
+// FASE 2b DAS FOTOS ANEXAS (2026-09-24): o preparo de uma foto. O preparo só PROCESSA; os bytes vão
+// para o armazém e a subida é REGISTRADA por `gravar`, que cada porta chama DENTRO da transação da
+// entidade (revisão da fase 2c, item 5), antes da intenção; a transferência só começa depois do save
+// (`confirmar`), e só a recusa limpa descarta a pendência e os bytes. O item nunca leva `data`.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -38,9 +38,11 @@ beforeEach(() => {
 });
 
 describe('prepararFotoAnexa', () => {
-    it('guarda e registra antes, e o item leva só a referência e a miniatura', async () => {
+    it('o preparo só processa; gravar guarda e registra, e o item leva só a referência e a miniatura', async () => {
         const foto = await prepararFotoAnexa({ name: 'IMG_1.jpg', type: 'image/png', size: 999 });
         const { id } = foto.item;
+        expect(h.ordem, 'nada é escrito fora da transação').toEqual(['processar']);
+        await foto.gravar();
         expect(h.ordem).toEqual(['processar', `guardar:${id}`, `registrar:${id}`]);
         expect(foto.item).toMatchObject({ name: 'IMG_1.jpg', type: 'image/jpeg', size: 7, thumbnail: 'data:image/jpeg;base64,IMG_1.jpg' });
         expect(foto.item).not.toHaveProperty('data');
@@ -50,14 +52,23 @@ describe('prepararFotoAnexa', () => {
 
     it('confirmar começa a transferência; nada sobe antes dele', async () => {
         const foto = await prepararFotoAnexa({ name: 'a.jpg', type: 'image/jpeg', size: 1 });
+        await foto.gravar();
         expect(h.envio.enviar).not.toHaveBeenCalled();
         foto.confirmar();
         expect(h.envio.enviar).toHaveBeenCalledTimes(1);
         expect(h.envio.descartar).not.toHaveBeenCalled();
     });
 
+    it('sem gravar, confirmar e descartar não fazem nada', async () => {
+        const foto = await prepararFotoAnexa({ name: 'a.jpg', type: 'image/jpeg', size: 1 });
+        foto.confirmar();
+        await foto.descartar();
+        expect(h.ordem).toEqual(['processar']);
+    });
+
     it('descartar solta a pendência e apaga os bytes que nenhuma entidade referencia', async () => {
         const foto = await prepararFotoAnexa({ name: 'a.jpg', type: 'image/jpeg', size: 1 });
+        await foto.gravar();
         await foto.descartar();
         expect(h.ordem.slice(-2)).toEqual(['descartar', `apagar:${foto.item.id}`]);
         expect(h.envio.enviar).not.toHaveBeenCalled();
