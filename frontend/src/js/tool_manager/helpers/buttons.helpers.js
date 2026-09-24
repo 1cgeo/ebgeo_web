@@ -5,6 +5,7 @@
  */
 
 import { startBatchUndo, commitBatchUndo, discardBatchUndo } from '../../store';
+import { discardTargets } from './discard-targets.helpers.js';
 
 /**
  * @typedef {Object} StandardButtonsConfig
@@ -97,7 +98,8 @@ export function createModernButtons(config) {
     discardButton.className = 'attr-modern-btn-discard';
     discardButton.type = 'button';
     discardButton.addEventListener('click', async () => {
-        await control.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
+        // Never over what a colleague changed while the panel was open (`discardTargets`).
+        await control.discardChangeFeatures(selectedFeatures, await discardTargets(selectedFeatures, initialPropertiesMap));
         // skipSave: discard reverted changes — nothing to save
         selectionManager.deselectAllFeatures({ skipSave: true });
     });

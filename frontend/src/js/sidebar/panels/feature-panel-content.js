@@ -16,6 +16,7 @@ import { createGroupTypeSelector } from '../components/group-type-selector.js';
 import { createMultiSelectionActions } from '../components/multi-selection-actions.js';
 import { startBatchUndo, commitBatchUndo, discardBatchUndo, getControl } from '@store/index.js';
 import { semEdicaoSync } from '@store/edicao-indisponivel.js';
+import { discardTargets } from '@tools/helpers/discard-targets.helpers.js';
 import { renderReadOnlyAttributesSection } from '@js/user_data/attributes_tab_renderer.js';
 import { createTemporalAttributesSection, createTrajectorySection, createTemporalReadonlySection, releaseTemporalSection } from '@js/temporal/temporal-attributes-section.js';
 import { COORDINATE_FORMATS, formatCoordinates } from '@utils/index.js';
@@ -103,7 +104,8 @@ function createGlobalButtons({ editedTypesState, selectionManager }) {
         for (const [_type, state] of editedTypesState) {
             const { control, features, initialPropertiesMap } = state;
             if (control && typeof control.discardChangeFeatures === 'function') {
-                await control.discardChangeFeatures(features, initialPropertiesMap);
+                // Never over what a colleague changed while the panel was open (`discardTargets`).
+                await control.discardChangeFeatures(features, await discardTargets(features, initialPropertiesMap));
             }
         }
     };
