@@ -211,7 +211,13 @@ function createAttributeRow(key, value, featureId, featureType, parentContainer)
         input.focus();
         input.select();
 
+        // UMA SAÍDA SÓ POR EDIÇÃO. Remover o campo focado dispara `blur` no Chromium, e o `blur`
+        // chama `finishEdit(true)`: sem esta marca, o Escape (que remove o campo) SALVAVA o que
+        // devia descartar. Medido em 2026-09-24 (`tests/e2e-ui/cobertura-aba-atributos.spec.js`).
+        let encerrada = false;
+
         const finishEdit = async (save) => {
+            if (encerrada) return;
             if (save) {
                 const newKey = input.value.trim();
                 if (newKey && newKey !== key) {
@@ -221,6 +227,7 @@ function createAttributeRow(key, value, featureId, featureType, parentContainer)
                         input.focus();
                         return;
                     }
+                    encerrada = true;
                     // Renomear atributo em uma única escrita (delete + set atômico),
                     // evitando perda de dados se a app fechar entre as duas operações.
                     const renomeou = await userDataManager.renameAttribute(featureId, featureType, key, newKey, value);
@@ -232,6 +239,7 @@ function createAttributeRow(key, value, featureId, featureType, parentContainer)
                 }
             }
             // Cancelar edição
+            encerrada = true;
             input.remove();
             keySpan.style.display = '';
             keyEditBtn.style.display = '';
@@ -278,7 +286,12 @@ function createAttributeRow(key, value, featureId, featureType, parentContainer)
         input.focus();
         input.select();
 
+        // Uma saída só por edição: ver a troca de chave acima, o Escape salvava pelo `blur`.
+        let encerrada = false;
+
         const finishEdit = async (save) => {
+            if (encerrada) return;
+            encerrada = true;
             if (save) {
                 const newValue = input.value;
                 if (newValue !== value) {
