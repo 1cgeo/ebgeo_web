@@ -419,3 +419,36 @@ describe('AddPolygonGeometry.updateFromHandle', () => {
         expect(r.baseCoordinates[0]).toEqual([2, 2]);
     });
 });
+
+// ============================================================================
+// comAneisInternos (the holes of an imported polygon survive a regeneration)
+// ============================================================================
+
+describe('AddPolygonGeometry.comAneisInternos', () => {
+    const buraco = [[0.4, 0.2], [0.5, 0.2], [0.5, 0.3], [0.4, 0.2]];
+    const anterior = () => ({ type: 'Polygon', coordinates: [[[0, 0], [1, 0], [0, 1], [0, 0]], buraco] });
+
+    it('keeps the holes of the previous geometry, translated by the same offset', () => {
+        const nova = geom.generate([[10, 10], [11, 10], [10, 11]]);
+        const r = geom.comAneisInternos(nova, anterior(), 10, 10);
+        expect(r.coordinates).toHaveLength(2);
+        expect(r.coordinates[1]).toEqual(buraco.map(([x, y]) => [x + 10, y + 10]));
+    });
+
+    it('a vertex edit (no offset) keeps the holes where they were, altitude included', () => {
+        const velho = anterior();
+        velho.coordinates[1] = buraco.map(([x, y]) => [x, y, 25]);
+        const r = geom.comAneisInternos(geom.generate(TRI), velho);
+        expect(r.coordinates[1]).toEqual(buraco.map(([x, y]) => [x, y, 25]));
+    });
+
+    it('CONTROL: without holes, or with something that is not a Polygon, nothing changes', () => {
+        const semBuraco = { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [0, 1], [0, 0]]] };
+        const nova = geom.generate(TRI);
+        const antes = JSON.stringify(nova);
+        expect(JSON.stringify(geom.comAneisInternos(nova, semBuraco))).toBe(antes);
+        expect(geom.comAneisInternos(nova, null)).toBe(nova);
+        expect(geom.comAneisInternos(null, anterior())).toBeNull();
+        expect(JSON.stringify(geom.comAneisInternos(nova, { type: 'LineString', coordinates: [] }))).toBe(antes);
+    });
+});

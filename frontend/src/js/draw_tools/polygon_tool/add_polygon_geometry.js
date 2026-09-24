@@ -381,6 +381,31 @@ class AddPolygonGeometry extends BaseGeometry {
     }
 
     /**
+     * Carries the HOLES of the previous geometry into a geometry regenerated from the outer ring.
+     *
+     * The drawing tool never makes a hole, but an import does (a lake in a municipality), and
+     * `baseCoordinates` holds only the outer ring. Every gesture that regenerates the geometry
+     * from it (paste, move, a vertex edit) dropped the holes, and the polygon silently became
+     * solid. The inner rings come back translated by the same offset as the outer one (zero for a
+     * vertex edit, which only touches the outer ring).
+     * @param {Object} geometria - The regenerated geometry (mutated and returned).
+     * @param {Object} anterior - The geometry before the gesture.
+     * @param {number} [dx=0] - Delta longitude.
+     * @param {number} [dy=0] - Delta latitude.
+     * @returns {Object} `geometria`
+     */
+    comAneisInternos(geometria, anterior, dx = 0, dy = 0) {
+        if (geometria?.type !== 'Polygon' || anterior?.type !== 'Polygon') return geometria;
+        const internos = Array.isArray(anterior.coordinates) ? anterior.coordinates.slice(1) : [];
+        if (internos.length === 0 || !Array.isArray(geometria.coordinates?.[0])) return geometria;
+        geometria.coordinates = [
+            geometria.coordinates[0],
+            ...internos.map((anel) => anel.map(([x, y, ...resto]) => [x + dx, y + dy, ...resto])),
+        ];
+        return geometria;
+    }
+
+    /**
      * Get bounding box for polygon
      * @param {Array} coordinates - Array of coordinate points
      * @returns {Array} Bounding box [minLng, minLat, maxLng, maxLat]

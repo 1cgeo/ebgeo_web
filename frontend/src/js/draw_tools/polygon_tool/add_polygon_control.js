@@ -221,7 +221,9 @@ class AddPolygonControl extends BaseControl {
                 ...feature.properties,
                 baseCoordinates: newCoordinates
             },
-            geometry: this.geometry.generate(newCoordinates)
+            // The holes of an imported polygon travel with it (see `comAneisInternos`).
+            geometry: this.geometry.comAneisInternos(
+                this.geometry.generate(newCoordinates), feature.geometry, offset.dx, offset.dy),
         };
     }
 
@@ -249,7 +251,8 @@ class AddPolygonControl extends BaseControl {
                 ...feature.properties,
                 baseCoordinates: newCoordinates
             },
-            geometry: this.geometry.generate(newCoordinates)
+            geometry: this.geometry.comAneisInternos(
+                this.geometry.generate(newCoordinates), feature.geometry, dx, dy),
         };
 
         return updatedFeature;
@@ -862,7 +865,7 @@ class AddPolygonControl extends BaseControl {
                         ...selectedFeature.properties,
                         baseCoordinates: result.baseCoordinates
                     },
-                    geometry: result.geometry
+                    geometry: this.geometry.comAneisInternos(result.geometry, selectedFeature.geometry)
                 };
 
                 await this.forceUpdateMainSource(updatedFeature);
@@ -987,7 +990,7 @@ class AddPolygonControl extends BaseControl {
                 ...selectedFeature.properties,
                 baseCoordinates: newCoordinates
             },
-            geometry: this.geometry.generate(newCoordinates)
+            geometry: this.geometry.comAneisInternos(this.geometry.generate(newCoordinates), selectedFeature.geometry)
         };
 
         // Apply updates
@@ -1044,7 +1047,7 @@ class AddPolygonControl extends BaseControl {
                 ...selectedFeature.properties,
                 baseCoordinates: newCoordinates
             },
-            geometry: this.geometry.generate(newCoordinates)
+            geometry: this.geometry.comAneisInternos(this.geometry.generate(newCoordinates), selectedFeature.geometry)
         };
 
         // Apply updates
@@ -1111,7 +1114,8 @@ class AddPolygonControl extends BaseControl {
 
                 // If changing geometry properties, recalculate geometry
                 if (property === 'baseCoordinates') {
-                    const newGeometry = this.geometry.generate(sourceFeature.properties.baseCoordinates);
+                    const newGeometry = this.geometry.comAneisInternos(
+                        this.geometry.generate(sourceFeature.properties.baseCoordinates), sourceFeature.geometry);
                     sourceFeature.geometry = newGeometry;
                     feature.geometry = newGeometry;
                 }

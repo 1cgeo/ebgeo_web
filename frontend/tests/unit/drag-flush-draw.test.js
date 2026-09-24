@@ -205,6 +205,9 @@ function movingGeometry(build) {
             const base = [position, ...feature.properties.baseCoordinates.slice(1)];
             return { baseCoordinates: base, geometry: build(base) };
         },
+        // The polygon tool carries an imported polygon's holes through a vertex edit
+        // (`AddPolygonGeometry.comAneisInternos`); these features have none.
+        comAneisInternos: (geometria) => geometria,
     };
 }
 
