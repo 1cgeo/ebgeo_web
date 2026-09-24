@@ -231,10 +231,12 @@ class AddImportControl {
         const comGeometria = lido.filter((fc) => fc?.features?.some((f) => f?.geometry?.type));
         if (comGeometria.length === 0) return this.importGeoJSON(lido[0] ?? {}, fileName);
 
+        // ONE numbering for the whole file: see the `contadores` parameter of `importGeoJSON`.
+        const contadores = await this.getTypeCountersFromMapContext();
         let total = 0;
         for (const colecao of comGeometria) {
             const nomeDaCamada = String(colecao.fileName ?? '').split('/').pop() || fileName;
-            total += await this.importGeoJSON(colecao, nomeDaCamada);
+            total += await this.importGeoJSON(colecao, nomeDaCamada, contadores);
         }
         return total;
     }
@@ -858,7 +860,16 @@ class AddImportControl {
         };
     }
 
-    async importGeoJSON(geoJSON, fileName = 'Importação') {
+    /**
+     * @param {Object} geoJSON - FeatureCollection to import.
+     * @param {string} [fileName] - Name for the import layer.
+     * @param {Object|null} [contadores] - "Ponto #N" counters shared by several calls of ONE file
+     *   (the shapefiles of a ZIP): read from the map, each call would start where the map was
+     *   BEFORE the file, because the previous layer's features are still queued for the source,
+     *   and two layers of one file both got "Ponto #1".
+     * @returns {Promise<number>}
+     */
+    async importGeoJSON(geoJSON, fileName = 'Importação', contadores = null) {
         if (!geoJSON.features || !Array.isArray(geoJSON.features)) {
             throw new Error('GeoJSON inválido - features não encontradas');
         }
@@ -869,7 +880,7 @@ class AddImportControl {
             polygons: []
         };
 
-        const typeCounters = await this.getTypeCountersFromMapContext();
+        const typeCounters = contadores ?? await this.getTypeCountersFromMapContext();
 
         let totalFeaturesToImport = 0;
         const decomposedFeatures = [];

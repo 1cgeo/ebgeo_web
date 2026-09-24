@@ -53,6 +53,7 @@ function pontosDoMapa(page) {
         const store = await import('/src/js/store/index.js');
         const f = await store.getCurrentMapFeatures();
         return (f.points || []).map((p) => ({
+            nome: p.properties?.nome,
             attributes: p.properties?.attributes ?? {},
             descricao: p.properties?.descricao ?? '',
             layerId: p.properties?.layerId,
@@ -161,6 +162,9 @@ describeOrSkip('Importar arquivo: codificação e camadas', () => {
         expect(pontos.map((p) => p.attributes.SIGLA).sort()).toEqual(['Brasilia', 'Sao Paulo', 'Vila Militar']);
         // One layer per shapefile, as the file is organized.
         expect(new Set(pontos.map((p) => p.layerId)).size).toBe(2);
+        // And one numbering for the whole file: the second layer used to restart at "Ponto #1".
+        console.log('[zip duplo] nomes', JSON.stringify(pontos.map((p) => p.nome)));
+        expect(new Set(pontos.map((p) => p.nome)).size).toBe(3);
     });
 
     test('KML declarado ISO-8859-1 chega com os acentos', async ({ page }) => {
