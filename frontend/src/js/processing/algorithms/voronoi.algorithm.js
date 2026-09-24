@@ -5,7 +5,7 @@
  * Generates Voronoi cells from points (or centroids) within a user-drawn bbox.
  */
 
-import { getControl } from '@store/control.registry.js';
+import { getControl, registerControl } from '@store/control.registry.js';
 import { createModernToggle, createSectionDivider } from '@tools/helpers/index.js';
 import {
     registerAlgorithm,
@@ -21,6 +21,16 @@ import { mergeTemporalWindows } from '@js/temporal/temporal-model.js';
 // ============================================================================
 
 const VORONOI_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1" width="22" height="22" rx="1"/><line x1="11.5" y1="1" x2="12.5" y2="11"/><line x1="12.5" y1="11" x2="1" y2="16"/><line x1="12.5" y1="11" x2="23" y2="9"/><line x1="12.5" y1="11" x2="13" y2="23"/><circle cx="6" cy="7" r="1.5" fill="currentColor" stroke="none"/><circle cx="18" cy="5" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="17" r="1.5" fill="currentColor" stroke="none"/><circle cx="7" cy="19" r="1.5" fill="currentColor" stroke="none"/></svg>`;
+
+/**
+ * Whether a clip rectangle is being drawn. While it is, the map's clicks are this panel's: the
+ * selection manager asks through the control registry (the same way it asks the trajectory editor)
+ * and stays out. Without it a corner that landed on a feature also SELECTED the feature, whose
+ * panel replaced this one and threw the rectangle away
+ * (`frontend/tests/e2e-ui/voronoi-retangulo-sobre-feicao.repro.spec.js`).
+ */
+let desenhandoRecorte = false;
+registerControl('ProcessingClipDraw', { isCapturingMapClicks: () => desenhandoRecorte });
 
 // ============================================================================
 // PANEL CREATION
@@ -135,6 +145,7 @@ function createVoronoiPanel(deps) {
         if (!map) return;
 
         isDrawing = true;
+        desenhandoRecorte = true;
         drawPoints = [];
         drawBtn.classList.add('processing-panel__draw-btn--active');
         drawBtn.querySelector('span').textContent = 'Clique no 1º canto...';
@@ -149,6 +160,7 @@ function createVoronoiPanel(deps) {
         if (!map) return;
 
         isDrawing = false;
+        desenhandoRecorte = false;
         drawPoints = [];
 
         if (restoreCursor) {
