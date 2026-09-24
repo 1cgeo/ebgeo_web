@@ -55,13 +55,25 @@ describe('o patch de atributos sai por chave', () => {
             .toEqual(['set:properties.attributes=["a"]']);
     });
 
-    it('uma chave que o servidor recusaria faz a bolsa ir inteira, nunca por chave', () => {
+    it('a chave que o servidor recusaria (`__proto__`, a única que alcança o protótipo) faz a bolsa ir inteira', () => {
         const antes = ponto({ x: 'um' });
-        const depois = ponto({ x: 'um' });
-        Object.defineProperty(depois.properties.attributes, 'constructor', { value: 'mal', enumerable: true });
+        // Como ela chega de fato: um JSON com a chave própria, que só o parse produz.
+        const depois = ponto(JSON.parse('{"x":"um","__proto__":"mal"}'));
         const { patch } = featureMutationContract('update', depois, antes);
         expect(patch).toHaveLength(1);
         expect(patch[0].path).toEqual(['properties', 'attributes']);
+    });
+
+    // "constructor" e "prototype" NÃO alcançam o protótipo de um objeto comum: atribuí-los cria uma
+    // chave própria. Recusá-los fazia a feição que tem um atributo com esse nome mandar a bolsa
+    // INTEIRA em toda edição, voltando à disputa da bolsa que a convergência por chave existe para
+    // tirar.
+    it('um atributo chamado "constructor" ou "prototype" não tira a feição do patch por chave', () => {
+        const { patch } = featureMutationContract('update',
+            ponto({ constructor: 'c', prototype: 'p', y: 'dois' }), ponto({ constructor: 'c', prototype: 'p', y: 'um' }));
+        expect(caminhos(patch)).toEqual(['set:properties.attributes.y="dois"']);
+        const mudaOProprio = featureMutationContract('update', ponto({ constructor: 'novo' }), ponto({ constructor: 'c' }));
+        expect(caminhos(mudaOProprio.patch)).toEqual(['set:properties.attributes.constructor="novo"']);
     });
 });
 

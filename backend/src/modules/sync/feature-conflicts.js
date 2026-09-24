@@ -61,8 +61,12 @@ async function featureRow(t, atlasId, entityId) {
 const ATTRIBUTES = 'attributes';
 const ATTRIBUTES_PATH_KEY = JSON.stringify(['properties', ATTRIBUTES]);
 const ATTRIBUTE_KEY_PREFIX = ATTRIBUTES_PATH_KEY.slice(0, -1) + ',';
-/** Names that would reach the prototype of the attribute bag instead of an own key. */
-const UNSAFE_ATTRIBUTE_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+/**
+ * Names that would reach the prototype of the attribute bag instead of an own key. Only `__proto__`
+ * does: assigning `constructor` or `prototype` on a plain object creates an own key, and refusing
+ * them made every edit of a feature with an attribute of that name travel as the whole bag.
+ */
+const UNSAFE_ATTRIBUTE_KEYS = new Set(['__proto__']);
 
 function fieldKey(path) { return JSON.stringify(path); }
 

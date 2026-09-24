@@ -167,6 +167,18 @@ describe.skipIf(E2E_SKIP)('e2e: atributos personalizados convergem por chave', (
         expect(res.results[0].success).toBe(false);
         expect(await atributosNoServidor(base.properties.id)).toEqual({ x: 'um' });
     });
+
+    it('um atributo chamado "constructor" é uma chave como as outras, e a feição continua por chave', async () => {
+        const base = await pontoCom({ constructor: 'c', y: 'um' });
+        const opA = edicao(base, { constructor: 'c', y: 'dois' }, clienteA);
+        expect(opA.patch).toEqual([{ op: 'set', path: ['properties', 'attributes', 'y'], value: 'dois' }]);
+        const opB = edicao(base, { constructor: 'novo', y: 'um' }, clienteB);
+        expect((await api.pushOperations(atlasId, [opA])).results[0].success).toBe(true);
+        const resB = await api.pushOperations(atlasId, [opB]);
+        expect(resB.results[0].success, resB.results[0].reason).toBe(true);
+        expect(await atributosNoServidor(base.properties.id)).toEqual({ constructor: 'novo', y: 'dois' });
+    });
+
     it('a feição importada de um .ebgeo pelo servidor também converge por chave', async () => {
         const pontoId = generateUUID();
         const exportData = {

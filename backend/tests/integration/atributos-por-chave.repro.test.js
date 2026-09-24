@@ -180,12 +180,10 @@ describe('atributos personalizados: a unidade de disputa é a chave', () => {
     assert.deepEqual((await linha(id)).attributes, { x: 'um' });
   });
 
-  it('um nome de chave que alcançaria o protótipo é recusado', async () => {
+  it('o nome de chave que alcançaria o protótipo (`__proto__`) é recusado', async () => {
     const { id, base } = await ponto({ x: 'um' });
-    for (const nome of ['__proto__', 'constructor', 'prototype']) {
-      const ack = await uma(edicao(id, base, [chave('set', nome, 'mal')]));
-      assert.equal(ack.rejected, true, `a chave "${nome}" foi aceita`);
-    }
+    const ack = await uma(edicao(id, base, [chave('set', '__proto__', 'mal')]));
+    assert.equal(ack.rejected, true, 'a chave "__proto__" foi aceita');
     // O nome vazio nem chega ao julgamento: a validação do envelope recusa o segmento vazio.
     await supertest(app)
       .post(`/api/v1/atlas/${atlas.id}/sync`)
@@ -195,6 +193,22 @@ describe('atributos personalizados: a unidade de disputa é a chave', () => {
       .expect(422);
     assert.deepEqual((await linha(id)).attributes, { x: 'um' });
     assert.equal(Object.prototype.mal, undefined);
+  });
+
+  // "constructor" e "prototype" não alcançam o protótipo de um objeto comum: gravá-los cria chaves
+  // próprias. Recusá-los fazia toda edição de uma feição com um atributo desse nome mandar a bolsa
+  // inteira (o cliente espelha a recusa), de volta à disputa que a convergência por chave tirou.
+  it('atributos chamados "constructor" e "prototype" são chaves como as outras', async () => {
+    const { id, base } = await ponto({ x: 'um' });
+    const a = await uma(edicao(id, base, [chave('set', 'constructor', 'c')]));
+    assert.equal(a.rejected, undefined, `motivo: ${a.reason}`);
+    const b = await uma(edicao(id, base, [chave('set', 'prototype', 'p')]));
+    assert.equal(b.rejected, undefined, `chave diferente da mesma base (motivo: ${b.reason})`);
+    assert.deepEqual((await linha(id)).attributes, { x: 'um', constructor: 'c', prototype: 'p' });
+    const { version } = await linha(id);
+    assert.equal((await uma(edicao(id, version, [chave('remove', 'constructor')]))).rejected, undefined);
+    assert.deepEqual((await linha(id)).attributes, { x: 'um', prototype: 'p' });
+    assert.equal(Object.prototype.c, undefined);
   });
 
   it('uma chave aninhada além do nome não é um caminho válido', async () => {
