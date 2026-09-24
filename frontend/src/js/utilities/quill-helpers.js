@@ -31,8 +31,17 @@ export const QUILL_DOMPURIFY_CONFIG = {
     ALLOWED_ATTR: [
         'href', 'target', 'rel',
         'src', 'alt', 'width', 'height',
-        'class', 'style'
+        'class', 'style',
+        // Quill 2 writes EVERY list as `<ol>` and tells bullet from ordered by this attribute
+        // (`<li data-list="bullet">`). Without it a bullet list came back from the sanitizer as a
+        // plain `<ol><li>`: the editor dropped the list from its model on reopening, and the
+        // presentation drew it NUMBERED. Listing it is not enough on its own: see below.
+        'data-list'
     ],
+    // With data attributes off, a listed attribute's VALUE is checked against the URI pattern
+    // above, and "bullet" is not a URI, so `data-list` was still removed. It carries a keyword
+    // Quill reads, never a URL.
+    ADD_URI_SAFE_ATTR: ['data-list'],
     ALLOWED_URI_REGEXP: /^(?:(?:https?|data):)/i,
     ALLOW_DATA_ATTR: false,
     ADD_ATTR: ['target'],

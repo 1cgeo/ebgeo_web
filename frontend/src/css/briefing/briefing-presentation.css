@@ -117,6 +117,12 @@
     margin-bottom: var(--space-1);
 }
 
+/* Quill 2 writes every list as <ol> and marks the kind on the item; without this a bullet list is
+   presented numbered. */
+.briefing-text-panel__content li[data-list="bullet"] {
+    list-style-type: disc;
+}
+
 .briefing-text-panel__content blockquote {
     margin: var(--space-3) 0;
     padding-left: var(--space-3);
