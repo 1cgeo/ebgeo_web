@@ -330,6 +330,40 @@ describe('presence-bridge', () => {
             });
         });
 
+        // Selecao por caixa: `selection.features` muda UMA VEZ POR FEICAO, e cada quadro leva a
+        // selecao INTEIRA. Medido em 2026-09-24 no Chromium: 4 000 pontos selecionados por caixa
+        // mandavam 4 000 quadros e 782 MB; 1 000 mandavam 48 MB. A rajada vira o quadro de ponta
+        // mais um de arrasto por janela, e o de arrasto leva a selecao como ela esta no fim.
+        it('case F: a burst of selection changes sends the leading frame and ONE trailing frame', () => {
+            wsClientMock.sendSelection.mockClear();
+            for (let i = 1; i <= 1000; i++) {
+                stateManagerMock._selected = Array.from({ length: i }, (_, k) => ({ type: 'point', id: `f${k}` }));
+                stateManagerMock._fireSelection();
+            }
+            expect(wsClientMock.sendSelection).toHaveBeenCalledTimes(1);
+            expect(wsClientMock.sendSelection.mock.calls[0][0].featureIds).toEqual(['f0']);
+
+            vi.advanceTimersByTime(100);
+            expect(wsClientMock.sendSelection).toHaveBeenCalledTimes(2);
+            expect(wsClientMock.sendSelection.mock.calls[1][0].featureIds).toHaveLength(1000);
+
+            // A janela seguinte, sem mudanca nova, nao manda nada.
+            vi.advanceTimersByTime(1000);
+            expect(wsClientMock.sendSelection).toHaveBeenCalledTimes(2);
+        });
+
+        it('case F: stopping presence cancels a pending trailing selection frame', () => {
+            wsClientMock.sendSelection.mockClear();
+            stateManagerMock._selected = [{ type: 'point', id: 'a' }];
+            stateManagerMock._fireSelection();
+            stateManagerMock._selected = [{ type: 'point', id: 'a' }, { type: 'point', id: 'b' }];
+            stateManagerMock._fireSelection();
+            expect(wsClientMock.sendSelection).toHaveBeenCalledTimes(1);
+            stopPresence();
+            vi.advanceTimersByTime(500);
+            expect(wsClientMock.sendSelection).toHaveBeenCalledTimes(1);
+        });
+
         it('does not send awareness frames while the socket is disconnected', () => {
             wsClientMock.isConnected.mockReturnValue(false);
             fireBus(EventTypes.MAP_LOCK_CHANGED, { mapName: 'mapa-1' });
