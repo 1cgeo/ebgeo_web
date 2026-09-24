@@ -977,7 +977,10 @@ describe('Remote map-setting operations', () => {
         expect(eventBus.emit).not.toHaveBeenCalledWith(EventTypes.MAP_TEMPORAL_CHANGED, expect.anything());
     });
 
-    it('emits MAP_NOTES_REQUESTED and MAP_MODIFIED for mapNotes', async () => {
+    // CHANGED, e nunca REQUESTED (2026-09-23): `MAP_NOTES_REQUESTED` e o pedido de ABRIR o painel
+    // de notas, e emiti-lo aqui abria as notas do mapa do colega na tela de todo mundo
+    // (`frontend/tests/e2e-ui/notas-do-colega.repro.spec.js`). Este caso afirmava o defeito.
+    it('emits MAP_NOTES_CHANGED (never MAP_NOTES_REQUESTED) and MAP_MODIFIED for mapNotes', async () => {
         await applyRemoteOperation({
             entityType: EntityType.MAP_NOTES,
             operationType: OperationType.UPDATE,
@@ -987,9 +990,10 @@ describe('Remote map-setting operations', () => {
         });
 
         expect(eventBus.emit).toHaveBeenCalledWith(
-            EventTypes.MAP_NOTES_REQUESTED,
+            EventTypes.MAP_NOTES_CHANGED,
             expect.objectContaining({ mapName: 'map-1' })
         );
+        expect(eventBus.emit).not.toHaveBeenCalledWith(EventTypes.MAP_NOTES_REQUESTED, expect.anything());
         expect(eventBus.emit).toHaveBeenCalledWith(
             EventTypes.MAP_MODIFIED,
             expect.objectContaining({ mapId: 'map-1' })

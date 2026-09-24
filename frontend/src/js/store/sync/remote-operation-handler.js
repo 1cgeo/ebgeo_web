@@ -2140,7 +2140,11 @@ async function applyRemoteMapSettingOp(entityType, mapId, data) {
             // data = { title, description }. The consumer (sidebar) keys by map NAME, so resolve
             // the UUID→name first (mirrors the MAP_TEMPORAL branch) instead of passing the raw UUID.
             if (data) await repo.saveMapNotes?.(mapId, data);
-            emit(EventTypes.MAP_NOTES_REQUESTED, { mapName: mapResolver.resolveToName(mapId) || mapId });
+            // CHANGED, never REQUESTED: `MAP_NOTES_REQUESTED` is the notes button's request to OPEN
+            // the panel, and emitting it here opened the notes of the peer's map on the screen of
+            // every client, over whatever each one had open. The sidebar refreshes the panel only
+            // where it is already showing these notes.
+            emit(EventTypes.MAP_NOTES_CHANGED, { mapName: mapResolver.resolveToName(mapId) || mapId });
             break;
         case EntityType.GRID_STYLE:
             // Persist grid style to the side-store (matches reshapeSnapshotMap + setGridStyle).

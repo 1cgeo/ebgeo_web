@@ -297,6 +297,8 @@ export class SidebarControl {
         // Listen for map notes requests
         subscribe(this, this._eventBus, EventTypes.MAP_NOTES_REQUESTED,
             (payload) => this._onMapNotesRequested(payload));
+        subscribe(this, this._eventBus, EventTypes.MAP_NOTES_CHANGED,
+            (payload) => this._onMapNotesChanged(payload));
 
         // Listen for search result panel requests
         subscribe(this, this._eventBus, EventTypes.SEARCH_RESULT_PANEL_REQUESTED,
@@ -825,9 +827,25 @@ export class SidebarControl {
 
         // Store cleanup
         this._notesQuillCleanup = cleanup;
+        this._notesPanelShown = { mapName, readOnly, element };
 
         // Show in feature panel
         this._featurePanel.show(element, title);
+    }
+
+    /**
+     * A peer's notes arrived. The panel is redrawn only where it is already showing the notes of
+     * that map, and never in the middle of an edit (the person's unsaved text wins the screen; the
+     * save is judged by the server's base check).
+     * @private
+     * @param {Object} payload - Event payload with mapName
+     */
+    async _onMapNotesChanged({ mapName } = {}) {
+        const shown = this._notesPanelShown;
+        if (!shown || shown.mapName !== mapName || !shown.element.isConnected) return;
+        if (!this._stateManager.get('ui.featurePanelOpen') || this._stateManager.get('ui.currentFeatureType') !== 'notes') return;
+        if (shown.element.querySelector('.map-notes-edit-container:not(.map-notes-edit-container--hidden)')) return;
+        await this._onMapNotesRequested({ mapName, readOnly: shown.readOnly });
     }
 
     /**

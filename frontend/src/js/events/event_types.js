@@ -82,6 +82,8 @@ export const EventTypes = Object.freeze({
     // ===== MAP NOTES =====
     /** Payload: { mapName } */
     MAP_NOTES_REQUESTED: 'mapNotes:requested',
+    /** A peer's notes for `mapName` were stored here (refresh, never open). Payload: { mapName } */
+    MAP_NOTES_CHANGED: 'mapNotes:changed',
 
     // ===== SEARCH =====
     /** Payload: { result, content: HTMLElement } */
