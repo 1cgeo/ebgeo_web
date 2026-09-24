@@ -16,6 +16,15 @@
  * NOTHING VISIBLE IS LOST ON THE MAP: MapLibre decodes an image source into a single bitmap, so the map
  * already showed one still frame of such a file. The frame kept is the one `createImageBitmap` hands
  * over, which for an animated image is its default image (the first frame when there is none).
+ * Decided with the coordinator on 2026-09-24 (second review of the attached photos, item 3): before
+ * this the server refused the whole picture.
+ *
+ * ONLY THE BYTES THAT TRAVEL ARE FLATTENED. The local record is not rewritten, as with the SVG icon:
+ * the image store of a LOCAL atlas keeps the original APNG after the send (measured by
+ * `tests/e2e-ui/foto-apng.repro.spec.js`), and a `.ebgeo` exported from it carries the original too,
+ * because the export writes the stored blob as it is and never goes through `buildImageUploads`. The
+ * server atlas has the still PNG, and that is what a colleague, and this computer after a new
+ * snapshot, reads.
  *
  * ZERO IMPORTS, like `svg-to-png.js`: `atlas-image-upload.js` is reached from the chooser page, which
  * boots without the store.

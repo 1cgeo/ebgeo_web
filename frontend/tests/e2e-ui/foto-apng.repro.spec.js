@@ -155,6 +155,22 @@ describeOrSkip('um atlas local com APNG vai ao servidor', () => {
         console.log(`APNG_ENVIO ${JSON.stringify({ respostas, avisos })}`);
         await page.waitForURL(/[?&]atlas=/, { timeout: 60000 });
         const atlasId = new URL(page.url()).searchParams.get('atlas');
+
+        // A CÓPIA LOCAL NÃO É ACHATADA: só os bytes que viajam viram PNG parado. O atlas local que
+        // foi enviado continua neste navegador com o APNG original da figura.
+        const local = await page.evaluate(async () => {
+            const ns = await import('/src/js/store/atlas-namespace.js');
+            const saida = [];
+            for (const entrada of await ns.readLocalAtlasRegistry()) {
+                const blob = await ns.getStoreFor(ns.StoreName.IMAGES, ns.localScope(entrada.id, entrada.dbSuffix)).getItem('figura-apng');
+                if (!blob) continue;
+                const bytes = new Uint8Array(await blob.arrayBuffer());
+                saida.push({ atlas: entrada.name, tamanho: bytes.length, temAcTL: new TextDecoder('latin1').decode(bytes).includes('acTL') });
+            }
+            return saida;
+        });
+        console.log(`APNG_COPIA_LOCAL ${JSON.stringify(local)}`);
+        expect(local, 'o atlas local guarda a figura original, animada').toEqual([{ atlas: 'Meu Atlas', tamanho: APNG.length, temAcTL: true }]);
         await ctx.close();
 
         const db = createDb(state.dbName);
