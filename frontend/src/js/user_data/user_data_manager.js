@@ -383,7 +383,11 @@ const userDataManager = {
      * @param {string} featureType - Feature type (singular)
      * @param {string} oldKey - Existing attribute key
      * @param {string} newKey - New attribute key
-     * @param {*} value - Value carried over to the new key
+     * @param {*} value - Value for the new key when the old one is no longer stored. When it is,
+     *   its STORED value is carried over, not this one: the Attributes tab passes the value it drew,
+     *   and a colleague may have changed it since (the tab does not redraw on a remote edit).
+     *   Carrying the drawn value undid the colleague's value on every client and on the server
+     *   (`frontend/tests/e2e-ui/browser-collab-renomear-atributo.repro.spec.js`).
      * @returns {Promise<boolean>} True if the rename was applied
      */
     async renameAttribute(featureId, featureType, oldKey, newKey, value) {
@@ -400,10 +404,12 @@ const userDataManager = {
             if (!feature.properties.attributes) {
                 feature.properties.attributes = {};
             }
-            if (oldKey in feature.properties.attributes) {
+            let carried = stringValue;
+            if (Object.hasOwn(feature.properties.attributes, oldKey)) {
+                carried = feature.properties.attributes[oldKey];
                 delete feature.properties.attributes[oldKey];
             }
-            feature.properties.attributes[newKey] = stringValue;
+            feature.properties.attributes[newKey] = carried;
             renamed = true;
             return feature;
         });
