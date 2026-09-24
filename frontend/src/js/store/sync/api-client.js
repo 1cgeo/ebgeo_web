@@ -747,6 +747,18 @@ export class ApiClient {
     }
 
     /**
+     * The account (`sub`) of the pair persisted in `localStorage`, read without validating it, or
+     * null. It REFUSES nothing and grants nothing: it only lets a login tell "the same account came
+     * back" from "another account is taking this browser over", which matters after a DEFERRED
+     * restore, when the pair on disk may belong to another account whose unsent work must not
+     * travel with the next account's token (`endPreviousAccountIfReplaced`).
+     * @returns {string|null}
+     */
+    storedSubject() {
+        return jwtSubject(this._readStoredTokens()?.accessToken);
+    }
+
+    /**
      * Whether a persisted session EXISTS, without loading it or contacting the server.
      *
      * For boot-time page routing only (`index.js#shouldRouteToProjects`): a signed-in visitor is

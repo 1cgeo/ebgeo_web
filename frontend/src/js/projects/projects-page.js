@@ -56,6 +56,7 @@ import { instalarUso } from '@js/session/uso-telemetria.js';
 // importavel de uma pagina que boota sem `initServices()`.
 import {
     preserveUnsyncedWorkOnLostSession,
+    endPreviousAccountIfReplaced,
     ExitOutcome,
 } from '../session/unsynced-work-exit.js';
 import { showError, showSuccess, showWarning } from '@utils/toast_service.js';
@@ -751,7 +752,17 @@ function openLoginDialog() {
     const signupEnabled = config?.features?.self_registration === true;
     showLoginModal({
         onSubmit: async ({ username, password }) => {
-            await apiClient.login(username, password);
+            // DE QUEM É O PAR GUARDADO, lido antes do login: ver `endPreviousAccountIfReplaced`.
+            const contaAnterior = apiClient.storedSubject();
+            const usuario = await apiClient.login(username, password);
+            await endPreviousAccountIfReplaced({
+                previousSubject: contaAnterior,
+                currentUserId: usuario?.id ?? apiClient.storedSubject(),
+                sweep: async () => {
+                    const report = await purgeAllRemoteAtlases();
+                    if (report.deactivated) activateCurrentLocalAtlasScope();
+                },
+            });
             window.location.reload();
         },
         onRegister: signupEnabled ? (abertura) => openSignupDialog(abertura) : undefined,

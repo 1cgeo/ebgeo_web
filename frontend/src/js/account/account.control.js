@@ -46,6 +46,7 @@ import {
     rescueVetoRecorded,
     preserveUnsyncedWorkOfOtherAtlases,
     otherAtlasesRescueMessage,
+    endPreviousAccountIfReplaced,
     // O prazo do veto de resgate vem por AQUI, e nao de `@store/remote-atlas.api.js`: as frases
     // sao puras e recebem o numero, entao ele precisa chegar derivado da constante, nunca digitado.
     RESCUE_VETO_GRACE_MS,
@@ -1194,7 +1195,17 @@ export class AccountControl {
         const signupEnabled = config?.features?.self_registration === true;
         await abrirLogin({
             onSubmit: async (credentials) => {
+                // DE QUEM É O PAR GUARDADO, lido ANTES do login que o substitui: numa restauração
+                // adiada ele pode ser de OUTRA conta, e a fila dela não pode subir com o token desta.
+                const contaAnterior = apiClient.storedSubject();
                 await syncEngine.login(credentials);
+                const anterior = await endPreviousAccountIfReplaced({
+                    previousSubject: contaAnterior,
+                    currentUserId: sessionContext.userId,
+                    sweep: () => discardRemoteAtlasNamespaces(),
+                });
+                const avisoDaAnterior = anterior ? otherAtlasesRescueMessage(anterior) : null;
+                if (avisoDaAnterior) showWarning(avisoDaAnterior.message, { duration: 10000 });
                 // Login resolved: remember the display name and refresh the UI.
                 this._username = credentials.username;
                 this._render();

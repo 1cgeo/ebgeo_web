@@ -233,3 +233,23 @@ describe('preserveUnsyncedWorkOnLostSession: cada atlas com o seu desfecho', () 
         expect(r.message).toContain('"Atlas outro"');
     });
 });
+
+describe('endPreviousAccountIfReplaced: a outra conta entrando depois da sessão adiada', () => {
+    it('a MESMA conta voltando não resgata nem varre', async () => {
+        atlasRemoto('a');
+        const sweep = vi.fn(async () => {});
+        expect(await saida.endPreviousAccountIfReplaced({ previousSubject: 'u1', currentUserId: 'u1', sweep })).toBeNull();
+        expect(await saida.endPreviousAccountIfReplaced({ previousSubject: null, currentUserId: 'u1', sweep })).toBeNull();
+        expect(sweep).not.toHaveBeenCalled();
+        expect(mundo.adotados).toEqual([]);
+    });
+
+    it('OUTRA conta: a fila da anterior vira atlas local, e a varredura roda depois do resgate', async () => {
+        atlasRemoto('a');
+        const ordem = [];
+        const sweep = vi.fn(async () => { ordem.push(`varreu com ${mundo.adotados.length} adotado(s)`); });
+        const r = await saida.endPreviousAccountIfReplaced({ previousSubject: 'u1', currentUserId: 'u2', sweep });
+        expect(r.rescued.map(x => x.atlasId)).toEqual(['a']);
+        expect(ordem).toEqual(['varreu com 1 adotado(s)']);
+    });
+});

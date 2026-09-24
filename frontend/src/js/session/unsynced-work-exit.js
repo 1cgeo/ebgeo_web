@@ -459,6 +459,31 @@ export async function preserveUnsyncedWorkOfOtherAtlases({ exceptAtlasId = null 
 }
 
 /**
+ * THE END OF THE PREVIOUS ACCOUNT'S SESSION, when a login replaces a pair that belonged to ANOTHER
+ * account.
+ *
+ * WHY. A restore deferred by a transient failure keeps the pair on disk and sweeps nothing
+ * (`enforceLocalStoreWhenLoggedOut`), which is right for the SAME account coming back. But the
+ * login modal is open in that state, and if ANOTHER account enters, the previous account's queues
+ * are still on disk with no identity in them: opening an atlas both can edit would push the first
+ * account's work under the second one's token. So the previous account gets the exit it never had:
+ * its unsent work is rescued as local atlases and every server namespace left is swept, BEFORE the
+ * new account mounts anything.
+ *
+ * @param {Object} params
+ * @param {string|null} params.previousSubject - `apiClient.storedSubject()` read BEFORE the login.
+ * @param {string|null} params.currentUserId - The account that just logged in.
+ * @param {() => Promise<unknown>} params.sweep - The page's sweep of server namespaces.
+ * @returns {Promise<OtherAtlasesRescue|null>} The rescue, or null when it was the same account.
+ */
+export async function endPreviousAccountIfReplaced({ previousSubject, currentUserId, sweep }) {
+    if (!previousSubject || !currentUserId || previousSubject === currentUserId) return null;
+    const rescue = await preserveUnsyncedWorkOfOtherAtlases();
+    await sweep();
+    return rescue;
+}
+
+/**
  * What is left of the retention veto of an atlas, in milliseconds (0 when none or expired).
  * @param {string} atlasId
  * @returns {number}
