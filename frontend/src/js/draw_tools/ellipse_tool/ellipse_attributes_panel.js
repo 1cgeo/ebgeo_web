@@ -11,6 +11,7 @@ import {
     buildShapeTabsWithLabel,
     createFillAreaButton,
 } from '../../tool_manager/helpers/index.js';
+import { ellipseMetricsInMeters } from '../../measurement_tool/measurement-geometry.js';
 
 /**
  * Add ellipse attributes to the attributes panel
@@ -32,11 +33,10 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
     // Tabs (Símbolo / Etiqueta)
     panel.appendChild(buildShapeTabsWithLabel({
         styleLabel: 'Símbolo',
-        fillButton: selectedFeatures.length === 1 ? createFillAreaButton(() => {
-            const a = feature.properties.majorRadius;
-            const b = feature.properties.minorRadius;
-            return (a > 0 && b > 0) ? Math.PI * a * b : null;
-        }) : undefined,
+        // The button formats SQUARE METERS, and the ellipse stores its radii in kilometers.
+        fillButton: selectedFeatures.length === 1
+            ? createFillAreaButton(() => ellipseMetricsInMeters(feature.properties)?.area ?? null)
+            : undefined,
         buildStyleContent: (container) => {
             let hatchControl = null;
 
