@@ -19,8 +19,7 @@ import {
 } from '@store';
 import { EventTypes } from '@events';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
-import { fitBounds, ANIMATION_DURATION } from '@js/map/animation.service.js';
-import { selectionExtent } from '@utils/geometry-utils.js';
+import { frameFeatures } from '@utils/feature_navigation_utils.js';
 import { checkPermission } from '@store/sync/permission-guard.js';
 import {
     ClipboardMenuAction,
@@ -1092,18 +1091,13 @@ class ContextMenuControl {
 
     /**
      * Frames every selected feature by its footprint (the selection box of a symbol, the
-     * geometry otherwise), across the antimeridian. The rule lives in `selectionExtent`
-     * (`utilities/geometry-utils.js`), which is pure and pinned by a node test.
+     * geometry otherwise), across the antimeridian. `frameFeatures` is the one framing the
+     * layers tab and the search share with this command; the extent itself is
+     * `selectionExtent` (`utilities/geometry-utils.js`), pure and pinned by a node test.
      * @private
      */
     _handleZoomToSelection() {
-        const extent = selectionExtent(this._selectionManager.getAllSelectedFeatures());
-        if (!extent) return;
-
-        fitBounds(this._map, extent, {
-            duration: ANIMATION_DURATION.FAST,
-            padding: 80
-        });
+        frameFeatures(this._selectionManager.getAllSelectedFeatures(), this._map);
     }
 
     async _onRightClick(e) {

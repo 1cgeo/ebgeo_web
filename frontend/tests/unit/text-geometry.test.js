@@ -29,7 +29,12 @@
  *   [271, 359] quadrant is reachable (a single `+= 360` could not wrap a value
  *   that starts in [-450, -90]).
  * - `calculateRotationHandlePosition` honours map zoom 0 instead of falling back
- *   to `createdAtZoom`.
+ *   to `createdAtZoom` (text WITHOUT zoom correction).
+ *
+ * FIXED ON 2026-09-24: text WITH zoom correction (the default) is sized on the ground,
+ * so its rotation handle is fixed on the ground too, at `createdAtZoom`. It used the
+ * current zoom for every text, stayed at a fixed screen distance while the text grew,
+ * and ended up inside it after every zoom.
  * - `validate` rejects a non-finite coordinate, like circle/line/polygon/ellipse.
  */
 
@@ -352,9 +357,37 @@ describe('AddTextGeometry.calculateRotationFromHandle', () => {
 // ============================================================================
 
 describe('AddTextGeometry.calculateRotationHandlePosition', () => {
-    const featureAt = (lng, lat, rotation = 0, createdAtZoom = 12) => ({
+    // Screen-sized text (`zoomCorrectionEnabled: false`) by default in these cases: the handle
+    // keeps a screen distance and follows the map zoom. The corrected text has its own block below.
+    const featureAt = (lng, lat, rotation = 0, createdAtZoom = 12, zoomCorrectionEnabled = false) => ({
         geometry: { coordinates: [lng, lat] },
-        properties: { id: 'f1', text: 'abc', size: 16, rotation, createdAtZoom },
+        properties: { id: 'f1', text: 'abc', size: 16, rotation, createdAtZoom, zoomCorrectionEnabled },
+    });
+
+    describe('texto COM correção de zoom (o padrão): a alça fica fixa no terreno', () => {
+        const corrigido = (createdAtZoom = 12, extra = {}) => ({
+            geometry: { coordinates: [0, 0] },
+            properties: { id: 'f1', text: 'abc', size: 16, rotation: 0, createdAtZoom, ...extra },
+        });
+
+        it('a posição não depende do zoom do mapa: é a do createdAtZoom', () => {
+            const aos12 = geom.calculateRotationHandlePosition(corrigido(12), 12);
+            expect(geom.calculateRotationHandlePosition(corrigido(12), 16)).toEqual(aos12);
+            expect(geom.calculateRotationHandlePosition(corrigido(12), 8)).toEqual(aos12);
+            expect(aos12[0]).toBeCloseTo(-pixelsToDegrees(offsetPx, 0, 12), 12);
+        });
+
+        it('vale também com a bandeira explícita true e sem bandeira nenhuma', () => {
+            const semBandeira = geom.calculateRotationHandlePosition(corrigido(10), 14);
+            const comTrue = geom.calculateRotationHandlePosition(corrigido(10, { zoomCorrectionEnabled: true }), 14);
+            expect(comTrue).toEqual(semBandeira);
+            expect(semBandeira[0]).toBeCloseTo(-pixelsToDegrees(offsetPx, 0, 10), 12);
+        });
+
+        it('createdAtZoom ausente cai para o zoom do mapa, sem NaN', () => {
+            const pos = geom.calculateRotationHandlePosition(corrigido(undefined), 12);
+            expect(pos[0]).toBeCloseTo(-pixelsToDegrees(offsetPx, 0, 12), 12);
+        });
     });
 
     /** Same offset the source computes: half the measured width + 12 px. */

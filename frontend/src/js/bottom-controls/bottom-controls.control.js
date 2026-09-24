@@ -8,7 +8,15 @@
 import { FeatureToggle } from './components/feature-toggle.js';
 import { NavButton } from './components/nav-button.js';
 import { FEATURE_TOGGLES, NAV_BUTTONS } from './bottom-controls.constants.js';
+import {
+    MY_LOCATION_MIN_ZOOM,
+    MY_LOCATION_OPTIONS,
+    myLocationErrorNotice,
+    myLocationUnavailableNotice
+} from './my-location-phrases.js';
 import config from '@js/config.js';
+import { maplibregl } from '@js/map/maplibre.js';
+import { showWarning } from '@utils/toast_service.js';
 import { EventTypes } from '@events/event_types.js';
 import {
     setupCleanup,
@@ -64,6 +72,8 @@ export class BottomControlsControl {
         this._featureToggles = new Map();
         this._navButtons = new Map();
         this._isFullscreen = false;
+        this._myLocationMarker = null;
+        this._locating = false;
 
         // Bind methods
         this._updateCompass = this._updateCompass.bind(this);
@@ -183,7 +193,7 @@ export class BottomControlsControl {
         this._rightContainer.appendChild(zoomGroup);
 
         // Other navigation buttons
-        ['fullscreen', 'compass'].forEach(key => {
+        ['myLocation', 'fullscreen', 'compass'].forEach(key => {
             const btnConfig = NAV_BUTTONS[key];
             const btn = new NavButton(btnConfig, (cfg) => this._handleNavAction(cfg));
             this._rightContainer.appendChild(btn.render());
@@ -363,6 +373,9 @@ export class BottomControlsControl {
             case 'toggleFullscreen':
                 this._toggleFullscreen();
                 break;
+            case 'goToMyLocation':
+                this._goToMyLocation();
+                break;
 case 'resetNorth':
                 this._resetNorth();
                 break;
@@ -401,6 +414,74 @@ case 'resetNorth':
             pitch: 0,
             duration: 500
         });
+    }
+
+    /**
+     * "Ir para minha localização": asks the browser for the position, flies there and marks it.
+     *
+     * The browser only gives a position in a SECURE context (HTTPS or localhost). Without it, or
+     * without the location API, the command stays drawn and the click refuses naming the state
+     * (`my-location-phrases.js`), because it is reversible. A second click while the browser is
+     * still answering is ignored rather than stacking requests.
+     * @private
+     */
+    _goToMyLocation() {
+        const unavailable = myLocationUnavailableNotice({
+            isSecureContext: globalThis.isSecureContext,
+            geolocation: globalThis.navigator?.geolocation,
+        });
+        if (unavailable) {
+            showWarning(unavailable);
+            return;
+        }
+        if (this._locating) return;
+
+        this._locating = true;
+        const button = this._navButtons.get(NAV_BUTTONS.myLocation.id);
+        button?.setBusy(true);
+        const finish = () => {
+            this._locating = false;
+            button?.setBusy(false);
+        };
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                finish();
+                // The control may have been torn down while the browser answered.
+                if (!this._rightContainer) return;
+                const { longitude, latitude, accuracy } = position.coords;
+                this._showMyLocation([longitude, latitude], accuracy);
+                this._map.flyTo({
+                    center: [longitude, latitude],
+                    zoom: Math.max(this._map.getZoom(), MY_LOCATION_MIN_ZOOM),
+                    essential: true
+                });
+            },
+            (error) => {
+                finish();
+                showWarning(myLocationErrorNotice(error));
+            },
+            MY_LOCATION_OPTIONS
+        );
+    }
+
+    /**
+     * Places (or moves) the "you are here" marker.
+     * @private
+     * @param {[number, number]} lngLat
+     * @param {number} accuracy - Radius of the fix, in meters
+     */
+    _showMyLocation(lngLat, accuracy) {
+        if (!this._myLocationMarker) {
+            const element = document.createElement('div');
+            element.className = 'my-location-marker';
+            this._myLocationMarker = new maplibregl.Marker({ element }).setLngLat(lngLat).addTo(this._map);
+        } else {
+            this._myLocationMarker.setLngLat(lngLat);
+        }
+        this._myLocationMarker.getElement().title = Number.isFinite(accuracy)
+            ? `Você está aqui (precisão de ${Math.round(accuracy)} m)`
+            : 'Você está aqui';
     }
 
     /**
@@ -512,6 +593,9 @@ case 'resetNorth':
 
         this._navButtons.forEach(btn => btn.destroy());
         this._navButtons.clear();
+
+        this._myLocationMarker?.remove();
+        this._myLocationMarker = null;
 
         cleanup(this);
         removeElement(this._leftContainer);

@@ -27,7 +27,7 @@ export {
 } from './coordinate_converter.js';
 
 // Feature navigation utilities
-export { zoomToFeature, zoomAndSelectFeature } from './feature_navigation_utils.js';
+export { zoomToFeature, zoomAndSelectFeature, frameFeatures } from './feature_navigation_utils.js';
 
 // Toast service
 export {

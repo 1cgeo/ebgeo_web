@@ -110,8 +110,18 @@ class AddTextGeometry extends BaseGeometry {
     /**
      * Calculate rotation handle position to the left of the text center.
      * Offset is half the text width + padding, placed at the selection box edge.
+     *
+     * THE HANDLE FOLLOWS THE TEXT, and the text follows one of two rules, the same pair the
+     * selection box obeys everywhere in the control (`zoomCorrectionEnabled === false` picks
+     * the current zoom, anything else `createdAtZoom`):
+     * - WITH zoom correction (the default) the text is sized on the ground and grows as the
+     *   map zooms in, so the handle is fixed on the ground too, computed at `createdAtZoom`.
+     *   Until 2026-09-24 it always used the current zoom: it stayed 57 px from the anchor
+     *   while the text grew, and ended up inside it after every zoom (owner's report).
+     * - WITHOUT correction the text keeps its screen size, so the handle keeps its screen
+     *   distance and is computed at the current map zoom.
      * @param {Object} feature - Text feature
-     * @param {number} mapZoom - Current map zoom level (for non-zoom-corrected text)
+     * @param {number} mapZoom - Current map zoom level (used by text without zoom correction)
      * @returns {Array|null} Handle position [lng, lat] or null
      */
     calculateRotationHandlePosition(feature, mapZoom) {
@@ -128,12 +138,14 @@ class AddTextGeometry extends BaseGeometry {
         const HANDLE_PADDING_PX = 12;
         const offsetPixels = (width / 2) + HANDLE_PADDING_PX;
 
-        // Always use current map zoom — the handle is a screen-space UI element
-        // that must stay at a fixed pixel distance from the text center.
-        // Zoom 0 is a legitimate map zoom (the whole world in one tile), so the
-        // fallback tests for a finite number and never for truthiness: `|| ` here
-        // used to send zoom 0 to createdAtZoom, misplacing the handle by ~4096x.
-        const zoom = Number.isFinite(mapZoom) ? mapZoom : feature.properties.createdAtZoom;
+        // Zoom 0 is a legitimate map zoom (the whole world in one tile), so every fallback
+        // tests for a finite number and never for truthiness: `||` here once sent zoom 0 to
+        // createdAtZoom, misplacing the handle by ~4096x.
+        const created = feature.properties.createdAtZoom;
+        const screenSized = feature.properties.zoomCorrectionEnabled === false;
+        const zoom = screenSized
+            ? (Number.isFinite(mapZoom) ? mapZoom : created)
+            : (Number.isFinite(created) ? created : mapZoom);
 
         const latitude = coordinates[1];
         const offsetDegrees = pixelsToDegrees(offsetPixels, latitude, zoom);

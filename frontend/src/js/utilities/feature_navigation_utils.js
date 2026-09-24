@@ -8,6 +8,32 @@
 import { getSourceTypeFromStorage } from '@store';
 import { FEATURE_TYPE_REGISTRY } from '@store/feature-type.registry.js';
 import { maplibregl } from '@js/map/maplibre.js';
+import { fitBounds, ANIMATION_DURATION } from '@js/map/animation.service.js';
+import { selectionExtent } from './geometry-utils.js';
+
+/** Screen padding around a framed selection, the one "Zoom para Seleção" has always used. */
+export const SELECTION_FRAME_PADDING = 80;
+
+/**
+ * Frames features the way "Zoom para Seleção" does: each by its footprint (the selection box
+ * of a symbol, the geometry otherwise), with the same padding and duration. ONE framing for the
+ * gestures that bring a selection into view (the context menu command, a click on a feature in
+ * the layers tab, a search result), so the layers tab cannot zoom a point to 15 while the menu
+ * frames the same point by its box (owner, 2026-09-24).
+ *
+ * The camera move is not awaited: the selection is what the caller waits for, and a stub map
+ * without events turns the animation's wait into a rejection that is swallowed here.
+ * @param {Object[]} features - GeoJSON features to frame
+ * @param {Object} mapInstance - MapLibre map instance
+ * @returns {boolean} Whether a frame was requested (false when nothing has a finite position)
+ */
+export function frameFeatures(features, mapInstance) {
+    const extent = selectionExtent(features);
+    if (!extent || !mapInstance) return false;
+    fitBounds(mapInstance, extent, { duration: ANIMATION_DURATION.FAST, padding: SELECTION_FRAME_PADDING })
+        .catch(() => {});
+    return true;
+}
 
 /**
  * Feature types that use a selectionBox polygon for zoom bounds, read from the registry.
@@ -82,7 +108,7 @@ export async function zoomToFeature(feature, mapInstance, options = {}) {
 }
 
 /**
- * Zooms to a feature and selects it.
+ * Selects a feature and frames it like "Zoom para Seleção" (`frameFeatures`).
  *
  * @param {Object} feature - GeoJSON feature
  * @param {Object} mapInstance - MapLibre map instance
@@ -96,11 +122,7 @@ export async function zoomAndSelectFeature(feature, mapInstance, selectionManage
     const sourceType = getSourceTypeFromStorage(featureType);
     await selectionManager.selectFeature(sourceType, featureId, feature);
 
-    await zoomToFeature(feature, mapInstance, {
-        paddingPercent: 0.25,
-        minZoom: 12,
-        maxZoom: 18
-    });
+    frameFeatures([feature], mapInstance);
 }
 
 /**

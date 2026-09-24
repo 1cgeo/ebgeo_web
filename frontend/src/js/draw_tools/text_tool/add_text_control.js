@@ -520,6 +520,15 @@ class AddTextControl extends BaseControl {
 
             source.setData(data);
             this._syncSelectedTexts(data);
+
+            // The rotation handle of a selected screen-sized text keeps its screen distance
+            // DURING the gesture, in this same frame as its box. It used to wait for `zoomend`,
+            // drifting to three times the distance mid-zoom and snapping back at the end. A text
+            // with zoom correction needs nothing here: its handle is fixed on the ground.
+            if (!this.isDraggingHandle) {
+                const selected = this.getSelectedFeature();
+                if (selected?.properties?.zoomCorrectionEnabled === false) this.createEditHandles(selected);
+            }
         } finally {
             this.pendingFixedZoomUpdate = false;
         }

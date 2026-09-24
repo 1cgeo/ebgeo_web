@@ -12,7 +12,7 @@ import {
     getSourceTypeFromStorage,
     getFeatureGroup,
 } from '@store';
-import { zoomToFeature, zoomAndSelectFeature, escapeHtml } from '@utils';
+import { frameFeatures, zoomAndSelectFeature, escapeHtml } from '@utils';
 
 /**
  * @typedef {Object} FeatureItemCallbacks
@@ -101,22 +101,23 @@ export async function handleFeatureClick(feature, map, selectionManager) {
         const currentFeature = await getFeatureById(feature.storageType, feature.id);
         const isLocked = currentFeature?.properties?.bloqueado ?? false;
 
+        // Every path here frames like "Zoom para Seleção" (`frameFeatures`): until 2026-09-24 a
+        // point clicked in this tab was flown to zoom 15 whatever its size, while the menu framed
+        // the same point by its box.
         if (isLocked) {
-            await zoomToFeature(feature.rawFeature, map);
+            frameFeatures([feature.rawFeature], map);
             return;
         }
 
         // A grouped feature selects the WHOLE group, mirroring the map's click behavior —
-        // the layers tab previously selected only the single member (inconsistent UX).
+        // the layers tab previously selected only the single member (inconsistent UX). The frame
+        // follows the selection, so the whole group comes into view.
         const sourceType = getSourceTypeFromStorage(feature.storageType);
         const group = getFeatureGroup(sourceType, feature.id);
         if (group) {
             await selectionManager.selectGroup(group);
-            await zoomToFeature(feature.rawFeature, map, {
-                paddingPercent: 0.25,
-                minZoom: 12,
-                maxZoom: 18,
-            });
+            const membros = selectionManager.getAllSelectedFeatures?.() ?? [];
+            frameFeatures(membros.length ? membros : [feature.rawFeature], map);
             return;
         }
 
@@ -131,7 +132,7 @@ export async function handleFeatureClick(feature, map, selectionManager) {
         console.error('Error navigating to feature:', error);
 
         try {
-            await zoomToFeature(feature.rawFeature, map);
+            frameFeatures([feature.rawFeature], map);
         } catch (fallbackError) {
             console.error('Error in zoom fallback:', fallbackError);
         }

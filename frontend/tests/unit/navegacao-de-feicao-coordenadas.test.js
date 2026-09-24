@@ -418,7 +418,7 @@ describe('zoomToFeature — early exits', () => {
 // ============================================================================
 
 describe('zoomAndSelectFeature', () => {
-    it('clears the selection, selects through the translated source type, then zooms', async () => {
+    it('clears the selection, selects through the translated source type, then frames', async () => {
         const order = [];
         const selectionManager = {
             deselectAllFeatures: vi.fn(() => order.push('deselect')),
@@ -426,14 +426,33 @@ describe('zoomAndSelectFeature', () => {
         };
         getSourceTypeFromStorage.mockReturnValue('point');
         const map = stubMap();
-        map.flyTo = vi.fn(() => order.push('fly'));
+        map.fitBounds = vi.fn(() => order.push('frame'));
 
         const feature = featureWith({ type: 'Point', coordinates: [1, 2] });
         await zoomAndSelectFeature(feature, map, selectionManager, 'points', 'f1');
 
         expect(getSourceTypeFromStorage).toHaveBeenCalledWith('points');
         expect(selectionManager.selectFeature).toHaveBeenCalledWith('point', 'f1', feature);
-        expect(order).toEqual(['deselect', 'select', 'fly']);
+        expect(order).toEqual(['deselect', 'select', 'frame']);
+        expect(map.flyTo).not.toHaveBeenCalled();
+    });
+
+    // REPRO (owner, 2026-09-24): a point clicked in the layers tab was flown to zoom 15 whatever
+    // its size, while "Zoom para Seleção" framed the same point by its box. Both now frame through
+    // `frameFeatures`, so the extent handed to the camera is the box, with the menu's padding.
+    it('frames a point by its selection box, like "Zoom para Seleção", and not by a fixed zoom', async () => {
+        const selectionManager = { deselectAllFeatures: vi.fn(), selectFeature: vi.fn(async () => {}) };
+        const map = stubMap();
+        const box = { type: 'Polygon', coordinates: [[[0, 0], [2, 0], [2, 1], [0, 1], [0, 0]]] };
+        const feature = featureWith({ type: 'Point', coordinates: [1, 0.5] }, { source: 'point', selectionBox: box });
+
+        await zoomAndSelectFeature(feature, map, selectionManager, 'points', 'f1');
+
+        expect(map.flyTo).not.toHaveBeenCalled();
+        expect(map.fitBounds).toHaveBeenCalledTimes(1);
+        const [extent, opcoes] = map.fitBounds.mock.calls[0];
+        expect(extent).toEqual([[0, 0], [2, 1]]);
+        expect(opcoes.padding).toBe(80);
     });
 
     it('still deselects and selects when the geometry cannot be flown to', async () => {
