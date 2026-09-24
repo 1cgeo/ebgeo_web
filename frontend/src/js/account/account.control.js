@@ -44,6 +44,7 @@ import {
     preserveUnsyncedWorkAsLocal,
     countPendingOperations,
     preserveUnsyncedWorkOfOtherAtlases,
+    atlasNameOnDisk,
     otherAtlasesRescueMessage,
     endPreviousAccountIfReplaced,
     // O prazo do veto que RESTA vem por AQUI: as frases sao puras e recebem o numero, e a janela
@@ -1444,9 +1445,7 @@ export class AccountControl {
             // erases them: `logoutAndDisconnect` clears `syncEngine.atlasId` and the cache below
             // is dropped a few lines down. Without the id there is no namespace to rescue.
             const mountedAtlasId = mountedRemoteAtlasId();
-            const mountedAtlasName = this._atlasCache?.id === mountedAtlasId
-                ? this._atlasCache?.name
-                : null;
+            const nomeEmCache = this._atlasCache?.id === mountedAtlasId ? this._atlasCache?.name : null;
             // E SE O STORE ERA REMOTO, lido AQUI e não depois: entre este ponto e o wipe há
             // vários `await`, e a origem pode ser marcada LOCAL no meio por outro caminho
             // (o sweep de namespaces remotos, o resgate de trabalho não enviado). Medido em
@@ -1455,6 +1454,12 @@ export class AccountControl {
             // `clearAllDataStore` era pulado, `ALL_DATA_CLEARED` não saía e a feição do
             // SERVIDOR ficava desenhada na fonte viva com o store já vazio.
             const eraRemoto = isRemoteStoreSync();
+            // The cache is filled only when the account MENU opens; without it the name comes from
+            // the atlas record on disk, the same reader the other atlases of this exit use. AFTER
+            // `eraRemoto`, never between it and the atlas id: no `await` may separate those two. Only
+            // when there is a rescue to name.
+            const mountedAtlasName = nomeEmCache
+                || (preserve && mountedAtlasId ? await atlasNameOnDisk(mountedAtlasId) : null);
             // THE ATLASES THIS TAB LEFT EARLIER, before any sweep of this exit. The rescue below
             // reaches only the mounted atlas, and the discard branch destroys every other server
             // namespace: a queue left in atlas A while the person moved on to atlas B died here, at
