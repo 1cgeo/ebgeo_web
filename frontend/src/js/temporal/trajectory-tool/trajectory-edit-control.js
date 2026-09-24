@@ -42,6 +42,7 @@ import { isTouchDevice, getPointerPosition } from '@utils/pointer-utils.js';
 import { setupVertexRemoveLongPress } from '@js/draw_tools/drawing-touch-helpers.js';
 import { handleHitBox } from '@tools/helpers/feature-hit-test.helpers.js';
 import { queryHoverFeatures } from '@tools/helpers/hover-query.helpers.js';
+import { rebaseOnStored } from '@tools/helpers/pending-edit.helpers.js';
 import { normalizeTrajectory } from '../temporal-model.js';
 import { unitToMs } from '../temporal.utils.js';
 import { TRAJECTORY_TYPE_TO_SOURCE, TRAJECTORY_TYPE_TO_CONTROL } from '../temporal.constants.js';
@@ -928,9 +929,8 @@ export class TrajectoryEditControl {
         if (this._syncHomeToAnchor(sorted[0])) {
             const control = getControl(TRAJECTORY_TYPE_TO_CONTROL[this._featureType]);
             if (control?.updateFeatures) {
-                // Este ramo já era desfazível: `updateFeatures(…, true)` chama `updateFeature`,
-                // que registra a ação sozinho. Ele não tem (nem precisa de) a opção.
-                control.updateFeatures([this._feature], true);
+                // Desfazível pelo `updateFeature` do método, que registra a ação sozinho.
+                this._persistAnchorOverStored(control, sorted);
             } else {
                 // updateFeatureProperty keys by STORAGE type — convert the source type.
                 updateFeatureProperty(
@@ -1007,6 +1007,67 @@ export class TrajectoryEditControl {
             getControl('TemporalControl')?.sync();
         }).catch(error => console.error('Error saving trajectory:', error));
         getControl('TemporalControl')?.sync();
+    }
+
+    /**
+     * The anchor branch of `_persist`, written over the feature AS STORED (2026-09-24).
+     *
+     * It writes the WHOLE feature, because the geometry moves with kp 0, and the whole feature was
+     * this editor's copy, the one the selection took, which a colleague's op does not reach:
+     * dragging the anchor gave back the keypoint the colleague had removed and the name he had
+     * changed (`tests/e2e-ui/trajetoria-arrasto-copia-velha.repro.spec.js`). Now the stored feature
+     * gets, under the document lock, this gesture's route diff (as in the branch above), the new
+     * home and the control's derived properties (`ensureFeatureConsistency`, the selection box the
+     * old write recomputed), and the shared feature is then rebased, in place, on what was written.
+     *
+     * @param {Object} control - The owning control.
+     * @param {Array<{t:number, lng:number, lat:number}>} sorted - The route after the gesture.
+     * @private
+     */
+    _persistAnchorOverStored(control, sorted) {
+        const baseline = this._baseline ?? [];
+        const mesmo = (a, b) => a.t === b.t && a.lng === b.lng && a.lat === b.lat;
+        const saiu = baseline.filter(b => !sorted.some(k => mesmo(k, b)));
+        const entrou = sorted.filter(k => !baseline.some(b => mesmo(k, b)));
+        const feature = this._feature;
+        const seq = this._persistSeq;
+        const casa = [sorted[0].lng, sorted[0].lat];
+        // Painted now, as the old write did; repainted below from what was stored.
+        control.updateFeatures([feature], false);
+        let gravada = null;
+        let escrita = null;
+        updateFeature(getStorageTypeFromSource(this._featureType), feature, null, {
+            transform: (current) => {
+                const guardada = normalizeTrajectory(current.properties?.trajetoria);
+                gravada = normalizeTrajectory(guardada
+                    .filter(k => !saiu.some(r => mesmo(r, k)))
+                    .concat(entrou.filter(a => !guardada.some(k => mesmo(k, a)))));
+                escrita = {
+                    ...current,
+                    geometry: { ...current.geometry, coordinates: casa },
+                    properties: { ...current.properties, trajetoria: gravada },
+                };
+                control.ensureFeatureConsistency?.(escrita, null, true);
+                return escrita;
+            },
+        }).then(() => {
+            // Same adoption rule as the branch above: a newer gesture adopts its own result.
+            if (!escrita || this._feature !== feature || seq !== this._persistSeq || this._adding) return;
+            const { properties } = rebaseOnStored(feature, escrita);
+            const arr = feature.properties.trajetoria;
+            for (const chave of Object.keys(feature.properties)) {
+                if (!(chave in properties)) delete feature.properties[chave];
+            }
+            Object.assign(feature.properties, properties);
+            if (Array.isArray(arr)) {
+                arr.splice(0, arr.length, ...gravada);
+                feature.properties.trajetoria = arr;
+            }
+            this._baseline = gravada.map(kp => ({ ...kp }));
+            control.updateFeatures([feature], false);
+            this._renderAll();
+            getControl('TemporalControl')?.sync();
+        }).catch(error => console.error('Error saving trajectory:', error));
     }
 
     /**
