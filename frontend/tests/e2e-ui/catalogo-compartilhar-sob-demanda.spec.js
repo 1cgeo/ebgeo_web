@@ -2,8 +2,8 @@
 
 /**
  * THE CATALOG CARD'S "Compartilhar", in real Chromium against the real backend, after the resource
- * share dialog left the map's boot (commit `0d2f40f3`: `catalog/catalog.modal.js` opens it through
- * `catalog/resource-share-launcher.js`, a door over `carregarSobDemanda`).
+ * share dialog left the map's boot: `_handleShare` of `catalog/catalog.modal.js` opens it through
+ * `abrirCompartilharRecurso` (`catalog/resource-share-launcher.js`), a door over `carregarSobDemanda`.
  *
  * WHY THIS FILE EXISTS. No spec clicked `catalog-card-share` before it. The dialog was covered only
  * from the base layer selector (`resource-share-criar-grupo.spec.js`), whose button already loaded
@@ -146,5 +146,34 @@ describeOrSkip('Catálogo: "Compartilhar" do cartão abre o modal carregado sob 
         await expect(page.locator('[data-testid="resource-share-modal"]')).toHaveCount(0);
         // The catalog stays open: the failed share did not take the person out of it.
         await expect(page.locator('#catalog-modal-overlay')).toHaveAttribute('data-visible', 'true');
+    });
+
+    test('dois cliques enquanto o código carrega abrem UM modal, não dois empilhados', async ({ page }) => {
+        // Review of 2026-09-23: with the dialog loaded on the click, a double click lands both
+        // clicks on the card before the dialog exists, and each one opened its own modal. The
+        // module is held back here so the interleaving is deterministic, not a race.
+        const admin = await createVerifiedUser({ prefix: 'catshr', nome: 'Catalogo Admin', role: 'admin' });
+        await seedTileset(state.dbName, { name: 'Modelo publico do catalogo' });
+        const nome = `Modelo privado ${Math.random().toString(36).slice(2, 8)}`;
+        await seedTileset(state.dbName, { name: nome, accessLevel: 'private' });
+
+        await entrarNoMapa(page, admin);
+        const cartao = await cartaoCompartilhavel(page, nome);
+
+        let liberar;
+        const segurado = new Promise((resolve) => { liberar = resolve; });
+        await page.route(MODULO_DO_MODAL, async (route) => {
+            await segurado;
+            await route.continue();
+        });
+
+        const botao = cartao.locator('[data-testid="catalog-card-share"]');
+        await botao.dispatchEvent('click');
+        await botao.dispatchEvent('click');
+        liberar();
+
+        await expect(page.locator('[data-testid="resource-share-modal"]').first()).toBeVisible({ timeout: 15000 });
+        await expect(page.locator('[data-testid="resource-share-loading"]')).toHaveCount(0, { timeout: 15000 });
+        await expect(page.locator('[data-testid="resource-share-modal"]')).toHaveCount(1);
     });
 });

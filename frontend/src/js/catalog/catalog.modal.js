@@ -383,13 +383,18 @@ export class CatalogModal extends ModalBase {
      *
      * The dialog's code arrives here, on the click. A load failure was already announced by
      * `carregarSobDemanda` (with "Recarregar"), so only a bug goes on up.
+     *
+     * ONE OPENING AT A TIME: while the code travels, the card is still under the pointer, and a
+     * double click used to open two dialogs stacked on each other. A click during an opening is
+     * the same gesture and is dropped.
      * @private
      * @param {CatalogItem} item
      * @returns {Promise<void>}
      */
     async _handleShare(item) {
         const acesso = resourceAccessRefOf(item);
-        if (!acesso) return;
+        if (!acesso || this._abrindoCompartilhar) return;
+        this._abrindoCompartilhar = true;
         try {
             await abrirCompartilharRecurso({
                 resourceType: acesso.tipo,
@@ -402,6 +407,8 @@ export class CatalogModal extends ModalBase {
                 return;
             }
             throw erro;
+        } finally {
+            this._abrindoCompartilhar = false;
         }
     }
 
