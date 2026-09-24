@@ -412,6 +412,9 @@ export async function discardRemoteAtlasNamespaces() {
  *
  * @returns {Promise<void>}
  */
+/** Set by the deferred-session branch of the boot guard; see `enforceLocalStoreWhenLoggedOut`. */
+let _alignMarkerAfterBootScope = false;
+
 async function enforceLocalStoreWhenLoggedOut() {
     await loadStoreOrigin();
     if (sessionContext.isAuthenticated()) {
@@ -431,9 +434,15 @@ async function enforceLocalStoreWhenLoggedOut() {
         // session `initLocalAtlases` never mounts the server namespace. Left REMOTE, the marker read
         // by every `isRemoteStoreSync()` of the page contradicted the mounted atlas for the whole
         // page: the chip said "servidor", the map lock answered read-only (no per-atlas role) and
-        // the actions of a server atlas were offered over a local one. The logged-out path below
-        // ends with the same write; only the sweep is skipped here.
-        if (isRemoteStoreSync()) await markStoreLocal();
+        // the actions of a server atlas were offered over a local one.
+        //
+        // AND IT IS ALIGNED AFTER THE SCOPE IS ACTIVE, never here (`alignMarkerAfterBootScope`,
+        // read by `initializeWithLastActiveMap`). `initLocalAtlases` decides from the marker
+        // whether a bootstrap slot ADOPTS the unsuffixed databases (`adoptLegacy = !isRemoteOrigin`),
+        // and a marker flipped to LOCAL first made a pre-namespace installation whose unsuffixed
+        // databases hold a SERVER snapshot adopt them as a permanent local atlas: never wiped at
+        // logout and visible to the next account.
+        _alignMarkerAfterBootScope = true;
         return;
     }
     // THE WORK THE SERVER NEVER RECEIVED IS RESCUED BEFORE THE SWEEP, like at every other
@@ -653,6 +662,12 @@ async function routePendingOperationsToTheirAtlas() {
 export async function initializeWithLastActiveMap() {
     await enforceLocalStoreWhenLoggedOut();
     await activateBootAtlasScope();
+    // The deferred-session boot (see `enforceLocalStoreWhenLoggedOut`) aligns the marker only now,
+    // with the scope already mounted from the marker it found.
+    if (_alignMarkerAfterBootScope) {
+        _alignMarkerAfterBootScope = false;
+        if (isRemoteStoreSync() && getActiveScope()?.kind !== 'remote') await markStoreLocal();
+    }
     const chaveDeEntrada = await initializeRepository();
 
     // O RESOLVEDOR É REFEITO AQUI, e não só esperado, porque a montagem que `initServices()`

@@ -172,12 +172,16 @@ async function semear({
  * @param {boolean} [options.isAuthenticated=false] - Se ha sessao viva.
  * @returns {Promise<{ns: Object, linhas: string[]}>}
  */
-async function bootar({ isAuthenticated = false } = {}) {
+async function bootar({ isAuthenticated = false, sessaoAdiada = false } = {}) {
     vi.resetModules();
     const { initServices } = await import('@store/services.js');
     initServices();
     const { sessionContext } = await import('@store/sync/session-context.js');
     vi.spyOn(sessionContext, 'isAuthenticated').mockReturnValue(isAuthenticated);
+    // A SESSÃO ADIADA: o par de tokens continua guardado (o `/auth/me` falhou por soluço, não por
+    // credencial), e é isso que a guarda de boot lê para não varrer nada.
+    const { apiClient } = await import('@store/sync/api-client.js');
+    vi.spyOn(apiClient, 'hasStoredTokens').mockReturnValue(sessaoAdiada);
     const store = await import('@store/store.js');
     const ns = await import('@store/atlas-namespace.js');
 
@@ -494,5 +498,28 @@ describe('os controles: o que a guarda nova NAO pode ter afrouxado', () => {
 
         expect(await readKey('ebgeo_global', ns.GlobalKey.STORE_ORIGIN))
             .toMatchObject({ kind: 'remote', atlasId: ATLAS_REGISTRADO });
+    });
+});
+
+// REVISÃO DE 2026-09-23 (lote 4B). Na sessão ADIADA a guarda não varre nada, e o marcador REMOTE
+// era trocado para LOCAL ANTES de `activateBootAtlasScope`. Com isso `initLocalAtlases` via
+// origem LOCAL e, num registro vazio, o slot de bootstrap ADOTAVA os bancos sem sufixo
+// (`adoptLegacy = !isRemoteOrigin`), que nesta instalação guardam um RETRATO DE SERVIDOR: dado de
+// servidor virava atlas local permanente, fora do alcance do logout e visível à próxima conta.
+describe('sessão adiada sobre um disco pré-namespace com retrato de servidor', () => {
+    it('o boot não adota os bancos sem sufixo como atlas local, e o marcador termina LOCAL', async () => {
+        const { nomes } = await semear({ comRegistroGlobal: false });
+        const antes = await inventario(nomes);
+        expect(antes.feicoes, 'o retrato estava mesmo lá').toBe(DECLARADO_2_4.features);
+
+        const { ns } = await bootar({ sessaoAdiada: true });
+
+        const locais = await ns.readLocalAtlasRegistry();
+        expect(locais.length, 'o boot deixou um slot local').toBeGreaterThan(0);
+        expect(locais.map(e => e.dbSuffix), 'os bancos sem sufixo viraram atlas local')
+            .not.toContain(ns.LEGACY_DB_SUFFIX);
+        expect(await readKey('ebgeo_global', ns.GlobalKey.STORE_ORIGIN)).toMatchObject({ kind: 'local' });
+        // NADA FOI VARRIDO: a sessão adiada não é sessão encerrada.
+        expect((await inventario(nomes)).feicoes).toBe(antes.feicoes);
     });
 });
