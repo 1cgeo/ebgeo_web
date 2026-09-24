@@ -392,9 +392,20 @@
     border-color: white;
 }
 
-/* ===== HIDDEN MAP CONTAINER (for off-screen rendering) ===== */
+/* ===== HIDDEN MAP CONTAINER (for off-screen rendering) =====
+   The compound selectors are the ones that hold once the map exists. MapLibre puts
+   `maplibregl-map` on this same element, and `.maplibregl-map { position: relative }` from
+   `maplibre-gl.css` arrives AFTER this sheet since the library comes from npm (2026-09-04): same
+   specificity, the last one wins. The container then became an in-flow item of the body's flex
+   column, `flex-shrink` squeezed it to what the viewport left over (475 px tall for a 1024 or
+   1400 px request, measured at 1280x720), and the canvas followed it. Every export built on it
+   came out cut: the Garmin tiles were drawn from a 1024x423 canvas and lost the lower part of
+   the area, and the PDF sheet lost its A4 proportion. `calibracao.css` met the same rule on
+   `.pmap__canvas`. The plain selectors stay for the instant before the map is built. */
 .pdf-export-hidden-map,
-.garmin-kmz-hidden-map {
+.garmin-kmz-hidden-map,
+.pdf-export-hidden-map.maplibregl-map,
+.garmin-kmz-hidden-map.maplibregl-map {
     position: absolute;
     top: -9999px;
     left: -9999px;
