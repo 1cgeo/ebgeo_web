@@ -4434,5 +4434,5 @@ instável, e cada uma foi atribuída antes de ser tocada.
 
 - **Contexto:** o build legado entrega o pacote moderno sem polyfill a todo navegador com `import.meta.resolve`, e a importação de shapefile usa `Array.prototype.toReversed` (Chrome 110) dentro do `shpjs`: no Chrome 109 a importação morria com "toReversed is not a function".
 - **Decisão:** polyfill local, definido só se ausente, no ponto único `frontend/src/js/vendor/shpjs.js`. A varredura dos pacotes carregados sob demanda não achou outro uso alcançável de ES2023 sem guarda.
-- **Pendente para o dono:** não há política escrita de navegador mínimo; a proposta é Chrome/Edge 109 e Firefox ESR 115.
+- **Navegador mínimo (decisão do dono, 2026-09-24):** Chrome e Edge 109 (o último do Windows 7 e 8.1) e Firefox ESR 115. Até aqui não havia política escrita; o que a varredura desta noite mediu contra essa superfície é o que a sustenta: só o `shpjs` usava API mais nova sem guarda. Uma dependência nova que use API acima dessa linha no caminho alcançável é defeito, não escolha.
 - **Status:** aceita pelo coordenador.

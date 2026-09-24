@@ -221,4 +221,4 @@ que envelheceu na decisão seguinte.)
 - 2026-09-23: cauda de pull acima de 500 ops ou 2 MiB vira retrato no HTTP e pedido de ressincronização no socket, [registro](decisions-2026.md).
 - 2026-09-24: "Duplicar" mapa num atlas de servidor usa a rota de duplicação do servidor, [registro](decisions-2026.md).
 - 2026-09-23: a importação de arquivo preserva o nome e as colunas reservadas e não inventa atributos de estilo, [registro](decisions-2026.md).
-- 2026-09-23: polyfill local de `toReversed` para Chrome e Edge 105 a 109; política de navegador mínimo pendente, [registro](decisions-2026.md).
+- 2026-09-23: polyfill local de `toReversed` para Chrome e Edge 105 a 109, e o navegador mínimo passa a ser Chrome/Edge 109 e Firefox ESR 115 (decisão do dono), [registro](decisions-2026.md).
