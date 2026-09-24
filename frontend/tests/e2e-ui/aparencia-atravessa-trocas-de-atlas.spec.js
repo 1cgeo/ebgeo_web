@@ -34,8 +34,18 @@ function lerAparencia(page) {
     });
 }
 
+/**
+ * O mapa CARREGADO não é o boot TERMINADO, e este caso lê exatamente o que o fim do boot escreve.
+ * `map.loaded()` vira verdadeiro antes de `renderBootMap` (`map_sig.js`) acabar: a aparência do
+ * atlas é relida DEPOIS de `switchMap`, e só então a cortina (`#initial-loader`) sai. Lida no
+ * meio, a projeção efetiva ainda é o padrão (globo) e o atlas do disco pode ser o da ponte. No
+ * Firefox, cujo boot é mais lento, isso reprovou 2 de 3 rodadas (linha da volta ao local e linha
+ * do logout), sempre com a cortina de pé no instante da leitura; no Chromium, 3 de 3 verdes.
+ * Esperar a cortina é esperar o mesmo sinal que a pessoa tem.
+ */
 async function esperarMapa(page) {
     await page.waitForFunction(() => globalThis.__ebgeoMap?.loaded?.(), null, { timeout: 30000 });
+    await expect(page.locator('#initial-loader')).toHaveCount(0, { timeout: 30000 });
 }
 
 /** Marca "Plano" + um exagero e salva. */
