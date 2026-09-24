@@ -143,11 +143,11 @@ const CENSO = [
     // ---------- SUBSET: buraco conhecido, escrito para nao ser descoberto pelo usuario ----------
     {
         arquivo: 'import_export/pdf-export.tab.js',
-        motivo: 'KNOWN HOLE, not a decision: _collectFeatureStats omits the magnetic declination, and a second omission downstream cancels it so the feature never reaches the legend at all. Migrates in the commit of that bug, with its own repro.',
+        motivo: 'SUBSET BY DESIGN since 2026-09-24: _collectFeatureStats counts the sources the PDF legend names, the analysis inputs included and the derived outputs (processed_*) left out, because they are drawn as the input and never named. The magnetic declination was a known hole here and entered with its repro (tests/e2e-ui/pdf-legenda-declinacao.repro.spec.js).',
     },
     {
         arquivo: 'import_export/pdf-cartographic-elements.js',
-        motivo: 'SUSPECTED HOLE: the legend drawing knows 17 of the 18 user-facing types, missing the magnetic declination. Same defect as the tab above, one file downstream.',
+        motivo: 'SUBSET BY DESIGN: the pt-BR plural legend names of the types the tab above counts. The magnetic declination entered on 2026-09-24 with the same repro (tests/e2e-ui/pdf-legenda-declinacao.repro.spec.js).',
     },
     {
         arquivo: 'sidebar/components/group-type-selector.js',

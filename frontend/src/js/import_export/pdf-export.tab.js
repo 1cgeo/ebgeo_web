@@ -1368,7 +1368,7 @@ export default class PDFExportTab {
             'circles', 'rectangles', 'ellipses', 'brushes',
             'arrows', 'boundarys', 'occupied_fronts', 'coordination_lines',
             'military_symbols', 'coordination_measures', 'engineering_symbols',
-            'los', 'visibility', 'setores',
+            'magnetic_declinations', 'los', 'visibility', 'setores',
         ];
 
         // Reverse map from storage name to source type
@@ -1379,7 +1379,7 @@ export default class PDFExportTab {
             arrows: 'arrow', boundarys: 'boundary', occupied_fronts: 'occupied_front',
             coordination_lines: 'coordination_line',
             military_symbols: 'military_symbol', coordination_measures: 'coordination_measure',
-            engineering_symbols: 'engineering_symbol',
+            engineering_symbols: 'engineering_symbol', magnetic_declinations: 'magnetic_declination',
             los: 'los', visibility: 'visibility', setores: 'sector',
         };
 
