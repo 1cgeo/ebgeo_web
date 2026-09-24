@@ -124,7 +124,7 @@ function fireBus(event, payload) {
 // Imports (after mocks)
 // ============================================================================
 
-import { startPresence, stopPresence } from '@js/presence/presence-bridge.js';
+import { startPresence, stopPresence, CURSOR_THROTTLE_MS } from '@js/presence/presence-bridge.js';
 import { EventTypes } from '@events/event_types.js';
 import { sessionContext } from '@store/sync/session-context.js';
 
@@ -392,13 +392,36 @@ describe('presence-bridge', () => {
             expect(wsClientMock.sendCursor).toHaveBeenCalledWith({ position: { lng: 11, lat: 21 }, mapId: 'mapa-1', surface: '2d' });
         });
 
+        /**
+         * A TAXA NA ORIGEM É NO MÁXIMO 5 POR SEGUNDO (2026-09-23). Cada quadro de cursor chega a
+         * todos os colegas da sala, e no link de 40 kbps três colegas mexendo o mouse a 12,5 Hz
+         * saturavam o enlace só de cursor (5639 B/s medidos). Uma mão real move o mouse a 60 Hz; o
+         * que sai daqui em 10 s cabe em 5 por segundo, e a ÚLTIMA posição sempre sai.
+         */
+        it('a 60 Hz hand sends at most 5 frames per second, and the last position always goes out', () => {
+            let t = 0;
+            for (let i = 0; i < 600; i++) {
+                map.fire('mousemove', { lngLat: { lng: i, lat: i } });
+                vi.advanceTimersByTime(1000 / 60);
+                t += 1000 / 60;
+            }
+            vi.advanceTimersByTime(CURSOR_THROTTLE_MS);
+            const sent = wsClientMock.sendCursor.mock.calls.length;
+            expect(t).toBeCloseTo(10000, 0);
+            expect(sent, 'frames in 10 s').toBeLessThanOrEqual(51);
+            expect(sent, 'the cursor still moves').toBeGreaterThanOrEqual(45);
+            expect(wsClientMock.sendCursor).toHaveBeenLastCalledWith({
+                position: { lng: 599, lat: 599 }, mapId: 'mapa-1', surface: '2d',
+            });
+        });
+
         it('throttles bursts to one leading + one trailing send per window', () => {
             map.fire('mousemove', { lngLat: { lng: 1, lat: 1 } }); // leading
             map.fire('mousemove', { lngLat: { lng: 2, lat: 2 } }); // coalesced
             map.fire('mousemove', { lngLat: { lng: 3, lat: 3 } }); // coalesced (latest wins)
             expect(wsClientMock.sendCursor).toHaveBeenCalledTimes(1);
 
-            vi.advanceTimersByTime(80);
+            vi.advanceTimersByTime(CURSOR_THROTTLE_MS);
             expect(wsClientMock.sendCursor).toHaveBeenCalledTimes(2);
             // The trailing send carries the most recent position.
             expect(wsClientMock.sendCursor).toHaveBeenLastCalledWith({
@@ -464,7 +487,7 @@ describe('presence-bridge', () => {
             fireBus(EventTypes.CURSOR_360_MOVED, { position: { heading: 3, pitch: 0 }, photoName: 'f1' });
             expect(wsClientMock.sendCursor).toHaveBeenCalledTimes(1);
 
-            vi.advanceTimersByTime(80);
+            vi.advanceTimersByTime(CURSOR_THROTTLE_MS);
             expect(wsClientMock.sendCursor).toHaveBeenCalledTimes(2);
             expect(wsClientMock.sendCursor).toHaveBeenLastCalledWith({
                 position: { heading: 3, pitch: 0 }, mapId: 'mapa-1', surface: '360', photoName: 'f1',
@@ -478,7 +501,7 @@ describe('presence-bridge', () => {
             fireBus(EventTypes.CURSOR_3D_MOVED, { position: { lng: 1, lat: 2, alt: 3 }, tilesetId: 't1' });
             fireBus(EventTypes.CURSOR_360_MOVED, { position: { heading: 9, pitch: 0.1 }, photoName: 'f9' });
 
-            vi.advanceTimersByTime(80);
+            vi.advanceTimersByTime(CURSOR_THROTTLE_MS);
             expect(wsClientMock.sendCursor).toHaveBeenLastCalledWith({
                 position: { heading: 9, pitch: 0.1 }, mapId: 'mapa-1', surface: '360', photoName: 'f9',
             });
@@ -617,7 +640,7 @@ describe('presence-bridge', () => {
             wsClientMock.sendCursor.mockClear();
 
             stopPresence();
-            vi.advanceTimersByTime(80);
+            vi.advanceTimersByTime(CURSOR_THROTTLE_MS);
             expect(wsClientMock.sendCursor).not.toHaveBeenCalled();
         });
     });

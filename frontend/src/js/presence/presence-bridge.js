@@ -11,7 +11,7 @@
  *              wsClient 'cursor'       -> presenceStore.setCursor (also currentMap)
  *              wsClient 'selection'    -> presenceStore.setSelection
  *              wsClient 'briefingEdit' -> presenceStore.setBriefingEdit
- *   outbound : map 'mousemove' (throttled ~80ms)        -> wsClient.sendCursor (2D)
+ *   outbound : map 'mousemove' (throttled, 5 Hz)        -> wsClient.sendCursor (2D)
  *              CURSOR_360_MOVED / CURSOR_3D_MOVED        -> wsClient.sendCursor (360 / 3D)
  *              MAP_LOCK_CHANGED (de-facto map switch)    -> wsClient.sendCursor(mapId) [case C]
  *              StateManager 'selection.features' change  -> wsClient.sendSelection (2D)  [case F]
@@ -79,8 +79,21 @@ import {
     cleanup,
 } from '@utils/event-cleanup.js';
 
-/** Throttle window for outbound cursor broadcasts, in milliseconds. */
-const CURSOR_THROTTLE_MS = 80;
+/**
+ * Throttle window for outbound cursor broadcasts, in milliseconds: at most 5 frames per second,
+ * the leading move at once and the last one of each window guaranteed (`scheduleCoalesced`).
+ *
+ * IT WAS 80 ms (12.5 Hz) UNTIL 2026-09-23, and the measurement is what moved it. Every cursor frame
+ * reaches EVERY colleague in the room, about 260 bytes per mover per server batch, and the server
+ * batches every 100 ms (`WS_CURSOR_BATCH_MS`), so a peer's downlink carried ~10 items per second
+ * per colleague moving the mouse. On the 40 kbps military link the product targets (5000 B/s),
+ * measured with 60 Hz mouse input: 3408 B/s with 2 colleagues moving (68% of the link) and
+ * 5639 B/s with 3 (113%, the link saturated by cursors alone). Operations and the heartbeat pong
+ * travel on the same socket, behind them. The rate is set at the ORIGIN because that is the only
+ * place that caps both the uplink of whoever moves and the downlink of everyone who watches.
+ * `tests/e2e-ui/presenca-cabe-no-link-lento.spec.js` holds the budget.
+ */
+export const CURSOR_THROTTLE_MS = 200;
 
 /** WS inbound events this bridge owns (restored to no-ops on stop). */
 const OWNED_WS_EVENTS = Object.freeze(['connected', 'presence', 'cursor', 'selection', 'briefingEdit', 'viewerContext']);
