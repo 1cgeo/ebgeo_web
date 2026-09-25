@@ -901,7 +901,12 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // mounting the application's layers over a style that never loaded. (The "Ir para minha
         // localização" button of the same afternoon came and went with its phrases file: the
         // intranet gives the browser no position.)
-        expect(completo.arquivos.size).toBeLessThanOrEqual(807);
+        // 810 on 2026-09-25, integrating the attached photos by reference (hunt/fotos), measured: the
+        // three files that branch creates, `store/photo-attach.js` (inline photo to blob, and the
+        // pending upload written inside the entity's transaction), `store/fotos-para-copia.js` (the
+        // photos a local copy or the logout rescue downloads first) and `import_export/apng-to-png.js`
+        // (zero imports; an animated PNG goes up flattened).
+        expect(completo.arquivos.size).toBeLessThanOrEqual(810);
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
@@ -952,7 +957,11 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // framing shared by "Zoom para Seleção", the layers tab and search; the text rotation handle
         // fixed on the ground; a "Ir para minha localização" button, removed the same day), no new
         // package.
-        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(12100);
+        // 12100 -> 12180 on 2026-09-25, integrating the attached photos by reference (hunt/fotos):
+        // 12149 kB measured by this case's failure on a fresh build, the three new modules named in the
+        // module count (24 kB of source) plus the photo paths in files already eager (feature,
+        // 3D and 360 operations, the blob upload queue, the dispatcher, the rescue). No new package.
+        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(12180);
     });
 
     it('seguir `import()` de fato acrescenta grafo, e é isso que prova a regex dinâmica', () => {
@@ -1447,7 +1456,11 @@ const PAGINAS_DIST = Object.freeze([
     // maxArq 86 -> 90 on 2026-09-24 (morning): a fresh build of the integrated state lists 87 files,
     // the bytes still inside the 4230 kB ceiling. The count moves with chunk boundaries, not content:
     // the photo reader leaves and the split batches landed in shared chunks the bundler re-cut.
-    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 90, minKb: 3600, maxKb: 4230 },
+    // maxKb 4230 -> 4260 on 2026-09-25, integrating the attached photos (hunt/fotos), measured with
+    // fresh builds on both sides: 4220 kB on origin/integracao_backend d753d1d7 and 4240 kB with the
+    // branch, the 20 kB being the three new modules named in the module count above. 20 kB of headroom
+    // until the ceilings are re-measured and tightened for the launch (PENDENCIAS, final steps).
+    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 90, minKb: 3600, maxKb: 4260 },
     // atlas.html: MEDIDA dos dois lados do mesmo lote, 36 arquivos / 663 kB antes e 40 / 664
     // depois. Os quatro arquivos a mais são repartição de chunk e não conteúdo (os modais que o
     // mapa deixou de alcançar estaticamente deixaram de dividir chunk com ele e viraram chunks
@@ -1456,7 +1469,11 @@ const PAGINAS_DIST = Object.freeze([
     // pela saída involuntária da sessão e pelo portão de migração, que cresceram com o resgate da fila
     // de todo atlas com pendência e a contenção do rollback, e ganhou `projects/server-send-phrases.js`
     // (o que o servidor podou no envio, dito igual nas duas portas).
-    { html: 'atlas.html', entrada: 'atlas', minArq: 18, maxArq: 44, minKb: 320, maxKb: 740 },
+    // maxArq 44 -> 50 em 2026-09-25, integrando as fotos anexas (hunt/fotos), medido com build fresco
+    // dos dois lados: 48 arquivos, e 710 -> 720 kB. É repartição e não vazamento: quatro chunks
+    // compartilhados novos, de 0 a 7 kB (um deles com o detector de APNG), e 10 kB a mais no total, o
+    // que exclui a store, que pesaria centenas de kB.
+    { html: 'atlas.html', entrada: 'atlas', minArq: 18, maxArq: 50, minKb: 320, maxKb: 740 },
     // admin.html: 800 -> 950 -> 720 em 2026-09-02, com a medida na mao: 670 kB em 24 arquivos, build
     // fresco. As abas Diagnostico e Uso (com os folhas de frase) tinham levado a pagina a 882 kB
     // (admin-*.js 258 kB, admin-legacy-*.js 358 kB), e o teto de 800 passou verde por semanas porque
@@ -1477,7 +1494,10 @@ const PAGINAS_DIST = Object.freeze([
     // pelo portão de migração e pela saída involuntária da sessão, e as duas cresceram com consertos
     // de perda de dado da noite (a espera pela janela da versão antiga, a contenção do rollback, o
     // resgate da fila de todo atlas com pendência), mais `admin/conteudo-misto.js` na aba Sistema.
-    { html: 'admin.html', entrada: 'admin', minArq: 14, maxArq: 38, minKb: 600, maxKb: 870 },
+    // maxArq 38 -> 44 em 2026-09-25, integrando as fotos anexas (hunt/fotos), medido com build fresco
+    // dos dois lados: 41 arquivos, e 850 -> 859 kB. Mesma forma de `atlas.html`: três chunks
+    // compartilhados pequenos a mais, 9 kB no total.
+    { html: 'admin.html', entrada: 'admin', minArq: 14, maxArq: 44, minKb: 600, maxKb: 870 },
     // calibracao.html: 1100 -> 1980 em 2026-09-04, pela MESMA troca de balcão de `index.html` e
     // pelo MESMO arquivo. Esta página carregava o `<script src="/vendors/maplibre-gl.js">` para
     // desenhar o mapa de projeto e o minimapa; agora ela alcança o chunk de MapLibre pelo grafo,
