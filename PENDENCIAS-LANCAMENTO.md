@@ -17,7 +17,7 @@ Branch órfão, sem código (HEAD 0f5e5826). Leia primeiro o README.md dele. Con
 
 Para ler sem trocar de branch: git show origin/hunt/relatorios:campanha-2026-09-24/relatorios/rede.md (troque o nome do arquivo).
 
-### O código não integrado: cinco branches
+### O código não integrado: quatro branches
 
 | branch | HEAD | o que contém | item |
 |---|---|---|---|
@@ -25,7 +25,6 @@ Para ler sem trocar de branch: git show origin/hunt/relatorios:campanha-2026-09-
 | hunt/orfas | a68ed8b6 | coleta de imagem órfã, inteira em wip | 1.5 |
 | hunt/cob-desenho | 30c29454 | specs de desenho em wip | 2 |
 | hunt/cob-taticas | 076cf1e9 | repro da alça de partida da rota em wip | 2 |
-| hunt/cob-imagens | 9ef0ee51 | spec de figura de slide em link lento em wip | 2 |
 
 Commit wip significa NÃO VERIFICADO: é trabalho em curso salvo quando a campanha parou, com a mensagem começando por wip e essas palavras no corpo. Nunca integre um wip sem terminá-lo e verificá-lo.
 
@@ -93,7 +92,7 @@ O detalhe e o próximo comando estão na seção PRÓXIMO PASSO do relatório de
 - Táticas (hunt/cob-taticas, cobertura-taticas.md): o pedido do dono não foi escrito. Hoje a alça de partida da rota fica no centro do símbolo militar, e pegar o símbolo move só a partida. Só o repro está no wip. O caso Declinação do spec de símbolos táticos falha cerca de uma vez em três.
 - Briefing e processamento (cobertura-briefing.md; o branch saiu em 2026-09-25): o painel de processamento segue papel e trava, verificado só no Chromium. Faltam B27 (exportar o PDF do briefing: download e número de páginas) e B12 (salvar posição na vista 3D/360, que exige modelo e foto semeados).
 - Camadas (cobertura-camadas.md; o branch saiu em 2026-09-25): o "Editar" das notas do mapa para Leitor e Comentarista, e o que ficava lá quando a trava chegava, foi corrigido e verificado só no Chromium. Falta cobrir pela interface o painel de camadas (renomear, opacidade, reordenar, excluir, catálogo; o achado de leitura "os handlers do catálogo seguem a intenção e não o resultado" está por provar), os grupos (Adicionar ao Grupo, Combinar, Desagrupar) e a aba Mapas (Puxar outros mapas, limpar posição, renomear por menu, duplicar e excluir local, Limpar tudo). Falta também medir a rajada de ops remotas que redesenha a tabela de atributos do colega uma vez por op.
-- Imagens (hunt/cob-imagens, cobertura-imagens.md): spec de figura de slide em link lento; a segunda metade dele é vermelha por causa do custo descrito no item 3.
+- Imagens (cobertura-imagens.md; o branch saiu em 2026-09-25): a foto grande pela galeria e a foto no link lento ficaram cobertas pela integração das fotos por referência (foto-anexa-por-referencia.spec.js). Falta, pela tela, a recusa de foto acima de 10 MB com a frase (hoje só o unitário image-utils.test.js prende o limite).
 - Bloqueio (cobertura-bloqueio.md, tudo já integrado): faltou só um spec da seleção por clique e por caixa com as três travas, e do F5 nos dois lados.
 
 ## 3. Defeitos e riscos conhecidos, sem conserto
@@ -124,13 +123,14 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
   - a "mega", que abre navegador na tela;
   - a suíte no Firefox (npm run test:e2e:firefox), cancelada pelo dono aos 19 de 912 casos, todos passando até ali.
 
-- Figura de slide de briefing mora dentro do HTML do texto. Num link de 40 kbps, três palavras digitadas num slide com figura viraram 8 envios com o HTML inteiro (2,4 MB, cerca de 8 minutos), e em 5 minutos o colega não tinha o texto. Nada se perde, mas o slide fica inutilizável em link lento. Candidato a figura por referência, como as fotos.
+- Figura de slide de briefing mora dentro do HTML do texto. Num link de 40 kbps, três palavras digitadas num slide com figura viraram 8 envios com o HTML inteiro (2,4 MB, cerca de 8 minutos), e em 5 minutos o colega não tinha o texto. Nada se perde, mas o slide fica inutilizável em link lento. Candidato a figura por referência, como as fotos. Medido e NÃO afirmado, por decisão do dono de 2026-09-25: briefing-figura-em-link-lento.spec.js afirma só a chegada da figura, e o comentário dele aponta para este item; quando ele fechar, o apontamento vai para a entrada do diário de decisões. O spec usa Network.emulateNetworkConditionsByRule, que o Chromium 1194 da nuvem não tem: ali ele foi verificado numa cópia que estrangula a página inteira (3 de 3, figura em 88 s), e o arquivo commitado ainda precisa de uma rodada com o Chromium do Playwright instalado (build 1228). Se a regra por origem não pegar, o piso do instrumento o reprova em voz alta.
 - cobertura-desenho-estilo.spec.js reprova de forma intermitente, e já reprovava antes dos gestos em massa: 7 de 12 no integracao_backend (eaa4dd14) e 14 de 39 com eles, medidos em 2026-09-25. O valor escolhido pela pessoa sempre chega ao servidor; a divergência está nas propriedades DERIVADAS do zoom (calculatedLineWidth, calculatedSize, selectionBox), que o autor recalcula depois do envio e o servidor guarda da derivação anterior, na quarta casa decimal. Há ainda localizadores que não aparecem e páginas fechadas no meio. Decidir se o derivado deve viajar, e então consertar o produto ou o spec.
 - Teste do backend que falha perto da meia-noite: diag-cli-json.test.js, nos casos da janela e do comando saude (2 de 5710 numa rodada que cruzou 2026-09-25 00:00). A fixture espalha os registros por 15 minutos e os grava por arquivo de dia, então nos primeiros 15 minutos do dia eles caem em dois arquivos. Passa 17 de 17 sozinho. Tornar a fixture independente do relógio.
 - Testes do frontend que falham só sob carga e passam sozinhos: tab-lock-refutacao 3.5 (três vezes em 24/09), idb-decisao4-medicao (duas vezes), e a verificação de símbolos por tempo do docs-integridade (duas vezes).
 - Dois specs do Firefox ficaram sem classificação: browser-collab-analise-desfazer (linha 119) e envio-do-acervo-herdado (linha 341).
 - briefing-vista-do-slide-cobertura.spec.js, caso "base por slide e instante por slide", reprova já em 318d864f (Chromium 1194, 1 de 1): um modal de confirmação intercepta o "Salvar" do editor em fecharEditorUI (linha 165). Não investigado.
 - Seis casos do vitest dependem do número de núcleos da máquina: orcamento-de-memoria-do-3d, streetview-tile-canvas-area-zero (2), streetview-tile-custo-maquina (2) e tile-loader-consertos-de-desempenho. Eles afirmam o caso "a máquina não se descreve", mas o Node 24 expõe navigator.hardwareConcurrency, e numa máquina de 4 núcleos o código aperta o orçamento. Reprovam na nuvem de 4 núcleos, em 318d864f também. O teste deve fixar o navigator em vez de ler o da máquina.
+- A porta de cópia pode dizer "pendente" onde é "recusado" (lido no código em 2026-09-25, sem medição): lerDivida (espera-do-envio-do-mapa.js) conta os recusados por getProblems, que segue só dependsOn, enquanto countByState e o carregador seguem também o lote envenenado (poisonedBatches). Depois do B6.1 a diferença só sobra para irmã SEM recibo no mesmo batchId. Um repro de integração decide se o caso ainda é alcançável.
 - O runner do processamento (processing-runner.js) confere só a trava: se o papel ou a trava mudarem durante uma execução já iniciada, a pessoa ainda lê "Falha ao criar camada de saída". Pelo clique isso não se alcança mais, porque o Executar some.
 - O npm run test:tocados responde "nada a rodar" quando o branch não tem upstream, mesmo com commits ainda sem push: ele só soma o diff contra o upstream quando existe um. Deveria recusar em voz alta e pedir --desde ou o upstream.
 - Duas observações da revisão dos gestos em massa (2026-09-25), menores e sem perda de dado:
