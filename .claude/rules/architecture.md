@@ -26,6 +26,8 @@ Duas consequências que não se adivinham: use `aria-disabled` e **nunca** a pro
 
 **Uma exceção decidida, e ela é de MODIFICADOR, não de comando:** o interruptor de snap some também no mapa travado, e não só pelo posto (dono, 2026-09-22). O argumento é o da alça de continuação de linha ([ferramentas-e-tipos-de-feicao.md](ferramentas-e-tipos-de-feicao.md)): o snap modifica o desenho, com o mapa travado todas as ferramentas que ele modifica já sumiram, e desenhá-lo com `aria-disabled` faria dele a única superfície acionável de uma barra inerte. Enquanto escondido ele não age, e a preferência da pessoa não é escrita. A regra mora em `frontend/src/js/snapping/snap-availability.js`; não a "conserte" para desenhar e recusar.
 
+**E uma exceção de FAMÍLIA: os painéis laterais escondem também pela trava** (dono, 2026-09-25). Painel de feição, tabela de atributos, lista de camadas e notas do mapa perguntam por `semEdicaoSync` ou `edicaoIndisponivelSync` e tiram o comando de edição nos dois eixos, acompanhando ao vivo por `assinarEdicaoIndisponivel`; o motivo, quando o painel o diz, vai em texto, não num botão inerte. Desenhar e recusar continua sendo a regra do menu por mapa (`frontend/src/js/sidebar/tabs/map-menu-actions.js`), onde o cadeado está ao lado dos comandos.
+
 ## Data Model
 
 **Atlas** (container de projeto) → **Maps** (workspaces) → **Layers** (contêiner de feições, com `visivel`/`bloqueado`) → **Features**.

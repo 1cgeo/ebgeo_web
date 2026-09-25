@@ -231,3 +231,4 @@ que envelheceu na decisão seguinte.)
 - 2026-09-24: os atributos personalizados de uma feição convergem por CHAVE (a mesma chave continua conflito), e a bolsa inteira do formato antigo continua aceita (decisão do dono), [registro](decisions-2026.md).
 - 2026-09-24: cada commit roda `npm run test:tocados` (só o que o git diff pede); o `npm test` inteiro da raiz fica para contrato entre os pacotes, deploy e main (decisão do dono), [registro](decisions-2026.md).
 - 2026-09-25: a foto anexa viaja como blob com referência, e a edição que a cita espera os bytes; a recusa de foto convertida prende a edição, a de foto anexada não, [registro](decisions-2026.md).
+- 2026-09-25: os painéis laterais escondem a edição também pela trava; desenhar e recusar fica para o menu por mapa (decisão do dono), [registro](decisions-2026.md).

@@ -142,8 +142,6 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
 
 ## 4. Decisões do dono
 
-- Trava nos painéis laterais: a regra escrita (CLAUDE.md e architecture.md, dono, 2026-08-24) diz que o bloqueio por ESTADO desenha o comando e recusa o clique nomeando o estado. Os painéis laterais fazem outra coisa: desde a medição de 2026-09-16 que criou `semEdicaoSync`, o painel de feição, a tabela de atributos e a lista de camadas ESCONDEM a edição nos dois eixos, e as notas do mapa seguem esses painéis desde 2026-09-25. Desenhar e recusar vale hoje para o menu por mapa. Qual das duas vale para os painéis? Recomendação: registrar a divisão na regra (os painéis escondem, o menu desenha e recusa), porque é o comportamento de quatro superfícies e ninguém o reportou como defeito.
-
 - Corrigir o custo da figura de slide em link lento (item 3) antes do lançamento, ou depois?
 - Comportamentos de visibilidade que ficaram como estão:
   - a busca acha feição oculta e, ao escolher, abre o painel dela;
