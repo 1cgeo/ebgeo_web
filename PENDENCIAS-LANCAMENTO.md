@@ -17,11 +17,10 @@ Branch órfão, sem código (HEAD 0f5e5826). Leia primeiro o README.md dele. Con
 
 Para ler sem trocar de branch: git show origin/hunt/relatorios:campanha-2026-09-24/relatorios/rede.md (troque o nome do arquivo).
 
-### O código não integrado: nove branches
+### O código não integrado: oito branches
 
 | branch | HEAD | o que contém | item |
 |---|---|---|---|
-| hunt/fotos | 43f8729d | fotos anexas por referência, pronto e verificado, mais um spec de transição em wip | 1.1 |
 | hunt/b61-lote | 1b7cac2f | gestos em massa com uma gravação, pronto, verificação final não rodou | 1.2 |
 | hunt/rede-ws | 12b2c21b | presença em link lento (0627c0cb, dadaff7c) e o WebSocket bloqueado em wip | 1.3 e 1.4 |
 | hunt/orfas | a68ed8b6 | coleta de imagem órfã, inteira em wip | 1.5 |
@@ -44,8 +43,8 @@ As instruções de nginx para o engenheiro (nginx-srv-arquivos-2026-09-23.txt e 
 1. Clone o repositório e traga os branches: git fetch origin.
 2. Não trabalhe no diretório principal para retomar uma frente: crie uma worktree por frente, fora do repositório, e instale as dependências dos DOIS pacotes nela (sem junção de node_modules, que já destruiu instalação uma vez):
 
-        git worktree add ../ebgeo_fotos -b trabalho/fotos origin/hunt/fotos
-        cd ../ebgeo_fotos/frontend && npm ci
+        git worktree add ../ebgeo_b61-lote -b trabalho/b61-lote origin/hunt/b61-lote
+        cd ../ebgeo_b61-lote/frontend && npm ci
         cd ../backend && npm ci
 
 3. Rebase sobre o integracao_backend atual antes de verificar: o origin andou depois que os branches foram cortados, e outra sessão do dono também publica nele.
@@ -58,21 +57,6 @@ As instruções de nginx para o engenheiro (nginx-srv-arquivos-2026-09-23.txt e 
 ## 1. Trabalho pronto em branches e ainda não integrado
 
 A ordem abaixo é a de prioridade.
-
-### 1.1 Fotos anexas por referência (a maior mudança pendente)
-
-- Branch hunt/fotos. Relatórios: rede.md e fotos-estrutural.md. A foto anexa a feição, a marcador 3D e a marcador 360 deixa de viajar inline (data URL em toda edição) e passa a blob com referência, com a edição esperando os bytes chegarem ao servidor.
-- Duas revisões de código acharam 15 defeitos, quatro deles de perda de foto, e todos foram consertados, um commit por item: 73fc2be2, b2349f0d, de5923c3, 68220221, a2c21c42, d1e08a26, 8caaed5b, dc0cebab, 52b9d982, dc2be0e7, sobre os commits de base 1ec827ae, 2b5b4386, d58e37a3, 58d53580, 4dc0158f, d7f916e8, 37d5c267, 18f86b2d, 575a1b95, 0dce99b9.
-- Verificado pelo agente em dc2be0e7, depois do último conserto: backend inteiro 5692/5692, frontend verde salvo o teto de peso, specs de foto no navegador 93/93 em três rodadas sem retry.
-- FALTA:
-  - (a) A terceira revisão de código, que foi interrompida sem resultado.
-  - (b) Integrar. Houve conflito só de import em frontend/src/js/store/feature.operations.js nas duas integrações anteriores: mantenha os dois lados.
-  - (c) Remedir os tetos de peso do mapa, porque a foto acrescenta pelo menos três módulos.
-  - (d) O portão inteiro da raiz.
-  - (e) Terminar o teste da transição do main para a integração com fotos antigas. O spec está no commit wip 43f8729d, com três vermelhos, todos do instrumento até agora. Falta conferir no banco se a foto do marcador 360 sumiu porque o servidor podou o marcador de projeto fora do catálogo.
-- Decisões já tomadas (registradas em rede.md):
-  - A figura APNG sobe ao servidor achatada num PNG parado; a cópia local fica com o original.
-  - A foto inline antiga só é convertida quando a edição mexe nas fotos; uma edição sem relação leva os bytes uma vez.
 
 ### 1.2 Gestos em massa com uma gravação só (excluir, estilo, desfazer, refazer)
 
@@ -131,6 +115,8 @@ O detalhe e o próximo comando estão na seção PRÓXIMO PASSO do relatório de
 
 A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (cobertura 98,36%), contrato 274/274. O Playwright principal (911 casos, só Chromium) rodou em três fatias paralelas. Elas foram interrompidas por falta de memória da máquina quando tinham feito 678 casos. Os que falharam foram depois rodados sozinhos, em série, 3 vezes cada, sem nova tentativa:
 
+- "Enviar ao servidor" de um atlas com saída de análise gravada pelo main avisa "Subiram só 793 feições de 805: parte deste atlas não chegou ao servidor", e é FALSO: as 12 que faltam são a saída das análises (processed_los e processed_visibility), que o envio pula por decisão desde 2026-09-23 e o cliente refaz. A frase compara o que subiu com o total do atlas, e o total conta a saída. Medido pelo spec transicao-main-fotos na integração das fotos (2026-09-25).
+- No mesmo spec, a foto aberta pela galeria no atlas de SERVIDOR logo depois de "Enviar ao servidor" falhou 3 de 9 vezes: em duas a linha da feição não apareceu na árvore de camadas em 60 s, e numa o visualizador mostrou a miniatura (64 px) no lugar da foto (320 px). Os bytes no servidor conferem pelo banco e pela rota de leitura; o que a tela tem de produto ficou sem diagnóstico, e o spec deixou de abrir a foto ali.
 - browser-collab-permissions.spec.js (linha 253), revogação de compartilhamento: falhou 3 de 3, mas o defeito é do TESTE. Depois da revogação, a página do colega navega para outra tela, e o teste ainda chama clienteNaPagina nela ("Execution context was destroyed"). Confirmar que a navegação é o comportamento desejado e ajustar o spec.
 - briefing-figura-leva-bytes.spec.js: passou 3 de 3 sozinho; a falha na fatia foi da carga.
 - Depois, uma camada por vez, sobre c65162df. Três fatias paralelas mais a suíte da raiz tinham estourado os 32 GB da máquina original:
@@ -169,10 +155,13 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
   - a volta de um KMZ perde a figura e as fotos anexas (o .ebgeo é a volta sem perda);
   - o ícone embutido de um KMZ chega como marcador padrão (o produto já tem ícones personalizados onde mapeá-lo).
 - A coleta de imagem órfã deve ganhar agendamento? Hoje só roda por comando.
+- Desfazer e refazer seguidos rápido: o segundo pedido chega enquanto o primeiro ainda redesenha o mapa base e é DESCARTADO em silêncio, por desenho, para o botão e o atalho não desfazerem dois passos juntos. A janela medida foi de 3 a 5 ms num mapa pequeno, e ela cresce com o redesenho num mapa pesado. O pedido deve esperar a vez, dizer que foi ignorado, ou ficar como está?
+- Foto anexada recusada pelo servidor: o registro dela nunca sai, e toda saída da conta pergunta por ele, mesmo depois de a foto ter sido apagada da feição. Como a pessoa resolve: um "Descartar" nas pendências, ou o registro some quando a foto sai da entidade? (terceira revisão das fotos, item 5)
+- Envio de imagem grande com o token vencido: o backend só usa o parser de 50 MB quando reconhece a sessão, então esse envio leva 413 e a foto vira recusa definitiva, quando antes era tentada de novo. Abrir o parser grande pela presença do cabeçalho de sessão, ou tratar o 413 como transitório no cliente quando o token pode ter vencido? (terceira revisão das fotos, item 4)
 
 ## 5. Passos finais antes do deploy
 
-1. Fechar os itens 1.1 a 1.3, e também 1.4 e 1.5 se entrarem no lançamento.
+1. Fechar os itens 1.2 e 1.3, e também 1.4 e 1.5 se entrarem no lançamento.
 2. Rodar as seis frentes do item 6, na ordem de risco, e integrar o que elas acharem.
 3. Remedir e APERTAR os tetos de peso da página do mapa. A fonte ficou com folga larga de propósito durante a campanha.
 4. npm run lint e npm test na raiz, em comandos separados.
