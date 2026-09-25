@@ -17,11 +17,10 @@ Branch órfão, sem código (HEAD 0f5e5826). Leia primeiro o README.md dele. Con
 
 Para ler sem trocar de branch: git show origin/hunt/relatorios:campanha-2026-09-24/relatorios/rede.md (troque o nome do arquivo).
 
-### O código não integrado: oito branches
+### O código não integrado: sete branches
 
 | branch | HEAD | o que contém | item |
 |---|---|---|---|
-| hunt/b61-lote | 1b7cac2f | gestos em massa com uma gravação, pronto, verificação final não rodou | 1.2 |
 | hunt/rede-ws | 12b2c21b | presença em link lento (0627c0cb, dadaff7c) e o WebSocket bloqueado em wip | 1.3 e 1.4 |
 | hunt/orfas | a68ed8b6 | coleta de imagem órfã, inteira em wip | 1.5 |
 | hunt/cob-desenho | 30c29454 | specs de desenho em wip | 2 |
@@ -43,8 +42,8 @@ As instruções de nginx para o engenheiro (nginx-srv-arquivos-2026-09-23.txt e 
 1. Clone o repositório e traga os branches: git fetch origin.
 2. Não trabalhe no diretório principal para retomar uma frente: crie uma worktree por frente, fora do repositório, e instale as dependências dos DOIS pacotes nela (sem junção de node_modules, que já destruiu instalação uma vez):
 
-        git worktree add ../ebgeo_b61-lote -b trabalho/b61-lote origin/hunt/b61-lote
-        cd ../ebgeo_b61-lote/frontend && npm ci
+        git worktree add ../ebgeo_rede-ws -b trabalho/rede-ws origin/hunt/rede-ws
+        cd ../ebgeo_rede-ws/frontend && npm ci
         cd ../backend && npm ci
 
 3. Rebase sobre o integracao_backend atual antes de verificar: o origin andou depois que os branches foram cortados, e outra sessão do dono também publica nele.
@@ -57,16 +56,6 @@ As instruções de nginx para o engenheiro (nginx-srv-arquivos-2026-09-23.txt e 
 ## 1. Trabalho pronto em branches e ainda não integrado
 
 A ordem abaixo é a de prioridade.
-
-### 1.2 Gestos em massa com uma gravação só (excluir, estilo, desfazer, refazer)
-
-- Branch hunt/b61-lote. Relatório: desempenho.md. Mil feições passam de 16 a 41 s na tela para cerca de 1 s. Decisão do dono de 2026-09-24: cada feição de um gesto em massa viaja como operação independente, de modo que um conflito custa só aquela feição.
-- Commits: 2ebba72b, 32733551, ace22854 e os seis consertos da revisão de código (7341bcbf, 8c627111, 695e200c, dfc1b9ad, ff2c3048, 1b7cac2f). O mais importante: nas Pendências, "Aceitar o servidor" podia descartar a edição de OUTRA feição, porque a linha nomeava como causa a última recusa lida e não a que de fato a segurava.
-- FALTA:
-  - A verificação depois do último commit NÃO rodou: lint, frontend inteiro, contrato, specs de Pendências e de lote no navegador, e a medição de escala (spec em hunt/relatorios, ferramentas/).
-  - Uma revisão de código dos seis consertos.
-  - Integrar, portão e push.
-- Custo aceito, medido: com uma operação por feição, o servidor recebe 25 por pedido, e 1000 mudanças de estilo levam de 20 a 27 s para chegar a ele (antes 7 s). Empacotar mais operações independentes por pedido traria o tempo de volta; é mudança só do cliente.
 
 ### 1.3 Presença em link lento
 
@@ -138,8 +127,13 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
   - a suíte no Firefox (npm run test:e2e:firefox), cancelada pelo dono aos 19 de 912 casos, todos passando até ali.
 
 - Figura de slide de briefing mora dentro do HTML do texto. Num link de 40 kbps, três palavras digitadas num slide com figura viraram 8 envios com o HTML inteiro (2,4 MB, cerca de 8 minutos), e em 5 minutos o colega não tinha o texto. Nada se perde, mas o slide fica inutilizável em link lento. Candidato a figura por referência, como as fotos.
+- cobertura-desenho-estilo.spec.js reprova de forma intermitente, e já reprovava antes dos gestos em massa: 7 de 12 no integracao_backend (eaa4dd14) e 14 de 39 com eles, medidos em 2026-09-25. O valor escolhido pela pessoa sempre chega ao servidor; a divergência está nas propriedades DERIVADAS do zoom (calculatedLineWidth, calculatedSize, selectionBox), que o autor recalcula depois do envio e o servidor guarda da derivação anterior, na quarta casa decimal. Há ainda localizadores que não aparecem e páginas fechadas no meio. Decidir se o derivado deve viajar, e então consertar o produto ou o spec.
+- Teste do backend que falha perto da meia-noite: diag-cli-json.test.js, nos casos da janela e do comando saude (2 de 5710 numa rodada que cruzou 2026-09-25 00:00). A fixture espalha os registros por 15 minutos e os grava por arquivo de dia, então nos primeiros 15 minutos do dia eles caem em dois arquivos. Passa 17 de 17 sozinho. Tornar a fixture independente do relógio.
 - Testes do frontend que falham só sob carga e passam sozinhos: tab-lock-refutacao 3.5 (três vezes em 24/09), idb-decisao4-medicao (duas vezes), e a verificação de símbolos por tempo do docs-integridade (duas vezes).
 - Dois specs do Firefox ficaram sem classificação: browser-collab-analise-desfazer (linha 119) e envio-do-acervo-herdado (linha 341).
+- Duas observações da revisão dos gestos em massa (2026-09-25), menores e sem perda de dado:
+  - Na quarentena, "Descartar" numa linha de um grupo recusado junto pergunta pelo grupo inteiro e descarta só aquela linha; e as frases do grupo prometem um "Aceitar o servidor" que a linha de quarentena não tem. Erra para o lado seguro, mas o texto é falso.
+  - Num excluir em massa de feições agrupadas recusado inteiro, "Aceitar o servidor" numa feição descarta o grupo da mesma ação, mas não as irmãs da operação de grupo culpada, que ficam nas pendências apontando para uma culpada que já saiu. Nada se perde; custa cliques.
 - Duas observações da revisão dos atributos, sem efeito hoje:
   - Uma edição que mude mais de 1000 chaves de atributo de uma vez é recusada; nenhuma tela produz isso.
   - A remoção de chave sobre uma lista de atributos que não é objeto a troca por uma lista vazia.
@@ -161,7 +155,7 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
 
 ## 5. Passos finais antes do deploy
 
-1. Fechar os itens 1.2 e 1.3, e também 1.4 e 1.5 se entrarem no lançamento.
+1. Fechar o item 1.3, e também 1.4 e 1.5 se entrarem no lançamento.
 2. Rodar as seis frentes do item 6, na ordem de risco, e integrar o que elas acharem.
 3. Remedir e APERTAR os tetos de peso da página do mapa. A fonte ficou com folga larga de propósito durante a campanha.
 4. npm run lint e npm test na raiz, em comandos separados.
