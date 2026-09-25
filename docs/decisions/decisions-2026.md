@@ -4520,3 +4520,11 @@ instável, e cada uma foi atribuída antes de ser tocada.
 - **Por quê:** é o comportamento que quatro superfícies já tinham, e ninguém o reportou como defeito. A alternativa recusada era mudar os quatro painéis para desenhar e recusar.
 - **Guardas:** `frontend/tests/unit/somente-leitura-censo.test.js` (as âncoras de cada painel), `frontend/tests/e2e-ui/notas-do-mapa-somente-leitura.repro.spec.js` e `frontend/tests/e2e-ui/processamento-trava-e-posto.repro.spec.js`, este do painel de processamento, que entrou no mesmo dia já escondendo. A regra está em `.claude/rules/architecture.md`, §UI Architecture.
 - **Status:** aceita pelo dono em 2026-09-25.
+
+### 2026-09-24: a alça da partida da rota é um ANEL, e o miolo dele é do corpo da feição (decisão do dono)
+
+- **Contexto:** com um símbolo que tem rota selecionado, a alça 0 da rota (a partida) ficava exatamente no centro do símbolo, que é onde a pessoa pega para arrastá-lo. Descer ali movia só a partida e deformava a rota; arrastar por qualquer outro ponto do ícone levava a rota inteira. Os dois gestos eram legítimos e ficavam separados por poucos pixels. Levantado pela campanha de cobertura de táticas.
+- **Decisão (dono, 2026-09-24; implementada em 2026-09-25):** a alça da partida vira um anel (raio 16 px, sem preenchimento, traço verde de 4 px, o rótulo "1" acima dele). O miolo, a menos de 12 px do centro, é do corpo da feição: arrastar ali leva a rota inteira. O anel move só a partida, e o arrasto compensa o deslocamento da pegada para a partida não saltar até o ponteiro. A regra vale para a descida, o cursor, o botão direito e o toque longo; o toque longo foi estendido na implementação, e a confirmação está na seção 4 de `PENDENCIAS-LANCAMENTO.md`.
+- **Alternativas rejeitadas:** esconder a alça, porque a partida não tem outra porta de edição (o painel não edita posição); e deslocá-la, porque separa a alça do ponto que ela representa.
+- **Guardas:** `frontend/tests/e2e-ui/alca-da-partida-anel.repro.spec.js`, `frontend/tests/unit/trajectory-edit-geometry.test.js` (a conta pura: `isInAnchorRingHole` e `grabOffset`) e `frontend/tests/unit/editor-de-trajetoria-gestos.repro.test.js` (miolo e anel para descida, botão direito e toque longo).
+- **Status:** aceita pelo dono em 2026-09-24.
