@@ -618,8 +618,13 @@ async function assentar(scope, registro, desfecho) {
     // A RECORD DROPPED WHILE THIS ATTEMPT WAS ON THE WIRE STAYS DROPPED ({@link descartarBlobRegistrado}):
     // writing the verdict would bring back a pendency for an entity that was never saved, retried
     // forever or left CONFIRMADO as orphan bytes.
+    // AND A RECORD ANOTHER ATTEMPT ALREADY CONFIRMED STAYS CONFIRMED (2026-09-25, third review, item 2):
+    // the verdict of a late duplicate was written over the record read before its wait, and a failure
+    // put PENDENTE back over CONFIRMADO, holding again every edit that cites the photo.
     try {
-        if (!(await loja(scope).getItem(chaveDe(registro.tentativaId)))) return { ...registro, descartado: true };
+        const noDisco = await loja(scope).getItem(chaveDe(registro.tentativaId));
+        if (!noDisco) return { ...registro, descartado: true };
+        if (noDisco.estado === BlobUploadState.CONFIRMADO && !desfecho.confirmado) return noDisco;
     } catch {
         // Unreadable: fall through and write, which is the behaviour before this check.
     }
@@ -967,6 +972,11 @@ export async function retomarBlobsPendentes(atlasId) {
             || _emVoo.has(registro.imageId) || _reservados.has(registro.imageId)
             || _naFila.has(registro.imageId)) continue;
 
+        // IN LINE FROM HERE ON, visibly (2026-09-25, third review, item 2): every connect starts two
+        // resumptions, and with another transfer on the wire the second one did not see this id and
+        // queued the same bytes again. The mark goes on BEFORE the next await, so the other loop's
+        // check above sees it.
+        _naFila.add(registro.imageId);
         let blob = null;
         try {
             blob = await loja(scope).getItem(registro.imageId);
@@ -976,6 +986,7 @@ export async function retomarBlobsPendentes(atlasId) {
         resumo.tentadas += 1;
 
         if (!blob) {
+            _naFila.delete(registro.imageId);
             const semBytes = {
                 ...registro,
                 estado: BlobUploadState.RECUSADO,
@@ -998,7 +1009,19 @@ export async function retomarBlobsPendentes(atlasId) {
             continue;
         }
 
-        const final = await emSerie(() => tentar(scope, registro, blob));
+        const final = await emSerie(async () => {
+            _naFila.delete(registro.imageId);
+            // RE-READ AT THE TURN: the wait in line can take minutes on a slow link, and another
+            // attempt may have settled the record meanwhile. Only a record still PENDENTE is sent.
+            let atual = registro;
+            try {
+                atual = (await loja(scope).getItem(chaveDe(registro.tentativaId))) ?? null;
+            } catch (error) {
+                console.warn('[blob-upload-queue] could not re-read a pending upload at its turn:', error);
+            }
+            if (!atual || atual.estado !== BlobUploadState.PENDENTE) return atual ?? registro;
+            return tentar(scope, atual, blob);
+        });
         if (final.estado === BlobUploadState.CONFIRMADO) resumo.confirmadas += 1;
         else if (final.estado === BlobUploadState.RECUSADO) resumo.recusadas += 1;
         else resumo.pendentes += 1;
