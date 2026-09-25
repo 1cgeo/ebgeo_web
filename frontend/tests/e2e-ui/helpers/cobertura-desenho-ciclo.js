@@ -124,10 +124,42 @@ export async function copiarEColar(page, balde, id) {
     return copia;
 }
 
-/** Desfazer e refazer pelos botões da barra (a mesma porta do Ctrl+Z / Ctrl+Y). */
+/**
+ * Desfazer ou refazer pelo botão da barra (a mesma porta do Ctrl+Z / Ctrl+Y), e o clique só conta
+ * quando a operação RODOU.
+ *
+ * UM CLIQUE PODE SER DESCARTADO, E POR DESENHO. `runUndoRedo` (`src/js/map/undo-redo.runner.js`)
+ * roda uma operação por vez e devolve falso, sem aviso, ao pedido que chega enquanto a anterior
+ * ainda redesenha o mapa base: é a guarda que impede o botão e o atalho de desfazerem dois passos
+ * juntos. A cópia desfeita volta ao balde ANTES desse redesenho, então o refazer clicado assim que
+ * o balde a mostrava caía na janela (de 3 a 5 ms, medidos em 2026-09-24 com marcas de tempo no
+ * runner) e era descartado: "refazer: a copia nao saiu" em 3 de 8 execuções, desde o commit que
+ * criou o spec local.
+ *
+ * O QUE SEPARA RODOU DE DESCARTADO é o aviso do canal `undo-redo`: a operação que roda sempre o
+ * mostra ("... desfeita", "... refeita" ou "Nada para ..."), a descartada não mostra nada. O helper
+ * marca os avisos que já estão na tela, clica e espera um aviso NOVO com a frase da direção; sem ele
+ * o clique foi descartado e é repetido, como a pessoa faria. Repetir nunca desfaz dois passos,
+ * porque o segundo clique só sai quando o primeiro não produziu operação nenhuma.
+ * @param {import('@playwright/test').Page} page
+ * @param {'undo'|'redo'} direcao
+ */
+async function acionarHistorico(page, direcao) {
+    const frase = direcao === 'undo' ? /desfeit|Nada para desfazer/ : /refeit|Nada para refazer/;
+    const botao = page.locator(`.toolbar-standalone-btn[data-tool-id="${direcao}"]`);
+    for (let tentativa = 0; tentativa < 5; tentativa++) {
+        await page.evaluate(() => document.querySelectorAll('.toast').forEach((t) => { t.dataset.vistoPeloHelper = '1'; }));
+        await botao.dispatchEvent('click');
+        const rodou = await page.locator('.toast:not([data-visto-pelo-helper])', { hasText: frase }).first()
+            .waitFor({ state: 'attached', timeout: 2000 }).then(() => true, () => false);
+        if (rodou) return;
+    }
+    throw new Error(`${direcao}: cinco cliques e nenhuma operação rodou`);
+}
+
 export async function desfazer(page) {
-    await page.locator('.toolbar-standalone-btn[data-tool-id="undo"]').dispatchEvent('click');
+    await acionarHistorico(page, 'undo');
 }
 export async function refazer(page) {
-    await page.locator('.toolbar-standalone-btn[data-tool-id="redo"]').dispatchEvent('click');
+    await acionarHistorico(page, 'redo');
 }

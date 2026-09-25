@@ -118,7 +118,7 @@ A ordem abaixo é a de prioridade.
 
 O detalhe e o próximo comando estão na seção PRÓXIMO PASSO do relatório de cada frente (hunt/relatorios).
 
-- Desenho (hunt/cob-desenho, relatório cobertura-desenho.md): specs de edição por alça, abas e menu de contexto. Três vermelhos não investigados: a alça de rotação do texto não gira; o refazer da elipse e o do texto num atlas local, provavelmente a corrida de teste do item 3.
+- Desenho (hunt/cob-desenho, relatório cobertura-desenho.md): specs de edição por alça, abas e menu de contexto. Três vermelhos não investigados: a alça de rotação do texto não gira; o refazer da elipse e o do texto num atlas local, que devem ser a corrida do helper de refazer, consertada no integracao_backend em 2026-09-24 (o branch a recebe no rebase).
 - Táticas (hunt/cob-taticas, cobertura-taticas.md): o pedido do dono não foi escrito. Hoje a alça de partida da rota fica no centro do símbolo militar, e pegar o símbolo move só a partida. Só o repro está no wip. O caso Declinação do spec de símbolos táticos falha cerca de uma vez em três.
 - Briefing e processamento (hunt/cob-briefing, cobertura-briefing.md): um conserto do painel de processamento (trava e posto), sem prova.
 - Camadas (hunt/cob-camadas, cobertura-camadas.md): há um DEFEITO PROVADO sem conserto, com repro vermelho 3/3 no wip. Leitor e Comentarista veem "Editar" nas notas do mapa, e a trava que chega com as notas abertas deixa "Editar" lá. Depois disso ainda falta cobrir o painel de camadas pela interface, os grupos e a aba Mapas.
@@ -131,8 +131,6 @@ O detalhe e o próximo comando estão na seção PRÓXIMO PASSO do relatório de
 
 A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (cobertura 98,36%), contrato 274/274. O Playwright principal (911 casos, só Chromium) rodou em três fatias paralelas. Elas foram interrompidas por falta de memória da máquina quando tinham feito 678 casos. Os que falharam foram depois rodados sozinhos, em série, 3 vezes cada, sem nova tentativa:
 
-- cadeia-completa-atlas.spec.js (linha 371), perna 4, cópia local: falhou 3 de 3. PROVÁVEL DEFEITO DE PRODUTO. A cópia local sai com um mapa a mais chamado "Principal", com 19 feições, que o atlas de origem não tem. Achar o commit que introduziu (o spec é determinístico, então git bisect com ele funciona) antes de lançar.
-- cobertura-desenho-local.spec.js: passou 18 de 39 execuções. O erro é "refazer: a copia nao saiu": depois do refazer, a cópia colada continua no mapa. Em 2026-09-24 de manhã, o mesmo spec deu 26 de 26; agora falha em todas as ferramentas medidas. PODE ser a corrida de teste descrita abaixo, mas a taxa com o spec sozinho aponta para regressão de produto no desfazer e refazer do atlas local. Bisectar.
 - browser-collab-permissions.spec.js (linha 253), revogação de compartilhamento: falhou 3 de 3, mas o defeito é do TESTE. Depois da revogação, a página do colega navega para outra tela, e o teste ainda chama clienteNaPagina nela ("Execution context was destroyed"). Confirmar que a navegação é o comportamento desejado e ajustar o spec.
 - briefing-figura-leva-bytes.spec.js: passou 3 de 3 sozinho; a falha na fatia foi da carga.
 - Depois, uma camada por vez, sobre c65162df. Três fatias paralelas mais a suíte da raiz tinham estourado os 32 GB da máquina original:
@@ -154,7 +152,6 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
   - a suíte no Firefox (npm run test:e2e:firefox), cancelada pelo dono aos 19 de 912 casos, todos passando até ali.
 
 - Figura de slide de briefing mora dentro do HTML do texto. Num link de 40 kbps, três palavras digitadas num slide com figura viraram 8 envios com o HTML inteiro (2,4 MB, cerca de 8 minutos), e em 5 minutos o colega não tinha o texto. Nada se perde, mas o slide fica inutilizável em link lento. Candidato a figura por referência, como as fotos.
-- Corrida de TESTE, não de produto: "Refazer: a cópia não saiu" em círculo, seta, limite, elipse e texto, porque o clique de refazer chega antes de o desfazer terminar. Falha também no código anterior. Conserte a espera no helper do spec antes da rodada completa do Playwright.
 - Testes do frontend que falham só sob carga e passam sozinhos: tab-lock-refutacao 3.5 (três vezes em 24/09), idb-decisao4-medicao (duas vezes), e a verificação de símbolos por tempo do docs-integridade (duas vezes).
 - Dois specs do Firefox ficaram sem classificação: browser-collab-analise-desfazer (linha 119) e envio-do-acervo-herdado (linha 341).
 - Duas observações da revisão dos atributos, sem efeito hoje:
