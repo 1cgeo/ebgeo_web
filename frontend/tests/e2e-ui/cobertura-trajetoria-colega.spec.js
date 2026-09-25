@@ -78,33 +78,27 @@ collabTest('arrastar o símbolo leva a rota inteira, e o colega recebe a rota de
     await expect.poll(async () => (await trajetoria(A, id))?.length ?? 0, { timeout: 15000 }).toBe(3);
     const antes = await trajetoria(A, id);
 
-    // Arrasta o SÍMBOLO, e não a alça da âncora. Com a feição selecionada o editor desenha a rota e
-    // uma alça por ponto-chave, e a alça 0 fica exatamente no centro do símbolo: descer ali é o
-    // OUTRO gesto (mover só a partida, `trajectory-edit-control.js`). O ponto de descida sai do
-    // centro, fica dentro do ícone e longe da rota, e o controle do instrumento abaixo confere que
-    // ali há símbolo e não há alça.
+    // Arrasta o SÍMBOLO PELO CENTRO, onde a pessoa o pega. Com a feição selecionada o editor desenha
+    // a rota e uma alça por ponto-chave, e a da partida é um ANEL em volta do centro desde
+    // 2026-09-24 (`trajectory-edit-control.js`): o miolo é do corpo da feição, e o anel, a 12px ou
+    // mais do centro, é o OUTRO gesto (mover só a partida). Antes do anel este caso descia fora do
+    // centro para fugir da alça. O controle do instrumento abaixo confere que o centro está sobre o
+    // símbolo E sob o disco desenhado do anel: sem o anel ali, o caso passaria sem medir o miolo.
     const de = await A.evaluate(([lng, lat]) => {
         const map = globalThis.__ebgeoMap;
         const r = map.getCanvas().getBoundingClientRect();
         const p = map.project([lng, lat]);
-        const camadas = (ids) => ids.filter((l) => map.getLayer(l));
-        const conta = (alvo, ids) => map.queryRenderedFeatures(
-            [[alvo.x - 6, alvo.y - 6], [alvo.x + 6, alvo.y + 6]], { layers: camadas(ids) }).length;
-        // Para baixo e para a esquerda, que é o lado oposto ao da rota desenhada acima.
-        const candidatos = [[-14, 14], [-18, 18], [-22, 12], [-12, 22], [-24, 20], [-20, 26], [-28, 14], [-16, 30]];
-        let achado = null;
-        for (const [dx, dy] of candidatos) {
-            const alvo = { x: p.x + dx, y: p.y + dy };
-            const simbolo = conta(alvo, ['military-symbols-layer']);
-            const alcas = conta(alvo, ['trajectory-edit-vertex-layer', 'trajectory-edit-vertex-label-layer', 'trajectory-edit-midpoint-layer']);
-            achado = { x: Math.round(r.left + alvo.x), y: Math.round(r.top + alvo.y), simbolo, alcas, dx, dy };
-            if (simbolo > 0 && alcas === 0) break;
-        }
-        return { ...achado, alcasDesenhadas: camadas(['trajectory-edit-vertex-layer']).length };
+        const noCentro = (ids) => map.queryRenderedFeatures(
+            [[p.x - 6, p.y - 6], [p.x + 6, p.y + 6]], { layers: ids.filter((l) => map.getLayer(l)) });
+        return {
+            x: Math.round(r.left + p.x),
+            y: Math.round(r.top + p.y),
+            simbolo: noCentro(['military-symbols-layer']).length,
+            anel: noCentro(['trajectory-edit-vertex-layer']).filter((f) => f.properties?.index === 0).length,
+        };
     }, [antes[0].lng, antes[0].lat]);
-    expect(de.alcasDesenhadas, 'o editor nao desenhou as alcas: o controle abaixo nao mediria nada').toBe(1);
-    expect(de.simbolo, 'o ponto de descida nao esta sobre o simbolo').toBeGreaterThan(0);
-    expect(de.alcas, `o ponto de descida (${de.dx},${de.dy}) caiu numa alca da rota`).toBe(0);
+    expect(de.simbolo, 'o centro nao esta sobre o simbolo').toBeGreaterThan(0);
+    expect(de.anel, 'o anel da partida nao esta desenhado sobre o centro: o caso nao mediria o miolo').toBe(1);
     await A.mouse.move(de.x, de.y);
     await A.mouse.down();
     await A.mouse.move(de.x - 30, de.y + 30, { steps: 6 });

@@ -145,8 +145,10 @@ collabTest('arrastar a ALÇA DA ÂNCORA depois de o colega remover um ponto-chav
     collabTest.setTimeout(400000);
     const A = collab.author;
     const { id, casa, rota } = await rotaComRemocaoDoColega(collab);
-    const de = await pontoDeDescida(A, casa, [[0, 0]]);
-    expect(de.alcas, 'o centro do simbolo deveria ser a alca da ancora').toBeGreaterThan(0);
+    // A alça da âncora é um ANEL desde 2026-09-24, e o miolo dele é do corpo da feição: pega-se o
+    // anel a 18px do centro, na faixa desenhada (16 a 20px).
+    const de = await pontoDeDescida(A, casa, [[-18, 0]]);
+    expect(de.alcas, 'a 18px do centro deveria estar o anel da ancora').toBeGreaterThan(0);
     await arrastar(A, de);
     await expect.poll(async () => (await doStore(A, id))?.trajetoria?.[0]?.lng, { timeout: 15000, message: 'o arrasto nao moveu' }).not.toBe(casa[0]);
 

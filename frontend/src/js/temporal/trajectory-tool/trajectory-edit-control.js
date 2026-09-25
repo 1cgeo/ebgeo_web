@@ -7,8 +7,9 @@
  * When a trajectory-capable feature (point / military_symbol /
  * coordination_measure) is selected, its trajectory is shown as a connecting path
  * plus edit handles in a GeoJSON layer: a numbered VERTEX handle per keypoint and
- * a MIDPOINT handle per segment. Drag a vertex to move it (keeps its time); drag a
- * midpoint to INSERT a keypoint (time = average of its neighbours); right-click or
+ * a MIDPOINT handle per segment. The departure's vertex (keypoint 0, on the symbol's centre) is a
+ * RING whose hole belongs to the feature (see `_queryHandle`). Drag a vertex to move it (keeps its
+ * time); drag a midpoint to INSERT a keypoint (time = average of its neighbours); right-click or
  * long-press a vertex to remove it. "Adicionar no mapa" enters append mode — each
  * map click appends a keypoint at the current timeline instant. Per-point time
  * editing and the waypoint list live in the feature's attribute panel (the
@@ -53,6 +54,10 @@ import {
     moveKeypoint,
     insertKeypointAtSegment,
     removeKeypoint,
+    isInAnchorRingHole,
+    grabOffset,
+    ANCHOR_RING_RADIUS_PX,
+    ANCHOR_RING_STROKE_PX,
 } from './trajectory-edit-geometry.js';
 
 const PATH_SOURCE = 'trajectory-edit-path';
@@ -63,6 +68,9 @@ const MIDPOINT_LAYER = 'trajectory-edit-midpoint-layer';
 const HIGHLIGHT_LAYER = 'trajectory-edit-highlight-layer';
 const VERTEX_LAYER = 'trajectory-edit-vertex-layer';
 const VERTEX_LABEL_LAYER = 'trajectory-edit-vertex-label-layer';
+
+/** Style expression: the vertex handle of the departure (keypoint 0), painted as a ring. */
+const IS_ANCHOR_HANDLE = ['==', ['get', 'index'], 0];
 
 export class TrajectoryEditControl {
     constructor() {
@@ -86,6 +94,7 @@ export class TrajectoryEditControl {
         this._dragIndex = null;
         this._dragMoved = false;
         this._previewPos = null; // [lng, lat]
+        this._grabOffset = null; // {dx, dy} screen px, only while dragging the departure ring
         this._rafId = null;
         this._pendingPreview = false;
         this._cleanupLongPress = null;
@@ -450,7 +459,7 @@ export class TrajectoryEditControl {
         if (isTouchDevice()) {
             this._cleanupLongPress = setupVertexRemoveLongPress(map, {
                 handleLayerId: VERTEX_LAYER,
-                onVertexRemove: (handle) => this._commitRemove(handle?.properties?.index),
+                onVertexRemove: (handle, point) => this._onVertexLongPress(handle, point),
             });
         }
     }
@@ -537,6 +546,13 @@ export class TrajectoryEditControl {
         this._dragIndex = handle.properties.index;
         this._dragMoved = false;
         this._previewPos = handle.geometry.coordinates.slice();
+        // THE RING IS TAKEN AWAY FROM ITS CENTRE, up to its outer radius plus the hit slack, and a
+        // drag that put the departure under the pointer made it jump that far on the first move.
+        // The press offset is kept for the whole drag, so the departure moves by what the pointer
+        // moved. Only the ring: the other handles are small enough to be taken on their centre.
+        this._grabOffset = this._isAnchorVertex(handle)
+            ? grabOffset(point, this._map.project(handle.geometry.coordinates))
+            : null;
         this._map.dragPan.disable();
         // While dragging: vertex = grabbing (holding/repositioning), midpoint keeps
         // "copy" (+) since releasing creates a new keypoint. Both differ from the
@@ -568,7 +584,11 @@ export class TrajectoryEditControl {
         if (e.isPrimary === false) return;
         // O EVENTO É DOM: `e.point` e `e.lngLat` do evento de mapa do MapLibre não existem num
         // `PointerEvent`, então a posição de tela e a coordenada se derivam aqui.
-        const point = getPointerPosition(e, this._map.getCanvasContainer());
+        const pointer = getPointerPosition(e, this._map.getCanvasContainer());
+        // Where the HANDLE goes, which for the ring is the pointer minus the press offset.
+        const point = this._grabOffset
+            ? { x: pointer.x - this._grabOffset.dx, y: pointer.y - this._grabOffset.dy }
+            : pointer;
         const lngLat = this._map.unproject([point.x, point.y]);
 
         const excludeId = this._feature?.properties?.id;
@@ -684,11 +704,49 @@ export class TrajectoryEditControl {
         // PONTO exigia acertar os 9px do círculo, e nomear a camada direto LEVANTA quando ela
         // não está no estilo (o editor remove as dele em `_removeLayers`).
         const handles = queryHoverFeatures(this._map, handleHitBox(point), [VERTEX_LAYER]);
-        const vertex = handles.find((f) => f.properties?.handleType === 'vertex');
+        // The hole of the departure ring is the feature's, here as in `_queryHandle`: a right-click
+        // on the symbol's centre opens the feature's menu, not the "cannot remove" notice.
+        const vertex = handles.find((f) => f.properties?.handleType === 'vertex' && !this._isInAnchorHole(f, point));
         if (!vertex) return; // let the app context menu show
         e.preventDefault();
         e.stopPropagation();
         this._commitRemove(vertex.properties.index);
+    }
+
+    /**
+     * The long press that removes a keypoint on touch, the twin of the right-click above. The hole
+     * of the departure ring stays the feature's here too.
+     * @param {Object} handle - The vertex handle under the press.
+     * @param {Array<number>} point - The press, canvas-relative `[x, y]`.
+     * @private
+     */
+    _onVertexLongPress(handle, point) {
+        if (this._isInAnchorHole(handle, point)) return;
+        this._commitRemove(handle?.properties?.index);
+    }
+
+    /**
+     * Whether a rendered handle is the departure's (keypoint 0), the one painted as a ring.
+     * @param {Object} handle - A rendered handle.
+     * @returns {boolean}
+     * @private
+     */
+    _isAnchorVertex(handle) {
+        return handle?.properties?.handleType === 'vertex' && this._isAnchorIndex(handle.properties.index);
+    }
+
+    /**
+     * Whether a press on the departure's handle fell in the hole of the ring, which belongs to the
+     * feature's body (whole-route drag, the feature's menu). See `ANCHOR_RING_RADIUS_PX`.
+     * @param {Object} handle - A rendered handle.
+     * @param {{x:number,y:number}|Array<number>} point - The press, canvas-relative.
+     * @returns {boolean}
+     * @private
+     */
+    _isInAnchorHole(handle, point) {
+        const coords = handle?.geometry?.coordinates;
+        if (!this._isAnchorVertex(handle) || !Array.isArray(coords)) return false;
+        return isInAnchorRingHole(point, this._map.project(coords));
     }
 
     /**
@@ -699,13 +757,19 @@ export class TrajectoryEditControl {
      * quando o toque caía dentro do círculo. `queryHoverFeatures` ainda peneira as camadas pelo
      * estilo, porque o MapLibre LEVANTA ao receber um id que não está lá e este editor remove as
      * dele em `_removeLayers`.
+     *
+     * THE HOLE OF THE DEPARTURE RING IS NOT A HANDLE (owner, 2026-09-24): the handle of keypoint 0
+     * sits on the centre of the symbol, which is where a person grabs the symbol to drag it. A
+     * press closer than `ANCHOR_RING_HOLE_PX` to that centre gets null here, so the press is left
+     * to the body's drag (`move_handler.js`, the whole route). The hover cursor and `isHandleAt`
+     * go through here too, and follow the same rule.
      * @param {{x:number,y:number}} point - Screen point, canvas-relative.
      * @returns {Object|null}
      */
     _queryHandle(point) {
         // Vertex layer sits above the midpoint layer, so an overlapping vertex wins.
         const handles = queryHoverFeatures(this._map, handleHitBox(point), [VERTEX_LAYER, MIDPOINT_LAYER]);
-        return handles.find((f) => f.properties?.role === 'handle') || null;
+        return handles.find((f) => f.properties?.role === 'handle' && !this._isInAnchorHole(f, point)) || null;
     }
 
     /**
@@ -748,6 +812,7 @@ export class TrajectoryEditControl {
         this._dragIndex = null;
         this._dragMoved = false;
         this._previewPos = null;
+        this._grabOffset = null;
     }
 
     _cancelPreview() {
@@ -854,11 +919,15 @@ export class TrajectoryEditControl {
                 type: 'circle',
                 source: HANDLE_SOURCE,
                 filter: ['==', ['get', 'handleType'], 'vertex'],
+                // The departure (keypoint 0) is a RING around the symbol's centre, with a clear
+                // hole that belongs to the feature (see `ANCHOR_RING_RADIUS_PX`); the other
+                // keypoints keep the filled disc.
                 paint: {
-                    'circle-radius': 9,
+                    'circle-radius': ['case', IS_ANCHOR_HANDLE, ANCHOR_RING_RADIUS_PX, 9],
                     'circle-color': '#16a34a',
-                    'circle-stroke-color': '#ffffff',
-                    'circle-stroke-width': 2.5,
+                    'circle-opacity': ['case', IS_ANCHOR_HANDLE, 0, 1],
+                    'circle-stroke-color': ['case', IS_ANCHOR_HANDLE, '#16a34a', '#ffffff'],
+                    'circle-stroke-width': ['case', IS_ANCHOR_HANDLE, ANCHOR_RING_STROKE_PX, 2.5],
                 },
             });
         }
@@ -874,8 +943,16 @@ export class TrajectoryEditControl {
                     'text-font': ['Noto Sans Bold'],
                     'text-allow-overlap': true,
                     'text-ignore-placement': true,
+                    // The ring's "1" sits above the ring (outer radius 20px, 2.4em of 12px is
+                    // about 29px): inside it, it would cover the symbol the hole leaves visible.
+                    'text-offset': ['case', IS_ANCHOR_HANDLE, ['literal', [0, -2.4]], ['literal', [0, 0]]],
                 },
-                paint: { 'text-color': '#ffffff' },
+                paint: {
+                    // Off the disc, a white numeral would be lost on the basemap: green on a white halo.
+                    'text-color': ['case', IS_ANCHOR_HANDLE, '#16a34a', '#ffffff'],
+                    'text-halo-color': '#ffffff',
+                    'text-halo-width': ['case', IS_ANCHOR_HANDLE, 2, 0],
+                },
             });
         }
     }

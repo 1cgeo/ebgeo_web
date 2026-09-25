@@ -124,7 +124,9 @@ export class DrawingFinishButton {
  * @param {Object} map - MapLibre map instance
  * @param {Object} options - Configuration options
  * @param {string} options.handleLayerId - Layer ID for edit handles
- * @param {Function} options.onVertexRemove - Callback when vertex should be removed
+ * @param {Function} options.onVertexRemove - Callback when vertex should be removed, called with
+ *   the handle and the canvas-relative `[x, y]` of the press (the trajectory editor reads the
+ *   second argument to leave the hole of its departure ring to the feature)
  * @returns {Function} Cleanup function
  */
 export function setupVertexRemoveLongPress(map, options) {
@@ -149,7 +151,7 @@ export function setupVertexRemoveLongPress(map, options) {
             );
 
             if (vertexHandle && onVertexRemove) {
-                onVertexRemove(vertexHandle);
+                onVertexRemove(vertexHandle, point);
             }
         },
         { duration: 500, moveThreshold: 10 }

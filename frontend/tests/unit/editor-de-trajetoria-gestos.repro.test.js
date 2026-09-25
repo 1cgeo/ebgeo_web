@@ -26,10 +26,20 @@
 // `queryRenderedFeatures` é derivado da MESMA `buildHandleCollection` que desenha as alças, e a
 // projeção é uma conta declarada (grau × 100 = pixel), de modo que a consulta por CAIXA é de
 // verdade exercitada.
+//
+// O ANEL DA PARTIDA (dono, 2026-09-24): a alça do ponto-chave 0 ficava no centro do símbolo, onde a
+// pessoa pega o símbolo, e virou um anel cujo miolo é da feição. O arnês acerta a alça pelo DISCO
+// PINTADO (raio mais traço, como o MapLibre), porque é isso que faz o anel ser pegável a 18px do
+// centro; o que decide o miolo é o editor, e é isso que os casos do anel prendem.
 
 import { beforeAll, beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { buildHandleCollection } from '../../src/js/temporal/trajectory-tool/trajectory-edit-geometry.js';
+import {
+    buildHandleCollection,
+    ANCHOR_RING_RADIUS_PX,
+    ANCHOR_RING_STROKE_PX,
+} from '../../src/js/temporal/trajectory-tool/trajectory-edit-geometry.js';
+import { showToast } from '@utils/index.js';
 
 const VERTEX_LAYER = 'trajectory-edit-vertex-layer';
 const MIDPOINT_LAYER = 'trajectory-edit-midpoint-layer';
@@ -144,19 +154,30 @@ function mapaFalso(container, alvo) {
         removeLayer: (id) => camadas.delete(id),
         removeSource: (id) => fontes.delete(id),
         unproject: ([x, y]) => ({ lng: x / 100, lat: y / 100 }),
-        // O que está DESENHADO é a coleção de alças da rota viva, projetada pela conta acima.
+        project: ([lng, lat]) => ({ x: px(lng), y: px(lat) }),
+        // O que está DESENHADO é a coleção de alças da rota viva, projetada pela conta acima. O
+        // acerto é o do MapLibre para círculo: o disco de raio mais traço (o traço é pintado FORA do
+        // raio) tocando a caixa, ou o ponto, da consulta. Os raios são os da pintura do editor.
         queryRenderedFeatures(caixa, opcoes) {
             this.consultas += 1;
             const pedidas = opcoes?.layers || [];
-            const [[x1, y1], [x2, y2]] = caixa;
+            const [[x1, y1], [x2, y2]] = typeof caixa[0] === 'number' ? [caixa, caixa] : caixa;
             const desenhadas = buildHandleCollection(alvo.feicao?.properties?.trajetoria).features;
             const camadaDe = (f) => (f.properties.handleType === 'vertex' ? VERTEX_LAYER : MIDPOINT_LAYER);
+            const raioDe = (f) => {
+                if (f.properties.handleType === 'midpoint') return 6 + 2;
+                return f.properties.index === 0 ? ANCHOR_RING_RADIUS_PX + ANCHOR_RING_STROKE_PX : 9 + 2.5;
+            };
             return desenhadas
                 // O vértice fica ACIMA do ponto médio no estilo, então vem primeiro.
                 .filter((f) => pedidas.includes(camadaDe(f)))
                 .filter((f) => {
                     const [lng, lat] = f.geometry.coordinates;
-                    return px(lng) >= x1 && px(lng) <= x2 && px(lat) >= y1 && px(lat) <= y2;
+                    const cx = px(lng);
+                    const cy = px(lat);
+                    const nx = Math.min(Math.max(cx, x1), x2);
+                    const ny = Math.min(Math.max(cy, y1), y2);
+                    return Math.hypot(cx - nx, cy - ny) <= raioDe(f);
                 })
                 .map((f) => ({ ...f, layer: { id: camadaDe(f) } }));
         },
@@ -386,11 +407,14 @@ describe('E2: um gesto, uma entrada de Ctrl+Z', () => {
     });
 
     it('o ponto inicial (âncora) continua sem remoção: ele é a partida da feição', () => {
+        // No ANEL, a 18px do centro: o miolo é da feição desde 2026-09-24 (casos do anel abaixo).
+        let recusado = false;
         mapa.canvas.disparar('contextmenu', {
-            clientX: px(1), clientY: px(1),
-            preventDefault() {}, stopPropagation() {},
+            clientX: px(1) - 18, clientY: px(1),
+            preventDefault() { recusado = true; }, stopPropagation() {},
         });
 
+        expect(recusado, 'o botão direito no anel é do editor').toBe(true);
         expect(alvo.feicao.properties.trajetoria).toHaveLength(3);
         expect(escritaDeRota()).toEqual([]);
     });
@@ -482,5 +506,97 @@ describe('dois gestos antes de a primeira gravacao terminar (ordem de escrita)',
         expect(store.guardada.valor).toHaveLength(4);
         expect(new Set(store.guardada.valor.map((k) => k.t)).size, 'nenhum instante repetido').toBe(4);
         expect(store.guardada.valor.some((k) => k.lng === 1.7 && k.lat === 1.2)).toBe(true);
+    });
+});
+
+describe('o ANEL da partida: o miolo é da feição, o anel é a alça (dono, 2026-09-24)', () => {
+    /** O centro da partida na tela (ponto-chave 0 em 1,1). */
+    const centro = { x: px(1), y: px(1) };
+
+    it('REPRO: descer no CENTRO do símbolo não é descer na alça, e o arrasto fica com o corpo', () => {
+        // Antes do anel a descida aqui pegava a alça 0 e movia só a partida, deformando a rota.
+        container.disparar('pointerdown', evento(centro.x, centro.y));
+        expect(container.conta('pointermove'), 'o editor tomou a descida do miolo').toBe(0);
+        expect(editor.isHandleAt(centro)).toBe(false);
+    });
+
+    it('CONTROLE: descer no ANEL, a 18px do centro, é da alça', () => {
+        container.disparar('pointerdown', evento(centro.x - 18, centro.y));
+        expect(container.conta('pointermove')).toBe(1);
+        expect(editor.isHandleAt({ x: centro.x - 18, y: centro.y })).toBe(true);
+    });
+
+    it('arrastar o anel move só a partida, e o que o ponteiro andou: sem salto até o ponteiro', () => {
+        container.disparar('pointerdown', evento(centro.x - 18, centro.y));
+        container.disparar('pointermove', evento(centro.x - 18 - 30, centro.y + 30));
+        container.disparar('pointerup', evento(centro.x - 18 - 30, centro.y + 30));
+
+        const rota = alvo.feicao.properties.trajetoria;
+        // A partida andou (-30, +30) px a partir do CENTRO, e não foi parar sob o ponteiro.
+        expect(rota[0].lng).toBeCloseTo(0.7, 10);
+        expect(rota[0].lat).toBeCloseTo(1.3, 10);
+        expect(rota[0].t).toBe(1000);
+        expect(rota.slice(1)).toEqual(ROTA().slice(1));
+    });
+
+    it('as outras alças continuam indo ao ponteiro: a compensação é só do anel', () => {
+        container.disparar('pointerdown', evento(px(2) + 4, px(2) - 4));
+        container.disparar('pointermove', evento(px(2.5) + 4, px(2.5) - 4));
+        container.disparar('pointerup', evento(px(2.5) + 4, px(2.5) - 4));
+
+        const rota = alvo.feicao.properties.trajetoria;
+        expect(rota[1].lng).toBeCloseTo(2.54, 10);
+        expect(rota[1].lat).toBeCloseTo(2.46, 10);
+    });
+
+    it('o botão direito no miolo não é do editor: o menu da feição abre, sem aviso da âncora', () => {
+        vi.mocked(showToast).mockClear();
+        let recusado = false;
+        mapa.canvas.disparar('contextmenu', {
+            clientX: centro.x, clientY: centro.y,
+            preventDefault() { recusado = true; }, stopPropagation() {},
+        });
+
+        expect(recusado).toBe(false);
+        expect(showToast).not.toHaveBeenCalled();
+        expect(escritaDeRota()).toEqual([]);
+    });
+
+    describe('no toque, o toque longo segue a mesma regra', () => {
+        beforeEach(() => {
+            // O toque longo só se liga num aparelho de toque, e liga-se no `show`.
+            editor.hide();
+            vi.stubGlobal('navigator', { maxTouchPoints: 1 });
+            vi.useFakeTimers();
+            editor.show(alvo.feicao);
+            vi.mocked(showToast).mockClear();
+        });
+
+        afterEach(() => {
+            vi.useRealTimers();
+        });
+
+        const tocarLongo = (x, y) => {
+            container.disparar('touchstart', { touches: [{ clientX: x, clientY: y }] });
+            vi.advanceTimersByTime(600);
+            container.disparar('touchend', {});
+        };
+
+        it('CONTROLE: o toque longo num vértice comum remove o ponto-chave', () => {
+            tocarLongo(px(3), px(3));
+            expect(alvo.feicao.properties.trajetoria).toHaveLength(2);
+        });
+
+        it('no ANEL, a partida continua sem remoção, com o aviso', () => {
+            tocarLongo(centro.x - 18, centro.y);
+            expect(showToast).toHaveBeenCalledWith('O ponto inicial (posição da feição) não pode ser removido.', 'info');
+            expect(alvo.feicao.properties.trajetoria).toHaveLength(3);
+        });
+
+        it('no MIOLO, o toque longo não é do editor: nenhum aviso da âncora', () => {
+            tocarLongo(centro.x, centro.y);
+            expect(showToast).not.toHaveBeenCalled();
+            expect(alvo.feicao.properties.trajetoria).toHaveLength(3);
+        });
     });
 });
