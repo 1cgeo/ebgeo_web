@@ -28,7 +28,7 @@ import {
 } from '@tools/helpers/zoom-correction.helpers.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { readGeoJSONSourceData } from '@utils/geojson-source.js';
-import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
+import { mergePendingEdits, pendingPropertyEdits } from '@tools/helpers/pending-edit.helpers.js';
 
 /**
  * The dispatcher that owns the `magnetic_declinations` source.
@@ -629,21 +629,40 @@ class AddDeclinationControl extends BaseControl {
     };
 
     /**
+     * The WMM properties of a diagram at a position: eight properties, spelled once, and reused
+     * as the diff payload of a recalculation and as the moved feature's properties of a drag.
+     * @param {number} lat - Latitude in degrees
+     * @param {number} lng - Longitude in degrees
+     * @returns {Object|null} The properties, or null when the model has no answer there
+     */
+    _wmmPropsAt(lat, lng) {
+        const wmmResult = calculateMagneticDeclination(lat, lng);
+        if (!wmmResult) return null;
+        return {
+            declination: wmmResult.declination,
+            convergence: calculateMeridianConvergence(lat, lng) ?? 0,
+            inclination: wmmResult.inclination,
+            intensity: wmmResult.intensity,
+            latitude: lat,
+            longitude: lng,
+            calculationDate: new Date().toISOString().split('T')[0],
+            wmmWarning: wmmResult.warning || null,
+        };
+    }
+
+    /**
      * Recalculates declination at the feature's current position and regenerates the icon.
      * @param {Object} feature - The declination feature
      */
     async recalculateDeclination(feature) {
         const lat = feature.geometry.coordinates[1];
         const lng = feature.geometry.coordinates[0];
-        const wmmResult = calculateMagneticDeclination(lat, lng);
+        const wmmProps = this._wmmPropsAt(lat, lng);
 
-        if (!wmmResult) {
+        if (!wmmProps) {
             showError('Erro ao recalcular declinação magnética');
             return;
         }
-
-        const convergence = calculateMeridianConvergence(lat, lng) ?? 0;
-        const calculationDate = new Date().toISOString().split('T')[0];
 
         // The read stays: `regenerateIcon` and the selection sync both want the SOURCE feature,
         // and no diff hands it back. Only the write is a diff.
@@ -655,18 +674,6 @@ class AddDeclinationControl extends BaseControl {
         );
 
         if (sourceFeature) {
-            // Eight properties, spelled once and reused as the diff payload: this object IS the
-            // delta, so there is nothing to recompute when the patch is built.
-            const wmmProps = {
-                declination: wmmResult.declination,
-                convergence,
-                inclination: wmmResult.inclination,
-                intensity: wmmResult.intensity,
-                latitude: lat,
-                longitude: lng,
-                calculationDate,
-                wmmWarning: wmmResult.warning || null,
-            };
             Object.assign(sourceFeature.properties, wmmProps);
             Object.assign(feature.properties, wmmProps);
 
@@ -745,15 +752,78 @@ class AddDeclinationControl extends BaseControl {
             effectiveZoom
         );
 
+        // The WMM of the NEW position rides in the moved feature, so the drag is ONE write and ONE
+        // undo entry (`updateFeatures` below). Recalculated only after the write, it reached the
+        // store in a second write, and Ctrl+Z undid the numbers and left the diagram where it was
+        // dropped. `syncEditHandlesAfterDrag` still recalculates, to repaint the icon; it finds
+        // the same values. With no model answer the numbers stay, and the recalculation says so.
+        const wmmProps = this._wmmPropsAt(newCoords.lat, newCoords.lng);
+
         return {
             ...feature,
             geometry: this.geometry.generate(newCoordinates),
             properties: {
                 ...feature.properties,
+                ...(wmmProps ?? {}),
                 selectionBox: newSelectionBox,
             },
         };
     }
+
+    /**
+     * Writes whole diagrams to the store and then to the source: the persistence of a DRAG.
+     *
+     * THE DRAG DID NOT PERSIST ITSELF until 2026-09-25. `tool_manager/move_handler.js` writes the
+     * moved features through `selectionManager.updateSelectedFeatures()`, which calls this method
+     * with `save = true`, and this control did not have it: the empty one of `BaseControl` ran, and
+     * the drag only patched the SOURCE. The position reached the store by accident, when the
+     * feature panel saved afterwards (its save rewrites the source's copy). Two ways to lose it,
+     * both measured: a rebuild of the sources from the store (a colleague's op,
+     * `layers/remote-feature-render.js`) landing between the drag and that save put the old
+     * position back, and the save then wrote the old one; and with the panel tucked away by a
+     * sidebar tab there was no outgoing panel to save at all
+     * (`tests/e2e-ui/declinacao-arrasto-grava.repro.spec.js`). Now the store is written first, as
+     * in the other symbol controls, and a rebuild from it draws what was dropped.
+     *
+     * @param {Array<Object>} features - Whole diagrams (or, with `onlyUpdateProperties`, the
+     *   properties to merge onto the source's copy)
+     * @param {boolean} [save=false] - Write the store too
+     * @param {boolean} [onlyUpdateProperties=false] - Merge properties, keep the source geometry
+     */
+    updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
+        if (!Array.isArray(features) || features.length === 0) return;
+        // The collection read survives here: an unknown id must be skipped rather than created,
+        // and the merge branch needs the source's copy to merge ONTO. Draining first keeps that
+        // read from being stale.
+        const dispatcher = declinationsSource(this.map);
+        await dispatcher.flush();
+        const data = await this.map.getSource('magnetic_declinations').getData();
+        const currentZoom = this.map.getZoom();
+        const upserts = [];
+        const storeWrites = [];
+
+        for (const feature of features) {
+            const current = data.features.find((f) => f.properties.id === feature.properties.id);
+            if (!current) continue;
+            const next = onlyUpdateProperties
+                ? { ...current, properties: { ...current.properties, ...feature.properties } }
+                : feature;
+            this.ensureFeatureConsistency(next, currentZoom, !onlyUpdateProperties);
+            upserts.push(next);
+            if (save) storeWrites.push({ type: 'magnetic_declinations', feature: next });
+        }
+
+        // STORE FIRST: the source write below can be discarded by a rebuild from the store, and a
+        // rebuild must then draw this write, not the position before it.
+        if (storeWrites.length > 0) await updateFeatures(storeWrites);
+
+        if (upserts.length > 0 && !this.isSourceUpdateBlocked()) {
+            dispatcher.add(upserts);
+            await dispatcher.flush();
+        }
+
+        this.updateSelectionManagerFeatures(features);
+    };
 
     syncEditHandlesAfterDrag = async (movedFeatures) => {
         // Update source geometries first, then recalculate declination. The moved feature already
@@ -777,6 +847,24 @@ class AddDeclinationControl extends BaseControl {
     };
 
     // ===== PERSISTENCE =====
+
+    /**
+     * A PANEL SAVE WRITES ONLY WHAT THE PANEL EDITED (2026-09-25), as in the other symbol controls.
+     *
+     * The one inherited from `BaseControl` answered true always, so every save of the panel (the
+     * rebuild after a drag, the Escape that deselects, the swap of content) rewrote the SOURCE's
+     * copy of the diagram. That copy is not always the latest word: a save that read it before the
+     * drag's write and wrote after it put the old position back on the server, and a save landing
+     * after the drag with a derived key the store did not have yet (the bitmap stamp) became a
+     * second undo entry, so Ctrl+Z undid that and left the diagram where it was dropped. Measured
+     * on `cobertura-simbolos-taticos.spec.js`, Declinação case. The measure of "edited" is the one
+     * the save already merges with (`pendingPropertyEdits`).
+     * @param {Object} feature - The panel's copy
+     * @param {Object} [initialProperties] - Its snapshot when the panel was built
+     * @returns {boolean}
+     */
+    hasFeatureChanged = (feature, initialProperties) => !initialProperties
+        || Object.keys(pendingPropertyEdits(feature?.properties, initialProperties)).length > 0;
 
     saveFeatures = async (features, initialPropertiesMap) => {
         // Reads only, and it persists the SOURCE's version of each feature rather than the
