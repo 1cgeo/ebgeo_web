@@ -17,12 +17,11 @@ Branch órfão, sem código (HEAD 0f5e5826). Leia primeiro o README.md dele. Con
 
 Para ler sem trocar de branch: git show origin/hunt/relatorios:campanha-2026-09-24/relatorios/rede.md (troque o nome do arquivo).
 
-### O código não integrado: dois branches
+### O código não integrado: um branch
 
 | branch | HEAD | o que contém | item |
 |---|---|---|---|
 | hunt/rede-ws | 12b2c21b | o WebSocket bloqueado em wip (a presença em link lento, item 1.3, saiu em 2026-09-25) | 1.4 |
-| hunt/orfas | a68ed8b6 | coleta de imagem órfã, inteira em wip | 1.5 |
 
 Commit wip significa NÃO VERIFICADO: é trabalho em curso salvo quando a campanha parou, com a mensagem começando por wip e essas palavras no corpo. Nunca integre um wip sem terminá-lo e verificá-lo.
 
@@ -56,23 +55,6 @@ A ordem abaixo é a de prioridade.
 
 - Mesmo branch hunt/rede-ws, no commit wip 12b2c21b, NÃO VERIFICADO. O trabalho começou (estado de conexão novo, sincronização por HTTP, aviso de "sem tempo real").
 - Hoje, com um proxy que não repassa o Upgrade, o atlas de servidor não abre de jeito nenhum. O desenho da solução está em rede-ws.md.
-
-### 1.5 Coleta de imagem órfã no servidor
-
-- Branch hunt/orfas, inteiro no commit wip a68ed8b6, NÃO VERIFICADO. Relatório: orfas.md.
-- Construído:
-  - migração que marca quando uma imagem perdeu a última referência;
-  - serviço, comando de diagnóstico e rota de administrador;
-  - simulação por padrão, carência de 30 dias contínuos e trilha de auditoria.
-
-  Nada roda sozinho.
-- FALTA:
-  - Alimentar três censos do backend que ficaram vermelhos: saídas de conteúdo, superfícies de recurso e compartilhamento de atlas.
-  - Conferir sozinho um vermelho de boot.
-  - A entrada no diário de decisões.
-  - Suítes inteiras, revisão e integração.
-
-  A migração é a 017_imagens_orfas.sql: se outra migração nova entrar antes, renumere esta.
 
 ## 2. Trabalho de cobertura pausado no meio (commits wip, sem verificação)
 
@@ -123,6 +105,7 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
 - A porta de cópia pode dizer "pendente" onde é "recusado" (lido no código em 2026-09-25, sem medição): lerDivida (espera-do-envio-do-mapa.js) conta os recusados por getProblems, que segue só dependsOn, enquanto countByState e o carregador seguem também o lote envenenado (poisonedBatches). Depois do B6.1 a diferença só sobra para irmã SEM recibo no mesmo batchId. Um repro de integração decide se o caso ainda é alcançável.
 - Presença em link lento, o que ficou fora do item 1.3 (integrado em 2026-09-25): o cursor do PRÓPRIO par lento continua subindo durante um envio, estimado em cerca de 17% do uplink nominal e nunca medido. Só vale fazer se um spec de subida lenta mostrar a edição esperando atrás do cursor. O spec presenca-nao-disputa-com-sync usa Network.emulateNetworkConditionsByRule, que o Chromium 1194 da nuvem não tem: ali ele foi verificado numa cópia que estrangula a página inteira (3 de 3; o controle com WS_PRESENCE_FLOW=0 reprovou como devia), e o arquivo commitado ainda precisa de uma rodada com o Chromium do Playwright instalado (build 1228).
 - Na nuvem Linux (Node 22.22), quatro arquivos do backend reprovam por ambiente, fora de qualquer mudança: stream-error-crash.repro (caso 416) e erro-preserva-causa (lerPiramides) dependem de como o Windows trata um diretório, e sqlite-blob-pool e sqlite-blob-worker cancelam porque o worker e o temporizador de guarda são unref e o laço esvazia antes da resposta. O catalogo-basemap-sem-video, vermelho na máquina original, passou aqui antes e depois do 1.3.
+- Coleta de imagem órfã (integrada em 2026-09-25, sem agendamento, por decisão do dono): ANTES do primeiro npm run diag -- orfas --marcar em produção, medir o gatilho zerar_marca_de_imagem_citada. Enquanto nenhuma imagem está marcada ele custa uma consulta a um índice parcial vazio; depois da primeira marcação quase sempre haverá alguma, e aí toda escrita nas doze tabelas-fonte (operations e features inclusive) lê o texto da linha (cerca de 10 ms por MB) e abre uma subtransação por linha, por causa do bloco EXCEPTION. Um import, um clone ou um push grande numa transação só passa de 64 subtransações, que é onde o Postgres degrada. Se a medição incomodar: tirar o EXCEPTION (a escrita do usuário passaria a falhar junto com o gatilho) ou mover a zerada para fora da transação da escrita. Ficam para depois do lançamento: o agendamento (proposta: marcar semanal e apagar mensal pelo cron do host), um relatório só de leitura dos arquivos em disco sem linha em images, e a coleta local (IndexedDB), só em atlas local montado, sem subida pendente e com a pilha de desfazer vazia.
 - O runner do processamento (processing-runner.js) confere só a trava: se o papel ou a trava mudarem durante uma execução já iniciada, a pessoa ainda lê "Falha ao criar camada de saída". Pelo clique isso não se alcança mais, porque o Executar some.
 - O npm run test:tocados responde "nada a rodar" quando o branch não tem upstream, mesmo com commits ainda sem push: ele só soma o diff contra o upstream quando existe um. Deveria recusar em voz alta e pedir --desde ou o upstream.
 - Duas observações da revisão dos gestos em massa (2026-09-25), menores e sem perda de dado:
@@ -147,14 +130,14 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
 - Limitações que o main também tem:
   - a volta de um KMZ perde a figura e as fotos anexas (o .ebgeo é a volta sem perda);
   - o ícone embutido de um KMZ chega como marcador padrão (o produto já tem ícones personalizados onde mapeá-lo).
-- A coleta de imagem órfã deve ganhar agendamento? Hoje só roda por comando.
+- A CONSTITUICAO.md não tem cláusula sobre a coleta de imagem órfã, a única rota do produto que apaga bytes de atlas alheio. As cláusulas 5.5 e 9.1 já a cobrem (só o administrador do sistema tem posse em todo atlas), e o código segue isso (requireAdmin, que recusa chave de API; teste em backend/tests/integration/imagens-orfas-portas.test.js). (a) Não escrever nada; (b) uma frase vigente na seção 9: "apagar imagem órfã é ato do administrador do sistema", citando o teste. Recomendação da campanha: (b), para ninguém "abrir" a rota a produtor ou dono de atlas.
 - Desfazer e refazer seguidos rápido: o segundo pedido chega enquanto o primeiro ainda redesenha o mapa base e é DESCARTADO em silêncio, por desenho, para o botão e o atalho não desfazerem dois passos juntos. A janela medida foi de 3 a 5 ms num mapa pequeno, e ela cresce com o redesenho num mapa pesado. O pedido deve esperar a vez, dizer que foi ignorado, ou ficar como está?
 - Foto anexada recusada pelo servidor: o registro dela nunca sai, e toda saída da conta pergunta por ele, mesmo depois de a foto ter sido apagada da feição. Como a pessoa resolve: um "Descartar" nas pendências, ou o registro some quando a foto sai da entidade? (terceira revisão das fotos, item 5)
 - Envio de imagem grande com o token vencido: o backend só usa o parser de 50 MB quando reconhece a sessão, então esse envio leva 413 e a foto vira recusa definitiva, quando antes era tentada de novo. Abrir o parser grande pela presença do cabeçalho de sessão, ou tratar o 413 como transitório no cliente quando o token pode ter vencido? (terceira revisão das fotos, item 4)
 
 ## 5. Passos finais antes do deploy
 
-1. Fechar os itens 1.4 e 1.5, que o dono decidiu levar ao lançamento. E medir o custo do ping de 2 bytes que agora segue cada quadro de presença: de dentro de backend/, node tests/bench/sala-limite.bench.mjs com WS_PRESENCE_FLOW=1 e com =0, contra a linha de base de 2026-08-27. A bancada mede o custo do ping, não a retenção, porque o cliente ws dela responde ao ping na hora, e o perdaCursorPct pode passar a contar coalescência como perda.
+1. Fechar o item 1.4, que o dono decidiu levar ao lançamento. E medir o custo do ping de 2 bytes que agora segue cada quadro de presença: de dentro de backend/, node tests/bench/sala-limite.bench.mjs com WS_PRESENCE_FLOW=1 e com =0, contra a linha de base de 2026-08-27. A bancada mede o custo do ping, não a retenção, porque o cliente ws dela responde ao ping na hora, e o perdaCursorPct pode passar a contar coalescência como perda.
 2. Rodar as seis frentes do item 6, na ordem de risco, e integrar o que elas acharem.
 3. Remedir e APERTAR os tetos de peso da página do mapa. A fonte ficou com folga larga de propósito durante a campanha.
 4. npm run lint e npm test na raiz, em comandos separados.
