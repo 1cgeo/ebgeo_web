@@ -550,7 +550,12 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         expect(ansioso.arquivos.size).toBeLessThanOrEqual(571);
         const kb = kbDe(ansioso.arquivos);
         expect(kb, `fonte ansiosa em ${kb} kB`).toBeGreaterThanOrEqual(6840);
-        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(8030);
+        // 8030 -> 8060 on 2026-09-25, integrating the mass gestures with one write (hunt/b61-lote):
+        // 8035 kB measured by this case's failure on a fresh build. The "383 kB of headroom" above is
+        // the reading of its day and no longer holds: the lots integrated since then used it up. The
+        // growth here is the plural store operations and the Pendências grouping, all in eager
+        // files, with no new package.
+        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(8060);
     });
 
     it('o grafo COMPLETO (seguindo `import()`) cabe entre o piso e o teto medidos', () => {
@@ -961,7 +966,11 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // 12149 kB measured by this case's failure on a fresh build, the three new modules named in the
         // module count (24 kB of source) plus the photo paths in files already eager (feature,
         // 3D and 360 operations, the blob upload queue, the dispatcher, the rescue). No new package.
-        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(12180);
+        // 12180 -> 12240 on 2026-09-25, integrating the mass gestures with one write (hunt/b61-lote):
+        // 12213 kB measured by this case's failure on a fresh build, the plural operations
+        // (`removeFeatures`, `updateFeatures`), their undo and redo runs, the twenty controls' single
+        // call and the Pendências grouping. No new module outside those files, no new package.
+        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(12240);
     });
 
     it('seguir `import()` de fato acrescenta grafo, e é isso que prova a regex dinâmica', () => {
