@@ -73,9 +73,11 @@
  *     de "Enviar ao servidor" e "Salvar como local", nunca a de exportar;
  *   - nada sobre import ADITIVO: o caminho exercitado é o não-aditivo do boot, que descarta os
  *     mapas do escopo antes da primeira escrita;
- *   - nada sobre comentário espacial, feição processada (`processed_los`/`processed_visibility`)
- *     nem imagem ANEXADA a feição de marcador 3D/360: a fixture não tem nenhum dos três, então
- *     essas travessias ficam sem exercício e um verde daqui não fala delas;
+ *   - nada sobre comentário espacial nem imagem ANEXADA a feição de marcador 3D/360: a fixture não
+ *     tem nenhum dos dois, então essas travessias ficam sem exercício e um verde daqui não fala delas;
+ *   - nada sobre a saída de análise GRAVADA no arquivo. A fixture traz as ENTRADAS (`los`,
+ *     `visibility`) sem saída nenhuma, e o que se mede é só a saída que o cliente DERIVA ao receber
+ *     o retrato do servidor (seção abaixo);
  *   - nada sobre os BLOBS na perna 4. Eles são recunhados no envio (`imageIdMap`) e o cliente os
  *     busca do servidor sob demanda (`image-sync.js`), então a cópia local nasce sem bytes de
  *     imagem por desenho. A cadeia de blob medida vai do arquivo ao disco (perna 1) e do disco à
@@ -83,6 +85,19 @@
  *   - nada sobre convergência entre DUAS abas: aqui há um cliente só;
  *   - e nada sobre a poda por destinatário de verdade, porque a conta que importa é a mesma que
  *     enviou e enxerga tudo. Quem mede aquilo é o censo de superfícies dos dois pacotes.
+ *
+ * ------------------------------------------------------------------------------------------
+ * DEPOIS DO SERVIDOR O MAPA TEM UMA FEIÇÃO A MAIS, E ELA NÃO É DEFEITO
+ * ------------------------------------------------------------------------------------------
+ * Desde 2026-09-23 a saída das duas análises de terreno (`processed_los`, `processed_visibility`)
+ * não viaja: cada cliente a DERIVA da entrada, e o retrato do servidor descarta a saída gravada e a
+ * refaz (`rederiveAllAnalysisOutputs`, `src/js/store/analysis-output.js`). A linha de visada do
+ * mapa "Principal" é utilizável, então o espelho do atlas de servidor ganha a metade visível dela
+ * (`<id>-visible`), e a cópia local a leva junto: o "Principal" sai com 19 feições contra as 18 do
+ * arquivo. O viewshed da fixture não tem veredito por célula e não gera saída. Entre 2026-09-23 e
+ * 2026-09-24 esta spec comparou a perna 4 com o ARQUIVO e reprovou 3 de 3, e a feição a mais foi
+ * lida como defeito de produto. O esperado das pernas que passam pelo servidor sai agora da MESMA
+ * função que o produto usa, aplicada ao arquivo: uma mudança na derivação muda os dois lados.
  */
 
 import { test, expect } from '@playwright/test';
@@ -93,6 +108,7 @@ import { createVerifiedUser } from './helpers/accounts.js';
 import { seedSv360Photo } from './helpers/catalog-seed.js';
 import { loginUI } from './helpers/collab-helpers.js';
 import { loadEbgeoFixture, countFixture } from '../helpers/ebgeo-fixture.js';
+import { rederiveAllAnalysisOutputs } from '../../src/js/store/analysis-output.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -404,6 +420,12 @@ describeOrSkip('a cadeia inteira: arquivo → atlas local → F5 → servidor �
         const slidesEsperados = Object.fromEntries(
             (fixture.data.briefings ?? []).map((b) => [b.name, (b.slides ?? []).length]),
         );
+        // As feições de cada mapa DEPOIS do retrato do servidor: o arquivo com a saída de análise
+        // refeita pela função do produto (ver o `fileoverview`).
+        const feicoesDepoisDoServidor = Object.fromEntries(nomesDeMapa.map((nome) => {
+            const feicoes = rederiveAllAnalysisOutputs(structuredClone(fixture.data.maps?.[nome]?.features ?? {}));
+            return [nome, Object.values(feicoes).reduce((n, lista) => n + (Array.isArray(lista) ? lista.length : 0), 0)];
+        }));
 
         // Os ids de recurso que o 3D e o 360 da fixture citam, colhidos das quatro e das duas
         // superfícies. Eles decidem a semeadura do 360 e as premissas da perna 4.
@@ -439,6 +461,10 @@ describeOrSkip('a cadeia inteira: arquivo → atlas local → F5 → servidor �
             .toEqual({ orientation: 2, marker: 2 });
         expect(slidesEsperados, 'os cinco slides estão repartidos 2 + 3')
             .toEqual({ 'Briefing de Inteligência': 2, 'Briefing Operacional': 3 });
+        // Só a visada do "Principal" gera saída; sem este controle, uma derivação que devolvesse o
+        // arquivo intacto faria o esperado da perna 4 voltar a 18 sem ninguém notar.
+        expect(feicoesDepoisDoServidor, 'depois do servidor, só o "Principal" ganha a metade visível da visada')
+            .toEqual({ ...esperado.featuresByMap, Principal: esperado.featuresByMap.Principal + 1 });
         expect(tilesetsCitados, 'o 3D cita dois tilesets').toHaveLength(2);
         expect(fotosCitadas, 'o 360 cita duas fotos').toEqual(['FOTO_0001', 'FOTO_0002']);
         // O MAPA SOB EXAME NÃO É O CORRENTE, e isso é o que dá sentido ao F5: o corrente é o único
@@ -448,11 +474,11 @@ describeOrSkip('a cadeia inteira: arquivo → atlas local → F5 → servidor �
             .not.toContain(fixture.data.currentMap);
 
         /** Confere uma leitura de atlas montado contra o arquivo. `resumo` diz de qual perna é. */
-        const conferirContraOArquivo = (medido, resumo, { c3d, sv360 }) => {
+        const conferirContraOArquivo = (medido, resumo, { c3d, sv360, feicoes = esperado.featuresByMap }) => {
             expect(medido.chaves, `${resumo}: uma chave de armazenamento por mapa do arquivo`)
                 .toBe(esperado.maps);
             expect(medido.feicoesPorMapa, `${resumo}: as feições de cada mapa`)
-                .toEqual(esperado.featuresByMap);
+                .toEqual(feicoes);
             expect(medido.camadasPorMapa, `${resumo}: as camadas de cada mapa`)
                 .toEqual(camadasEsperadas);
             expect(medido.gruposPorMapa, `${resumo}: os grupos de cada mapa`)
@@ -619,6 +645,8 @@ describeOrSkip('a cadeia inteira: arquivo → atlas local → F5 → servidor �
         expect(espelho.sv360PorMapa, 'e o 360 também').toEqual(sv360Esperado);
         expect(espelho.briefings, 'e os briefings').toBe(esperado.briefings);
         expect(espelho.slides, 'com os slides').toBe(esperado.slides);
+        expect(espelho.feicoesPorMapa, 'e as feições, já com a saída de análise refeita pelo retrato')
+            .toEqual(feicoesDepoisDoServidor);
 
         // ==================== PERNA 4: "Salvar como local" ====================
         // AS PREMISSAS DA PODA DE SAÍDA, lidas do resolver REAL antes de o botão ser clicado. Elas
@@ -681,6 +709,7 @@ describeOrSkip('a cadeia inteira: arquivo → atlas local → F5 → servidor �
         conferirContraOArquivo(p4, 'perna 4 (cópia local)', {
             c3d: Object.fromEntries(nomesDeMapa.map((nome) => [nome, { ...ZERO_3D }])),
             sv360: Object.fromEntries(nomesDeMapa.map((nome) => [nome, { ...ZERO_360 }])),
+            feicoes: feicoesDepoisDoServidor,
         });
 
         await ctx.close();
