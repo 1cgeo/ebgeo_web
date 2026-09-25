@@ -112,16 +112,18 @@ export function isImageSyncOnline() {
  * @param {string} imageId - The id the feature or the icon registry carries.
  * @param {Object} [options] - Options.
  * @param {string} [options.origem='imagem'] - Label recorded on the pendency.
+ * @param {boolean} [options.foraDaFila=false] - Send outside the single transfer line, for a gesture
+ *   that awaits its own upload (`enviarBlobRegistrado`, `blob-upload-queue.js`).
  * @returns {Promise<{confirmado: boolean, registrado: boolean, estado: string|null}>} Whether the
  *   server holds the bytes. In a local atlas nothing is registered and nothing is sent, which is
  *   not a failure and says nothing to the user.
  */
-export async function uploadImageBlob(blob, imageId, { origem = 'imagem' } = {}) {
+export async function uploadImageBlob(blob, imageId, { origem = 'imagem', foraDaFila = false } = {}) {
     if (!_atlasId || !blob || !imageId) {
         return { confirmado: false, registrado: false, estado: null };
     }
 
-    const resultado = await enfileirarBlob({ imageId, blob, atlasId: _atlasId, origem });
+    const resultado = await enfileirarBlob({ imageId, blob, atlasId: _atlasId, origem, foraDaFila });
     if (resultado.confirmado || !resultado.registrado) {
         return {
             confirmado: resultado.confirmado,

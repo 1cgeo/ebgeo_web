@@ -167,7 +167,9 @@ export async function addCustomIcon({ name, blob, thumbnail, type = 'image/png' 
     const id = generateUUID();
     await saveImageCompat(id, blob);
     assertCurrent();
-    await uploadImageBlob(blob, id, { origem: 'icone-personalizado' });
+    // OUTSIDE THE PHOTO LINE (2026-09-25): this gesture awaits its own upload, and in the line its
+    // tile waited for every photo still going up (`foraDaFila`, `blob-upload-queue.js`).
+    await uploadImageBlob(blob, id, { origem: 'icone-personalizado', foraDaFila: true });
     assertCurrent();
 
     const entry = { id, name: name || 'Ícone', thumbnail, type, createdAt: Date.now() };

@@ -837,13 +837,15 @@ export async function enfileirarBlobs(pares, { atlasId, origem = 'copia' }) {
  * @param {Blob} params.blob - The bytes, already written to the local store by the caller.
  * @param {string} params.atlasId - The connected atlas.
  * @param {string} [params.origem] - Label for the record, so a pendency names the gesture.
+ * @param {boolean} [params.foraDaFila=false] - Send outside {@link emSerie}, for a gesture that awaits
+ *   its own upload (see {@link enviarBlobRegistrado}).
  * @returns {Promise<{registrado: boolean, confirmado: boolean, estado: string|null, motivo: string}>}
  *   `registrado: false` means a local atlas (nothing to upload and nothing recorded).
  */
-export async function enfileirarBlob({ imageId, blob, atlasId, origem = 'imagem' }) {
+export async function enfileirarBlob({ imageId, blob, atlasId, origem = 'imagem', foraDaFila = false }) {
     const registrado = await registrarBlob({ imageId, blob, atlasId, origem });
     if (!registrado) return { registrado: false, confirmado: false, estado: null, motivo: '' };
-    return enviarBlobRegistrado(registrado, blob);
+    return enviarBlobRegistrado(registrado, blob, { foraDaFila });
 }
 
 /**
@@ -903,25 +905,39 @@ export async function descartarBlobRegistrado({ scope, registro }) {
 /**
  * The SECOND half of {@link enfileirarBlob}: one attempt over a record {@link registrarBlob} wrote.
  * Never throws.
+ *
+ * OUTSIDE THE LINE ON REQUEST (`foraDaFila`, 2026-09-25, third review of the attached photos, item 3),
+ * for the reason the copies already stay out of it ({@link enfileirarBlobs}): a gesture that AWAITS its
+ * own upload must not wait for another gesture's photo. The custom icon awaits its upload before
+ * writing the icon registry, so that a failed registry write leaves the bytes on the server for the
+ * re-projected intention, and in the line its tile appeared only after every queued photo. Outside,
+ * it competes for the link instead.
  * @param {{scope: object, registro: Object}} registrado
  * @param {Blob} blob
+ * @param {Object} [opcoes]
+ * @param {boolean} [opcoes.foraDaFila=false]
  * @returns {Promise<{registrado: boolean, confirmado: boolean, estado: string|null, motivo: string,
  *   causa: (string|null), status: (number|null)}>}
  */
-export async function enviarBlobRegistrado({ scope, registro }, blob) {
+export async function enviarBlobRegistrado({ scope, registro }, blob, { foraDaFila = false } = {}) {
     const id = registro.imageId;
     const final = _emVoo.has(id) || _naFila.has(id)
         ? { ...registro, emVoo: true }
-        : await (() => {
-            _naFila.add(id);
-            // The reservation is lifted when THIS transfer's turn comes, not before: a resumption
-            // landing while it waits in line must still step aside ({@link emSerie}).
-            return emSerie(() => {
-                _naFila.delete(id);
+        : foraDaFila
+            ? await (() => {
                 _reservados.delete(id);
                 return tentar(scope, registro, blob);
-            });
-        })();
+            })()
+            : await (() => {
+                _naFila.add(id);
+                // The reservation is lifted when THIS transfer's turn comes, not before: a resumption
+                // landing while it waits in line must still step aside ({@link emSerie}).
+                return emSerie(() => {
+                    _naFila.delete(id);
+                    _reservados.delete(id);
+                    return tentar(scope, registro, blob);
+                });
+            })();
     return {
         registrado: true,
         emVoo: final.emVoo === true,

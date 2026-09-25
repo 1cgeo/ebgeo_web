@@ -87,7 +87,7 @@ describe('customIcons multiuser (§17.19)', () => {
         const b = blob();
         const entry = await addCustomIcon({ name: 'Tank', blob: b, thumbnail: 'data:img' });
         expect(entry.id).toBe('local-uuid');          // feature.markerSymbol references this id
-        expect(h.uploadImageBlob).toHaveBeenCalledWith(b, 'local-uuid', { origem: 'icone-personalizado' });
+        expect(h.uploadImageBlob).toHaveBeenCalledWith(b, 'local-uuid', { origem: 'icone-personalizado', foraDaFila: true });
         expect(h.images.get('local-uuid')).toBe(b);   // cached locally under the same id
         expect(h.settings.get('custom_icons').some((e) => e.id === 'local-uuid')).toBe(true);
     });

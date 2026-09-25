@@ -87,7 +87,7 @@ describe('image-sync gateway (§17.14/§17.19)', () => {
         expect(await uploadImageBlob(blob, 'img-9', { origem: 'icone-personalizado' }))
             .toEqual({ confirmado: true, registrado: true, estado: 'confirmado' });
         expect(h.enfileirarBlob).toHaveBeenCalledWith({
-            imageId: 'img-9', blob, atlasId: 'atlas-1', origem: 'icone-personalizado',
+            imageId: 'img-9', blob, atlasId: 'atlas-1', origem: 'icone-personalizado', foraDaFila: false,
         });
     });
 
