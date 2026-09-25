@@ -162,6 +162,35 @@ describe('o retrato do servidor e a op que ainda espera bytes', () => {
 
         expect(await idsProntos()).not.toContain(featureId);
     });
+    // A FOTO CONVERTIDA JÁ RECUSADA (terceira revisão das fotos anexas, 2026-09-25, item 1): um F5 entre
+    // a recusa gravada e a marcação das ops deixa a op preparada, e o retrato a soltava, porque só a
+    // pendência segurava. A recusa de foto CONVERTIDA vira problema aqui também, lida do disco: o
+    // servidor ainda guarda a foto inline, e a op a trocaria por uma referência a bytes recusados.
+    it('REPRO: a op que cita uma foto CONVERTIDA recusada vira problema no retrato, e não sai', async () => {
+        const scope = getActiveScope();
+        const mapId = crypto.randomUUID();
+        const featureId = crypto.randomUUID();
+        const fotoId = crypto.randomUUID();
+        await persistOperationIntents([{
+            entityType: EntityType.FEATURE,
+            operationType: OperationType.UPDATE,
+            entityId: featureId,
+            mapId,
+            data: { type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] },
+                properties: { id: featureId, source: 'point', images: [{ id: fotoId, name: 'f.jpg', thumbnail: 'data:image/jpeg;base64,/9j/' }] } },
+            previousData: null
+        }], { scope, traceId: `traco-${featureId}` });
+        await getStoreFor(StoreName.IMAGES, scope).setItem(`${BLOB_UPLOAD_KEY_PREFIX}t-${fotoId}`, {
+            tentativaId: `t-${fotoId}`, imageId: fotoId, atlasId: scope.atlasId, origem: 'foto-convertida',
+            estado: 'recusado', ultimoErro: 'O servidor recusou a foto.', ultimoStatus: 415,
+            tentativas: 1, criadoEm: Date.now(), atualizadoEm: Date.now()
+        });
+
+        await applyRemoteSnapshot(retratoComMapa(mapId, scope));
+
+        expect(await idsProntos()).not.toContain(featureId);
+        expect((await operationQueue.countByState()).problemas).toBe(1);
+    });
     it('CONTROLE: a pendência de OUTRA imagem não segura esta op', async () => {
         const scope = getActiveScope();
         const mapId = crypto.randomUUID();

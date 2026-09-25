@@ -34,7 +34,7 @@ import { operationQueue } from './operation-queue.js';
 import { observeServerVersion, assertSnapshotCurrent } from './snapshot-frontier.js';
 // A pergunta "esta feição ainda deve bytes ao servidor", lida do DISCO: ver o uso em
 // `applyRemoteSnapshot`, que roda dentro do connect em que o espelho de memória ainda está vazio.
-import { idsComBlobPendente, operacaoEsperaBlob } from './blob-upload-queue.js';
+import { idsComBlobPendente, operacaoEsperaBlob, recusasDeFotoConvertida, recusaDeFotoConvertidaCitada } from './blob-upload-queue.js';
 import {
     adoptActiveGeneration,
     dropGenerationDatabases,
@@ -3192,15 +3192,32 @@ async function applyRemoteSnapshotInner(snapshot) {
     // A LEITURA É DE DISCO, e não do espelho em memória: este bloco roda dentro do mesmo `connect`
     // que dispara a retomada, e depois de um recarregamento o espelho ainda está vazio.
     const pendentesDeBlob = await idsComBlobPendente();
+    // A CONVERTED PHOTO ALREADY REFUSED holds too, as a durable issue (2026-09-25, third review of the
+    // attached photos, item 1): an F5 between the refusal on disk and the marking of the operations
+    // left them prepared, and this re-projection released them, replacing the server's inline copy
+    // with a reference to bytes it refused. Read from disk for the same reason as the line above.
+    const recusasConvertidas = await recusasDeFotoConvertida();
     const projected = [];
+    const recusadas = [];
     for (const op of pending) {
         if (!await applyRemoteOperationInner({ ...op, localRepair: true }, false)) continue;
+        const recusa = recusaDeFotoConvertidaCitada(op, recusasConvertidas);
+        if (recusa) {
+            recusadas.push([op, recusa]);
+            continue;
+        }
         // The image feature and, since 2026-09-24, any entity citing a PHOTO still pending.
         if (operacaoEsperaBlob(op, pendentesDeBlob)) continue;
         projected.push(op);
     }
-    if (applyContext?.staging) applyContext.markMaterialized = () => queue.markMaterialized?.(projected);
-    else await queue.markMaterialized?.(projected);
+    const assentarFila = async () => {
+        for (const [op, recusa] of recusadas) {
+            await queue.recordIssue?.(op, { rejected: true, reason: recusa.motivo, status: recusa.status });
+        }
+        await queue.markMaterialized?.(projected);
+    };
+    if (applyContext?.staging) applyContext.markMaterialized = assentarFila;
+    else await assentarFila();
     emit(EventTypes.LAYERS_CHANGED, {});
     emit(EventTypes.GROUPS_CHANGED, {});
     // Signal the comment overlay to reload the active map's comments from the side-store.

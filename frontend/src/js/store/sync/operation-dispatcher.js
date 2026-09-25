@@ -15,7 +15,7 @@ import { generateUUID, isValidUUID } from '../../utilities/uuid.js';
 import { record } from './diag/trace-core.js';
 import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
 import { markLocalEditPending, CONVERGENCE_GUARDED } from './remote-operation-handler.js';
-import { operacaoEsperaBlob, blobUploadRefusal } from './blob-upload-queue.js';
+import { operacaoEsperaBlob, blobUploadRefusal, recusaDeFotoConvertidaCitada } from './blob-upload-queue.js';
 import { checkPermission, GuardAction } from './permission-guard.js';
 import { isDerivedOutputBucket } from '../analysis-output.js';
 
@@ -228,17 +228,21 @@ export async function persistOperationIntents(allDescriptions, { scope, traceId 
         // land BEFORE the operation exists, and then `marcarProblema` had nothing to mark. Releasing
         // the operation would send a feature whose picture the server will never have (the peer draws
         // the error placeholder); holding it prepared would stop the queue behind it for good.
-        const recusadas = created.filter(op => op.entityType === EntityType.FEATURE && blobUploadRefusal(op.entityId));
+        //
+        // THE SAME FOR AN OPERATION THAT CITES A CONVERTED PHOTO ALREADY REFUSED (2026-09-25, third
+        // review of the attached photos, item 1): the server still holds that photo inline, and a
+        // copy of the feature pasted after the refusal would replace it with a reference to bytes the
+        // server refused (`recusaDeFotoConvertidaCitada`).
+        const recusaDe = (op) => (op.entityType === EntityType.FEATURE && blobUploadRefusal(op.entityId))
+            || recusaDeFotoConvertidaCitada(op);
+        const recusadas = created.filter(recusaDe);
         for (const op of recusadas) {
-            const recusa = blobUploadRefusal(op.entityId);
+            const recusa = recusaDe(op);
             await queue.recordIssue(op, { rejected: true, reason: recusa.motivo, status: recusa.status });
         }
         // THE PHOTOS COUNT TOO since 2026-09-24: an operation that cites an attached photo whose
         // bytes are pending waits like the image feature waits for itself (`operacaoEsperaBlob`).
-        const prontas = created.filter(op => !(
-            operacaoEsperaBlob(op)
-            || (op.entityType === EntityType.FEATURE && blobUploadRefusal(op.entityId))
-        ));
+        const prontas = created.filter(op => !(operacaoEsperaBlob(op) || recusaDe(op)));
         await queue.markMaterialized(prontas);
         for (const op of created) {
             record(TraceStage.APPLY_PERSIST, {

@@ -393,7 +393,9 @@ function espelhar(registro) {
     if (registro.estado === BlobUploadState.PENDENTE) _pendentes.add(registro.imageId);
     else _pendentes.delete(registro.imageId);
     if (registro.estado === BlobUploadState.RECUSADO) {
-        _recusados.set(registro.imageId, { motivo: registro.ultimoErro, status: registro.ultimoStatus ?? null });
+        _recusados.set(registro.imageId, {
+            motivo: registro.ultimoErro, status: registro.ultimoStatus ?? null, conversao: ehConversao(registro)
+        });
     } else {
         _recusados.delete(registro.imageId);
     }
@@ -410,6 +412,44 @@ export function blobUploadRefusal(imageId) {
 }
 
 /**
+ * The refusal of a CONVERTED photo that an operation cites, or null.
+ *
+ * WHY (2026-09-25, third review of the attached photos, item 1). The server still holds a converted
+ * photo INLINE, so any operation that cites it by reference must not leave once its bytes were
+ * refused: it would replace the server's copy with a reference to bytes it refused. {@link aplicarRecusa}
+ * marks the operations queued at the refusal; this answers for the ones born or re-projected AFTER it,
+ * which only the image feature's own id was checked for. An ATTACHED photo's refusal does not count:
+ * that operation leaves with the reference, as {@link operacaoEsperaBlob} says.
+ * @param {Object} op - A queued operation envelope.
+ * @param {Map<string, {motivo: string, status: (number|null), conversao: boolean}>} [recusados] - The
+ *   memory mirror by default, the disk read ({@link recusasDeFotoConvertida}) where it can be empty.
+ * @returns {{motivo: string, status: (number|null)}|null}
+ */
+export function recusaDeFotoConvertidaCitada(op, recusados = _recusados) {
+    for (const id of idsDeFotosDaEntidade(op?.data)) {
+        const recusa = recusados.get(id);
+        if (recusa?.conversao) return recusa;
+    }
+    return null;
+}
+
+/**
+ * The refused CONVERTED photos of the mounted atlas, READ FROM DISK, for the snapshot's re-projection,
+ * which runs inside the connect where the memory mirror is still empty after a reload (the same
+ * reason as {@link idsComBlobPendente}).
+ * @returns {Promise<Map<string, {motivo: string, status: (number|null), conversao: boolean}>>}
+ */
+export async function recusasDeFotoConvertida() {
+    const recusas = new Map();
+    for (const registro of await listarPendenciasDeBlob()) {
+        if (registro?.estado === BlobUploadState.RECUSADO && ehConversao(registro) && typeof registro.imageId === 'string') {
+            recusas.set(registro.imageId, { motivo: registro.ultimoErro, status: registro.ultimoStatus ?? null, conversao: true });
+        }
+    }
+    return recusas;
+}
+
+/**
  * Releases the prepared marks of every queued operation of one entity.
  *
  * THE WHOLE ENTITY, not the newest operation of it: the hold is head-of-line, so releasing an
@@ -419,18 +459,23 @@ export function blobUploadRefusal(imageId) {
  *
  * AN OPERATION THAT STILL WAITS FOR ANOTHER BLOB STAYS HELD (2026-09-24): an edit that cites two
  * photos leaves when the SECOND one is confirmed, never in between.
+ *
+ * THE QUEUE IS THE RECORD'S ATLAS, never the active one (2026-09-25, third review, item 1): the
+ * verdict can arrive minutes after the attempt started, with another atlas open by then.
+ * @param {object} scope - The remote scope the record belongs to.
  * @param {string} entityId - The image id: an image feature's own id, or a photo's.
  * @param {Object} [opcoes]
  * @param {boolean} [opcoes.soFotos=false] - Release only the operations that cite it as a PHOTO
  *   (the refusal of a photo; an image feature refused becomes an issue instead).
  * @returns {Promise<number>} How many operations were released.
  */
-async function liberarOperacoes(entityId, { soFotos = false } = {}) {
+async function liberarOperacoes(scope, entityId, { soFotos = false } = {}) {
     try {
-        const todas = await operationQueue.getAll();
+        const fila = operationQueue.forScope(scope);
+        const todas = await fila.getAll();
         const minhas = todas.filter(op => (!soFotos || op.entityId !== entityId)
             && operacaoCita(op, entityId) && !operacaoEsperaBlob(op));
-        if (minhas.length > 0) await operationQueue.markMaterialized(minhas);
+        if (minhas.length > 0) await fila.markMaterialized(minhas);
         return minhas.length;
     } catch (error) {
         console.warn('[blob-upload-queue] could not release the operations waiting for a blob:', error);
@@ -444,7 +489,9 @@ async function liberarOperacoes(entityId, { soFotos = false } = {}) {
  * The operations are NOT released: a released operation would be sent, and the peer would draw a
  * hole under an id the server refused. They are marked with an issue, which the queue skips
  * (instead of stopping at) and the census counts as a problem, so the rest of the atlas keeps
- * synchronising while this one entity waits for a person.
+ * synchronising while this one entity waits for a person. The queue is the record's atlas, as in
+ * {@link liberarOperacoes}.
+ * @param {object} scope - The remote scope the record belongs to.
  * @param {string} entityId - The image id.
  * @param {string} motivo - pt-BR reason, shown to whoever reviews the pendency.
  * @param {number|null} status - HTTP status, when there was one.
@@ -452,12 +499,13 @@ async function liberarOperacoes(entityId, { soFotos = false } = {}) {
  * @param {boolean} [opcoes.citantes=false] - Also the operations that cite it as a PHOTO.
  * @returns {Promise<number>} How many operations received an issue.
  */
-async function marcarProblema(entityId, motivo, status, { citantes = false } = {}) {
+async function marcarProblema(scope, entityId, motivo, status, { citantes = false } = {}) {
     try {
-        const todas = await operationQueue.getAll();
+        const fila = operationQueue.forScope(scope);
+        const todas = await fila.getAll();
         const minhas = todas.filter(op => op.entityId === entityId || (citantes && operacaoCita(op, entityId)));
         for (const op of minhas) {
-            await operationQueue.recordIssue(op, { rejected: true, reason: motivo, status });
+            await fila.recordIssue(op, { rejected: true, reason: motivo, status });
         }
         return minhas.length;
     } catch (error) {
@@ -604,9 +652,9 @@ async function assentar(scope, registro, desfecho) {
     else _falhasSeguidas = 0;
 
     if (atualizado.estado === BlobUploadState.CONFIRMADO) {
-        await liberarOperacoes(atualizado.imageId);
+        await liberarOperacoes(scope, atualizado.imageId);
     } else if (atualizado.estado === BlobUploadState.RECUSADO) {
-        await aplicarRecusa(atualizado, desfecho.status ?? null);
+        await aplicarRecusa(scope, atualizado, desfecho.status ?? null);
     }
     return atualizado;
 }
@@ -632,14 +680,15 @@ function ehConversao(registro) {
  *  - A photo CONVERTED by an edit (phase 2c) is different: the server still holds its bytes INLINE
  *    in the entity, and the operation that would replace them with the reference is exactly what
  *    must not leave. Its operations become durable issues too, and the server keeps its copy.
+ * @param {object} scope - The remote scope the record belongs to.
  * @param {Object} registro - The record, as it now stands on disk.
  * @param {number|null} status
  * @returns {Promise<void>}
  */
-async function aplicarRecusa(registro, status) {
+async function aplicarRecusa(scope, registro, status) {
     const conversao = ehConversao(registro);
-    await marcarProblema(registro.imageId, registro.ultimoErro, status, { citantes: conversao });
-    if (!conversao) await liberarOperacoes(registro.imageId, { soFotos: true });
+    await marcarProblema(scope, registro.imageId, registro.ultimoErro, status, { citantes: conversao });
+    if (!conversao) await liberarOperacoes(scope, registro.imageId, { soFotos: true });
 }
 
 /** A verdict for an id the answer did not mention. Transient, because silence is not a refusal. */
@@ -941,7 +990,7 @@ export async function retomarBlobsPendentes(atlasId) {
                 // feature's operations used to be marked here: an operation that cited a PHOTO whose
                 // bytes vanished stayed held, and the queue of the whole atlas behind it, until the
                 // next connect happened to look again.
-                await aplicarRecusa(semBytes, null);
+                await aplicarRecusa(scope, semBytes, null);
             } catch (error) {
                 console.warn('[blob-upload-queue] could not close a pendency without bytes:', error);
             }
