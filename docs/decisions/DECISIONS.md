@@ -234,3 +234,4 @@ que envelheceu na decisão seguinte.)
 - 2026-09-25: a foto anexa viaja como blob com referência, e a edição que a cita espera os bytes; a recusa de foto convertida prende a edição, a de foto anexada não, [registro](decisions-2026.md).
 - 2026-09-25: os painéis laterais escondem a edição também pela trava; desenhar e recusar fica para o menu por mapa (decisão do dono), [registro](decisions-2026.md).
 - 2026-09-24: a alça da partida da rota é um ANEL, e o miolo dele é do corpo da feição (decisão do dono), [registro](decisions-2026.md).
+- 2026-09-25: a coleta de imagem órfã do servidor entra no lançamento: simulação por padrão, 30 dias contínuos sem citação, só o administrador do sistema marca ou apaga, e nada roda sozinho (decisão do dono de 2026-09-24 e 2026-09-25), [registro](decisions-2026.md).
