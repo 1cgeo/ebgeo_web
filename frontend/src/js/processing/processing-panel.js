@@ -5,11 +5,15 @@
  * Wraps the algorithm form with execution logic.
  */
 
-import { isCurrentMapLockedSync } from '@store/map.operations.js';
+import { assinarEdicaoIndisponivel, edicaoIndisponivelSync } from '@store/edicao-indisponivel.js';
+import { unavailableEditNotice } from '@store/denial-phrases.js';
 import { addDomListener, setupCleanup, cleanup } from '@utils/event-cleanup.js';
 import { escapeHtml } from '@utils/html-escape.js';
 import { runProcessing } from './processing-runner.js';
 import { PROCESSING_ICONS } from './processing.constants.js';
+
+/** What running an algorithm exercises: it creates a layer and features in the current map. */
+const PROCESSING_ACTION = 'CREATE_FEATURE';
 
 // ============================================================================
 // PUBLIC API
@@ -31,8 +35,6 @@ export function createProcessingPanel(options) {
     const panelCleanup = {};
     setupCleanup(panelCleanup);
 
-    const mapLocked = isCurrentMapLockedSync();
-
     const panelResult = algorithm.createPanel({ stateManager, eventBus });
     const { element, getParams, validate, ui } = panelResult;
 
@@ -43,12 +45,21 @@ export function createProcessingPanel(options) {
         element.dataset.testid = 'processing-panel';
     }
 
-    if (mapLocked && ui?.executeBtn) {
-        ui.executeBtn.disabled = true;
-        ui.executeBtn.title = 'Mapa bloqueado para edição';
-    }
-
+    // WHOEVER MAY NOT EDIT DOES NOT SEE "EXECUTAR", on both axes (rank and the map lock), as in the
+    // other side panels (`semEdicaoSync`): the owner decided on 2026-09-25 that the side panels hide,
+    // and that drawing and refusing the click is for the per-map menu. The panel follows the answer
+    // LIVE. It used to read the lock once, at birth, and set `disabled`: opened on a locked map the
+    // button stayed dead after the owner unlocked it, and a Leitor clicked it and read "Falha ao
+    // criar camada de saída" about a refusal of his level
+    // (`tests/e2e-ui/processamento-trava-e-posto.repro.spec.js`).
+    let stopFollowing = null;
     if (ui?.executeBtn) {
+        const unavailableNote = document.createElement('p');
+        unavailableNote.className = 'processing-panel__edit-unavailable';
+        unavailableNote.hidden = true;
+        ui.executeBtn.before(unavailableNote);
+        stopFollowing = assinarEdicaoIndisponivel(() => _applyEditAvailability(ui.executeBtn, unavailableNote));
+
         addDomListener(panelCleanup, ui.executeBtn, 'click', async () => {
             const validation = validate();
             if (!validation.valid) {
@@ -63,6 +74,7 @@ export function createProcessingPanel(options) {
     return {
         element,
         cleanup() {
+            stopFollowing?.();
             if (panelResult.cleanup) panelResult.cleanup();
             cleanup(panelCleanup);
         },
@@ -72,6 +84,23 @@ export function createProcessingPanel(options) {
 // ============================================================================
 // PRIVATE
 // ============================================================================
+
+/**
+ * Shows or hides the execute button for the answer of `edicaoIndisponivelSync` right now.
+ *
+ * Refused, the button is not drawn and one short sentence takes its place, since a panel with no
+ * command reads as a broken one: the sentence of the denied CAPABILITY for the rank, the sentence
+ * of the lock for the lock (`unavailableEditNotice`).
+ * @private
+ * @param {HTMLButtonElement} button
+ * @param {HTMLElement} note
+ */
+function _applyEditAvailability(button, note) {
+    const edicao = edicaoIndisponivelSync(PROCESSING_ACTION);
+    button.hidden = edicao.bloqueado;
+    note.hidden = !edicao.bloqueado;
+    note.textContent = edicao.bloqueado ? unavailableEditNotice(edicao) : '';
+}
 
 /**
  * Executes the algorithm and updates the progress/result UI.

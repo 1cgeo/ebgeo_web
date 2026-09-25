@@ -116,6 +116,18 @@ const SITIOS = Object.freeze([
     { nome: 'Notas do mapa: o painel aberto acompanha papel e trava', classe: PERGUNTA,
         arquivo: 'src/js/sidebar/sidebar.control.js',
         ancora: 'assinarEdicaoIndisponivel(() => this._refreshNotesReadOnly())' },
+
+    // O EXECUTAR DO PROCESSAMENTO ENTROU NO MESMO DIA (campanha de cobertura de briefing e
+    // processamento): o painel lia só a trava, uma vez, ao nascer, e desligava o botão por `disabled`,
+    // que ficava morto depois de destravar; e o Leitor clicava e lia "Falha ao criar camada de saída".
+    // Os dois eixos passam pela conta única e o painel aberto acompanha a resposta; o comportamento é
+    // cobrado em `tests/e2e-ui/processamento-trava-e-posto.repro.spec.js`.
+    { nome: 'Processamento: "Executar"', classe: PERGUNTA,
+        arquivo: 'src/js/processing/processing-panel.js',
+        ancora: 'const edicao = edicaoIndisponivelSync(PROCESSING_ACTION);' },
+    { nome: 'Processamento: o painel aberto acompanha papel e trava', classe: PERGUNTA,
+        arquivo: 'src/js/processing/processing-panel.js',
+        ancora: 'assinarEdicaoIndisponivel(() => _applyEditAvailability(ui.executeBtn, unavailableNote))' },
 ]);
 
 describe('somente leitura: as superfícies de edição somem', () => {

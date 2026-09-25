@@ -193,6 +193,14 @@
     cursor: not-allowed;
 }
 
+/* Why there is no execute button (rank or map lock): it takes the button's place */
+.processing-panel__edit-unavailable {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--gray-600);
+    text-align: center;
+}
+
 /* Progress */
 .processing-panel__progress {
     display: flex;
