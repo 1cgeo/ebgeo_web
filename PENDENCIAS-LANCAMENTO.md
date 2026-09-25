@@ -21,7 +21,7 @@ Para ler sem trocar de branch: git show origin/hunt/relatorios:campanha-2026-09-
 
 | branch | HEAD | o que contém | item |
 |---|---|---|---|
-| hunt/rede-ws | 12b2c21b | presença em link lento (0627c0cb, dadaff7c) e o WebSocket bloqueado em wip | 1.3 e 1.4 |
+| hunt/rede-ws | 12b2c21b | o WebSocket bloqueado em wip (a presença em link lento, item 1.3, saiu em 2026-09-25) | 1.4 |
 | hunt/orfas | a68ed8b6 | coleta de imagem órfã, inteira em wip | 1.5 |
 
 Commit wip significa NÃO VERIFICADO: é trabalho em curso salvo quando a campanha parou, com a mensagem começando por wip e essas palavras no corpo. Nunca integre um wip sem terminá-lo e verificá-lo.
@@ -51,14 +51,6 @@ As instruções de nginx para o engenheiro (nginx-srv-arquivos-2026-09-23.txt e 
 ## 1. Trabalho pronto em branches e ainda não integrado
 
 A ordem abaixo é a de prioridade.
-
-### 1.3 Presença em link lento
-
-- Branch hunt/rede-ws, commits 0627c0cb e dadaff7c. Relatório: rede-ws.md. O servidor passa a mandar a cada colega só o último quadro de presença enquanto o anterior não chegou. No par lento a 40 kbps com três colegas mexendo o mouse, a edição passou de 1,3 a 4,9 s (crescendo) para no máximo 0,72 s. A variável WS_PRESENCE_FLOW=0 volta ao comportamento antigo sem deploy.
-- NÃO PUBLICADA: o portão inteiro da raiz reprovou no backend (5715 de 5717).
-  - Um dos vermelhos é o próprio teste de propriedade da mudança, presenca-fluxo-por-destinatario, no caso "op de sync nunca é descartada nem coalescida, em 200 intercalações sorteadas" (rodada 87: "presence reached the recipient"). Numa intercalação sorteada, o teste acusou presença chegando quando não devia. Reproduza com a mesma semente antes de confiar no conserto.
-  - O outro vermelho foi o arquivo catalogo-basemap-sem-video, a conferir sozinho.
-- Ficou de fora: reduzir o cursor do próprio par lento durante um envio, e o custo do ping extra na bancada de 400 usuários.
 
 ### 1.4 Atlas de servidor com o WebSocket bloqueado
 
@@ -129,6 +121,8 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
 - briefing-vista-do-slide-cobertura.spec.js, caso "base por slide e instante por slide", reprova já em 318d864f (Chromium 1194, 1 de 1): um modal de confirmação intercepta o "Salvar" do editor em fecharEditorUI (linha 165). Não investigado.
 - Seis casos do vitest dependem do número de núcleos da máquina: orcamento-de-memoria-do-3d, streetview-tile-canvas-area-zero (2), streetview-tile-custo-maquina (2) e tile-loader-consertos-de-desempenho. Eles afirmam o caso "a máquina não se descreve", mas o Node 24 expõe navigator.hardwareConcurrency, e numa máquina de 4 núcleos o código aperta o orçamento. Reprovam na nuvem de 4 núcleos, em 318d864f também. O teste deve fixar o navigator em vez de ler o da máquina.
 - A porta de cópia pode dizer "pendente" onde é "recusado" (lido no código em 2026-09-25, sem medição): lerDivida (espera-do-envio-do-mapa.js) conta os recusados por getProblems, que segue só dependsOn, enquanto countByState e o carregador seguem também o lote envenenado (poisonedBatches). Depois do B6.1 a diferença só sobra para irmã SEM recibo no mesmo batchId. Um repro de integração decide se o caso ainda é alcançável.
+- Presença em link lento, o que ficou fora do item 1.3 (integrado em 2026-09-25): o cursor do PRÓPRIO par lento continua subindo durante um envio, estimado em cerca de 17% do uplink nominal e nunca medido. Só vale fazer se um spec de subida lenta mostrar a edição esperando atrás do cursor. O spec presenca-nao-disputa-com-sync usa Network.emulateNetworkConditionsByRule, que o Chromium 1194 da nuvem não tem: ali ele foi verificado numa cópia que estrangula a página inteira (3 de 3; o controle com WS_PRESENCE_FLOW=0 reprovou como devia), e o arquivo commitado ainda precisa de uma rodada com o Chromium do Playwright instalado (build 1228).
+- Na nuvem Linux (Node 22.22), quatro arquivos do backend reprovam por ambiente, fora de qualquer mudança: stream-error-crash.repro (caso 416) e erro-preserva-causa (lerPiramides) dependem de como o Windows trata um diretório, e sqlite-blob-pool e sqlite-blob-worker cancelam porque o worker e o temporizador de guarda são unref e o laço esvazia antes da resposta. O catalogo-basemap-sem-video, vermelho na máquina original, passou aqui antes e depois do 1.3.
 - O runner do processamento (processing-runner.js) confere só a trava: se o papel ou a trava mudarem durante uma execução já iniciada, a pessoa ainda lê "Falha ao criar camada de saída". Pelo clique isso não se alcança mais, porque o Executar some.
 - O npm run test:tocados responde "nada a rodar" quando o branch não tem upstream, mesmo com commits ainda sem push: ele só soma o diff contra o upstream quando existe um. Deveria recusar em voz alta e pedir --desde ou o upstream.
 - Duas observações da revisão dos gestos em massa (2026-09-25), menores e sem perda de dado:
@@ -143,6 +137,7 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
 - Corrigir o custo da figura de slide em link lento (item 3) antes do lançamento, ou depois?
 - Três detalhes do anel da partida da rota, implementados como a campanha recomendou: o miolo vale também no toque longo (gêmeo do botão direito); com a feição deslocada pela linha do tempo, o anel fica na partida e o miolo não pega nada; e o "1" acima do anel cai sobre as marcas de escalão no tamanho padrão, legível pelo halo (dá para subir o deslocamento de 2,4 para cerca de 3 em). Recomendação: manter os três.
 - O clique na árvore de camadas, a busca e "Zoom para Seleção" enquadram a feição pela caixa, com 80 px de folga, e o quadro deixa alças de edição fora da vista: a alça de rotação de um texto ficou em x = -82 px (zoom 16,66, com o painel aberto cobrindo de 0 a 456 px), e os pontos-chave 2 e 3 da rota de um símbolo passam da borda direita. Para girar, a pessoa precisa afastar o mapa. (a) O quadro inclui as alças da seleção e desconta o painel aberto; (b) a alça de rotação do texto entra na caixa; (c) fica como está. Recomendação da campanha: (a).
+- Os quatro testes do backend que dependem da plataforma (item 3): reescrevê-los para falhar igual em Windows e Linux (um alvo que não seja diretório, um guarda de tempo que segure o laço), ou declarar Windows e Node 24 como a plataforma da suíte? Recomendação: reescrever, porque hoje o portão da raiz nunca fica verde numa máquina Linux.
 - Desfazer um processamento tira as feições e deixa a camada de saída vazia. (a) fica assim, e a pessoa apaga a camada; (b) o desfazer reverte o gesto inteiro, feições e camada, e o refazer recria os dois com os mesmos ids; (c) o desfazer tira a camada só se ela ficar vazia e tiver nascido daquele processamento. Recomendação da campanha: (b), e conferir antes como a importação se comporta ao desfazer, porque a resposta deveria ser a mesma.
 - Slide que chega com as duas grafias (camelCase do cliente e snake_case do servidor): o conserto de 2026-09-24 (0dd03c9b) é só do cliente. O servidor deve preferir a camelCase quando as duas chegam, protegendo cliente antigo com operação na fila? Recomendação da campanha: fazer junto do lançamento se houver cliente antigo com fila viva; senão, descartar.
 - Comportamentos de visibilidade que ficaram como estão:
@@ -159,7 +154,7 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
 
 ## 5. Passos finais antes do deploy
 
-1. Fechar o item 1.3, e também 1.4 e 1.5 se entrarem no lançamento.
+1. Fechar os itens 1.4 e 1.5, que o dono decidiu levar ao lançamento. E medir o custo do ping de 2 bytes que agora segue cada quadro de presença: de dentro de backend/, node tests/bench/sala-limite.bench.mjs com WS_PRESENCE_FLOW=1 e com =0, contra a linha de base de 2026-08-27. A bancada mede o custo do ping, não a retenção, porque o cliente ws dela responde ao ping na hora, e o perdaCursorPct pode passar a contar coalescência como perda.
 2. Rodar as seis frentes do item 6, na ordem de risco, e integrar o que elas acharem.
 3. Remedir e APERTAR os tetos de peso da página do mapa. A fonte ficou com folga larga de propósito durante a campanha.
 4. npm run lint e npm test na raiz, em comandos separados.

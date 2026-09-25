@@ -121,3 +121,5 @@ primeira execução acharam **46 violações reais** em 28 arquivos. O
 `npm run lint` do backend roda `eslint-rules/probe.js` ANTES do eslint: o probe
 verifica as regras contra fixtures de deve-pegar e não-deve-pegar, porque
 regra de lint também é verificador e verificador quebra calado.
+
+**Caso síncrono que atravessa código que lê `Date.now()` e agenda `setTimeout` liga `mock.timers.enable({ apis: ['setTimeout', 'Date'] })` e avança o relógio ele mesmo.** No relógio de parede, um milissegundo que vira no meio do caso muda o ramo que o produto toma, e o timer agendado só dispara depois do fim síncrono: o vermelho sai numa fração das execuções e passa sozinho, o que já o fez ser lido como "ambiente da suíte". Medido em 2026-09-25 em `backend/tests/unit/presenca-fluxo-por-destinatario.test.js`: 8 de 60 vermelhos antes, 0 de 60 depois.
