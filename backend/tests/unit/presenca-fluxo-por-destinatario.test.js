@@ -102,6 +102,17 @@ describe('fluxo de presença por destinatário', () => {
   });
 
   it('OP DE SYNC NUNCA É DESCARTADA NEM COALESCIDA, em 200 intercalações sorteadas', () => {
+    // THE CLOCK BELONGS TO THE TEST, not to the wall. The pause after a pong is
+    // FATOR_DE_PAUSA x (rtt - rttMin) in wall-clock ms and ends in a setTimeout. On the real clock,
+    // a millisecond that turned between a marker and its pong (any slower or busier process) opened
+    // a pause whose timer could only fire after this synchronous loop, and a round whose only
+    // immediate presence was a selection ended with its cursors still retained: red in 10 of 100
+    // runs of this file alone and 13 of 100 under V8 coverage, always "round 87", "114", "141" or
+    // "166: presence reached the recipient", while the retained latest state went out intact as
+    // soon as the event loop ran. Here the clock advances 1 ms per step and the timers fire at
+    // their due time inside the round, so every round takes the pause path the same way on every
+    // machine.
+    mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
     // Deterministic LCG, so a red run is reproducible from its seed.
     let semente = 12345;
     const sorteio = () => {
@@ -112,12 +123,18 @@ describe('fluxo de presença por destinatário', () => {
       const b = destinatario();
       const atlasId = sala(b);
       const enviadas = [];
+      const ultimoCursor = new Map(); // sender -> the lng of its latest cursor broadcast
+      let ultimaSelecao = null;
       for (let passo = 0; passo < 40; passo++) {
+        mock.timers.tick(1);
         const x = sorteio();
         if (x < 0.5) {
-          broadcastToRoom(atlasId, lote(item(['A', 'C', 'D'][passo % 3], passo)));
+          const quem = ['A', 'C', 'D'][passo % 3];
+          ultimoCursor.set(quem, passo);
+          broadcastToRoom(atlasId, lote(item(quem, passo)));
         } else if (x < 0.65) {
-          broadcastToRoom(atlasId, { type: 'selection', clientId: 'A', userId: 'uA', surface: '2d', featureIds: [String(passo)] });
+          ultimaSelecao = [String(passo)];
+          broadcastToRoom(atlasId, { type: 'selection', clientId: 'A', userId: 'uA', surface: '2d', featureIds: ultimaSelecao });
         } else if (x < 0.85) {
           // Two ops per batch, and the SAME entity twice in a row sometimes: coalescing would merge them.
           const lot = [featureOp(passo), featureOp(passo)];
@@ -129,12 +146,23 @@ describe('fluxo de presença por destinatário', () => {
       }
       const recebidas = quadros(b).filter((f) => f.type === 'operations').flatMap((f) => f.ops.map((o) => o.id));
       assert.deepEqual(recebidas, enviadas, `round ${rodada}: every op, once, in order`);
+
+      // The recipient catches up: it answers its last marker and the longest pause elapses. What
+      // was retained goes out now, and it must be the LATEST state of each sender (retention
+      // replaces an older state, it never loses the newest one).
+      if (pings(b).length > 0) responder(b);
+      mock.timers.tick(PAUSA_MAX_MS);
       const lotesDeCursor = quadros(b).filter((q) => q.type === 'cursors');
       assert.ok(lotesDeCursor.length > 0, `round ${rodada}: presence reached the recipient`);
       for (const f of lotesDeCursor) {
         const ids = f.lote.map((i) => i.clientId);
         assert.equal(new Set(ids).size, ids.length, `round ${rodada}: a flush carries one cursor per sender`);
       }
+      const recebido = new Map();
+      for (const f of lotesDeCursor) for (const i of f.lote) recebido.set(i.clientId, i.position.lng);
+      assert.deepEqual([...recebido].sort(), [...ultimoCursor].sort(), `round ${rodada}: the latest cursor of each sender arrived`);
+      const selecoes = quadros(b).filter((q) => q.type === 'selection');
+      assert.deepEqual(selecoes.at(-1)?.featureIds ?? null, ultimaSelecao, `round ${rodada}: the latest selection arrived`);
     }
   });
 
@@ -185,6 +213,10 @@ describe('fluxo de presença por destinatário', () => {
   });
 
   it('um colega lento não atrasa os outros: o rápido recebe cada quadro na hora', () => {
+    // "At once" on the test's clock, frozen: on the wall clock a millisecond that turned between a
+    // frame and its pong made that round trip 1 ms above the best one, and the 3 ms pause held the
+    // next frame (4 !== 5, seen 3 times in 64 runs under V8 coverage).
+    mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
     const lento = destinatario();
     const rapido = destinatario();
     const atlasId = sala(lento, rapido);
