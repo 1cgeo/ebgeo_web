@@ -132,7 +132,10 @@ export async function desenhar(page, ferramenta) {
     return id;
 }
 
-/** Seletores dos tipos de controle da aba Estilo, e o rótulo de cada um. */
+/**
+ * Seletores dos tipos de controle do painel da feição, e o rótulo de cada um. `perna` é a linha de
+ * observação por perna (aba Azimutes de linha e polígono), cujo rótulo é o número da perna.
+ */
 const TIPOS = Object.freeze({
     deslizante: { raiz: '.attr-modern-slider', rotulo: '.attr-modern-slider-label' },
     alternancia: { raiz: '.attr-modern-toggle', rotulo: '.attr-modern-toggle-label' },
@@ -141,10 +144,22 @@ const TIPOS = Object.freeze({
     tracejado: { raiz: '.attr-modern-line-style', rotulo: '.attr-modern-line-style-label' },
     alinhamento: { raiz: '.attr-modern-alignment', rotulo: '.attr-modern-alignment-label' },
     hachura: { raiz: '.attr-modern-hatch', rotulo: '.attr-modern-hatch-label' },
+    numerico: { raiz: '.attr-modern-numeric', rotulo: '.attr-modern-numeric-label' },
+    texto: { raiz: '.attr-modern-textarea', rotulo: '.attr-modern-textarea-label' },
+    simbolo: { raiz: '.marker-symbol-picker', rotulo: '.color-picker-circles-header' },
+    perna: { raiz: '.obs-editor__row', rotulo: '.obs-editor__badge' },
 });
 
+/**
+ * O que NÃO é campo de estilo dentro de um conteúdo de aba: os botões de ação do painel e os botões
+ * de aba interna. Todo outro controle interativo visível fora dos `TIPOS` é DESCONHECIDO para o
+ * instrumento, e `controlesDesconhecidos` o nomeia.
+ */
+const NAO_CAMPO = ['.attr-modern-buttons', '.attr-modern-buttons-row', '.attr-modern-button-row', '.attr-modern-tabs',
+    '.feature-tabs-buttons', '.obs-editor__export'];
+
 /** A aba Estilo do painel aberto. */
-function abaEstilo(page) {
+export function abaEstilo(page) {
     return page.locator('.feature-panel[data-expanded="true"] .feature-tab-content[data-tab-id="estilo"]');
 }
 
@@ -152,8 +167,7 @@ function abaEstilo(page) {
  * Os controles VISÍVEIS e HABILITADOS da aba Estilo, como `{ tipo, rotulo, ordem }` (a ordem
  * desempata rótulos repetidos do mesmo tipo, como as duas "Correção de Zoom" do ponto).
  */
-export async function camposDeEstilo(page) {
-    const aba = abaEstilo(page);
+export async function camposDeEstilo(page, aba = abaEstilo(page)) {
     await expect(aba).toBeVisible({ timeout: 10000 });
     const campos = [];
     for (const [tipo, { raiz, rotulo }] of Object.entries(TIPOS)) {
@@ -163,7 +177,7 @@ export async function camposDeEstilo(page) {
             // Desabilitado pelo PRODUTO (ex.: o alinhamento de um texto de uma linha só): fora da
             // lista, porque não há gesto a fazer, e não é defeito.
             desabilitado: el.classList.contains('attr-modern-slider-disabled')
-                || !!el.querySelector('input:disabled, select:disabled')
+                || !!el.querySelector('input:disabled, select:disabled, textarea:disabled')
                 || (el.querySelectorAll('button').length > 0
                     && [...el.querySelectorAll('button')].every((b) => b.disabled)),
         })), rotulo);
@@ -177,10 +191,22 @@ export async function camposDeEstilo(page) {
     return campos;
 }
 
+/** A chave estável de um campo, para saber quais já foram exercitados. */
+export const chaveDoCampo = ({ tipo, rotulo, ordem }) => `${tipo}:${rotulo}#${ordem}`;
+
+/**
+ * O próximo campo ainda não exercitado da aba, RELENDO a aba a cada chamada: há campos que só aparecem
+ * depois de outro mudar (o texto, a cor e o tamanho da etiqueta só se desenham com "Mostrar Etiqueta"
+ * ligado), e uma lista tirada uma vez só, no começo, os perderia. Devolve null quando não sobra nenhum.
+ */
+export async function proximoCampo(page, aba, feitos) {
+    return (await camposDeEstilo(page, aba)).find((c) => !feitos.has(chaveDoCampo(c))) ?? null;
+}
+
 /** Aciona um controle da aba Estilo, trocando o valor para outro válido. */
-export async function mudarCampo(page, { tipo, rotulo, ordem }) {
+export async function mudarCampo(page, { tipo, rotulo, ordem }, aba = abaEstilo(page)) {
     const { raiz, rotulo: selRotulo } = TIPOS[tipo];
-    const alvo = abaEstilo(page).locator(raiz).filter({ has: page.locator(selRotulo, { hasText: rotulo }) }).nth(ordem);
+    const alvo = aba.locator(raiz).filter({ has: page.locator(selRotulo, { hasText: rotulo }) }).nth(ordem);
     await expect(alvo).toBeVisible({ timeout: 10000 });
     switch (tipo) {
     case 'deslizante': {
@@ -205,6 +231,26 @@ export async function mudarCampo(page, { tipo, rotulo, ordem }) {
     }
     case 'alternancia':
         await alvo.locator('.attr-modern-toggle-switch').click({ timeout: 5000 });
+        return;
+    case 'numerico': {
+        const campo = alvo.locator('.attr-modern-numeric-input');
+        const { min, max, valor } = await campo.evaluate((el) => ({
+            min: el.min === '' ? -Infinity : Number(el.min), max: el.max === '' ? Infinity : Number(el.max), valor: Number(el.value),
+        }));
+        let novo = Number.isFinite(valor) ? valor + 1 : 1;
+        if (novo > max) novo = Number.isFinite(min) ? min : valor - 1;
+        await campo.fill(String(novo));
+        await campo.press('Tab');
+        return;
+    }
+    case 'texto':
+        await alvo.locator('.attr-modern-textarea-input').fill(`Cobertura ${rotulo}`);
+        return;
+    case 'perna':
+        await alvo.locator('.obs-editor__input').fill(`Obs perna ${rotulo}`);
+        return;
+    case 'simbolo':
+        await alvo.locator('.marker-symbol-picker__item[data-symbol-id]:not(.active)').first().click({ timeout: 5000 });
         return;
     case 'selecao': {
         const sel = alvo.locator('.attr-modern-select-input');
@@ -248,6 +294,18 @@ export async function mudarCampo(page, { tipo, rotulo, ordem }) {
         }
     }
     }
+}
+
+/**
+ * Os controles interativos VISÍVEIS de um conteúdo de aba que não pertencem a nenhum `TIPOS` nem a
+ * `NAO_CAMPO`: o que o instrumento não sabe exercitar, nomeado pela classe e pelo texto.
+ */
+export async function controlesDesconhecidos(page, aba = abaEstilo(page)) {
+    const raizes = [...Object.values(TIPOS).map((t) => t.raiz), ...NAO_CAMPO].join(', ');
+    return aba.evaluate((el, sel) => [...el.querySelectorAll('input, select, textarea, button')]
+        .filter((c) => c.offsetParent !== null && !c.closest(sel) && c.type !== 'hidden')
+        .map((c) => `${c.tagName.toLowerCase()}.${c.className || '-'}[${(c.textContent || c.placeholder || c.title || '').trim().slice(0, 30)}]`),
+    raizes);
 }
 
 /** Chaves de escrituração que cada cliente carimba por conta própria. */

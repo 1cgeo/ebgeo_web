@@ -67,16 +67,24 @@ export function pontoDePega(feicao) {
  * o pixel de página dela. O arraste exige a feição SELECIONADA (`_startDrag`, `move_handler.js`), e a
  * seleção abre o painel, que ocupa a faixa esquerda: medido em 2026-09-24, a pega de uma linha no
  * centro do mapa caía sob `.feature-panel-content` e o clique nunca chegava ao canvas.
+ *
+ * E ESPERA O MAPA FICAR OCIOSO depois do deslocamento: o texto é camada de SÍMBOLO, e o índice de
+ * colisão dos símbolos só é refeito no quadro seguinte, então um acerto logo depois do `panBy` não
+ * acha o texto (medido: zero feições renderizadas na camada de texto e o menu de contexto sem
+ * "Copiar Feição").
  */
 export async function trazerParaAreaLivre(page, ll) {
-    return page.evaluate((c) => {
+    return page.evaluate(async (c) => {
         const map = globalThis.__ebgeoMap;
         const r = map.getCanvas().getBoundingClientRect();
         const painel = document.querySelector('.feature-panel[data-expanded="true"]')?.getBoundingClientRect();
         const esquerda = painel && painel.right > r.left ? Math.min(painel.right, r.right - 200) : r.left;
         const alvo = { x: (esquerda + r.right) / 2, y: r.top + r.height / 2 };
         const pt = map.project(c);
+        const ocioso = new Promise((ok) => { map.once('idle', ok); setTimeout(ok, 3000); });
         map.panBy([r.left + pt.x - alvo.x, r.top + pt.y - alvo.y], { animate: false });
+        map.triggerRepaint();
+        await ocioso;
         const depois = map.project(c);
         return { x: r.left + depois.x, y: r.top + depois.y };
     }, ll);

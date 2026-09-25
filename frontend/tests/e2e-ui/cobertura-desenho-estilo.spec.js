@@ -5,8 +5,10 @@
  * usuários num atlas de servidor, e depois do F5 nos dois (campanha de 2026-09-24).
  *
  * Para cada ferramenta de `FERRAMENTAS` (`helpers/cobertura-desenho.js`), A desenha pela ferramenta
- * real e, para CADA controle que a aba Estilo desenha (deslizante, alternância, seleção, cor,
- * grade de botões), abre o painel pela árvore de camadas, muda o controle, clica "Salvar" e mede:
+ * real e, para CADA controle que a aba Estilo desenha (deslizante, alternância, seleção, cor, grade de
+ * botões, campo numérico, texto, seletor de marcador), abre o painel pela árvore de camadas, muda o
+ * controle, clica "Salvar" e mede (a aba é relida a cada volta, então o controle que só aparece
+ * depois de outro mudar também entra):
  *
  *  - quais propriedades a gravação mudou no store de A (o campo tem efeito persistido?);
  *  - que essas propriedades chegam IGUAIS à linha do Postgres e ao store de B.
@@ -29,6 +31,7 @@
 import { collabTest, expect, selectFeatureUI, savePanelUI } from './helpers/collab.fixtures.js';
 import {
     FERRAMENTAS, desenhar, feicaoNoStore, camposDeEstilo, mudarCampo, chavesMudadas, semEscrituracao,
+    proximoCampo, chaveDoCampo, abaEstilo,
 } from './helpers/cobertura-desenho.js';
 
 collabTest.describe.configure({ retries: 0 });
@@ -59,8 +62,15 @@ for (const ferramenta of FERRAMENTAS) {
         expect(campos.length, `a aba Estilo de ${ferramenta.id} desenha algum controle`).toBeGreaterThan(0);
 
         const tabela = [];
-        for (const campo of campos) {
+        const feitos = new Set();
+        // A aba é RELIDA depois de cada campo (`proximoCampo`): um controle que só se desenha depois de
+        // outro mudar (as sub-opções da hachura, por exemplo) entra na volta seguinte.
+        for (let volta = 0; volta < 80; volta++) {
             await selectFeatureUI(A, id);
+            await expect(abaEstilo(A)).toBeVisible({ timeout: 10000 });
+            const campo = await proximoCampo(A, abaEstilo(A), feitos);
+            if (!campo) break;
+            feitos.add(chaveDoCampo(campo));
             const antes = (await feicaoNoStore(A, ferramenta.balde, id)).properties;
             console.log(`[cobertura-estilo] ${ferramenta.id}: ${campo.tipo}:${campo.rotulo}#${campo.ordem}`);
             await mudarCampo(A, campo);
