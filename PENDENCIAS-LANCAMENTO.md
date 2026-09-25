@@ -17,7 +17,7 @@ Branch órfão, sem código (HEAD 0f5e5826). Leia primeiro o README.md dele. Con
 
 Para ler sem trocar de branch: git show origin/hunt/relatorios:campanha-2026-09-24/relatorios/rede.md (troque o nome do arquivo).
 
-### O código não integrado: seis branches
+### O código não integrado: cinco branches
 
 | branch | HEAD | o que contém | item |
 |---|---|---|---|
@@ -25,7 +25,6 @@ Para ler sem trocar de branch: git show origin/hunt/relatorios:campanha-2026-09-
 | hunt/orfas | a68ed8b6 | coleta de imagem órfã, inteira em wip | 1.5 |
 | hunt/cob-desenho | 30c29454 | specs de desenho em wip | 2 |
 | hunt/cob-taticas | 076cf1e9 | repro da alça de partida da rota em wip | 2 |
-| hunt/cob-briefing | f9a5551c | conserto do painel de processamento em wip | 2 |
 | hunt/cob-imagens | 9ef0ee51 | spec de figura de slide em link lento em wip | 2 |
 
 Commit wip significa NÃO VERIFICADO: é trabalho em curso salvo quando a campanha parou, com a mensagem começando por wip e essas palavras no corpo. Nunca integre um wip sem terminá-lo e verificá-lo.
@@ -92,7 +91,7 @@ O detalhe e o próximo comando estão na seção PRÓXIMO PASSO do relatório de
 
 - Desenho (hunt/cob-desenho, relatório cobertura-desenho.md): specs de edição por alça, abas e menu de contexto. Três vermelhos não investigados: a alça de rotação do texto não gira; o refazer da elipse e o do texto num atlas local, que devem ser a corrida do helper de refazer, consertada no integracao_backend em 2026-09-24 (o branch a recebe no rebase).
 - Táticas (hunt/cob-taticas, cobertura-taticas.md): o pedido do dono não foi escrito. Hoje a alça de partida da rota fica no centro do símbolo militar, e pegar o símbolo move só a partida. Só o repro está no wip. O caso Declinação do spec de símbolos táticos falha cerca de uma vez em três.
-- Briefing e processamento (hunt/cob-briefing, cobertura-briefing.md): um conserto do painel de processamento (trava e posto), sem prova.
+- Briefing e processamento (cobertura-briefing.md; o branch saiu em 2026-09-25): o painel de processamento segue papel e trava, verificado só no Chromium. Faltam B27 (exportar o PDF do briefing: download e número de páginas) e B12 (salvar posição na vista 3D/360, que exige modelo e foto semeados).
 - Camadas (cobertura-camadas.md; o branch saiu em 2026-09-25): o "Editar" das notas do mapa para Leitor e Comentarista, e o que ficava lá quando a trava chegava, foi corrigido e verificado só no Chromium. Falta cobrir pela interface o painel de camadas (renomear, opacidade, reordenar, excluir, catálogo; o achado de leitura "os handlers do catálogo seguem a intenção e não o resultado" está por provar), os grupos (Adicionar ao Grupo, Combinar, Desagrupar) e a aba Mapas (Puxar outros mapas, limpar posição, renomear por menu, duplicar e excluir local, Limpar tudo). Falta também medir a rajada de ops remotas que redesenha a tabela de atributos do colega uma vez por op.
 - Imagens (hunt/cob-imagens, cobertura-imagens.md): spec de figura de slide em link lento; a segunda metade dele é vermelha por causa do custo descrito no item 3.
 - Bloqueio (cobertura-bloqueio.md, tudo já integrado): faltou só um spec da seleção por clique e por caixa com as três travas, e do F5 nos dois lados.
@@ -132,6 +131,7 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
 - Dois specs do Firefox ficaram sem classificação: browser-collab-analise-desfazer (linha 119) e envio-do-acervo-herdado (linha 341).
 - briefing-vista-do-slide-cobertura.spec.js, caso "base por slide e instante por slide", reprova já em 318d864f (Chromium 1194, 1 de 1): um modal de confirmação intercepta o "Salvar" do editor em fecharEditorUI (linha 165). Não investigado.
 - Seis casos do vitest dependem do número de núcleos da máquina: orcamento-de-memoria-do-3d, streetview-tile-canvas-area-zero (2), streetview-tile-custo-maquina (2) e tile-loader-consertos-de-desempenho. Eles afirmam o caso "a máquina não se descreve", mas o Node 24 expõe navigator.hardwareConcurrency, e numa máquina de 4 núcleos o código aperta o orçamento. Reprovam na nuvem de 4 núcleos, em 318d864f também. O teste deve fixar o navigator em vez de ler o da máquina.
+- O runner do processamento (processing-runner.js) confere só a trava: se o papel ou a trava mudarem durante uma execução já iniciada, a pessoa ainda lê "Falha ao criar camada de saída". Pelo clique isso não se alcança mais, porque o Executar some.
 - O npm run test:tocados responde "nada a rodar" quando o branch não tem upstream, mesmo com commits ainda sem push: ele só soma o diff contra o upstream quando existe um. Deveria recusar em voz alta e pedir --desde ou o upstream.
 - Duas observações da revisão dos gestos em massa (2026-09-25), menores e sem perda de dado:
   - Na quarentena, "Descartar" numa linha de um grupo recusado junto pergunta pelo grupo inteiro e descarta só aquela linha; e as frases do grupo prometem um "Aceitar o servidor" que a linha de quarentena não tem. Erra para o lado seguro, mas o texto é falso.
@@ -143,6 +143,8 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
 ## 4. Decisões do dono
 
 - Corrigir o custo da figura de slide em link lento (item 3) antes do lançamento, ou depois?
+- Desfazer um processamento tira as feições e deixa a camada de saída vazia. (a) fica assim, e a pessoa apaga a camada; (b) o desfazer reverte o gesto inteiro, feições e camada, e o refazer recria os dois com os mesmos ids; (c) o desfazer tira a camada só se ela ficar vazia e tiver nascido daquele processamento. Recomendação da campanha: (b), e conferir antes como a importação se comporta ao desfazer, porque a resposta deveria ser a mesma.
+- Slide que chega com as duas grafias (camelCase do cliente e snake_case do servidor): o conserto de 2026-09-24 (0dd03c9b) é só do cliente. O servidor deve preferir a camelCase quando as duas chegam, protegendo cliente antigo com operação na fila? Recomendação da campanha: fazer junto do lançamento se houver cliente antigo com fila viva; senão, descartar.
 - Comportamentos de visibilidade que ficaram como estão:
   - a busca acha feição oculta e, ao escolher, abre o painel dela;
   - feição oculta conta nos limites da linha do tempo;
