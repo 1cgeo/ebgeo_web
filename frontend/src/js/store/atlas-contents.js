@@ -32,11 +32,23 @@
 
 import { StoreName, getStoreFor } from './atlas-namespace.js';
 import { BLOB_UPLOAD_KEY_PREFIX } from './sync/blob-upload-keys.js';
+// Zero imports, so it keeps this module loadable by `atlas.html`, which boots without the store.
+import { DERIVED_OUTPUT_BUCKET_OF } from './feature-type.registry.js';
+
+/**
+ * The buckets that hold the DERIVED output of the two terrain analyses. They are not content: every
+ * client derives them from the input, and the send to the server skips them on purpose
+ * (`local-atlas-to-server.js`). Counting them made "Enviar ao servidor" of an acquis with analyses
+ * say that 12 of 805 features did not arrive (2026-09-25), and the same number appears on the atlas
+ * card and in the warning before an atlas is replaced.
+ */
+const BALDES_DERIVADOS = new Set(Object.values(DERIVED_OUTPUT_BUCKET_OF));
 
 /**
  * @typedef {Object} AtlasContents
  * @property {number} maps - Map documents in the scope.
- * @property {number} features - Features summed across every bucket of every map.
+ * @property {number} features - Features summed across every bucket of every map, except the derived
+ *   output of the analyses ({@link BALDES_DERIVADOS}).
  * @property {number} images - Image blobs stored in the scope.
  */
 
@@ -64,8 +76,8 @@ export async function countAtlasContents(scope) {
             maps += 1;
             const buckets = value.features;
             if (!buckets || typeof buckets !== 'object') return;
-            for (const bucket of Object.values(buckets)) {
-                if (Array.isArray(bucket)) features += bucket.length;
+            for (const [nome, bucket] of Object.entries(buckets)) {
+                if (Array.isArray(bucket) && !BALDES_DERIVADOS.has(nome)) features += bucket.length;
             }
         });
     } catch (error) {

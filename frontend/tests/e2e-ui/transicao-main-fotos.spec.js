@@ -465,18 +465,26 @@ describeOrSkip('a transição do main com fotos inline: nenhuma foto se perde', 
             await page.locator('[data-testid="local-atlas-send-to-server"]').click();
             await page.locator('[data-testid="local-atlas-name-input"]').fill(nomeNoServidor);
             await page.locator('[data-testid="local-atlas-name-confirm"]').click();
-            // O FIM DO ENVIO É O AVISO, NÃO A NAVEGAÇÃO: com qualquer poda a dizer, o cartão fica na
-            // tela de atlas e mostra a frase do envio em vez de abrir o mapa. A linha do atlas no
-            // banco, pelo nome, é o caminho independente para achar o que subiu.
+            // O FIM DO ENVIO É UM DE DOIS: o AVISO, quando há o que dizer (uma poda, uma perda), e o
+            // cartão fica na tela de atlas mostrando a frase; ou a NAVEGAÇÃO para o atlas novo, quando
+            // nada se perdeu. Com todos os recursos semeados e a saída das análises fora da conta desde
+            // 2026-09-25, este acervo sobe sem aviso. A linha do atlas no banco, pelo nome, é o caminho
+            // independente para achar o que subiu.
             try {
                 await expect.poll(() => db.raw.oneOrNone('SELECT id FROM atlas WHERE name = $1 AND deleted_at IS NULL', [nomeNoServidor]),
                     { timeout: 240000 }).not.toBeNull();
-                await expect.poll(() => vistos.some((v) => v.includes('foi enviado ao servidor') || v.includes('Atlas salvo no servidor')),
+                await expect.poll(() => /[?&]atlas=/.test(page.url())
+                    || vistos.some((v) => v.includes('foi enviado ao servidor') || v.includes('Atlas salvo no servidor')),
                     { timeout: 240000 }).toBe(true);
             } finally {
                 console.log(`TRANSICAO_ENVIO ${JSON.stringify(vistos)}`);
             }
             const { id: atlasId } = await db.raw.one('SELECT id FROM atlas WHERE name = $1 AND deleted_at IS NULL', [nomeNoServidor]);
+            // NADA SE PERDEU, ENTÃO NADA A AVISAR: o envio navega. Até 2026-09-25 a conta do atlas incluía
+            // as 12 metades de análise que o envio pula por decisão, e a tela ficava no aviso falso
+            // "Subiram só 793 feições de 805" (`store/atlas-contents.js`).
+            await expect.poll(() => page.url(), { timeout: 60000, message: 'o envio sem perda abre o atlas novo, sem aviso' })
+                .toMatch(/[?&]atlas=/);
 
             const noServidor = await fotosNoServidor(page, creds, db, atlasId);
             conferirFotos(noServidor, esperadas, 'no servidor');

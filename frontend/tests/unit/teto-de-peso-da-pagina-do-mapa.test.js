@@ -1513,7 +1513,11 @@ const PAGINAS_DIST = Object.freeze([
     // independentes acima de LOTE_MAX_OPS): 2022 kB medidos por este caso num build fresco. A pagina
     // alcanca `store/sync/operation-factory.js` e `store/sync/gesture-batch.js` por chunks
     // compartilhados (conferido pelo sourcemap), e a regra mora nesses dois arquivos. Folga de ~18 kB.
-    { html: 'calibracao.html', entrada: 'calibracao', minArq: 12, maxArq: 38, minKb: 1700, maxKb: 2040 },
+    // maxArq 38 -> 42 em 2026-09-25, medido com build fresco: 39 arquivos e o mesmo peso (2032 kB). A
+    // contagem do atlas passou a ler a lista de baldes derivados do registro de tipos
+    // (`store/feature-type.registry.js`, zero imports) para não contar a saída das análises, e a página
+    // alcança `store/atlas-contents.js`: o registro virou um chunk compartilhado de 3,9 kB.
+    { html: 'calibracao.html', entrada: 'calibracao', minArq: 12, maxArq: 42, minKb: 1700, maxKb: 2040 },
     // tutorial.html: a QUINTA página, medida na estreia, 2026-09-15, build fresco: 7 arquivos e
     // 499 kB. Ela é a mais LEVE das cinco por uma margem grande, e vale entender de que os 499 são
     // feitos, porque a leitura ingênua é que uma página de documentação deveria custar dezenas de
