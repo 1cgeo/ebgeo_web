@@ -108,7 +108,8 @@ async function _executeAlgorithm(algorithm, params, ui, stateManager, eventBus) 
         });
 
         if (progressContainer) progressContainer.classList.add('processing-panel__progress--hidden');
-        const msg = `${result.featureCount} ${result.featureCount === 1 ? 'feição criada' : 'feições criadas'} na camada "${escapeHtml(params.outputLayerName)}"`;
+        // Plain text: `_showResult` escapes it, and escaping here too showed "Zona &amp; Norte".
+        const msg = `${result.featureCount} ${result.featureCount === 1 ? 'feição criada' : 'feições criadas'} na camada "${params.outputLayerName}"`;
         _showResult(ui, msg, true);
         executeBtn.textContent = 'EXECUTAR';
         executeBtn.disabled = false;
