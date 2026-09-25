@@ -794,7 +794,16 @@ export async function openLayersTab(page) {
     await expect(page.locator('.layer-container').first()).toBeVisible({ timeout: 10000 });
 }
 
-/** Selects a feature by id through the REAL layers tree → expands the sidebar feature panel. */
+/**
+ * Selects a feature by id through the REAL layers tree → expands the sidebar feature panel.
+ *
+ * THE TREE CLICK ALSO FRAMES THE FEATURE (`frameFeatures`, since 2026-09-24), close to zoom 17 for
+ * a small one, and the frame leaves edit handles outside the viewport or under the open panel: a
+ * text's rotation handle at x = -82 px, a route's keypoints 2 and 3 past the right edge. A spec
+ * that counts or grabs DRAWN handles after this call must bring the camera back first
+ * (`vistaDoDesenho`, helpers/cobertura-desenho-forma.js). Two specs of the 2026-09-24 campaign
+ * read the missing handles as a product defect before this note existed.
+ */
 export async function selectFeatureUI(page, featureId) {
     await openLayersTab(page);
     for (const icon of await page.locator('.layer-expand-icon.collapsed').all()) {
