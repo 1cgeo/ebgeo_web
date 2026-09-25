@@ -437,3 +437,46 @@ describe('um Ctrl+Z desfaz o gesto inteiro, com ou sem coletor aberto', () => {
         expect(mockMapManager.recordBatchOperation).not.toHaveBeenCalled();
     });
 });
+
+// A REVISÃO DA INTEGRAÇÃO (2026-09-25): o caminho PLURAL tem de seguir o que o SINGULAR aprendeu com as
+// fotos anexas e com o desfazer, porque o rebase o pôs sobre esse código.
+describe('updateFeatures segue as regras do caminho singular', () => {
+    const fotoInline = { id: 'f1', name: 'antiga.jpg', type: 'image/jpeg', thumbnail: 'data:image/jpeg;base64,/9j/', data: 'data:image/jpeg;base64,QUFBQUFBQUFBQQ==' };
+
+    it('REPRO: o lado anterior viaja SEM os bytes da foto inline, como no singular', async () => {
+        // Com os bytes nos dois lados, uma feição com fotos antigas de 5 a 10 MB passava do limite
+        // de 10 MB por corpo: 413, e o estilo novo virava recusa definitiva nas pendências.
+        mockMapData.value.features.points[0].properties.images = [fotoInline];
+        const alvo = structuredClone(mockMapData.value.features.points[0]);
+        alvo.properties.color = '#00aa00';
+
+        await updateFeatures([{ type: 'points', feature: alvo }]);
+
+        const [[op]] = transacoes.value;
+        expect(op.previousData.properties.images[0].data, 'o lado anterior sem os bytes').toBeUndefined();
+        expect(op.previousData.properties.images[0].id).toBe('f1');
+        expect(op.data.properties.images[0].data, 'o lado novo com os bytes, como no singular').toBe(fotoInline.data);
+    });
+
+    it('REPRO: desfazer "acrescentar o primeiro atributo" pela porta plural retira o atributo', async () => {
+        // `preserveUserData` devolvia a bolsa guardada quando o alvo vinha sem ela, e o desfazer em
+        // massa não fazia nada, calado. O singular pula a preservação sob `revertFrom` desde 4e742aef.
+        const atual = structuredClone(mockMapData.value.features.points[0]);
+        atual.properties.attributes = { cota: '42' };
+        mockMapData.value.features.points[0] = structuredClone(atual);
+        const antes = structuredClone(atual);
+        delete antes.properties.attributes;
+
+        await updateFeatures([{ type: 'points', feature: antes, options: { revertFrom: structuredClone(atual) } }]);
+
+        expect(mockMapData.value.features.points[0].properties.attributes).toBeUndefined();
+    });
+
+    it('REPRO: mudar as fotos pela porta plural é recusado alto, em vez de sair sem conversão', async () => {
+        const alvo = structuredClone(mockMapData.value.features.points[0]);
+        alvo.properties.images = [fotoInline];
+
+        await expect(updateFeatures([{ type: 'points', feature: alvo }])).rejects.toThrow(/photos/);
+        expect(transacoes.value).toEqual([]);
+    });
+});

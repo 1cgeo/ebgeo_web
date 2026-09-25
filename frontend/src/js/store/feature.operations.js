@@ -877,9 +877,19 @@ export async function updateFeatures(items, mapName = null) {
                 if (!cleanedFeature) continue;
             }
             if (revertFrom) cleanedFeature = cleanFeature(keepLaterEdits(oldFeature, cleanFeature(revertFrom), cleanedFeature));
-            if (keepUserData) preserveUserData(oldFeature, cleanedFeature);
+            // Not under undo or redo, as in `updateFeature`: `keepLaterEdits` already kept what changed
+            // after the reverted edit, and restoring the stored collection made undoing "add the first
+            // attribute" through a mass entry do nothing (2026-09-25, integration review).
+            if (keepUserData && !revertFrom) preserveUserData(oldFeature, cleanedFeature);
             preserveSyncMetadata(oldFeature, cleanedFeature);
             if (isFeatureEqual(oldFeature, cleanedFeature)) continue;
+            // A PHOTO CHANGE DOES NOT GO THROUGH HERE. `updateFeature` converts inline photos to blobs and
+            // registers their upload inside the entity's transaction, and this path has neither: it would
+            // put the bytes on the wire unconverted. No mass gesture edits photos today; a caller that
+            // starts to is a bug, told loudly before anything is written.
+            if (fotosMudaram(oldFeature, cleanedFeature)) {
+                throw new Error(`updateFeatures: the photos of ${cleanedFeature.properties.id} changed; use updateFeature`);
+            }
             touchUpdatedTimestamp(cleanedFeature);
 
             bucket[index] = cleanedFeature;
@@ -912,7 +922,9 @@ export async function updateFeatures(items, mapName = null) {
             const mapId = mapManager.getMapId(targetMap);
             // INDEPENDENT, as in `removeFeatures`: one conflict costs one feature.
             for (const { type, oldFeature, cleanedFeature } of written) {
-                tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, cleanedFeature.properties.id, mapId, cleanedFeature, oldFeature, { storage: type, independent: true });
+                // The previous side without inline photo bytes, as `updateFeature` sends it: with them on
+                // both sides a feature with old photos went over the body limit (413, a lasting refusal).
+                tx.recordOperation(EntityType.FEATURE, OperationType.UPDATE, cleanedFeature.properties.id, mapId, cleanedFeature, previousOfFeatureEdit(oldFeature), { storage: type, independent: true });
             }
 
             return () => updateMapDataCompat(targetMap, currentMapData);
