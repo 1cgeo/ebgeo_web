@@ -98,12 +98,19 @@ async function copiarNoServidorUI(page, atlasId) {
     await page.locator('[data-testid="project-picker-duplicate"]').click();
 }
 
-const copiasNoServidor = (collab) => collab.db.raw.any(
-    "SELECT id FROM atlas WHERE name LIKE '%(cópia)' AND deleted_at IS NULL AND id <> $1", [collab.atlasId]);
+/**
+ * As cópias criadas DESDE `desde`, pelo relógio do banco. O corte por instante é o que isola as
+ * rodadas: com `--repeat-each` o banco é o mesmo, e a cópia legítima de uma rodada anterior ("copiar
+ * mesmo assim cria") era contada como a que o cancelar teria criado (2 de 3 em 2026-09-25).
+ */
+const copiasNoServidor = (collab, desde) => collab.db.raw.any(
+    "SELECT id FROM atlas WHERE name LIKE '%(cópia)' AND deleted_at IS NULL AND id <> $1 AND created_at >= $2",
+    [collab.atlasId, desde]);
 
 collabTest.describe('Cópia feita pelo servidor com uma figura ainda subindo', () => {
     collabTest('COPIAR NO SERVIDOR: avisa antes; cancelar não cria; copiar mesmo assim cria; reabrir envia a figura', async ({ collab }) => {
         collabTest.setTimeout(180000);
+        const inicio = (await collab.db.raw.one('SELECT now() AS t')).t;
         const A = collab.author;
         const segura = await segurarSubidas(A);
         const id = await porFiguraPresa(collab, [220, 40, 160]);
@@ -120,13 +127,13 @@ collabTest.describe('Cópia feita pelo servidor com uma figura ainda subindo', (
         await A.screenshot({ path: collabTest.info().outputPath('aviso-1.png') });
         await aviso.locator('.confirm-modal-btn-cancel').click();
         await A.waitForTimeout(1500);
-        expect(await copiasNoServidor(collab), 'cancelar criou uma cópia').toHaveLength(0);
+        expect(await copiasNoServidor(collab, inicio), 'cancelar criou uma cópia').toHaveLength(0);
 
         await copiarNoServidorUI(A, collab.atlasId);
         await expect(aviso).toBeVisible({ timeout: 10000 });
         await aviso.locator('.confirm-modal-btn-confirm').click();
-        await expect.poll(async () => (await copiasNoServidor(collab)).length, { timeout: 15000 }).toBe(1);
-        const [copia] = await copiasNoServidor(collab);
+        await expect.poll(async () => (await copiasNoServidor(collab, inicio)).length, { timeout: 15000 }).toBe(1);
+        const [copia] = await copiasNoServidor(collab, inicio);
         const naCopia = await collab.db.raw.any(
             `SELECT f.id FROM features f JOIN maps m ON m.id = f.map_id
              WHERE m.atlas_id = $1 AND f.feature_type = 'image' AND f.deleted_at IS NULL`, [copia.id]);
