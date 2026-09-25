@@ -372,9 +372,12 @@ class KeyboardShortcuts {
             }
 
             case 'v': {
-                // Only hijack Ctrl+V when we actually hold copied feature data; otherwise let the
-                // browser paste natively.
-                if (!this.clipboardManager.hasClipboardData()) return;
+                // Only hijack Ctrl+V when we hold copied feature data OR a Ctrl+C is still on its
+                // way to the clipboard; otherwise let the browser paste natively. The second half
+                // is not optional: `copy()` reads the map document from IndexedDB first, and a
+                // Ctrl+V pressed right behind the Ctrl+C used to find the clipboard empty and paste
+                // nothing, silently (`tests/unit/ctrl-v-logo-depois-do-ctrl-c.repro.test.js`).
+                if (!this.clipboardManager.hasClipboardData() && !this.clipboardManager.hasCopyInFlight()) return;
                 e.preventDefault();
                 // NO LOCK GATE HERE ANY MORE, and removing it is the point rather than a
                 // simplification. The gate stood in front of a `paste()` that was itself mute,

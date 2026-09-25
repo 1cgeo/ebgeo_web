@@ -395,6 +395,16 @@ class ClipboardManager {
     }
 
     /**
+     * Whether a `copy()` is still on its way to the clipboard (reading the store, loading a lazy
+     * tool). A paste issued in that window belongs to THAT copy, and `paste()` waits for it; a
+     * door that asks only `hasClipboardData` before calling `paste()` drops it instead.
+     * @returns {boolean}
+     */
+    hasCopyInFlight() {
+        return this._copyInFlight !== null;
+    }
+
+    /**
      * Check if clipboard has data.
      * @returns {boolean}
      */
