@@ -39,8 +39,9 @@
  * OS COMANDOS SE DIVIDEM EM TRÊS FAMÍLIAS, e a divisão é por FONTE, não por assunto. Os
  * cinco de LOG (`erros`, `lento`, `status`, `saude`, `linhas`) leem o `.jsonl` e respondem
  * com o Postgres fora, que é metade da razão de o arquivo existir. Os de BANCO (`defeitos`,
- * `pilha` e os três verbos de ciclo de vida) consultam as tabelas do lote B (`defeitos` e
- * `defeito_ocorrencias`), o que os obriga a importar o `config.js` e o pool, SEMPRE e não só
+ * `pilha`, os três verbos de ciclo de vida e `orfas`) consultam as tabelas (as do lote B,
+ * `defeitos` e `defeito_ocorrencias`, e no `orfas` as de conteúdo de atlas e `images`), o que
+ * os obriga a importar o `config.js` e o pool, SEMPRE e não só
  * quando falta `--dir`; eles NÃO podem responder com o banco fora, porque a resposta É o
  * banco. E há UM híbrido, `resumo`, que lê as duas fontes e tolera a ausência de cada uma:
  * o bloco cuja fonte não respondeu diz isso em vez de imprimir zero (ver `montarResumo`, em
@@ -51,12 +52,14 @@
  * banco entra só para os NOMES das contas, pela mesma função da rota (`nomearContas`), e a
  * ausência dele não derruba nada: o bloco `contas` diz que ficou cego e a lista sai inteira.
  *
- * OS TRÊS VERBOS DE CICLO DE VIDA SÃO A ÚNICA ESCRITA DESTE COMANDO. Eles chamam a MESMA
- * função de serviço que a rota `PATCH /diag/defeitos/:id` chama, pela regra de sempre (uma
- * segunda verdade sobre o que "resolver" significa faria a tela e o terminal divergirem), e
- * exigem `--como <usuário>`: `audit_trail.actor_id` é NOT NULL, o terminal não tem sessão, e
- * um ato de administrador sem autor na trilha não responde a pergunta que a trilha existe
- * para responder. Ver `comandoCicloDeVida`.
+ * AS ESCRITAS DESTE COMANDO SÃO DUAS FAMÍLIAS, e as duas exigem `--como <usuário>`. Os três
+ * verbos de ciclo de vida chamam a MESMA função de serviço que a rota `PATCH /diag/defeitos/:id`
+ * chama, pela regra de sempre (uma segunda verdade sobre o que "resolver" significa faria a tela
+ * e o terminal divergirem): `audit_trail.actor_id` é NOT NULL, o terminal não tem sessão, e um
+ * ato de administrador sem autor na trilha não responde a pergunta que a trilha existe para
+ * responder. Ver `comandoCicloDeVida`. E desde 2026-09-24 `orfas --marcar` e `orfas --apagar`,
+ * a coleta de imagem órfã, pelas mesmas funções da rota `/diag/imagens-orfas`; sem as duas
+ * bandeiras, `orfas` é a SIMULAÇÃO e não escreve nada. Ver `comandoOrfas`.
  *
  * `--json` VALE PARA TODOS ELES, e o contrato dele é curto: UM documento JSON no stdout e
  * NADA MAIS ali. As notas que o modo humano escreve (o cabeçalho com o diretório, as
@@ -78,6 +81,7 @@
  *   npm run diag -- resolver <uuid> --como <usuário> [--commit <hash>]
  *   npm run diag -- ignorar <uuid> --como <usuário>
  *   npm run diag -- reabrir <uuid> --como <usuário>
+ *   npm run diag -- orfas [--atlas <uuid>] [--marcar | --apagar] [--como <usuário>]
  *   (--dir <caminho> para ler um diretório de log que não seja o configurado)
  *   (--json em qualquer um deles)
  */
@@ -149,7 +153,7 @@ const ESTADO_DO_VERBO = Object.freeze({
 
 const COMANDOS = new Set([
   'erros', 'lento', 'status', 'saude', 'linhas', 'enderecos', 'resumo', 'defeitos', 'pilha',
-  ...Object.keys(ESTADO_DO_VERBO),
+  ...Object.keys(ESTADO_DO_VERBO), 'orfas',
 ]);
 
 /**
@@ -162,7 +166,14 @@ const COMANDOS = new Set([
  * falha (o comando de banco que alguém acrescentar depois cairia no ramo do arquivo e
  * morreria procurando `.jsonl`).
  */
-const COMANDOS_DE_BANCO = new Set(['defeitos', 'pilha', ...Object.keys(ESTADO_DO_VERBO)]);
+const COMANDOS_DE_BANCO = new Set(['defeitos', 'pilha', ...Object.keys(ESTADO_DO_VERBO), 'orfas']);
+
+/**
+ * The database commands that answer about no time window: `pilha` about ONE row found by id, and
+ * `orfas` about the whole `images` table under its own grace periods. Their `--json` carries
+ * `janela: null` rather than an invented 24h that filtered nothing.
+ */
+const COMANDOS_SEM_JANELA = new Set(['pilha', 'orfas']);
 
 /**
  * O HÍBRIDO, e ele é o único: `resumo` lê o ARQUIVO **e** o BANCO.
@@ -182,6 +193,7 @@ function lerArgumentos(argv) {
     comando, desde: '24h', limite: null, filtro: null, dir: null, intervalo: null,
     json: false, estado: null, origem: null, release: null, pagina: null, novos: false,
     id: null, mapas: null, limiteBruto: null, commit: null, como: null, porRelease: false,
+    marcar: false, apagar: false, atlas: null,
   };
   for (let i = 0; i < resto.length; i += 1) {
     const a = resto[i];
@@ -206,6 +218,9 @@ function lerArgumentos(argv) {
     else if (a === '--commit') op.commit = resto[++i];
     else if (a === '--como') op.como = resto[++i];
     else if (a === '--por-release') op.porRelease = true;
+    else if (a === '--marcar') op.marcar = true;
+    else if (a === '--apagar') op.apagar = true;
+    else if (a === '--atlas') op.atlas = resto[++i];
     // O ID TAMBÉM VEM SOLTO, mas SÓ NOS TRÊS VERBOS DE CICLO DE VIDA, e o recorte é o
     // conserto de uma versão anterior que aceitava posicional em TODO comando. Os dois
     // estragos daquela versão: um `diag -- defeitos aberto` (o operador quis `--estado
@@ -269,6 +284,15 @@ diag — consulta o log em arquivo e as tabelas de defeito do EBGeo
   do produto, e significa um FATO sobre duas releases. Para desfazer um "resolvido", use
   "reabrir".
 
+  coleta de imagem órfã (blob de atlas que nada cita há 30 dias contínuos, criado há mais de 30):
+  npm run diag -- orfas [--atlas <uuid>]                     SIMULAÇÃO: lista o que apagaria,
+                                                             com contagem e bytes; não escreve nada
+  npm run diag -- orfas --marcar --como <usuário>            escreve as marcas da carência, não apaga
+  npm run diag -- orfas --apagar --como <usuário>            marca e APAGA as elegíveis (linha na
+                                                             trilha por atlas; o arquivo sai do disco)
+  --atlas <uuid>    restringe o relatório e a remoção a um atlas; a busca de citação e as
+                    marcas continuam valendo para todos
+
   --dir <caminho>   lê outro diretório de log (default: o de LOG_DIR)
   --json            UM documento JSON no stdout e nada mais ali
   janela: 30m, 24h, 7d (o default de TODO comando é 24h; os colchetes acima mostram esse
@@ -277,7 +301,7 @@ diag — consulta o log em arquivo e as tabelas de defeito do EBGeo
   --filtro: casa a LINHA COMO ESTÁ NO DISCO, então nome de campo ("time", "msg")
             casa toda linha que o tenha. Procure pelo valor.
 
-  LEEM O BANCO (precisam de DATABASE_URL): defeitos, pilha, resolver, ignorar, reabrir.
+  LEEM O BANCO (precisam de DATABASE_URL): defeitos, pilha, resolver, ignorar, reabrir, orfas.
   LEEM O ARQUIVO e respondem com o Postgres fora: erros, lento, status, saude, linhas,
   enderecos (este pergunta ao banco só os nomes das contas, e diz quando não conseguiu).
   resumo le OS DOIS, e cada bloco dele diz quando a fonte daquele bloco nao respondeu.
@@ -835,7 +859,7 @@ async function abrirBanco() {
   // no cenário que o `resumo` existe para atravessar. O comando relata a falha com as
   // próprias palavras, no stderr, e é essa mensagem que serve a quem lê.
   //
-  // Vale para os cinco comandos de banco pelo mesmo motivo, e tem um efeito colateral
+  // Vale para todos os comandos de banco pelo mesmo motivo, e tem um efeito colateral
   // desejado: uma LEITURA de diagnóstico deixa de escrever no `.jsonl` que ela está lendo.
   const { default: registrador } = await import('../src/utils/logger.js');
   registrador.level = 'silent';
@@ -1414,9 +1438,9 @@ async function resolverDiretorioDaSonda() {
 /**
  * `resumo`: UMA tela com os cinco blocos, e o único comando HÍBRIDO.
  *
- * ELE TOLERA A AUSÊNCIA DE CADA FONTE, uma de cada vez, e é isso que o separa dos outros
- * sete. Os cinco de arquivo morrem com `Diretório de log não encontrado` e código 1; os dois
- * de banco morrem com `Não foi possível abrir o banco`. Aqui as duas coisas são NORMAIS: o
+ * ELE TOLERA A AUSÊNCIA DE CADA FONTE, uma de cada vez, e é isso que o separa de todos os
+ * outros. Os de arquivo morrem com `Diretório de log não encontrado` e código 1; os de
+ * banco morrem com `Não foi possível abrir o banco`. Aqui as duas coisas são NORMAIS: o
  * relatório continua saindo, com os blocos que a fonte viva sustenta, e cada bloco órfão diz
  * por que está vazio em vez de imprimir zero. Um relatório de uma tela que morresse inteiro
  * porque metade dele não pôde ser calculada seria inútil justamente durante o incidente, que
@@ -1730,7 +1754,7 @@ function imprimirResumo(r) {
  * Qual função responde por cada comando de banco.
  *
  * TABELA E NÃO TERNÁRIO. Enquanto eram dois, `op.comando === 'pilha' ? a : b` cabia; com
- * cinco, um encadeamento de ternários faria o comando NOVO cair no ramo `else` de alguém, e
+ * mais, um encadeamento de ternários faria o comando NOVO cair no ramo `else` de alguém, e
  * o modo de falha é o pior possível: `reabrir` respondendo a listagem de defeitos, com
  * código 0 e nada de errado na tela. A tabela transforma "esqueci de ligar o verbo" num
  * `undefined` que estoura na hora.
@@ -1741,7 +1765,119 @@ const DESPACHO_DE_BANCO = Object.freeze({
   resolver: comandoCicloDeVida,
   ignorar: comandoCicloDeVida,
   reabrir: comandoCicloDeVida,
+  orfas: comandoOrfas,
 });
+
+/**
+ * `orfas`: the orphan-image collector (owner, 2026-09-24), the twin of `/api/v1/diag/imagens-orfas`
+ * through the SAME service functions.
+ *
+ * THE DEFAULT IS THE SIMULATION, and the two writing modes each need their flag AND `--como`:
+ * `--marcar` writes the grace marks, `--apagar` marks and deletes. The actor is required for both
+ * because the terminal has no session: the deletion row of the trail has `actor_id NOT NULL`, and
+ * the marks, which decide what a deletion 30 days later removes, should not be written by nobody
+ * either. The same admin gate as the route (`resolverAtorAdministrador`).
+ *
+ * Usage errors are refused BEFORE the pool, like `comandoCicloDeVida`: a typo in the flags must not
+ * cost a database round trip, nor turn into "could not open the database" with Postgres down.
+ * @returns {Promise<{codigo: number, estrutura: Object|null, imprimir?: Function}>}
+ */
+async function comandoOrfas(op) {
+  if (op.marcar && op.apagar) {
+    process.stderr.write('Use --marcar OU --apagar, não os dois: --apagar já escreve as marcas antes de apagar.\n');
+    return { codigo: 1, estrutura: null };
+  }
+  if (op.atlas !== null && !UUID.test(String(op.atlas))) {
+    process.stderr.write(`--atlas não é um uuid: "${op.atlas}".\n`);
+    return { codigo: 1, estrutura: null };
+  }
+  const escreve = op.marcar || op.apagar;
+  if (escreve && !op.como) {
+    process.stderr.write(`Falta --como <usuário>: ${op.apagar ? '--apagar APAGA imagens e deixa linha na trilha' : '--marcar escreve as marcas da carência'}.\n`);
+    process.stderr.write('O terminal não tem sessão, então quem opera precisa se nomear. Sem --marcar e --apagar\n');
+    process.stderr.write('o comando é a SIMULAÇÃO, que não escreve nada e não pede --como.\n');
+    return { codigo: 1, estrutura: null };
+  }
+
+  const orfas = await import('../src/modules/images/imagens-orfas.service.js');
+  let ator = null;
+  if (escreve) {
+    const { resolverAtorAdministrador } = await import('../src/modules/diag/defeitos.service.js');
+    const resolvido = await resolverAtorAdministrador(op.como);
+    if (!resolvido.ator) {
+      process.stderr.write(resolvido.motivo === 'inexistente'
+        ? `Não há conta ATIVA com o usuário "${op.como}". Nada foi escrito.\n`
+        : `A conta "${op.como}" existe e NÃO é administrador do sistema. Nada foi escrito.\n`);
+      return { codigo: 1, estrutura: null };
+    }
+    ator = resolvido.ator;
+  }
+
+  const atlasId = op.atlas ?? null;
+  let relatorio;
+  if (op.apagar) relatorio = await orfas.apagarOrfas({ atorId: ator.id, atlasId });
+  else if (op.marcar) relatorio = await orfas.marcarOrfas({ atlasId });
+  else relatorio = await orfas.simularColetaDeOrfas({ atlasId });
+
+  return {
+    codigo: 0,
+    estrutura: ator ? { ...relatorio, ator } : relatorio,
+    imprimir: () => imprimirOrfas(relatorio, ator),
+  };
+}
+
+/** Bytes for a person: B, KB, MB, GB, with the pt-BR decimal comma. */
+function bytesLegiveis(n) {
+  const unidades = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let valor = Number(n) || 0;
+  let u = 0;
+  while (valor >= 1024 && u < unidades.length - 1) { valor /= 1024; u += 1; }
+  return `${u === 0 ? valor : valor.toFixed(1).replace('.', ',')} ${unidades[u]}`;
+}
+
+const diaDe = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '-');
+
+/**
+ * What the terminal shows after `orfas`. The MODE comes first and in words, because the same
+ * list means "would delete" in the simulation and "deleted" after `--apagar`.
+ */
+function imprimirOrfas(r, ator) {
+  const cabecalho = {
+    simulacao: 'SIMULAÇÃO (nada foi escrito)',
+    marcar: 'MARCAR (marcas escritas; nada foi apagado)',
+    apagar: 'APAGAR',
+  }[r.modo] ?? r.modo;
+  const g = r.regras;
+  process.stdout.write(`Coleta de imagens órfãs: ${cabecalho}${ator ? `, como ${ator.username}` : ''}\n`);
+  process.stdout.write(`  regra: sem citação há ${g.diasDeCarencia} dias contínuos e criada há mais de ${g.diasDeCriacao};`
+    + ` linha excluída cita por ${g.diasDeRetencaoDeExcluida} dias; operações dos últimos ${g.diasDaJanelaDeOperacoes} dias citam;`
+    + ' atlas na lixeira não perde nada\n');
+  process.stdout.write(`  imagens: ${r.imagens.total} (${bytesLegiveis(r.imagens.bytes)}), ${r.imagens.citadas} citada(s),`
+    + ` ${r.imagens.semCitacao} sem citação, ${r.imagens.naLixeira} delas em atlas na lixeira\n`);
+  if (r.marcas) process.stdout.write(`  marcas: ${r.marcas.postas} posta(s), ${r.marcas.zeradas} zerada(s)\n`);
+
+  const lista = r.modo === 'apagar' ? r.apagadas : r.elegiveis;
+  const verbo = r.modo === 'apagar' ? 'apagadas' : 'apagaria agora';
+  process.stdout.write(`\n  ${verbo}: ${lista.quantidade} imagem(ns), ${bytesLegiveis(lista.bytes)}\n`);
+  for (const grupo of lista.porAtlas) {
+    process.stdout.write(`    ${grupo.atlasNome} (${grupo.atlasId}): ${grupo.quantidade}, ${bytesLegiveis(grupo.bytes)}\n`);
+    for (const i of grupo.imagens) {
+      process.stdout.write(`      ${i.id}  ${bytesLegiveis(i.bytes).padStart(9)}  ${i.filename}`
+        + `${i.criadaEm ? `  criada ${diaDe(i.criadaEm)}, sem citação desde ${diaDe(i.semReferenciaDesde)}` : ''}\n`);
+    }
+  }
+  if (r.modo === 'apagar' && r.apagadas.arquivosNaoRemovidos.length > 0) {
+    process.stdout.write(`\n  ${r.apagadas.arquivosNaoRemovidos.length} arquivo(s) ficaram no disco (a linha saiu):\n`);
+    for (const a of r.apagadas.arquivosNaoRemovidos) process.stdout.write(`      ${a.id}  ${a.motivo}  ${a.caminho}\n`);
+  }
+
+  const semMarca = r.emCarencia.itens.filter((i) => i.motivo === 'sem-marca').length;
+  process.stdout.write(`\n  em carência: ${r.emCarencia.quantidade} imagem(ns), ${bytesLegiveis(r.emCarencia.bytes)}`
+    + `${semMarca > 0 ? ` (${semMarca} ainda sem marca: a contagem começa na próxima rodada com --marcar ou --apagar)` : ''}\n`);
+  if (r.modo === 'simulacao' && r.elegiveis.quantidade > 0) {
+    process.stdout.write('\n  Para apagar: npm run diag -- orfas --apagar --como <usuário>\n');
+  }
+}
 
 /**
  * Roda um dos comandos de banco, decide a saída e FECHA O POOL, sempre.
@@ -1805,8 +1941,8 @@ async function comandoDeBanco(op, janela) {
     await abrirBanco();
   } catch (err) {
     process.stderr.write(`Não foi possível abrir o banco: ${err.message}\n`);
-    process.stderr.write(`\`${op.comando}\` lê as tabelas, e não o log. São CINCO os comandos de banco`
-      + ' (defeitos, pilha, resolver, ignorar, reabrir), e os cinco exigem DATABASE_URL e JWT_SECRET.\n');
+    process.stderr.write(`\`${op.comando}\` lê as tabelas, e não o log. Os comandos de banco`
+      + ` (${[...COMANDOS_DE_BANCO].join(', ')}) exigem DATABASE_URL e JWT_SECRET.\n`);
     process.stderr.write('Para diagnosticar com o Postgres fora: os cinco comandos de log (erros,\n');
     process.stderr.write('lento, status, saude, linhas), ou o `resumo`, que sai com os blocos de banco\n');
     process.stderr.write('cegos e o resto do relatório inteiro.\n');
@@ -1823,7 +1959,7 @@ async function comandoDeBanco(op, janela) {
       // `null` diz isso melhor que uma janela inventada de 24h que não filtrou coisa alguma.
       // O mesmo vale para os três verbos de ciclo de vida, e a condição já os cobre sem uma
       // linha nova: eles exigem `--id`, então `op.id !== null` é sempre verdadeiro ali.
-      const janelaDoComando = op.comando === 'pilha' || op.id !== null
+      const janelaDoComando = COMANDOS_SEM_JANELA.has(op.comando) || op.id !== null
         ? null
         : { desde: op.desde, desdeMs: janela, inicio: Date.now() - janela, fim: Date.now() };
       escreverJson(op.comando, janelaDoComando, r.estrutura);

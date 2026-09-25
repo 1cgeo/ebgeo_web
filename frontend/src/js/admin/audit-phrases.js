@@ -122,6 +122,9 @@ const ACOES = Object.freeze({
     ATLAS_DELETE: { rotulo: 'Atlas apagado', familia: 'atlas' },
     ATLAS_RESTORE: { rotulo: 'Atlas restaurado', familia: 'atlas' },
     ATLAS_TRANSFER: { rotulo: 'Atlas transferido', familia: 'atlas' },
+    // A coleta de imagem órfã (dono, 2026-09-24): uma linha por atlas e por rodada, com os ids e os
+    // bytes nos detalhes. O alvo é o ATLAS, e é por isso que ela mora nesta família.
+    IMAGE_ORPHAN_PURGE: { rotulo: 'Imagens órfãs apagadas', familia: 'atlas' },
 
     // --- sistema -------------------------------------------------------------
     CONFIG_UPDATE: { rotulo: 'Configuração alterada', familia: 'sistema' },

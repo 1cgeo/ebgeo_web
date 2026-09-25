@@ -1067,6 +1067,20 @@ const CENSO_CONSULTA = [
       + 'alguém tivesse guardado dentro do `data` seria podada no limite de saída '
       + '(`middleware/prune-resource-payload.js`), que envolve todo `res.json`.',
   },
+  {
+    arquivo: 'src/modules/images/imagens-orfas.service.js', unidade: 'coletarImagensCitadas', n: 1,
+    classe: NAO_RECURSO,
+    motivo: 'FALSO POSITIVO DECLARADO, quarto irmão de `mergeMaps`. A interpolação percorre '
+      + '`FONTES_DE_REFERENCIA` (`imagens-orfas.fontes.js`), uma constante com as DOZE tabelas de '
+      + 'conteúdo de atlas que podem citar uma imagem (features, as duas de 3D/360 de mapa, atlas, '
+      + 'maps, briefings, slides, comments, layers, groups, catalog_layers e operations), nenhuma '
+      + 'delas de catálogo, de projeto 360 ou de modelo 3D: `catalog_layers` é o documento POR MAPA '
+      + 'de uma camada de catálogo, conteúdo colaborativo do atlas, e as quatro tabelas de catálogo '
+      + 'estão em `TABELAS_QUE_NAO_CITAM`, fora da varredura. A consulta procura TOKENS de UUID no '
+      + 'texto e devolve só os que são id de `images` (o `JOIN images`); nenhuma linha das fontes '
+      + 'sai no corpo. O gate é `requireAdmin` nas duas rotas e o `--como` de administrador no '
+      + 'comando, porque o relatório lista imagens de TODO atlas.',
+  },
 ];
 
 /**
@@ -1494,6 +1508,16 @@ const CENSO_ROTA = [
       + 'que ela devolve (`contexto` e `migalhas`) têm forma FECHADA por Joi na borda, com chaves '
       + 'escalares, e estão censados em `tests/integration/campos-livres-censo.test.js`: nenhuma '
       + 'delas guarda id de catálogo, 360 ou 3D. O `sessao_id` identifica a ABA, nunca a pessoa.',
+  },
+  {
+    arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /imagens-orfas', classe: R_OUTRA,
+    gate: 'requireAdmin',
+    motivo: `${SO_ADMIN} A SIMULAÇÃO da coleta de imagem órfã (2026-09-24), numa transação somente `
+      + 'leitura. O que sai é o relatório da rodada: contagens, bytes e, por imagem sem citação, o '
+      + 'id, o atlas (id e nome), o nome do arquivo e as datas. Nenhum byte de imagem e nenhum id '
+      + 'de catálogo, 360 ou 3D: as tabelas lidas são de conteúdo de atlas (ver a entrada de '
+      + '`coletarImagensCitadas`), e o que volta delas é só o token que é id de `images`. O gate é '
+      + 'de administrador porque a lista cruza TODO atlas, inclusive os que o chamador não lê.',
   },
   {
     arquivo: 'src/modules/uso/uso.routes.js', rota: 'GET /resumo', classe: R_OUTRA, gate: 'requireAdmin',

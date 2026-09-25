@@ -21,6 +21,7 @@ import { parseJanela, parseIntervalo } from '../../utils/diag-consulta.js';
 import { LIMITE_PADRAO_DE_ENDERECOS } from '../../utils/diag-enderecos.js';
 import { ORIGENS_DE_ERRO, ORIGENS_DO_CLIENTE } from './origens-de-erro.js';
 import { ESTADOS_DE_DEFEITO, ESTADOS_MANUAIS } from './estados-de-defeito.js';
+import { ModoDaColeta } from '../images/imagens-orfas.fontes.js';
 import {
   FAMILIAS_DE_NAVEGADOR,
   FAMILIAS_DE_SO,
@@ -295,6 +296,21 @@ export const ocorrenciasParamsSchema = Joi.object({
 export const estadoDeDefeitoSchema = Joi.object({
   estado: Joi.string().valid(...ESTADOS_MANUAIS).required(),
   commit: Joi.string().trim().max(64).allow('', null),
+});
+
+/**
+ * The orphan-image collector (owner, 2026-09-24). The GET is the simulation; the POST writes, and
+ * its `acao` is one of the two WRITING modes, taken from the service's vocabulary and never a
+ * literal: the simulation is not a POST, so an `acao: 'simulacao'` is refused here.
+ * `atlasId` narrows the report and the deletion to one atlas; the reference check and the marks
+ * stay global either way (a mark describes the image, not the run).
+ */
+export const imagensOrfasQuerySchema = Joi.object({
+  atlasId: Joi.string().guid(),
+});
+export const imagensOrfasBodySchema = Joi.object({
+  acao: Joi.string().valid(ModoDaColeta.MARCAR, ModoDaColeta.APAGAR).required(),
+  atlasId: Joi.string().guid(),
 });
 
 /**

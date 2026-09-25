@@ -138,6 +138,14 @@ const CENSO = [
     + 'atlas que ja esta na lixeira.',
     2
   ),
+  naoResolve(
+    'src/modules/images/imagens-orfas.fontes.js',
+    "'public.atlas_shares': 'access, not content',",
+    'TABELAS_QUE_NAO_CITAM da coleta de imagem orfa (2026-09-24): a tabela e NOMEADA para '
+    + 'declarar que ela NAO cita imagem, e nenhuma consulta a le. O nome precisa ser o literal '
+    + 'do esquema, porque o censo da coleta (imagens-orfas-censo.test.js) compara estas chaves '
+    + 'com o information_schema do banco migrado. Nao decide acesso de ninguem.'
+  ),
 ];
 
 // ---------------------------------------------------------------------------

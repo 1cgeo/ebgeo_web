@@ -181,6 +181,13 @@ const CENSO = [
     arquivo: 'src/modules/diag/diag.routes.js', rota: 'PATCH /defeitos/:id', classe: AUDITADA,
     acao: 'DEFEITO_ESTADO', emissor: 'src/modules/diag/defeitos.service.js',
   },
+  // A COLETA DE IMAGEM ÓRFÃ (dono, 2026-09-24): a única rota que APAGA bytes de atlas. A trilha
+  // é por atlas e por rodada, na mesma transação do DELETE; o modo `marcar` só escreve a
+  // contabilidade da carência e não deixa linha, porque não remove nada.
+  {
+    arquivo: 'src/modules/diag/diag.routes.js', rota: 'POST /imagens-orfas', classe: AUDITADA,
+    acao: 'IMAGE_ORPHAN_PURGE', emissor: 'src/modules/images/imagens-orfas.service.js',
+  },
 
   // ---------------- uso: telemetria de produto --------------------------------
   {

@@ -177,4 +177,28 @@ router.patch(
   ctrl.mudarEstadoDeDefeito
 );
 
+/**
+ * THE ORPHAN-IMAGE COLLECTOR (owner, 2026-09-24), the twin of `npm run diag -- orfas`.
+ *
+ * The GET is the SIMULATION, in a read-only transaction: what a deletion would remove now, with
+ * counts and bytes. The POST writes, with `acao` `marcar` (the grace bookkeeping only) or `apagar`
+ * (marks, then deletes the eligible images, with an audit row per atlas). `requireAdmin` refuses
+ * every API key (no scope reaches `administracao`), and the POST runs under the strict `auth`, like
+ * every writing route of the house. Nothing calls this on a schedule.
+ */
+router.get(
+  '/imagens-orfas',
+  auth,
+  requireAdmin,
+  validate({ query: schemas.imagensOrfasQuerySchema }),
+  ctrl.simularImagensOrfas
+);
+router.post(
+  '/imagens-orfas',
+  auth,
+  requireAdmin,
+  validate({ body: schemas.imagensOrfasBodySchema }),
+  ctrl.coletarImagensOrfas
+);
+
 export { router as diagRoutes };

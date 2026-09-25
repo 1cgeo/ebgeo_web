@@ -11,6 +11,7 @@ import { resolverPilhaDeDefeito } from './pilha.service.js';
 import { nomearContas } from './enderecos.service.js';
 import { idsDeContas } from '../../utils/diag-enderecos.js';
 import * as usoService from '../uso/uso.service.js';
+import * as orfas from '../images/imagens-orfas.service.js';
 
 /**
  * O DIRETÓRIO DE LOG É DECIDIDO AQUI E NUNCA PELO CHAMADOR.
@@ -370,4 +371,23 @@ export const mudarEstadoDeDefeito = asyncHandler(async (req, res) => {
   });
   if (!r) throw new NotFoundError(DEFEITO_INEXISTENTE);
   res.json({ data: r.item });
+});
+
+/**
+ * The orphan-image SIMULATION (read-only transaction). See `imagens-orfas.service.js`.
+ */
+export const simularImagensOrfas = asyncHandler(async (req, res) => {
+  res.json({ data: await orfas.simularColetaDeOrfas({ atlasId: req.query.atlasId ?? null }) });
+});
+
+/**
+ * The orphan-image collector's WRITING modes: `marcar` (the grace bookkeeping) or `apagar` (marks,
+ * then deletes the eligible images with an audit row per atlas, the actor being the session).
+ */
+export const coletarImagensOrfas = asyncHandler(async (req, res) => {
+  const atlasId = req.body.atlasId ?? null;
+  const data = req.body.acao === orfas.ModoDaColeta.APAGAR
+    ? await orfas.apagarOrfas({ atorId: req.user.id, req, atlasId })
+    : await orfas.marcarOrfas({ atlasId });
+  res.json({ data });
 });

@@ -253,6 +253,12 @@ const CENSO_ROTA = [
   json('src/modules/diag/diag.routes.js', 'GET /defeitos/:id/pilha'),
   // O ato de ciclo de vida devolve o item do defeito por `res.json`, como a listagem.
   json('src/modules/diag/diag.routes.js', 'PATCH /defeitos/:id'),
+  // A COLETA DE IMAGEM ÓRFÃ (2026-09-24): as duas devolvem o RELATÓRIO da rodada por `res.json`
+  // (contagens, bytes e, por imagem, id, atlas, nome do arquivo e datas). Nenhum byte de imagem
+  // sai por aqui e nenhuma definição de recurso de catálogo, 360 ou 3D atravessa: o corpo é
+  // metadado de `images` e `atlas`, e passa pela poda global como as irmãs.
+  json('src/modules/diag/diag.routes.js', 'GET /imagens-orfas'),
+  json('src/modules/diag/diag.routes.js', 'POST /imagens-orfas'),
 
   // Admin aggregates include catalog names and IDs for preference rankings.
   // They use res.json and pass through the global response pruning middleware.
