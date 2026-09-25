@@ -106,9 +106,13 @@ export async function prepararFotoAnexa(file, { origem = 'foto-anexa' } = {}) {
 /**
  * What the door reports when the upload of an attached photo could not be put on record. The error
  * carries `fotoNaoRegistrada: true`, which is what the galleries test before showing it.
+ *
+ * NO CAUSE IS NAMED (2026-09-25, third review, item 5): the record fails on ANY error of the browser's
+ * storage (quota, a blocked database, the write fence of an atlas being closed), and "Libere espaço"
+ * named one the code does not know.
  */
 export const FALHA_AO_REGISTRAR_A_FOTO = 'Não foi possível anexar a foto: o navegador não conseguiu '
-    + 'guardar o envio dela. Libere espaço e tente de novo.';
+    + 'guardá-la. Tente de novo. Se continuar, avise o administrador.';
 
 /**
  * Removes bytes minted here and referenced by nothing, but only in the atlas they were written to.
