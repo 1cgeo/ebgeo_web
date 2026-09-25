@@ -1469,7 +1469,12 @@ const PAGINAS_DIST = Object.freeze([
     // fresh builds on both sides: 4220 kB on origin/integracao_backend d753d1d7 and 4240 kB with the
     // branch, the 20 kB being the three new modules named in the module count above. 20 kB of headroom
     // until the ceilings are re-measured and tightened for the launch (PENDENCIAS, final steps).
-    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 90, minKb: 3600, maxKb: 4260 },
+    // maxArq 90 -> 91 on 2026-09-25, integrating the map notes fix (hunt/cob-camadas), measured with
+    // fresh builds on both sides: 90 files / 4249 kB on 318d864f and 91 / 4250 kB with the fix. The
+    // extra file is one more `cesium-integration-*` chunk, a re-cut of that group and not content:
+    // the fix imports `isTargetMapLocked` from `map.operations.js` into the notes panel (the same
+    // question `setMapNotes` asks), and the 1 kB is the panel's own new code.
+    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 91, minKb: 3600, maxKb: 4260 },
     // atlas.html: MEDIDA dos dois lados do mesmo lote, 36 arquivos / 663 kB antes e 40 / 664
     // depois. Os quatro arquivos a mais são repartição de chunk e não conteúdo (os modais que o
     // mapa deixou de alcançar estaticamente deixaram de dividir chunk com ele e viraram chunks

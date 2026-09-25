@@ -34,7 +34,8 @@ import {
     getOrderedMapBadgeColors,
     getControl
 } from '@store/index.js';
-import { createNotesPanelContent } from './panels/notes-panel.js';
+import { createNotesPanelContent, notasSomenteLeitura } from './panels/notes-panel.js';
+import { assinarEdicaoIndisponivel } from '@store/edicao-indisponivel.js';
 import { createVectorInfoPanelContent } from './panels/vector-info-panel.js';
 import { createFeaturePanelContent } from './panels/feature-panel-content.js';
 import { finishFeaturePanelBuild, commitOpenNameFields } from './panels/feature-panel-flush.js';
@@ -111,6 +112,11 @@ export class SidebarControl {
 
         // Version counter to cancel stale async panel renders
         this._featureContentVersion = 0;
+
+        // The notes panel on screen ({ mapName, element, setReadOnly }), and a counter so that only
+        // the newest "may this person edit these notes?" answer paints it.
+        this._notesPanelShown = null;
+        this._notesReadOnlyAsk = 0;
 
         setupCleanup(this);
     }
@@ -299,6 +305,12 @@ export class SidebarControl {
             (payload) => this._onMapNotesRequested(payload));
         subscribe(this, this._eventBus, EventTypes.MAP_NOTES_CHANGED,
             (payload) => this._onMapNotesChanged(payload));
+        // Everything that can change who may edit (role, connection, atlas, the map lock, a peer's
+        // lock included), in one subscription: a lock that arrived with the notes open used to leave
+        // "Editar" on screen, and the store refused the save.
+        this._unsubscribers.push(
+            assinarEdicaoIndisponivel(() => this._refreshNotesReadOnly())
+        );
 
         // Listen for search result panel requests
         subscribe(this, this._eventBus, EventTypes.SEARCH_RESULT_PANEL_REQUESTED,
@@ -807,10 +819,11 @@ export class SidebarControl {
     /**
      * Called when map notes are requested.
      * @private
-     * @param {Object} payload - Event payload with mapName
+     * @param {Object} payload - Event payload with mapName. Whether the notes are editable is NOT
+     *   taken from the payload: the requester used to send only the lock, and a Leitor got "Editar".
      */
     async _onMapNotesRequested(payload) {
-        const { mapName, readOnly } = payload;
+        const { mapName } = payload;
         if (!mapName) return;
 
         // Collapse sidebar panel first
@@ -823,14 +836,45 @@ export class SidebarControl {
         this._cleanupFeaturePanelContent();
 
         // Create notes panel content using extracted module
-        const { element, cleanup, title } = await createNotesPanelContent({ mapName, readOnly });
+        const readOnly = await notasSomenteLeitura(mapName);
+        const { element, cleanup, title, setReadOnly } = await createNotesPanelContent({ mapName, readOnly });
 
         // Store cleanup
         this._notesQuillCleanup = cleanup;
-        this._notesPanelShown = { mapName, readOnly, element };
+        this._notesPanelShown = { mapName, element, setReadOnly };
 
         // Show in feature panel
         this._featurePanel.show(element, title);
+
+        // A change that arrived while the panel was being built found no panel to update: ask once
+        // more, now that this one is registered.
+        await this._refreshNotesReadOnly();
+    }
+
+    /**
+     * Keeps the "Editar" of the notes on screen in step with who may edit them now.
+     *
+     * The panel is updated IN PLACE (`setReadOnly`), not rebuilt, so an edit already open keeps its
+     * text; the save is then refused by the store, which names why.
+     * @private
+     * @returns {Promise<void>}
+     */
+    async _refreshNotesReadOnly() {
+        const shown = this._notesPanelShown;
+        if (!shown || !shown.element.isConnected) return;
+        const ask = ++this._notesReadOnlyAsk;
+        let readOnly;
+        try {
+            readOnly = await notasSomenteLeitura(shown.mapName);
+        } catch {
+            // The lock setting could not be read: keep the panel as drawn. The store's own gate
+            // still refuses a write it must refuse.
+            return;
+        }
+        // A lock and an unlock in quick succession can answer out of order: only the newest answer
+        // paints, and only on the panel it was asked for.
+        if (ask !== this._notesReadOnlyAsk || this._notesPanelShown !== shown) return;
+        shown.setReadOnly(readOnly);
     }
 
     /**
@@ -845,7 +889,7 @@ export class SidebarControl {
         if (!shown || shown.mapName !== mapName || !shown.element.isConnected) return;
         if (!this._stateManager.get('ui.featurePanelOpen') || this._stateManager.get('ui.currentFeatureType') !== 'notes') return;
         if (shown.element.querySelector('.map-notes-edit-container:not(.map-notes-edit-container--hidden)')) return;
-        await this._onMapNotesRequested({ mapName, readOnly: shown.readOnly });
+        await this._onMapNotesRequested({ mapName });
     }
 
     /**

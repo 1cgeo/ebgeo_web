@@ -8,6 +8,8 @@
  */
 
 import { getMapNotes, setMapNotes } from '@store/index.js';
+import { edicaoIndisponivelSync } from '@store/edicao-indisponivel.js';
+import { isTargetMapLocked } from '@store/map.operations.js';
 import {
     sanitizeQuillHtml,
     cleanQuillContent,
@@ -23,6 +25,31 @@ export { sanitizeQuillHtml, cleanQuillContent } from '@utils/quill-helpers.js';
 export const sanitizeHtml = sanitizeQuillHtml;
 
 // ============================================================================
+// WHO MAY EDIT THE NOTES
+// ============================================================================
+
+/**
+ * Whether the notes of ONE map are read-only for this person right now.
+ *
+ * It asks the two questions `setMapNotes` asks before it writes, so the "Editar" the panel draws is
+ * the one the store will honour. Until 2026-09-25 the panel asked only for the lock, and a Leitor or
+ * a Comentarista got "Editar", wrote, and had "Salvar" refused
+ * (`tests/e2e-ui/notas-do-mapa-somente-leitura.repro.spec.js`).
+ *
+ * RANK comes from the single account of both axes, with the action the write really needs
+ * (`UPDATE_MAP`). The LOCK is asked of THIS map on disk (`isTargetMapLocked`, the store's own gate
+ * for this write) and not of the in-memory set, which answers only for the current map and, in a
+ * local atlas, knows no other.
+ *
+ * @param {string} mapName - The map whose notes are shown.
+ * @returns {Promise<boolean>} True when the edit command must not be drawn.
+ */
+export async function notasSomenteLeitura(mapName) {
+    if (edicaoIndisponivelSync('UPDATE_MAP').motivo === 'permissao') return true;
+    return isTargetMapLocked(mapName);
+}
+
+// ============================================================================
 // NOTES PANEL CONTENT CREATION
 // ============================================================================
 
@@ -31,8 +58,10 @@ export const sanitizeHtml = sanitizeQuillHtml;
  *
  * @param {Object} options - Options
  * @param {string} options.mapName - Map name for notes
- * @param {boolean} [options.readOnly=false] - Whether notes are read-only (locked map)
- * @returns {Promise<{ element: HTMLElement, cleanup: Function }>}
+ * @param {boolean} [options.readOnly=false] - Whether the edit command is withheld (see
+ *   {@link notasSomenteLeitura}); `setReadOnly` on the result changes it in place.
+ * @returns {Promise<{ element: HTMLElement, cleanup: Function, title: string,
+ *   setReadOnly: function(boolean): void }>}
  */
 export async function createNotesPanelContent({ mapName, readOnly = false }) {
     // Load notes
@@ -78,15 +107,30 @@ export async function createNotesPanelContent({ mapName, readOnly = false }) {
         titleDisplay.classList.add('map-notes-sidebar-placeholder');
     }
 
+    // Whether the edit command is withheld. It can change with the panel open (a peer locks the
+    // map, the role changes), so it is state of the panel and not a constant of its build.
+    let somenteLeitura = readOnly === true;
+
     // Description display (view mode) - renders sanitized HTML from Quill
     const descDisplay = document.createElement('div');
     descDisplay.className = 'map-notes-sidebar-desc-display map-notes-quill-content';
-    if (notesData.description) {
-        // Sanitize HTML before rendering to prevent XSS
-        descDisplay.innerHTML = sanitizeQuillHtml(notesData.description);
-    } else {
-        descDisplay.innerHTML = '<p class="map-notes-sidebar-placeholder">Clique em editar para adicionar uma descrição...</p>';
-    }
+
+    // The empty-description hint follows the edit command: telling a reader to click "Editar" points
+    // at a button that is not drawn.
+    const renderDescription = (description) => {
+        if (description) {
+            // Sanitize HTML before rendering to prevent XSS
+            descDisplay.innerHTML = sanitizeQuillHtml(description);
+            return;
+        }
+        const hint = document.createElement('p');
+        hint.className = 'map-notes-sidebar-placeholder';
+        hint.textContent = somenteLeitura
+            ? 'Sem descrição.'
+            : 'Clique em editar para adicionar uma descrição...';
+        descDisplay.replaceChildren(hint);
+    };
+    renderDescription(notesData.description);
 
     // Download button (shown in view mode)
     const downloadBtn = document.createElement('button');
@@ -107,10 +151,21 @@ export async function createNotesPanelContent({ mapName, readOnly = false }) {
     const viewBtnRow = document.createElement('div');
     viewBtnRow.className = 'map-notes-sidebar-view-actions';
 
-    if (!readOnly) {
+    if (!somenteLeitura) {
         viewBtnRow.appendChild(editBtn);
     }
     viewBtnRow.appendChild(downloadBtn);
+
+    // WITHHELD IS ABSENT, NOT DISABLED, on both axes: rank (Leitor, Comentarista) and the map lock
+    // hide "Editar", as they hide the edit commands of the feature panel (`semEdicaoSync`). An edit
+    // already open is left alone: its text stays, and a refused save is named by the store's own
+    // notice (see the save handler below).
+    const setReadOnly = (value) => {
+        somenteLeitura = value === true;
+        if (somenteLeitura) editBtn.remove();
+        else if (editBtn.parentNode !== viewBtnRow) viewBtnRow.prepend(editBtn);
+        renderDescription(notesData.description);
+    };
 
     viewContainer.appendChild(viewBtnRow);
     viewContainer.appendChild(titleDisplay);
@@ -239,14 +294,7 @@ export async function createNotesPanelContent({ mapName, readOnly = false }) {
             // Update view with new data
             titleDisplay.textContent = updatedData.title || 'Sem título';
             titleDisplay.classList.toggle('map-notes-sidebar-placeholder', !updatedData.title);
-
-            if (updatedData.description) {
-                // Sanitize HTML before rendering to prevent XSS
-                descDisplay.innerHTML = sanitizeQuillHtml(updatedData.description);
-                descDisplay.classList.remove('map-notes-sidebar-placeholder');
-            } else {
-                descDisplay.innerHTML = '<p class="map-notes-sidebar-placeholder">Clique em editar para adicionar uma descrição...</p>';
-            }
+            renderDescription(updatedData.description);
         }
     };
 
@@ -310,7 +358,8 @@ export async function createNotesPanelContent({ mapName, readOnly = false }) {
     return {
         element: contentWrapper,
         cleanup,
-        title: `Notas: ${mapName}`
+        title: `Notas: ${mapName}`,
+        setReadOnly
     };
 }
 

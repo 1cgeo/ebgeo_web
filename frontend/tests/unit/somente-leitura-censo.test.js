@@ -104,6 +104,18 @@ const SITIOS = Object.freeze([
     { nome: 'Aba de camadas (o container inteiro)', classe: PERGUNTA,
         arquivo: 'src/js/features_tab/features_tab.js',
         ancora: "this.container.classList.toggle('map-locked', semEdicaoSync())" },
+
+    // AS NOTAS DO MAPA ENTRARAM EM 2026-09-25 (campanha de cobertura de camadas): quem pedia o painel
+    // mandava só a trava, e o Leitor e o Comentarista recebiam "Editar"; e a trava que chegava com o
+    // painel aberto o deixava lá. A trava é perguntada ao DISCO para o mapa das notas (a mesma
+    // pergunta de `setMapNotes`), então a âncora amarra só o eixo de posto; o comportamento dos dois
+    // eixos é cobrado em `tests/e2e-ui/notas-do-mapa-somente-leitura.repro.spec.js`.
+    { nome: 'Notas do mapa: "Editar"', classe: PERGUNTA,
+        arquivo: 'src/js/sidebar/panels/notes-panel.js',
+        ancora: "if (edicaoIndisponivelSync('UPDATE_MAP').motivo === 'permissao') return true;" },
+    { nome: 'Notas do mapa: o painel aberto acompanha papel e trava', classe: PERGUNTA,
+        arquivo: 'src/js/sidebar/sidebar.control.js',
+        ancora: 'assinarEdicaoIndisponivel(() => this._refreshNotesReadOnly())' },
 ]);
 
 describe('somente leitura: as superfícies de edição somem', () => {

@@ -783,17 +783,18 @@ export class MapsTab {
 
     /**
      * Handles showing notes for the current map.
+     *
+     * Only the map travels: whether the notes are editable is decided where the panel is drawn
+     * (`notasSomenteLeitura`, `sidebar/panels/notes-panel.js`), on both axes. This used to send the
+     * lock alone, and a Leitor or a Comentarista got "Editar".
      * @private
      */
-    async _handleShowCurrentMapNotes() {
+    _handleShowCurrentMapNotes() {
         if (!this._currentMapName) return;
-
-        const locked = await isMapLocked(this._currentMapName);
 
         // Emit event to show notes in sidebar
         this._eventBus.emit(EventTypes.MAP_NOTES_REQUESTED, {
-            mapName: this._currentMapName,
-            readOnly: locked
+            mapName: this._currentMapName
         });
     }
 
