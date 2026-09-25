@@ -39,9 +39,12 @@ const addFeatures = vi.fn(async () => true);
 const emitStoreError = vi.fn();
 let mapaTravado = false;
 let clipboard = { features: [], copiedAt: null, sourceMapName: 'Principal' };
+/** A STORE dublada: o que `getFeatureById` devolve, por id. Vazia, cada feição cai no objeto recebido. */
+const naStore = new Map();
 
 vi.mock('@store', () => ({
     addFeatures: (...a) => addFeatures(...a),
+    getFeatureById: async (_storage, id) => naStore.get(id) ?? null,
     getImage: vi.fn(async () => null),
     getCurrentMapNameSync: () => 'Principal',
     getStorageTypeFromSource: (source) => `${source}s`,
@@ -491,5 +494,40 @@ describe('copy() carrega a ferramenta antes de decidir se a feição é copiáve
 
         expect(contagem).toBe(0);
         expect(toasts.warning).toEqual(['Nenhuma feição válida para copiar']);
+    });
+});
+
+describe('copy() copia a feição como está na STORE', () => {
+    it('REPRO: a foto anexada depois da seleção vai na cópia, e o objeto velho da seleção não vale', async () => {
+        // A seleção guarda a feição lida da fonte do mapa NO INSTANTE em que foi selecionada, e
+        // anexar uma foto pelo painel não a refaz. Copiar copiava esse objeto: "Duplicar Seleção" logo
+        // depois de anexar a foto criava a cópia SEM a foto, no autor e no servidor, em silêncio
+        // (`foto-anexa-nas-copias.spec.js`, 4 de 10 com a seleção velha, medido em 2026-09-25).
+        const manager = montar();
+        const velha = {
+            type: 'Feature', id: 'p1',
+            geometry: { type: 'Point', coordinates: [0, 0] },
+            properties: { id: 'p1', source: 'point', nome: 'Ponto' },
+        };
+        naStore.set('p1', { ...velha, properties: { ...velha.properties, images: [{ id: 'foto-1', name: 'foto.jpg', thumbnail: 't' }] } });
+        manager.selectionManager.getAllSelectedFeatures = () => [velha];
+
+        expect(await manager.copy()).toBe(1);
+
+        expect(clipboard.features[0].feature.properties.images, 'a cópia leva a foto que a store tem')
+            .toEqual([{ id: 'foto-1', name: 'foto.jpg', thumbnail: 't' }]);
+        naStore.clear();
+    });
+
+    it('CONTROLE: a feição que a store não tem é copiada como veio', async () => {
+        const manager = montar();
+        const avulsa = {
+            type: 'Feature', id: 'x1',
+            geometry: { type: 'Point', coordinates: [1, 1] },
+            properties: { id: 'x1', source: 'point', nome: 'Avulsa' },
+        };
+
+        expect(await manager.copy([avulsa])).toBe(1);
+        expect(clipboard.features[0].feature.properties.nome).toBe('Avulsa');
     });
 });

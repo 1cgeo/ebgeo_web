@@ -57,6 +57,7 @@
 
 import {
     addFeatures,
+    getFeatureById,
     getImage,
     getCurrentMapNameSync,
     getStorageTypeFromSource,
@@ -173,7 +174,20 @@ class ClipboardManager {
 
         await this.ensureControlsFor(sourceFeatures.map(f => f?.properties?.source));
 
-        const copyableFeatures = this.filterCopiableFeatures(sourceFeatures);
+        // THE STORE IS THE TRUTH, THE SELECTION IS A CACHE (2026-09-25). The selection keeps the
+        // feature read from the map source WHEN it was selected, and a photo attached through the
+        // panel afterwards does not refresh it: "Duplicar Seleção" right after attaching a photo made
+        // a copy WITHOUT it, on this machine and on the server, silently (4 of 10 runs of
+        // `foto-anexa-nas-copias.spec.js`). A feature the store does not have is copied as it came.
+        const currentFeatures = await Promise.all(sourceFeatures.map(async (feature) => {
+            const source = feature?.properties?.source;
+            const id = feature?.properties?.id;
+            if (!source || id == null) return feature;
+            const stored = await getFeatureById(this.getFeatureStorageType(source), id).catch(() => null);
+            return stored ?? feature;
+        }));
+
+        const copyableFeatures = this.filterCopiableFeatures(currentFeatures);
 
         if (copyableFeatures.length === 0) {
             ToastService.showWarning('Nenhuma feição válida para copiar');
