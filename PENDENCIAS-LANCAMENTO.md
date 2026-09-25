@@ -17,7 +17,7 @@ Branch órfão, sem código (HEAD 0f5e5826). Leia primeiro o README.md dele. Con
 
 Para ler sem trocar de branch: git show origin/hunt/relatorios:campanha-2026-09-24/relatorios/rede.md (troque o nome do arquivo).
 
-### O código não integrado: sete branches
+### O código não integrado: seis branches
 
 | branch | HEAD | o que contém | item |
 |---|---|---|---|
@@ -26,7 +26,6 @@ Para ler sem trocar de branch: git show origin/hunt/relatorios:campanha-2026-09-
 | hunt/cob-desenho | 30c29454 | specs de desenho em wip | 2 |
 | hunt/cob-taticas | 076cf1e9 | repro da alça de partida da rota em wip | 2 |
 | hunt/cob-briefing | f9a5551c | conserto do painel de processamento em wip | 2 |
-| hunt/cob-camadas | 9c1ee708 | repro do "Editar" nas notas para o Leitor em wip | 2 |
 | hunt/cob-imagens | 9ef0ee51 | spec de figura de slide em link lento em wip | 2 |
 
 Commit wip significa NÃO VERIFICADO: é trabalho em curso salvo quando a campanha parou, com a mensagem começando por wip e essas palavras no corpo. Nunca integre um wip sem terminá-lo e verificá-lo.
@@ -48,7 +47,7 @@ As instruções de nginx para o engenheiro (nginx-srv-arquivos-2026-09-23.txt e 
 
 3. Rebase sobre o integracao_backend atual antes de verificar: o origin andou depois que os branches foram cortados, e outra sessão do dono também publica nele.
 4. Cada teste que sobe servidor precisa de porta e banco próprios quando há mais de um agente na máquina: EBGEO_UI_E2E_APP_PORT, EBGEO_UI_E2E_BACKEND_PORT, EBGEO_E2E_PORT, EBGEO_E2E_DB_NAME e TEST_DB_NAME. As regras completas estão no BRIEF-COMUM.md e em frontend/tests/e2e-ui/constants.js.
-5. Verificação: desde 2026-09-24 cada commit roda npm run test:tocados, que escolhe os testes pelo que mudou. A suíte inteira da raiz (npm run lint e depois npm test, em comandos separados) é obrigatória quando a mudança cruza os pacotes, antes de deploy e antes de levar trabalho ao main. O Playwright fica fora do npm test (npm run test:e2e:ui, de dentro de frontend/).
+5. Verificação: desde 2026-09-24 cada commit roda npm run test:tocados, que escolhe os testes pelo que mudou. Ele só enxerga commit ainda sem push se o branch tiver upstream (git branch --set-upstream-to=origin/<branch>): sem upstream, ele vê só o que não foi commitado e responde "nada a rodar" (item 3). O vitest precisa de um Node com navigator.locks (24 ou mais novo): no Node 22 cerca de 135 casos reprovam por ambiente. A metade (b) do teto de peso mede o dist/, então rode npm run build antes de acreditar nela. A suíte inteira da raiz (npm run lint e depois npm test, em comandos separados) é obrigatória quando a mudança cruza os pacotes, antes de deploy e antes de levar trabalho ao main. O Playwright fica fora do npm test (npm run test:e2e:ui, de dentro de frontend/).
 6. Revisão de código antes de integrar qualquer item do bloco 1: as três rodadas de revisão desta campanha acharam defeitos de perda de dado que as suítes verdes não pegavam.
 7. Integrar: cherry-pick ou rebase sobre o integracao_backend, verificação, e push. Faça fetch e rebase logo antes do push e nunca force.
 8. Os tetos do teste de peso da página do mapa (frontend/tests/unit/teto-de-peso-da-pagina-do-mapa.test.js) sobem com código novo. Quando subir um, registre no comentário ao lado do número o que foi medido e por quê.
@@ -94,7 +93,7 @@ O detalhe e o próximo comando estão na seção PRÓXIMO PASSO do relatório de
 - Desenho (hunt/cob-desenho, relatório cobertura-desenho.md): specs de edição por alça, abas e menu de contexto. Três vermelhos não investigados: a alça de rotação do texto não gira; o refazer da elipse e o do texto num atlas local, que devem ser a corrida do helper de refazer, consertada no integracao_backend em 2026-09-24 (o branch a recebe no rebase).
 - Táticas (hunt/cob-taticas, cobertura-taticas.md): o pedido do dono não foi escrito. Hoje a alça de partida da rota fica no centro do símbolo militar, e pegar o símbolo move só a partida. Só o repro está no wip. O caso Declinação do spec de símbolos táticos falha cerca de uma vez em três.
 - Briefing e processamento (hunt/cob-briefing, cobertura-briefing.md): um conserto do painel de processamento (trava e posto), sem prova.
-- Camadas (hunt/cob-camadas, cobertura-camadas.md): há um DEFEITO PROVADO sem conserto, com repro vermelho 3/3 no wip. Leitor e Comentarista veem "Editar" nas notas do mapa, e a trava que chega com as notas abertas deixa "Editar" lá. Depois disso ainda falta cobrir o painel de camadas pela interface, os grupos e a aba Mapas.
+- Camadas (cobertura-camadas.md; o branch saiu em 2026-09-25): o "Editar" das notas do mapa para Leitor e Comentarista, e o que ficava lá quando a trava chegava, foi corrigido e verificado só no Chromium. Falta cobrir pela interface o painel de camadas (renomear, opacidade, reordenar, excluir, catálogo; o achado de leitura "os handlers do catálogo seguem a intenção e não o resultado" está por provar), os grupos (Adicionar ao Grupo, Combinar, Desagrupar) e a aba Mapas (Puxar outros mapas, limpar posição, renomear por menu, duplicar e excluir local, Limpar tudo). Falta também medir a rajada de ops remotas que redesenha a tabela de atributos do colega uma vez por op.
 - Imagens (hunt/cob-imagens, cobertura-imagens.md): spec de figura de slide em link lento; a segunda metade dele é vermelha por causa do custo descrito no item 3.
 - Bloqueio (cobertura-bloqueio.md, tudo já integrado): faltou só um spec da seleção por clique e por caixa com as três travas, e do F5 nos dois lados.
 
@@ -104,7 +103,7 @@ O detalhe e o próximo comando estão na seção PRÓXIMO PASSO do relatório de
 
 A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (cobertura 98,36%), contrato 274/274. O Playwright principal (911 casos, só Chromium) rodou em três fatias paralelas. Elas foram interrompidas por falta de memória da máquina quando tinham feito 678 casos. Os que falharam foram depois rodados sozinhos, em série, 3 vezes cada, sem nova tentativa:
 
-- No mesmo spec, a foto aberta pela galeria no atlas de SERVIDOR logo depois de "Enviar ao servidor" falhou 3 de 9 vezes: em duas a linha da feição não apareceu na árvore de camadas em 60 s, e numa o visualizador mostrou a miniatura (64 px) no lugar da foto (320 px). Os bytes no servidor conferem pelo banco e pela rota de leitura; o que a tela tem de produto ficou sem diagnóstico, e o spec deixou de abrir a foto ali.
+- No spec transicao-main-fotos, a foto aberta pela galeria no atlas de SERVIDOR logo depois de "Enviar ao servidor" falhou 3 de 9 vezes: em duas a linha da feição não apareceu na árvore de camadas em 60 s, e numa o visualizador mostrou a miniatura (64 px) no lugar da foto (320 px). Os bytes no servidor conferem pelo banco e pela rota de leitura; o que a tela tem de produto ficou sem diagnóstico, e o spec deixou de abrir a foto ali.
 - foto-anexa-nas-copias.spec.js, passo "copiar camada": criar um mapa e, na linha seguinte, copiar uma camada para ele falha em cerca de 1 de 10 com "Não foi possível confirmar a camada no mapa de destino" (desfecho target_write_incomplete da transferência de camada). Medido nas duas bases em 2026-09-25: 2 em 30 no integracao_backend e 1 em 10 com as fotos, então não vem delas. Hipótese a conferir: o eco do mapa novo refaz o índice de nomes entre a criação e a cópia, e a gravação no destino não acha o documento pelo nome e recusa em silêncio.
 - browser-collab-permissions.spec.js (linha 253), revogação de compartilhamento: falhou 3 de 3, mas o defeito é do TESTE. Depois da revogação, a página do colega navega para outra tela, e o teste ainda chama clienteNaPagina nela ("Execution context was destroyed"). Confirmar que a navegação é o comportamento desejado e ajustar o spec.
 - briefing-figura-leva-bytes.spec.js: passou 3 de 3 sozinho; a falha na fatia foi da carga.
@@ -131,6 +130,9 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
 - Teste do backend que falha perto da meia-noite: diag-cli-json.test.js, nos casos da janela e do comando saude (2 de 5710 numa rodada que cruzou 2026-09-25 00:00). A fixture espalha os registros por 15 minutos e os grava por arquivo de dia, então nos primeiros 15 minutos do dia eles caem em dois arquivos. Passa 17 de 17 sozinho. Tornar a fixture independente do relógio.
 - Testes do frontend que falham só sob carga e passam sozinhos: tab-lock-refutacao 3.5 (três vezes em 24/09), idb-decisao4-medicao (duas vezes), e a verificação de símbolos por tempo do docs-integridade (duas vezes).
 - Dois specs do Firefox ficaram sem classificação: browser-collab-analise-desfazer (linha 119) e envio-do-acervo-herdado (linha 341).
+- briefing-vista-do-slide-cobertura.spec.js, caso "base por slide e instante por slide", reprova já em 318d864f (Chromium 1194, 1 de 1): um modal de confirmação intercepta o "Salvar" do editor em fecharEditorUI (linha 165). Não investigado.
+- Seis casos do vitest dependem do número de núcleos da máquina: orcamento-de-memoria-do-3d, streetview-tile-canvas-area-zero (2), streetview-tile-custo-maquina (2) e tile-loader-consertos-de-desempenho. Eles afirmam o caso "a máquina não se descreve", mas o Node 24 expõe navigator.hardwareConcurrency, e numa máquina de 4 núcleos o código aperta o orçamento. Reprovam na nuvem de 4 núcleos, em 318d864f também. O teste deve fixar o navigator em vez de ler o da máquina.
+- O npm run test:tocados responde "nada a rodar" quando o branch não tem upstream, mesmo com commits ainda sem push: ele só soma o diff contra o upstream quando existe um. Deveria recusar em voz alta e pedir --desde ou o upstream.
 - Duas observações da revisão dos gestos em massa (2026-09-25), menores e sem perda de dado:
   - Na quarentena, "Descartar" numa linha de um grupo recusado junto pergunta pelo grupo inteiro e descarta só aquela linha; e as frases do grupo prometem um "Aceitar o servidor" que a linha de quarentena não tem. Erra para o lado seguro, mas o texto é falso.
   - Num excluir em massa de feições agrupadas recusado inteiro, "Aceitar o servidor" numa feição descarta o grupo da mesma ação, mas não as irmãs da operação de grupo culpada, que ficam nas pendências apontando para uma culpada que já saiu. Nada se perde; custa cliques.
@@ -139,6 +141,8 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
   - A remoção de chave sobre uma lista de atributos que não é objeto a troca por uma lista vazia.
 
 ## 4. Decisões do dono
+
+- Trava nos painéis laterais: a regra escrita (CLAUDE.md e architecture.md, dono, 2026-08-24) diz que o bloqueio por ESTADO desenha o comando e recusa o clique nomeando o estado. Os painéis laterais fazem outra coisa: desde a medição de 2026-09-16 que criou `semEdicaoSync`, o painel de feição, a tabela de atributos e a lista de camadas ESCONDEM a edição nos dois eixos, e as notas do mapa seguem esses painéis desde 2026-09-25. Desenhar e recusar vale hoje para o menu por mapa. Qual das duas vale para os painéis? Recomendação: registrar a divisão na regra (os painéis escondem, o menu desenha e recusa), porque é o comportamento de quatro superfícies e ninguém o reportou como defeito.
 
 - Corrigir o custo da figura de slide em link lento (item 3) antes do lançamento, ou depois?
 - Comportamentos de visibilidade que ficaram como estão:
