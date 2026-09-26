@@ -124,6 +124,13 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
 ### 3.1 Achados de 2026-09-26, durante a resolução da seção 4
 
 - Clonar atlas lê a origem sem o lock do log dela, o mesmo defeito que a duplicação de mapa tinha até 45daf60c: um envio à origem durante o clone pode deixar no atlas novo uma feição sem a camada dela (realojada na primeira camada do mapa). O atlas novo é do chamador e ninguém edita nele durante a cópia, então o risco é só a leitura da origem. O conserto seria o mesmo (lockAtlasLog na origem antes da primeira leitura), com o mesmo preço: os envios à origem esperam o clone. Precisa de decisão do dono, porque o clone de um atlas grande demora mais que a duplicação de um mapa e o lock_timeout é de 5 s.
+- A metade automática da foto recusada tem um limite declarado: o registro sai quando nenhuma entidade cita a foto, e um desfazer que devolva a foto à feição depois disso deixa a feição citando bytes que o servidor recusou, sem registro e sem pergunta na saída. Os bytes locais ficam (a coleta local de imagem é para depois do lançamento), então a foto continua visível para quem a pôs.
+
+### 3.2 Decisões pedidas ao dono em 2026-09-26, durante a resolução da seção 4
+
+- Foto anexa recusada, o "Descartar" da linha nas pendências (a metade automática, o registro sair quando nenhuma entidade cita mais a foto, já está feita): o que ele faz com a feição que ainda cita a foto? (a) tira a foto da feição, uma edição que sincroniza, e o registro sai sozinho em seguida; ou (b) apaga só a cópia local e o registro, e a feição continua citando uma foto que ninguém tem (ela aparece como indisponível, como já aparece para os colegas). A (a) é a coerente e custa achar a feição em qualquer mapa do atlas; a (b) é simples e deixa uma referência quebrada.
+- Botão "Apagar a cópia antiga" (dropLegacySource): onde ele mora para quem migrou SEM falha, já que a tela de recuperação só aparece na falha? Opções: na seção "Neste computador" do atlas.html, só enquanto a transição estiver concluída e a origem intacta; no menu da conta; ou num aviso único depois da migração, com o botão.
+- Clone de atlas segurando o lock do log da origem (achado 3.1): aceitar a espera dos envios à origem durante o clone, como na duplicação, ou deixar como está?
 
 ## 4. Trabalho decidido pelo dono, antes do lançamento
 
@@ -133,10 +140,9 @@ O dono respondeu em 2026-09-26 todas as perguntas que estavam aqui, e o registro
 - Enquadramento da seleção (clique na árvore, busca, "Zoom para Seleção"): incluir as alças da seleção e descontar o painel aberto. Hoje a alça de rotação de um texto fica em x = -82 px sob o painel, e os pontos-chave 2 e 3 da rota passam da borda.
 - Desfazer um processamento reverte feições e camada de saída, e o refazer recria os dois com os mesmos ids. Conferir antes como a importação se comporta ao desfazer, para dar a mesma resposta.
 - Religar o botão "Apagar a cópia antiga" (dropLegacySource): a cópia legada sai por gesto explícito, nunca sozinha. Isso também devolve a verdade à wiki e ao fileoverview citados no item 3.
-- Foto anexada recusada: o registro sai sozinho quando a foto sai da feição; "Descartar" nas pendências resolve quando a foto continua lá.
+- Foto anexada recusada: o "Descartar" nas pendências, para quando a foto continua na feição. A metade automática (o registro sai quando nenhuma entidade cita mais a foto) está feita; o que o "Descartar" faz com a feição espera a decisão da seção 3.2.
 - Desfazer e refazer seguidos rápido: o pedido seguinte espera o anterior terminar em vez de ser descartado; o duplo disparo de um mesmo gesto (botão e atalho) continua filtrado.
 - Depois de um resgate involuntário, a mesma conta ganha a saída "enviar as pendências a este atlas", além de "Apagar e abrir" e de "Enviar ao servidor". A operação não carrega autor, então o desenho começa por aí.
-- KMZ: gravar a geometria original da linha tracejada no ebgeo_estilo, para a volta recompor a linha (hoje 3 feições voltam como 156).
 - Importação de KML de terceiros: mapear stroke e fill para os campos de estilo do EBGeo.
 - Deploy: tirar os sourcemaps da pasta servida e guardá-los por release no servidor, para o "diag pilha". Mexe em deploy/, que roda contra produção: confirme antes de escrever lá.
 ## 5. Passos finais antes do deploy

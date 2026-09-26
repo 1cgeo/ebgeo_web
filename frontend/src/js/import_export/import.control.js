@@ -19,6 +19,7 @@ import {
     aplicarEstiloImportado,
     limparEstiloDoKml,
     nomesDeDadosPorPlacemark,
+    comGeometriaOriginal,
 } from './estilo-importado.js';
 
 /** Maps source type to Portuguese display name for imported features. */
@@ -597,6 +598,19 @@ class AddImportControl {
         return geoJSON;
     }
 
+    /**
+     * The features ONE feature of a file becomes: the geometry our KMZ export sliced put back first
+     * (a dashed line or outline, `comGeometriaOriginal`), then the multi-geometry split. The
+     * recomposition is here and not inside {@link decomposeMultiGeometry} because the split recurses,
+     * and every slice carries the same properties. Owner's decision of 2026-09-26: three dashed
+     * features exported and imported back came back as 156.
+     * @param {Object} originalFeature - A feature as the file reader gave it.
+     * @returns {Array<Object>}
+     */
+    featuresDoArquivo(originalFeature) {
+        return this.decomposeMultiGeometry(comGeometriaOriginal(originalFeature));
+    }
+
     decomposeMultiGeometry(feature) {
         const { geometry, properties } = feature;
         const singularType = geometry.type.replace('Multi', '');
@@ -937,7 +951,7 @@ class AddImportControl {
         for (const originalFeature of geoJSON.features) {
             if (!originalFeature.geometry?.type) continue;
 
-            const features = this.decomposeMultiGeometry(originalFeature);
+            const features = this.featuresDoArquivo(originalFeature);
             for (const feature of features) {
                 const targetType = this.getTargetType(feature.geometry.type);
                 if (targetType) {

@@ -48,6 +48,9 @@ const DASH_REFERENCE_ZOOM = 15;
 /** Reference label size, in pixels, that maps to a KML label scale of 1. */
 const LABEL_BASE_PX = 16;
 
+/** The categories drawn as linework: the only ones a dash pattern slices. */
+const LINEWORK_CATEGORIES = new Set([FeatureCategory.LINE, FeatureCategory.AREA]);
+
 /**
  * Extracts a representative latitude for a feature, used to scale dash
  * patterns and image extents.
@@ -160,9 +163,11 @@ export function degradationNotes(properties) {
  * @param {Object} feature - GeoJSON feature
  * @param {string} featureType - Source feature type
  * @param {Array<{href: string, name: string}>} photos - Photo references
+ * @param {Object|null} [geometriaFatiada] - The original geometry when the export slices this
+ *   feature (a dashed line or outline), carried in the style for our import to rebuild it
  * @returns {{description: string, time: string, extendedData: string}} Prebuilt elements
  */
-function buildTextBlocks(feature, featureType, photos) {
+function buildTextBlocks(feature, featureType, photos, geometriaFatiada = null) {
     const properties = feature.properties || {};
     const extras = collectDegradedStyle(properties);
 
@@ -175,7 +180,7 @@ function buildTextBlocks(feature, featureType, photos) {
     // THE FEATURE'S OWN STYLE, as JSON, for OUR import to restore (`estilo-importado.js`). KML
     // can say a colour and a width, not an EBGeo point or label, so without this a KMZ round trip
     // brought every feature back with the tool's defaults.
-    const estilo = estiloParaExportar(properties);
+    const estilo = estiloParaExportar(properties, geometriaFatiada);
     if (estilo) extras[CHAVE_DO_ESTILO] = estilo;
 
     return {
@@ -213,9 +218,16 @@ export async function mapFeatureToKml({ feature, featureType, styles, assets, op
     const visible = properties.visivel !== false;
 
     const photos = includePhotos ? await collectPhotos(assets, feature) : [];
-    const { description, time, extendedData } = buildTextBlocks(feature, featureType, photos);
-
     const category = classifyFeatureType(featureType);
+    // Linework only: every other category returns from its own branch below, whole.
+    const dashMeters = LINEWORK_CATEGORIES.has(category)
+        ? resolveDashMeters(properties, feature.geometry, simulateDash)
+        : undefined;
+    // A SLICED feature carries its original geometry in the style, so OUR import rebuilds the one
+    // feature instead of one per dash (owner's decision of 2026-09-26, `estilo-importado.js`).
+    const { description, time, extendedData } = buildTextBlocks(
+        feature, featureType, photos, dashMeters ? feature.geometry : null
+    );
 
     if (category === FeatureCategory.SKIPPED) return null;
 
@@ -239,7 +251,6 @@ export async function mapFeatureToKml({ feature, featureType, styles, assets, op
         return mapTextFeature({ feature, styles, description, time, extendedData, visible });
     }
 
-    const dashMeters = resolveDashMeters(properties, feature.geometry, simulateDash);
     const geometry = buildGeometry(feature.geometry, { dashMeters });
     if (!geometry) return null;
 

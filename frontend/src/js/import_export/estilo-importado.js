@@ -63,18 +63,70 @@ const NAO_E_ESTILO = new Set([
 const ehPrimitivo = (v) => v === null || ['string', 'number', 'boolean'].includes(typeof v);
 
 /**
+ * The key, INSIDE the style JSON ({@link CHAVE_DO_ESTILO}), that carries the ORIGINAL geometry of a
+ * feature the KMZ export sliced (owner's decision of 2026-09-26).
+ *
+ * KML cannot say "dashed", so "Simular linhas tracejadas" writes a dashed line (and a dashed
+ * outline) as its dashes, many short lines in one `MultiGeometry`, which is what Google Earth needs
+ * to show it. Our import split that collection into one feature per dash: three features came back
+ * as 156. With the original here, the import rebuilds the one feature and the style brings the dash
+ * back. It is not a style key, and {@link aplicarEstiloImportado} never restores it (it is not a
+ * primitive).
+ */
+export const CHAVE_DA_GEOMETRIA_ORIGINAL = 'geometriaOriginal';
+
+/** The geometries an export slices, the only ones worth carrying back. */
+const TIPOS_FATIADOS = new Set(['LineString', 'MultiLineString', 'Polygon', 'MultiPolygon']);
+
+/**
+ * Whether a value is a geometry the import can put back in place of the slices.
+ * @param {*} geometria
+ * @returns {boolean}
+ */
+function ehGeometriaFatiavel(geometria) {
+    return !!geometria && typeof geometria === 'object' && TIPOS_FATIADOS.has(geometria.type)
+        && Array.isArray(geometria.coordinates) && geometria.coordinates.length > 0;
+}
+
+/**
  * The style of a feature, as the JSON the KMZ export writes. Empty string when there is none.
  * @param {Object} properties - The feature's properties.
+ * @param {Object|null} [geometriaOriginal] - The geometry the export SLICED (a dashed feature), to
+ *   ride under {@link CHAVE_DA_GEOMETRIA_ORIGINAL}; null for a feature exported whole.
  * @returns {string}
  */
-export function estiloParaExportar(properties = {}) {
+export function estiloParaExportar(properties = {}, geometriaOriginal = null) {
     const estilo = {};
     for (const [chave, valor] of Object.entries(properties ?? {})) {
         if (NAO_E_ESTILO.has(chave) || !ehPrimitivo(valor)) continue;
         if (typeof valor === 'number' && !Number.isFinite(valor)) continue;
         estilo[chave] = valor;
     }
+    if (ehGeometriaFatiavel(geometriaOriginal)) estilo[CHAVE_DA_GEOMETRIA_ORIGINAL] = geometriaOriginal;
     return Object.keys(estilo).length > 0 ? JSON.stringify(estilo) : '';
+}
+
+/**
+ * The imported feature with the geometry OUR export sliced put back, or the feature as it came.
+ *
+ * Read before the multi-geometry split (`AddImportControl.featuresDoArquivo`), and only at the top
+ * of it: the slices of a collection carry the same properties, and putting the original back inside
+ * the recursion would rebuild it once per slice. A style that does not parse, or a value that is not
+ * a sliceable geometry, changes nothing.
+ * @param {Object} feature - A GeoJSON feature, as the KML reader gave it.
+ * @returns {Object}
+ */
+export function comGeometriaOriginal(feature) {
+    const bruto = feature?.properties?.[CHAVE_DO_ESTILO];
+    if (typeof bruto !== 'string') return feature;
+    let lido;
+    try {
+        lido = JSON.parse(bruto);
+    } catch {
+        return feature;
+    }
+    const geometria = lido?.[CHAVE_DA_GEOMETRIA_ORIGINAL];
+    return ehGeometriaFatiavel(geometria) ? { ...feature, geometry: geometria } : feature;
 }
 
 /**

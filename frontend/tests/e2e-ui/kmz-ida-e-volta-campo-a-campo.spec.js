@@ -138,11 +138,12 @@ describeOrSkip('KMZ: ida e volta campo a campo', () => {
 
         await page.locator('.sidebar-nav-btn[data-tab="exportar"]').click();
         await page.locator('.export-option-btn', { hasText: 'Exportar KMZ' }).click();
-        // "Simular linhas tracejadas" SLICES a dashed line into its dashes for Google Earth, and a
-        // sliced line comes back as dozens of segments (measured: 156 features for 3). That is the
-        // option's stated purpose, not this round trip's subject, so it is turned off here; the
-        // limit is recorded in the hunt report.
-        await page.locator('#kmz-simulate-dash').uncheck();
+        // "Simular linhas tracejadas" STAYS ON, and that is part of the subject since 2026-09-26: it
+        // slices the dashed line into its dashes for Google Earth, and the sliced line used to come
+        // back as dozens of segments (measured: 156 features for 3). The export now carries the
+        // original geometry in the style and the import rebuilds the one feature
+        // (`tests/unit/kmz-tracejado-volta-inteiro.repro.test.js`).
+        await expect(page.locator('#kmz-simulate-dash')).toBeChecked();
         const baixando = page.waitForEvent('download', { timeout: 30000 });
         await page.locator('.kmz-export-btn').click();
         const bytes = readFileSync(await (await baixando).path());
