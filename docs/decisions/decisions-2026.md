@@ -4600,3 +4600,17 @@ instável, e cada uma foi atribuída antes de ser tocada.
   - a figura de slide passa a ser referenciada por um src sentinela em https (`https://figura.ebgeo/<uuid>`), e não por um atributo novo: o sentinela sobrevive ao sanitizador e ao Quill antigos, de modo que a aba velha vê a figura quebrada mas não apaga a referência ao editar o texto do slide; o build novo troca o src pela imagem do blob na hora de desenhar. O atributo `data-figura` foi a alternativa recusada (a aba antiga o apaga, e a figura sumiria para todos), e esperar a virada do main a outra;
   - a saída "enviar as pendências a este atlas" só aparece para a mesma conta e enquanto a cópia local resgatada não foi editada depois do resgate (a primeira edição é marcada). Editada, sobram "Enviar ao servidor" (atlas novo, nada se perde) e "Apagar e abrir". As alternativas recusadas: mostrar sempre, avisando que o que foi feito depois do resgate se perde, e reconciliar essas edições em operações.
 - **Status:** aceitas pelo dono em 2026-09-26.
+
+### 2026-09-26: as sete decisões que ficaram das pendências do lançamento
+
+- **Contexto:** com a seção 4 fechada, sobraram nas pendências sete pontos que eram escolha de produto e não de código. Cada um foi perguntado com uma recomendação.
+- **Decisões:**
+  - navegador mínimo: o piso de 2026-09-23 (Chrome e Edge 109, Firefox ESR 115) fica, e o CSS se ajusta a ele: as regras com o seletor has (que exige Firefox 121) passam a uma classe posta pelo JS, e as misturas de cor com color-mix (que exige Chrome 111) passam a cores calculadas nos tokens. Subir o piso, que deixaria de fora o Windows 7 e o 8.1, foi a alternativa recusada;
+  - as propriedades de estilo derivadas do zoom continuam viajando como hoje, e só o spec de estilo muda para comparar o valor escolhido pela pessoa, nunca o derivado. Tirar os derivados do envio e fazer o autor reenviar o recalculado foram recusadas, por mexerem no sync perto do lançamento sem efeito visível;
+  - a coleta de imagem órfã: antes da primeira marcação em produção, o custo do gatilho que zera a marca é medido com import e envio grandes, com e sem imagem marcada, e o conserto (tirar o bloco de exceção ou mover a zerada para fora da transação) só é escolhido com o número na mão;
+  - as quatro camadas de exemplo do catálogo semeado, com endereço em localhost, saem por uma migração nova; as reais são cadastradas pelo administrador depois do deploy. Trocar por caminho relativo foi recusado, porque dependeria de o servidor de tiles de produção publicar exatamente aqueles caminhos;
+  - "Enviar ao servidor" e o `.ebgeo` passam a levar a trava de cada mapa e as cores de selo (mapBadgeColors); o dono do atlas destrava quando quiser;
+  - a figura de slide colada de OUTRO atlas é consertada antes do lançamento: a figura já resolvida leva os bytes na cópia, e o atlas que a recebe a cria como figura nova. Aceitá-la como limite foi a alternativa recusada;
+  - o conteúdo dos slides sai da op de BRIEFING (e do anterior dela) antes do lançamento, porque o servidor só usa a ordem dos slides dessa op. Deixar para depois foi a alternativa recusada.
+- **Status:** aceitas pelo dono em 2026-09-26.
+
