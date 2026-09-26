@@ -3,9 +3,11 @@
 // AS DUAS EXCECOES REST QUE ESCREVEM NO LOG DE UM ATLAS EXISTENTE TOMAM A TRAVA DO LOG
 // (`lockAtlasLog`, `src/modules/sync/atlas-log-lock.js`), e cada uma no ponto certo:
 //
-//   - a DUPLICACAO toma a trava so antes de atualizar a linha do atlas e gravar o marcador. Tomada
-//     no topo, ela fazia todo push do atlas esperar a copia inteira de um mapa grande, segurando
-//     uma conexao do pool, e voltar 503 passado o `lock_timeout`;
+//   - a DUPLICACAO toma a trava ANTES DA PRIMEIRA LEITURA e a segura pela copia inteira (decisao
+//     do dono de 2026-09-26): todo push do atlas, de qualquer mapa, espera a copia, e passado o
+//     `lock_timeout` recebe 503. Ate aquela data ela era tomada so antes da linha do atlas e do
+//     marcador, para nao segurar os pushes, e a copia lia uma origem que mudava no meio
+//     (`duplicar-mapa-retrato-estavel.repro.test.js`);
 //   - o MERGE toma a trava antes de tudo. Sem ela, o `nextval` do marcador e o gatilho que atualiza
 //     o atlas nao sao atomicos: um push que tire a versao seguinte entre os dois comita PRIMEIRO, e
 //     o par que puxa nessa janela guarda um cursor que passa por cima do marcador.
@@ -20,6 +22,7 @@ import pg from 'pg';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAtlas, createMap, loginUser } from '../helpers/fixtures.js';
+import { SYNC_PUSH_LOCK_NAMESPACE } from '../../src/modules/sync/atlas-log-lock.js';
 
 const PAUSA_COPIA = 748101;
 const PAUSA_MARCADOR = 748102;
@@ -73,7 +76,7 @@ describe('trava do log nas excecoes REST', () => {
     return { id, res };
   };
 
-  it('DUPLICACAO: a copia de um mapa nao segura os pushes do atlas', async () => {
+  it('DUPLICACAO: a copia de um mapa segura os pushes do atlas, e eles entram depois dela', async () => {
     const atlas = await createAtlas(db, controle.dono.id, { name: `TLD ${randomUUID().slice(0, 6)}` });
     const origem = await createMap(db, atlas.id, { name: 'Grande' });
     const outro = await createMap(db, atlas.id, { name: 'Outro' });
@@ -90,6 +93,7 @@ describe('trava do log nas excecoes REST', () => {
 
     await controle.query('SELECT pg_advisory_lock($1)', [PAUSA_COPIA]);
     let duplicacao;
+    let envio;
     try {
       duplicacao = supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/maps/${origem.id}/duplicate`)
@@ -97,17 +101,22 @@ describe('trava do log nas excecoes REST', () => {
         .then((r) => r);
       await esperar(esperandoAdvisory(PAUSA_COPIA), 'duplicacao parada no meio da copia');
 
-      // Com a copia parada, um colega edita outro mapa do mesmo atlas.
-      const inicio = Date.now();
-      const { res } = await criarFeicao(atlas.id, outro.id);
-      const demora = Date.now() - inicio;
-      assert.equal(res.status, 200, `o push nao pode esperar a copia (respondeu ${res.status} em ${demora} ms)`);
-      assert.equal(res.body.data.results[0].status, 'applied');
-      assert.ok(demora < 3000, `o push levou ${demora} ms`);
+      // Com a copia parada, um colega edita OUTRO mapa do mesmo atlas: a trava e por atlas, entao
+      // ele espera tambem. O pedido so e visto parado na trava do log, nunca respondido.
+      let respondeu = false;
+      envio = criarFeicao(atlas.id, outro.id).then((r) => { respondeu = true; return r; });
+      await esperar(`SELECT count(*) > 0 AS ok FROM pg_locks
+        WHERE locktype = 'advisory' AND NOT granted AND classid = ${SYNC_PUSH_LOCK_NAMESPACE}
+          AND objid::bigint = (hashtext('${atlas.id}')::bigint & 4294967295)`,
+        'push parado na trava do log do atlas');
+      assert.equal(respondeu, false, 'o push nao comita enquanto a copia segura a trava');
     } finally {
       await controle.query('SELECT pg_advisory_unlock($1)', [PAUSA_COPIA]);
     }
     assert.equal((await duplicacao).status, 201, 'a duplicacao termina depois de solta');
+    const { res } = await envio;
+    assert.equal(res.status, 200, `o push entra depois da copia (respondeu ${res.status})`);
+    assert.equal(res.body.data.results[0].status, 'applied');
     for (const sql of gatilhos.splice(0)) await db.query(sql);
   });
 

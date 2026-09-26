@@ -1221,6 +1221,19 @@ export async function duplicateMap(atlasId, mapId, actingUserId = null, { name =
   let newMapResult;
 
   await withPreparedImageCopies(atlasId, atlasId, mapId, async (t, { imageIdMap, rows: imageRows }) => {
+    // THE LOG LOCK OF THE ATLAS, FIRST, and held for the whole copy (owner's decision of
+    // 2026-09-26). The copy reads the source in several statements (layers, groups, features...),
+    // each seeing what was committed when IT began, so a push landing between two of them tore the
+    // copy: a colleague's new layer stayed out, its feature came in, and `ensureMapLayers` re-homed
+    // it into the first layer, a state the source never had. Every push takes this lock before its
+    // first write, so holding it from here makes the copy a stable picture of the source. The price
+    // is the one the owner accepted: a push to this atlas waits for the copy, and past the 5 s
+    // `lock_timeout` it gets a retryable 503. It is also the order the push takes its locks in
+    // (this lock before the atlas row), so there is no lock cycle. See `lockAtlasLog`. Held by
+    // `tests/integration/duplicar-mapa-retrato-estavel.repro.test.js` and, for the marker's place
+    // in the log, `tests/integration/marcador-rest-ordem-de-commit.repro.test.js`.
+    await lockAtlasLog(t, atlasId);
+
     const map = await t.oneOrNone(
       `SELECT * FROM maps WHERE id = $1 AND atlas_id = $2 AND deleted_at IS NULL`,
       [mapId, atlasId]
@@ -1246,15 +1259,6 @@ export async function duplicateMap(atlasId, mapId, actingUserId = null, { name =
       { targetAtlasId: atlasId, copyComments: true }
     );
     await ensureMapLayers(t, atlasId, [newMapId]);
-
-    // THE LOG LOCK OF THE ATLAS, taken HERE and not at the top: before this line the transaction
-    // only reads the source map and writes rows of a map no one else can see yet, so it holds
-    // nothing a push waits for, and taking the lock at the top made every push of the atlas wait
-    // (holding a pool connection, then a 503) for the whole copy of a large map. From here on it
-    // updates the atlas row and writes the marker into the log, which is what must follow the
-    // push's order: taken BEFORE the atlas row, in the same order the push takes them, so there is
-    // no lock cycle. See `lockAtlasLog`.
-    await lockAtlasLog(t, atlasId);
 
     // Append to atlas map_order
     await t.none(

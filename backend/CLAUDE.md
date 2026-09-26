@@ -130,15 +130,16 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   `frontend/tests/unit/marcador-estrutural-espelha-backend.test.js` e
   `frontend/tests/e2e/marcador-estrutural.e2e.test.js`.
 
-  A segunda são as DUAS rotas que **este** cliente não chama, e elas não correm o mesmo risco. O
-  `merge` é gateado em `manage` aqui, mas o cliente combina localmente e sincroniza como ops comuns,
-  então o gate do servidor ficaria inalcançável: por isso `map.manager.combineSelectedMapsIntoTarget`
-  ganhou um `checkPermission(GuardAction.COMBINE_MAPS)` explícito, e os dois precisam continuar
-  alinhados. O `duplicate` está na MESMA situação de descolamento (nenhum chamador em
-  `frontend/src/`; o cliente copia em `copyMap`, no mesmo
-  `frontend/src/js/map/map.manager.js`, e sincroniza como ops) e
-  **não** ganhou guard nenhum: `copyMap` depende de o servidor recusar as ops uma a uma. Quem for
-  fechar essa ponta olhe o par inteiro, porque o assunto é o mesmo e só metade dele foi resolvida.
+  A segunda é o chamador. O `merge` continua sem nenhum neste cliente: ele é gateado em `manage`
+  aqui, mas o cliente combina localmente e sincroniza como ops comuns, então o gate do servidor
+  ficaria inalcançável, e por isso `map.manager.combineSelectedMapsIntoTarget` ganhou um
+  `checkPermission(GuardAction.COMBINE_MAPS)` explícito; os dois precisam continuar alinhados. O
+  `duplicate` TEM chamador desde 2026-09-24: em atlas de servidor, `_duplicateOnServer`
+  (`frontend/src/js/map/map.manager.js`) chama a rota depois de `checkPermission(GuardAction.CREATE_MAP)`,
+  e `copyMap` ficou para o atlas local. As duas tomam o lock do log do atlas (`lockAtlasLog`)
+  antes da primeira leitura, e a duplicação o segura pela cópia inteira desde 2026-09-26: um push
+  do atlas espera a cópia (ou recebe 503), e em troca ela copia um retrato estável da origem
+  (`tests/integration/duplicar-mapa-retrato-estavel.repro.test.js`).
 - **A unidade de aplicação de um push tem TRÊS tamanhos, e confundi-los é o defeito F9.** O PUSH
   inteiro é uma transação (`tx`, com o lock por atlas); dentro dele, uma op SEM `batchId` corre num
   savepoint próprio, e as ops que compartilham um `batchId` são UM LOTE LÓGICO que corre num
