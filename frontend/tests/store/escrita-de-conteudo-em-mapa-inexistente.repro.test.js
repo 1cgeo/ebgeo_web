@@ -147,7 +147,9 @@ vi.mock('../../src/js/store/repositories/index.js', () => {
 
 vi.mock('../../src/js/store/atlas-namespace.js', () => ({
     StoreScopeKind: Object.freeze({ LOCAL: 'local', REMOTE: 'remote' }),
-    getActiveScope: () => h.escopo.atual
+    getActiveScope: () => h.escopo.atual,
+    // Perguntado pela transação para saber se o escopo local é um slot RESGATADO; aqui nunca é.
+    isRemoteDbSuffix: (sufixo) => typeof sufixo === 'string' && sufixo.startsWith('remote-')
 }));
 
 // O EIXO DO PAPEL E O DA TRAVA FICAM ABERTOS DE PROPÓSITO: este arquivo mede o TERCEIRO eixo, e

@@ -18,6 +18,8 @@ import { markLocalEditPending, CONVERGENCE_GUARDED } from './remote-operation-ha
 import { operacaoEsperaBlob, blobUploadRefusal, recusaDeFotoConvertidaCitada } from './blob-upload-queue.js';
 import { checkPermission, GuardAction } from './permission-guard.js';
 import { isDerivedOutputBucket } from '../analysis-output.js';
+import { sessionContext } from './session-context.js';
+import { registrarAutorDaFila } from './autor-da-fila.js';
 
 /**
  * Whether operation logging is enabled.
@@ -160,6 +162,10 @@ export async function persistOperationIntents(allDescriptions, { scope, traceId 
     }
     const created = createBatchOperations(safe).map(op => ({ ...op, traceId }));
     const queue = scope ? operationQueue.forScope(scope) : operationQueue;
+    // WHO WROTE THIS QUEUE, recorded before the envelopes land (`autor-da-fila.js`): after a rescue,
+    // only this account may send the queue back to the atlas it came from.
+    const destino = scope ?? getActiveScope();
+    if (destino?.kind === StoreScopeKind.REMOTE) registrarAutorDaFila(destino.atlasId, sessionContext.userId);
     // O ENCADEAMENTO VALE PARA TODA ENTIDADE QUE DECLARA BASE, e não só para a feição.
     //
     // Uma edição escrita antes de o recibo da anterior voltar declara a base que a ANTERIOR

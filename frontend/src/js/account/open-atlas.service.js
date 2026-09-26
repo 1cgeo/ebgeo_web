@@ -105,7 +105,13 @@ import {
     TabLockKeyKind,
 } from '@utils/tab-lock.js';
 import { showChoice } from '@modals/confirm.modal.js';
-import { showError } from '@utils/toast_service.js';
+import { hideLoadingScreen } from '@ui/loading-screen.js';
+import { showError, showSuccess } from '@utils/toast_service.js';
+import { sessionContext } from '@store/sync/session-context.js';
+import { autorDaFila } from '@store/sync/autor-da-fila.js';
+import {
+    SaidaDoResgate, TITULO_DO_RESGATE, perguntaDoResgate, podeEnviarPendencias, pendenciasDevolvidas,
+} from './resgate-saida.js';
 import { reapplyAtlasAppearance } from '@store/atlas-appearance.service.js';
 import { EventTypes } from '@events/event_types.js';
 // Por ARQUIVO, de dois modulos folha (o catalogo tem zero imports, e o acumulador importa so o
@@ -582,20 +588,43 @@ export async function enterLocalAtlasOnBoot() {
  * @returns {Promise<boolean>} True when the user chose to discard the rescue and open.
  */
 export async function confirmDiscardingRescuedWork(rescued) {
-    const choice = await showChoice('Este atlas tem trabalho guardado neste computador', {
-        // SEM A CAUSA, desde 2026-09-24: o resgate deixou de ser só da sessão que caiu (entra também
-        // quando o atlas vai para a lixeira ou o acesso é revogado com trabalho não enviado), e
-        // "quando sua sessão caiu" passou a contar o motivo errado.
-        message:
-            `As alterações que não chegaram ao servidor foram guardadas aqui como o atlas `
-            + `local "${rescued.name}". Abrir este atlas do servidor agora apaga esse trabalho.\n\n`
-            + `Para não perder nada: cancele, abra o atlas local e use "Enviar ao servidor".`,
-        choices: [
-            { id: 'cancel', label: 'Cancelar', variant: 'ghost' },
-            { id: 'discard', label: 'Apagar e abrir', variant: 'danger' },
-        ],
+    baixarCortinaDoBoot();
+    const pergunta = perguntaDoResgate(rescued.name, false);
+    const choice = await showChoice(TITULO_DO_RESGATE, { message: pergunta.mensagem, choices: pergunta.escolhas });
+    return choice === SaidaDoResgate.APAGAR;
+}
+
+/**
+ * THE QUESTION IS ASKED DURING THE BOOT, AND THE BOOT'S CURTAIN WAS ON TOP OF IT (measured on
+ * 2026-09-26). The deep link `?atlas=` (every card of `atlas.html`) opens the atlas inside
+ * `openAtlasFromUrl`, before `index.js` drops the splash, and the splash is `z-index: 9999` against
+ * the dialog's 60: the person looked at the loading curtain forever, with the question and its
+ * buttons unreachable underneath (the Playwright click waited 240 s on `#initial-loader`). A
+ * question is not a wait, so the curtain comes down before it. Idempotent: `index.js` hides it
+ * again later and finds nothing.
+ */
+function baixarCortinaDoBoot() {
+    if (typeof document !== 'undefined') hideLoadingScreen();
+}
+
+/**
+ * The question of the account's own open (`openRemoteAtlas`), which may carry the third exit,
+ * "enviar as pendências a este atlas" (owner's decision of 2026-09-26, `resgate-saida.js`): only for
+ * the account that wrote the queue, and only while the rescued copy was not edited since.
+ * @param {import('@store/local-atlas.api.js').LocalAtlasEntry} rescued
+ * @param {string} atlasId - The server atlas being opened.
+ * @returns {Promise<string>} One of `SaidaDoResgate`.
+ */
+async function escolherSaidaDoResgate(rescued, atlasId) {
+    baixarCortinaDoBoot();
+    const comEnvio = podeEnviarPendencias({
+        entrada: rescued, atlasId, conta: sessionContext.userId, autor: autorDaFila(atlasId),
     });
-    return choice === 'discard';
+    const pergunta = perguntaDoResgate(rescued.name, comEnvio);
+    const choice = await showChoice(TITULO_DO_RESGATE, { message: pergunta.mensagem, choices: pergunta.escolhas });
+    if (choice === SaidaDoResgate.APAGAR) return SaidaDoResgate.APAGAR;
+    if (comEnvio && choice === SaidaDoResgate.ENVIAR) return SaidaDoResgate.ENVIAR;
+    return SaidaDoResgate.CANCELAR;
 }
 
 /**
@@ -644,10 +673,15 @@ async function openRemoteAtlasNow(atlasId, { mapId = null } = {}) {
     const rescued = await localAtlasAdoptingRemote(atlasId);
     // A refusal leaves this tab holding a claim on an atlas it is not going to open, so the claim
     // goes back to whatever it really holds; leaving it standing would block the next tab for free.
-    if (rescued && !await confirmDiscardingRescuedWork(rescued)) {
+    const saida = rescued ? await escolherSaidaDoResgate(rescued, atlasId) : null;
+    if (saida === SaidaDoResgate.CANCELAR) {
         syncAtlasLockKey();
         return false;
     }
+    // SENDING THE QUEUE BACK IS THE ORDINARY OPEN OF THOSE SAME DATABASES: the claim moves back to
+    // the remote registry below, nothing is emptied, and the queue that was waiting in them leaves
+    // on the next flush. Only the confirmed discard empties.
+    const apagarResgate = saida === SaidaDoResgate.APAGAR;
 
     // Switching atlases: close any previous server connection first (one socket per atlas — the
     // server has no "switch"), then mount and connect the new one.
@@ -698,7 +732,7 @@ async function openRemoteAtlasNow(atlasId, { mapId = null } = {}) {
         clearFeatureClipboard();
         // A failed pull must leave the last complete projection and its image bytes recoverable.
         // Only an explicitly confirmed discard of rescued work authorizes deletion on open.
-        if (rescued) await clearAllDataStore({ markLocal: false, clearQueue: true });
+        if (apagarResgate) await clearAllDataStore({ markLocal: false, clearQueue: true });
         else await resetAtlasView();
         // Preserve server provenance even if initialization or the first pull fails.
         await markStoreRemote(atlasId);
@@ -732,6 +766,7 @@ async function openRemoteAtlasNow(atlasId, { mapId = null } = {}) {
     // `switchAtlas` diz por que ela nao pode ter uma segunda), e a linha fica depois do
     // `startAutoFlush` para contar so o que de fato abriu.
     registrarUso(EventoDeUso.ATLAS_ABERTO, PropDeUso.ATLAS_SERVIDOR);
+    if (saida === SaidaDoResgate.ENVIAR) showSuccess(pendenciasDevolvidas(rescued.name));
     return true;
 }
 

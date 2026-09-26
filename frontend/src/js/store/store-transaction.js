@@ -13,7 +13,8 @@ import { generateUUID } from '../utilities/uuid.js';
 import { setActionTraceId } from './sync/operation-factory.js';
 import { record } from './sync/diag/trace-core.js';
 import { TraceStage } from './sync/diag/trace-stages.js';
-import { getActiveScope } from '@store/atlas-namespace.js';
+import { getActiveScope, isRemoteDbSuffix } from '@store/atlas-namespace.js';
+import { marcarEdicaoAposResgate } from '@store/local-atlas.api.js';
 import { persistOperationIntents } from '@store/sync/operation-dispatcher.js';
 import { beginStoreWrite, enterCoordinatedWrite, LOGOUT_BARRIER_NOTICE } from './write-coordinator.js';
 import { captureRemoteWriteFence } from './remote-write-fence.js';
@@ -72,6 +73,12 @@ class StoreTransaction {
             this.scope = getActiveScope();
         }
         if (getActiveScope() !== this.scope) throw new Error('O atlas mudou durante a edição.');
+        // A RESCUED SLOT (a local scope on a `remote-<id>` suffix) journals nothing, so its first
+        // edit since the rescue goes on record here, before the entity: from then on its work can
+        // no longer be sent back to the server atlas without losing this edit (`local-atlas.api.js`).
+        if (this._operations.length > 0 && this.scope?.kind === 'local' && isRemoteDbSuffix(this.scope.dbSuffix)) {
+            await marcarEdicaoAposResgate(this.scope.atlasId);
+        }
         const materialized = await persistOperationIntents(this._operations, { scope: this.scope, traceId });
         if (getActiveScope() !== this.scope) throw new Error('O atlas mudou durante a gravação.');
         this.assertWritable();

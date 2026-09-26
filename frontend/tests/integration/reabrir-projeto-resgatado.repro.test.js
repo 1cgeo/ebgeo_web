@@ -144,6 +144,25 @@ import * as remoteApi from '@store/remote-atlas.api.js';
 import * as localApi from '@store/local-atlas.api.js';
 import * as origem from '@store/store-origin.js';
 import * as abrir from '@js/account/open-atlas.service.js';
+import { sessionContext } from '@store/sync/session-context.js';
+import { autorDaFila, registrarAutorDaFila } from '@store/sync/autor-da-fila.js';
+import { showSuccess } from '@utils/toast_service.js';
+import { runTransaction } from '@store/store-transaction.js';
+import { persistOperationIntents, enableOperationLogging, disableOperationLogging } from '@store/sync/operation-dispatcher.js';
+
+// `localStorage` não existe no ambiente `node`, e é nele que mora o autor da fila de cada atlas.
+const memoriaLocal = new Map();
+if (typeof globalThis.localStorage === 'undefined') {
+    Object.defineProperty(globalThis, 'localStorage', {
+        value: {
+            getItem: (k) => (memoriaLocal.has(k) ? memoriaLocal.get(k) : null),
+            setItem: (k, v) => { memoriaLocal.set(k, String(v)); },
+            removeItem: (k) => { memoriaLocal.delete(k); },
+            clear: () => memoriaLocal.clear(),
+        },
+        writable: true,
+    });
+}
 
 /** Os dez bancos por atlas, escritos à mão em vez de derivados do módulo sob teste. */
 const PER_ATLAS_BASE_NAMES = [
@@ -170,6 +189,8 @@ beforeEach(async () => {
     fixture.syncEngine.atlasId = null;
     vi.clearAllMocks();
     escolha.mockResolvedValue(null);
+    memoriaLocal.clear();
+    sessionContext.clearSession();
 
     // Estado de módulo, devolvido ao zero: o disco falso foi apagado, então as instâncias em
     // cache apontam para tabelas que não existem mais.
@@ -383,3 +404,129 @@ describe('openRemoteAtlas :: descartar o resgate devolve o namespace ao registro
         expect(iRemota).toBeLessThan(iLocal);
     });
 });
+
+// =================================================================================================
+// 4. Enviar as pendências a este atlas (decisão do dono de 2026-09-26)
+// =================================================================================================
+
+/** Os ids das escolhas da última pergunta. */
+function escolhasOferecidas() {
+    return escolha.mock.calls.at(-1)?.[1]?.choices?.map((c) => c.id) ?? [];
+}
+
+describe('openRemoteAtlas :: enviar as pendências a este atlas', () => {
+    const CONTA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const OUTRA = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+    it('REPRO: a mesma conta, com a cópia intocada, pode mandar a fila de volta, e NADA é apagado', async () => {
+        registrarAutorDaFila(ATLAS, CONTA);
+        await comResgateNoDisco();
+        sessionContext.setSession({ userId: CONTA, role: 'owner' });
+        escolha.mockResolvedValue('enviar');
+
+        expect(await abrir.openRemoteAtlas(ATLAS)).toBe(true);
+
+        expect(escolhasOferecidas()).toEqual(['cancel', 'discard', 'enviar']);
+        // Os dez bancos intactos, a fila inclusive: é ela que sai no próximo envio.
+        expect(aindaComTrabalho(ATLAS)).toEqual(bancosRemotos(ATLAS));
+        // Um dono só, o remoto, como no descarte.
+        expect(sufixosLocaisNoDisco()).not.toContain(`remote-${ATLAS}`);
+        expect(remotosNoDisco()).toEqual([ATLAS]);
+        expect(calls).toEqual(['connect', 'activateAtlasInitialMap']);
+        expect(origem.isRemoteStoreSync()).toBe(true);
+        expect(showSuccess).toHaveBeenCalledWith(expect.stringContaining(NOME_DO_RESGATE));
+    });
+
+    it('outra conta não ganha a saída: a fila não é dela', async () => {
+        registrarAutorDaFila(ATLAS, OUTRA);
+        await comResgateNoDisco();
+        sessionContext.setSession({ userId: CONTA, role: 'owner' });
+        escolha.mockResolvedValue('cancel');
+
+        expect(await abrir.openRemoteAtlas(ATLAS)).toBe(false);
+        expect(escolhasOferecidas()).toEqual(['cancel', 'discard']);
+    });
+
+    it('autor desconhecido ou visitante sem conta também não ganham a saída', async () => {
+        await comResgateNoDisco();
+        sessionContext.setSession({ userId: CONTA, role: 'owner' });
+        escolha.mockResolvedValue('cancel');
+        await abrir.openRemoteAtlas(ATLAS);
+        expect(escolhasOferecidas(), 'sem autor registrado').toEqual(['cancel', 'discard']);
+
+        sessionContext.clearSession();
+        registrarAutorDaFila(ATLAS, CONTA);
+        await abrir.openRemoteAtlas(ATLAS);
+        expect(escolhasOferecidas(), 'sem conta').toEqual(['cancel', 'discard']);
+    });
+
+    it('a cópia editada depois do resgate não ganha a saída, e uma resposta forjada vale Cancelar', async () => {
+        registrarAutorDaFila(ATLAS, CONTA);
+        await comResgateNoDisco();
+        const slot = (await localApi.localAtlasAdoptingRemote(ATLAS)).id;
+        await localApi.marcarEdicaoAposResgate(slot);
+        sessionContext.setSession({ userId: CONTA, role: 'owner' });
+        escolha.mockResolvedValue('enviar');
+
+        expect(await abrir.openRemoteAtlas(ATLAS)).toBe(false);
+
+        expect(escolhasOferecidas()).toEqual(['cancel', 'discard']);
+        expect(aindaComTrabalho(ATLAS)).toEqual(bancosRemotos(ATLAS));
+        expect(sufixosLocaisNoDisco()).toContain(`remote-${ATLAS}`);
+        expect(calls).toEqual([]);
+    });
+
+    it('o resgate grava de onde veio o trabalho, e a marca de edição é gravada uma vez', async () => {
+        await comResgateNoDisco();
+        const entrada = await localApi.localAtlasAdoptingRemote(ATLAS);
+        expect(entrada.resgate).toEqual({ atlasId: ATLAS, em: expect.any(Number) });
+
+        await localApi.marcarEdicaoAposResgate(entrada.id);
+        const marcada = (await localApi.localAtlasAdoptingRemote(ATLAS)).resgate.editadoEm;
+        expect(marcada).toEqual(expect.any(Number));
+        await localApi.marcarEdicaoAposResgate(entrada.id);
+        expect((await localApi.localAtlasAdoptingRemote(ATLAS)).resgate.editadoEm).toBe(marcada);
+    });
+
+    it('REPRO: a primeira edição na cópia resgatada fica marcada ANTES de a entidade ser gravada', async () => {
+        await comResgateNoDisco();
+        const slot = (await localApi.localAtlasAdoptingRemote(ATLAS)).id;
+        await localApi.mountLocalAtlas(slot);
+        let marcadaNaGravacao = null;
+
+        await runTransaction(async (tx) => {
+            tx.recordOperation('feature', 'create', 'f1', 'm1', { type: 'Feature', properties: { id: 'f1' } });
+            return async () => {
+                marcadaNaGravacao = Boolean((await localApi.localAtlasAdoptingRemote(ATLAS)).resgate.editadoEm);
+            };
+        });
+
+        expect(marcadaNaGravacao, 'a marca chega antes da entidade').toBe(true);
+    });
+
+    it('CONTROLE: transação sem operação (escrita derivada) não marca a cópia', async () => {
+        await comResgateNoDisco();
+        const slot = (await localApi.localAtlasAdoptingRemote(ATLAS)).id;
+        await localApi.mountLocalAtlas(slot);
+
+        await runTransaction(async () => async () => {});
+
+        expect((await localApi.localAtlasAdoptingRemote(ATLAS)).resgate.editadoEm).toBeUndefined();
+    });
+
+    it('o autor da fila é quem escreve nela num atlas de servidor, e só ali', async () => {
+        sessionContext.setSession({ userId: CONTA, role: 'owner' });
+        const mapa = '33333333-3333-4333-8333-333333333333';
+        const op = { entityType: 'feature', operationType: 'create', entityId: '44444444-4444-4444-8444-444444444444', mapId: mapa, data: { type: 'Feature', properties: {} } };
+        enableOperationLogging();
+        try {
+            await persistOperationIntents([op], { scope: ns.localScope('slot-x', 'x') });
+            expect(autorDaFila(ATLAS), 'escopo local não registra').toBeNull();
+            await persistOperationIntents([op], { scope: ns.remoteScope(ATLAS) });
+            expect(autorDaFila(ATLAS)).toBe(CONTA);
+        } finally {
+            disableOperationLogging();
+        }
+    });
+});
+

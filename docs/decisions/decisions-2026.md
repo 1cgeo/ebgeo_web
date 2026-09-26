@@ -4592,3 +4592,11 @@ instável, e cada uma foi atribuída antes de ser tocada.
   - clonar atlas segura o lock do log da ORIGEM durante a cópia, como a duplicação de mapa: os envios à origem esperam o clone e recebem 503 passados 5 s, e o clone passa a ser um retrato estável;
   - os sourcemaps saem da pasta servida e são guardados por release no servidor, com licença para escrever em `deploy/`; o agente altera os scripts e verifica sem executar contra produção, e quem roda o deploy é o dono.
 - **Status:** aceitas pelo dono em 2026-09-26.
+
+### 2026-09-26: a forma da figura de slide por referência e o limite da saída nova do resgate
+
+- **Contexto:** os dois últimos itens da seção 4 das pendências foram mapeados e cada um esbarrava numa escolha de produto. Na figura de slide, a aba com build antigo que ainda vive na virada do main tem sanitizador e Quill que não conhecem a forma nova da referência. No resgate involuntário, o atlas local resgatado não registra operação, então o que a pessoa edita nele depois do resgate não está em fila nenhuma.
+- **Decisões:**
+  - a figura de slide passa a ser referenciada por um src sentinela em https (`https://figura.ebgeo/<uuid>`), e não por um atributo novo: o sentinela sobrevive ao sanitizador e ao Quill antigos, de modo que a aba velha vê a figura quebrada mas não apaga a referência ao editar o texto do slide; o build novo troca o src pela imagem do blob na hora de desenhar. O atributo `data-figura` foi a alternativa recusada (a aba antiga o apaga, e a figura sumiria para todos), e esperar a virada do main a outra;
+  - a saída "enviar as pendências a este atlas" só aparece para a mesma conta e enquanto a cópia local resgatada não foi editada depois do resgate (a primeira edição é marcada). Editada, sobram "Enviar ao servidor" (atlas novo, nada se perde) e "Apagar e abrir". As alternativas recusadas: mostrar sempre, avisando que o que foi feito depois do resgate se perde, e reconciliar essas edições em operações.
+- **Status:** aceitas pelo dono em 2026-09-26.

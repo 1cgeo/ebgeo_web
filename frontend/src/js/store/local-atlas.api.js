@@ -837,7 +837,11 @@ async function adoptRemoteSlot(atlasId, name, makeCurrent = true) {
         name: uniqueName(name.trim(), _entries),
         dbSuffix,
         createdAt: now,
-        updatedAt: now
+        updatedAt: now,
+        // WHERE THE WORK CAME FROM, and when (owner's decision of 2026-09-26): the open of that same
+        // server atlas may offer to send the queue back to it, but only while nothing was edited
+        // here since (`editadoEm`, written by `marcarEdicaoAposResgate`).
+        resgate: { atlasId, em: now }
     };
     // PERSISTE PRIMEIRO, ESPELHA DEPOIS. O espelho em memória era escrito antes, e num disco
     // que recusa a escrita (cota) o resultado era o pior possível: `listLocalAtlases()`
@@ -893,6 +897,43 @@ export async function localAtlasAdoptingRemote(atlasId) {
     }
     const entry = (await readLocalAtlasRegistry()).find(e => e?.dbSuffix === dbSuffix);
     return entry ? { ...entry } : null;
+}
+
+/**
+ * Rescued slots whose first edit since the rescue this tab has already put on record (or that have
+ * no rescue to mark). Keyed by the SLOT id, never by the suffix: a second rescue of the same server
+ * atlas reuses the suffix under a new slot, and a suffix key would hide its first edit.
+ */
+const edicaoAposResgateMarcada = new Set();
+
+/**
+ * Puts on record the FIRST edit made in a rescued slot since the rescue (owner's decision of
+ * 2026-09-26). A rescued slot records no operation, so what is edited in it after the rescue is in
+ * no queue, and sending the queue back to the server atlas would let the server's snapshot erase
+ * it: once this mark exists the open of that atlas no longer offers "enviar as pendências".
+ *
+ * CALLED BEFORE THE ENTITY IS WRITTEN (`StoreTransaction.writeIntents`), for the same reason the
+ * journal goes first: a crash between the two must leave the mark without the edit, never the edit
+ * without the mark. Cheap after the first call: this tab remembers the slots it already marked.
+ *
+ * @param {string} slotId - The local slot's id (the `atlasId` of its local scope).
+ * @returns {Promise<void>}
+ */
+export function marcarEdicaoAposResgate(slotId) {
+    if (typeof slotId !== 'string' || edicaoAposResgateMarcada.has(slotId)) return Promise.resolve();
+    return withRegistryLock(async () => {
+        await loadRegistry();
+        const entry = (await readLocalAtlasRegistry()).find(e => e?.id === slotId) ?? null;
+        if (!entry?.resgate || entry.resgate.editadoEm) {
+            if (entry) edicaoAposResgateMarcada.add(slotId);
+            return;
+        }
+        const marcado = { ...entry, resgate: { ...entry.resgate, editadoEm: Date.now() } };
+        await persistRegistryEntry(marcado);
+        const espelho = _entries?.find(e => e.id === entry.id);
+        if (espelho) espelho.resgate = marcado.resgate;
+        edicaoAposResgateMarcada.add(slotId);
+    }, { refresh: false });
 }
 
 /**

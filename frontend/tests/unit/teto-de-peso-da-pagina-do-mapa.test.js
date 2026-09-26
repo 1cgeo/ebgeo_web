@@ -362,7 +362,9 @@ const ORCAMENTO = Object.freeze({
     // `map_sig.js` instancia, ou seja, a porta por onde este peso entrou: o painel de pendências
     // (`account/pendencias/`, cinco módulos) já é sob demanda, e um import estático dele passaria
     // despercebido em qualquer outro número deste arquivo.
-    account: 6,
+    // 7 since 2026-09-26: `account/resgate-saida.js`, the exits of the rescued-work question (zero
+    // imports), eager because the atlas open that asks it is.
+    account: 7,
     // `catalog`: 16 since 2026-09-23, 18 before, measured by this walker on both sides. The resource
     // share dialog left the boot: `catalog.modal.js` (eager, through the sidebar chips) imported
     // `resource-share.modal.js` statically, which carried `resource-share.modal.core.js` and
@@ -550,7 +552,9 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // 571 -> 572 on 2026-09-26: `utilities/selection-frame.js`, the per-side margin of a framed
         // selection and the measure of what covers the canvas (zero imports), eager through
         // `feature_navigation_utils.js`. Measured by this case's failure on a fresh build.
-        expect(ansioso.arquivos.size).toBeLessThanOrEqual(572);
+        // 572 -> 574 the same day: the "enviar as pendências" exit of a rescue, `account/resgate-saida.js`
+        // and `store/sync/autor-da-fila.js`, both zero imports.
+        expect(ansioso.arquivos.size).toBeLessThanOrEqual(574);
         const kb = kbDe(ansioso.arquivos);
         expect(kb, `fonte ansiosa em ${kb} kB`).toBeGreaterThanOrEqual(6840);
         // 8030 -> 8060 on 2026-09-25, integrating the mass gestures with one write (hunt/b61-lote):
@@ -571,8 +575,10 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // 8120 -> 8130 the same day: 8125 kB measured by this case's failure on a fresh build, after
         // the undo queue, the output layer riding in the undo entry and the framing of a selection
         // (`utilities/selection-frame.js` and the handles read back in `feature_navigation_utils.js`);
-        // no new package.
-        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(8130);
+        // no new package. 8130 -> 8145 the same day: 8138 kB measured by this case's failure, after
+        // the "enviar as pendências" exit of a rescue (`account/resgate-saida.js`,
+        // `store/sync/autor-da-fila.js` and the mark of the first edit in `store/local-atlas.api.js`).
+        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(8145);
     });
 
     it('o grafo COMPLETO (seguindo `import()`) cabe entre o piso e o teto medidos', () => {
@@ -937,7 +943,8 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // which takes a refused photo out of every entity that cites it (reached by the panel's `import()`).
         // 815 the same day: `utilities/selection-frame.js`, the framing of a selection that keeps its
         // handles out from under the open panel.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(815);
+        // 817 the same day: `account/resgate-saida.js` and `store/sync/autor-da-fila.js`.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(817);
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
@@ -1003,7 +1010,10 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // failure (the census leaf above, the 413 probe, the dashed KMZ round trip); no new package.
         // 12300 -> 12320 the same day: 12303 kB measured after the Pendências panel's Descartar of a
         // refused photo (`store/foto-recusada.operations.js`); no new package.
-        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(12320);
+        // 12320 -> 12340 the same day: 12331 kB measured by this case's failure on a fresh build,
+        // after the undo queue, the output layer in the undo entry, the framing of a selection and
+        // the "enviar as pendências" exit of a rescue; no new package.
+        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(12340);
     });
 
     it('seguir `import()` de fato acrescenta grafo, e é isso que prova a regex dinâmica', () => {
