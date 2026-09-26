@@ -140,6 +140,14 @@ export function comGeometriaOriginal(feature) {
  * @returns {{propriedades: Object, estilo: (Object|null)}}
  */
 export function separarEstiloImportado(props) {
+    if (props && typeof props === 'object' && !Object.hasOwn(props, CHAVE_DO_ESTILO)
+        && Object.hasOwn(props, CHAVE_DO_ESTILO_DO_KML)) {
+        // A foreign KML's style (`estiloDoKml`): only our key is consumed, never an attribute.
+        const propriedades = { ...props };
+        const estilo = propriedades[CHAVE_DO_ESTILO_DO_KML];
+        delete propriedades[CHAVE_DO_ESTILO_DO_KML];
+        return { propriedades, estilo: estilo && typeof estilo === 'object' ? estilo : null };
+    }
     if (!props || typeof props !== 'object' || !Object.hasOwn(props, CHAVE_DO_ESTILO)) {
         return { propriedades: props, estilo: null };
     }
@@ -184,8 +192,72 @@ export function aplicarEstiloImportado(base, estilo, padroes = {}) {
 }
 
 /**
+ * Where the style a FOREIGN KML declared travels from the reader to the feature: a key of our own,
+ * set by {@link limparEstiloDoKml} and consumed by {@link separarEstiloImportado}. An object, never
+ * JSON, and never the {@link CHAVE_DO_ESTILO} of our KMZ, whose separation also consumes the
+ * degraded extras: a user attribute named `lineStyle` in a foreign file is data, not our export.
+ */
+const CHAVE_DO_ESTILO_DO_KML = '__ebgeo_estilo_do_kml';
+
+/** A colour as `togeojson` writes it from a KML `aabbggrr`. */
+const COR_HEX = /^#[0-9a-f]{6}$/i;
+
+/**
+ * Which KML linework a geometry is drawn with: a polygon (fill and outline), a line (stroke), or
+ * neither (a point, drawn by its icon, whose LineStyle Google Earth writes and never uses).
+ * @param {*} geometria
+ * @returns {'area'|'linha'|null}
+ */
+function tracoDaGeometria(geometria) {
+    const tipo = geometria?.type;
+    if (tipo === 'Polygon' || tipo === 'MultiPolygon') return 'area';
+    if (tipo === 'LineString' || tipo === 'MultiLineString') return 'linha';
+    if (tipo === 'GeometryCollection' && Array.isArray(geometria.geometries)) {
+        const tracos = geometria.geometries.map(tracoDaGeometria);
+        if (tracos.includes('area')) return 'area';
+        if (tracos.includes('linha')) return 'linha';
+    }
+    return null;
+}
+
+/**
+ * The EBGeo style of a foreign KML placemark, from the keys `togeojson` derived from its `<Style>`
+ * (owner's decision of 2026-09-26: stroke and fill were read and thrown away, and every feature of a
+ * Google Earth file came back in the tool's default colour). A line takes the stroke's colour, width
+ * and opacity; an area also takes the fill's colour, and its opacity from the fill; a point takes
+ * nothing. A key the placemark declared as its own data is not style, and a value of the wrong shape
+ * is skipped. The tool restores only what it declares ({@link aplicarEstiloImportado}).
+ * @param {Object} props - The placemark's properties, as the reader gave them.
+ * @param {*} geometria - Its geometry.
+ * @param {Set<string>} declarados - The names the placemark declared in its ExtendedData.
+ * @returns {Object} Possibly empty.
+ */
+export function estiloDoKml(props, geometria, declarados = new Set()) {
+    const traco = tracoDaGeometria(geometria);
+    if (!traco || !props || typeof props !== 'object') return {};
+    const lido = (chave) => (Object.hasOwn(props, chave) && !declarados.has(chave) ? props[chave] : undefined);
+    const cor = (valor) => (typeof valor === 'string' && COR_HEX.test(valor) ? valor.toLowerCase() : null);
+    const numero = (valor) => (valor === undefined || valor === null || valor === '' ? NaN : Number(valor));
+
+    const estilo = {};
+    const contorno = cor(lido('stroke'));
+    if (contorno) estilo.lineColor = contorno;
+    const largura = numero(lido('stroke-width'));
+    if (Number.isFinite(largura) && largura > 0) estilo.lineWidth = largura;
+    if (traco === 'area') {
+        const preenchimento = cor(lido('fill'));
+        if (preenchimento) estilo.fillColor = preenchimento;
+    }
+    const opacidade = numero(lido(traco === 'area' ? 'fill-opacity' : 'stroke-opacity'));
+    if (Number.isFinite(opacidade) && opacidade >= 0 && opacidade <= 1) estilo.opacity = opacidade;
+    return estilo;
+}
+
+/**
  * Drops the style keys `togeojson` derived from each placemark's `<Style>`, keeping any key the
  * placemark declared in its own `<ExtendedData>` (user data wins over a style of the same name).
+ * What those keys said about stroke and fill is kept first, as the EBGeo style of the feature
+ * ({@link estiloDoKml}), unless the placemark is one of ours and carries {@link CHAVE_DO_ESTILO}.
  * @param {Object} geoJSON - What `toGeoJSON.kml` returned (mutated and returned).
  * @param {Array<Set<string>>|null} dadosPorPlacemark - The ExtendedData names of each placemark, in
  *   document order; when its length does not match the features, `todos` is used for every one.
@@ -200,6 +272,10 @@ export function limparEstiloDoKml(geoJSON, dadosPorPlacemark = null, todos = new
         const props = feature?.properties;
         if (!props || typeof props !== 'object') return;
         const declarados = porIndice ? dadosPorPlacemark[i] : todos;
+        if (!Object.hasOwn(props, CHAVE_DO_ESTILO)) {
+            const estilo = estiloDoKml(props, feature.geometry, declarados);
+            if (Object.keys(estilo).length > 0) props[CHAVE_DO_ESTILO_DO_KML] = estilo;
+        }
         for (const chave of CHAVES_DE_ESTILO_DO_KML) {
             if (Object.hasOwn(props, chave) && !declarados.has(chave)) delete props[chave];
         }

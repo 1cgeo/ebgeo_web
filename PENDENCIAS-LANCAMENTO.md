@@ -143,13 +143,12 @@ O dono respondeu em 2026-09-26 todas as perguntas que estavam aqui, e o registro
 - Foto anexada recusada: o "Descartar" nas pendências, para quando a foto continua na feição. A metade automática (o registro sai quando nenhuma entidade cita mais a foto) está feita; o que o "Descartar" faz com a feição espera a decisão da seção 3.2.
 - Desfazer e refazer seguidos rápido: o pedido seguinte espera o anterior terminar em vez de ser descartado; o duplo disparo de um mesmo gesto (botão e atalho) continua filtrado.
 - Depois de um resgate involuntário, a mesma conta ganha a saída "enviar as pendências a este atlas", além de "Apagar e abrir" e de "Enviar ao servidor". A operação não carrega autor, então o desenho começa por aí.
-- Importação de KML de terceiros: mapear stroke e fill para os campos de estilo do EBGeo.
 - Deploy: tirar os sourcemaps da pasta servida e guardá-los por release no servidor, para o "diag pilha". Mexe em deploy/, que roda contra produção: confirme antes de escrever lá.
 ## 5. Passos finais antes do deploy
 
 1. Medir o custo do ping de 2 bytes que agora segue cada quadro de presença: de dentro de backend/, node tests/bench/sala-limite.bench.mjs com WS_PRESENCE_FLOW=1 e com =0, contra a linha de base de 2026-08-27. A bancada mede o custo do ping, não a retenção, porque o cliente ws dela responde ao ping na hora, e o perdaCursorPct pode passar a contar coalescência como perda.
 2. Rodar as seis frentes do item 6, na ordem de risco, e integrar o que elas acharem.
-3. Remedir e APERTAR os tetos de peso da página do mapa. A fonte ficou com folga larga de propósito durante a campanha. Depois do item 1.4 o construído ficou a 2 kB do teto (4258 de 4260 kB, 91 arquivos), e a fonte ansiosa em 8094 de 8100 kB.
+3. Remedir e APERTAR os tetos de peso da página do mapa. A fonte ficou com folga larga de propósito durante a campanha. Depois dos itens do dono de 2026-09-26 o construído está em 4261 de 4270 kB (91 arquivos), a fonte ansiosa em 8110 de 8120 kB e a fonte total em 12294 de 12300 kB.
 4. npm run lint e npm test na raiz, em comandos separados.
 5. O Playwright inteiro, em fatias paralelas com portas e bancos próprios, com retries desligado ou lendo a contagem de flaky antes de declarar verde.
 6. nginx (instruções completas nos arquivos fora do repositório citados no item 0):

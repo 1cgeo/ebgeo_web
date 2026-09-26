@@ -186,5 +186,40 @@ describeOrSkip('KMZ: ida e volta campo a campo', () => {
         expect(p.descricao).not.toContain('[object Object]');
         // Only what the placemark declared as data: `setor`, and its own `icon`, kept.
         expect(p.attributes).toEqual({ setor: 'Leste', icon: 'valor do usuario' });
+        // A point takes no stroke: Google Earth writes a LineStyle into a point's style and never
+        // draws it (owner's decision of 2026-09-26, `estiloDoKml`).
+        expect(p.estilo.lineWidth).toBe(0);
+    });
+
+    test('KML de terceiros: a linha e a área trazem o traço e o preenchimento do arquivo', async ({ page }) => {
+        // Owner's decision of 2026-09-26: stroke and fill of a foreign KML become the feature's style,
+        // where they used to be dropped and every feature came in the tool's default colour.
+        await esperarMapa(page);
+        const kml = '<?xml version="1.0" encoding="UTF-8"?>\n'
+            + '<kml xmlns="http://www.opengis.net/kml/2.2"><Document>'
+            // KML colour is aabbggrr: ff0000ff is opaque red, 4000ff00 is green at 0x40/255.
+            + '<Style id="estrada"><LineStyle><color>ff0000ff</color><width>4</width></LineStyle></Style>'
+            + '<Style id="lote"><LineStyle><color>ffff0000</color><width>2</width></LineStyle>'
+            + '<PolyStyle><color>4000ff00</color></PolyStyle></Style>'
+            + '<Placemark><name>Estrada</name><styleUrl>#estrada</styleUrl>'
+            + '<LineString><coordinates>-48.5,-27.6 -48.4,-27.55</coordinates></LineString></Placemark>'
+            + '<Placemark><name>Lote</name><styleUrl>#lote</styleUrl><Polygon><outerBoundaryIs><LinearRing>'
+            + '<coordinates>-48.5,-27.6 -48.45,-27.6 -48.45,-27.55 -48.5,-27.6</coordinates>'
+            + '</LinearRing></outerBoundaryIs></Polygon></Placemark>'
+            + '</Document></kml>';
+        await soltarNoMapa(page, 'terceiros.kml', B.from(kml, 'utf8'));
+
+        await expect.poll(async () => (await feicoesDoMapa(page)).length, { timeout: 15000 }).toBe(2);
+        const feicoes = await feicoesDoMapa(page);
+        console.log('[kml de terceiros]', JSON.stringify(feicoes));
+        const estrada = feicoes.find((f) => f.nome === 'Estrada');
+        const lote = feicoes.find((f) => f.nome === 'Lote');
+        expect(estrada.estilo.lineColor).toBe('#ff0000');
+        expect(estrada.estilo.lineWidth).toBe(4);
+        expect(lote.estilo.lineColor).toBe('#0000ff');
+        expect(lote.estilo.lineWidth).toBe(2);
+        expect(lote.estilo.fillColor).toBe('#00ff00');
+        expect(lote.estilo.opacity).toBeCloseTo(0x40 / 255, 2);
+        expect(estrada.attributes).toEqual({});
     });
 });

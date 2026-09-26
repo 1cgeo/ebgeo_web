@@ -563,8 +563,9 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // 8100 -> 8110 on 2026-09-26, the owner's launch items (the 413 probe of the API client, the
         // refused photo leaving with the photo, the dashed KMZ coming back whole): 8106 kB measured by
         // this case's failure. The growth is `store/sync/recusa-de-foto-sem-citacao.js` and the
-        // comments of the files it touches; no new package.
-        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(8110);
+        // comments of the files it touches; no new package. 8110 -> 8120 the same day: 8110 kB
+        // measured after the last of them (a foreign KML's stroke and fill, `estiloDoKml`).
+        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(8120);
     });
 
     it('o grafo COMPLETO (seguindo `import()`) cabe entre o piso e o teto medidos', () => {
@@ -1493,7 +1494,11 @@ const PAGINAS_DIST = Object.freeze([
     // extra file is one more `cesium-integration-*` chunk, a re-cut of that group and not content:
     // the fix imports `isTargetMapLocked` from `map.operations.js` into the notes panel (the same
     // question `setMapNotes` asks), and the 1 kB is the panel's own new code.
-    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 91, minKb: 3600, maxKb: 4260 },
+    // maxKb 4260 -> 4270 on 2026-09-26, the owner's launch items (the 413 probe, the refused photo
+    // leaving with the photo, the dashed KMZ back whole, a foreign KML's stroke and fill): 4261 kB
+    // measured on a fresh build after the last of them, 4258 before the first. No new package; the
+    // ceilings are still to be re-measured and tightened for the launch (PENDENCIAS, final steps).
+    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 91, minKb: 3600, maxKb: 4270 },
     // atlas.html: MEDIDA dos dois lados do mesmo lote, 36 arquivos / 663 kB antes e 40 / 664
     // depois. Os quatro arquivos a mais são repartição de chunk e não conteúdo (os modais que o
     // mapa deixou de alcançar estaticamente deixaram de dividir chunk com ele e viraram chunks
