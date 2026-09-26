@@ -24,15 +24,17 @@ function withTimeout(promise, ms, message) {
   let timer;
   const guard = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(`timeout: ${message}`)), ms);
-    timer.unref?.();
+    // NOT unref'd, on purpose: the pool's workers are unref'd, so while a reply is on its way this
+    // timer is the only thing keeping the event loop alive. Unref'd, the loop drained first on
+    // Linux and node:test cancelled the case ("Promise resolution is still pending but the event
+    // loop has already resolved"); the `finally` below clears it either way.
   });
   return Promise.race([promise, guard]).finally(() => clearTimeout(timer));
 }
 
 const sleep = (ms) =>
   new Promise((resolve) => {
-    const t = setTimeout(resolve, ms);
-    t.unref?.();
+    setTimeout(resolve, ms);
   });
 
 describe('SqliteBlobPool — dead worker handling (P5)', () => {
@@ -162,7 +164,8 @@ describe('SqliteBlobPool — withEvicted holds the swap window (achado 59/61)', 
   // any of them may be the one that reopens it during the window).
   async function warmAllWorkers(p, dbPath) {
     for (let i = 0; i < p.size * 2; i++) {
-      assert.ok(await p.read(dbPath, SQL, ['p1']), 'the fixture row must be readable');
+      assert.ok(await withTimeout(p.read(dbPath, SQL, ['p1']), 3000, 'warm-up read'),
+        'the fixture row must be readable');
     }
   }
 
@@ -187,7 +190,7 @@ describe('SqliteBlobPool — withEvicted holds the swap window (achado 59/61)', 
     let settled = false;
     let deferred;
 
-    await pool.withEvicted(dbPath, async () => {
+    await withTimeout(pool.withEvicted(dbPath, async () => {
       deferred = pool.read(dbPath, SQL, ['p1']).then((v) => {
         settled = true;
         return v;
@@ -202,7 +205,7 @@ describe('SqliteBlobPool — withEvicted holds the swap window (achado 59/61)', 
       // throws EBUSY/EPERM the moment a worker reopened the file.
       renameSync(dbPath, dbPath + '.bak');
       renameSync(dbPath + '.bak', dbPath);
-    });
+    }), 3000, 'the swap window');
 
     assert.ok(
       await withTimeout(deferred, 3000, 'the deferred read must resolve once released'),
@@ -216,14 +219,14 @@ describe('SqliteBlobPool — withEvicted holds the swap window (achado 59/61)', 
     const other = makeDb('quarantine-other.db');
     await warmAllWorkers(pool, other);
 
-    await pool.withEvicted(held, async () => {
+    await withTimeout(pool.withEvicted(held, async () => {
       const v = await withTimeout(
         pool.read(other, SQL, ['p1']),
         3000,
         'an unrelated dbPath must stay readable during a swap'
       );
       assert.ok(v, 'the unrelated read is served normally');
-    });
+    }), 5000, 'the swap window');
   });
 
   it('releases the window even when the critical section throws', async () => {
@@ -232,9 +235,9 @@ describe('SqliteBlobPool — withEvicted holds the swap window (achado 59/61)', 
     await warmAllWorkers(pool, dbPath);
 
     await assert.rejects(
-      pool.withEvicted(dbPath, async () => {
+      withTimeout(pool.withEvicted(dbPath, async () => {
         throw new Error('rename blew up');
-      }),
+      }), 3000, 'the swap window'),
       /rename blew up/
     );
 
@@ -252,11 +255,11 @@ describe('SqliteBlobPool — withEvicted holds the swap window (achado 59/61)', 
     await warmAllWorkers(pool, dbPath);
 
     let deferred;
-    await pool.withEvicted(dbPath, async () => {
+    await withTimeout(pool.withEvicted(dbPath, async () => {
       deferred = pool.read(dbPath, SQL, ['p1']);
       deferred.catch(() => {}); // either outcome is fine; hanging is not
       await pool.closeAll();
-    });
+    }), 3000, 'the swap window');
 
     await withTimeout(
       deferred.catch(() => 'rejected'),

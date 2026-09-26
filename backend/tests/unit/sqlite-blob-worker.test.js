@@ -28,7 +28,10 @@ function withTimeout(promise, ms, message) {
   let timer;
   const guard = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(`timeout: ${message}`)), ms);
-    timer.unref?.();
+    // NOT unref'd, on purpose: the pool's workers are unref'd, so while a reply is on its way this
+    // timer is the only thing keeping the event loop alive. Unref'd, the loop drained first on
+    // Linux and node:test cancelled the case ("Promise resolution is still pending but the event
+    // loop has already resolved"); the `finally` below clears it either way.
   });
   return Promise.race([promise, guard]).finally(() => clearTimeout(timer));
 }

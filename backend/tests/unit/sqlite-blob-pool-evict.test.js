@@ -25,7 +25,9 @@ function withTimeout(promise, ms, message) {
   let timer;
   const guard = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(`timeout: ${message}`)), ms);
-    timer.unref?.();
+    // NOT unref'd, on purpose: same reason as in sqlite-blob-pool.test.js (the workers are unref'd,
+    // so this timer is what keeps the loop alive until the reply). This file passed with it unref'd
+    // only because its cases happen to answer before the loop drains.
   });
   return Promise.race([promise, guard]).finally(() => clearTimeout(timer));
 }

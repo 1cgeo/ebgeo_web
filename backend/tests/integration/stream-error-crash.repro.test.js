@@ -36,7 +36,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'crypto';
 import path from 'node:path';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import jwt from 'jsonwebtoken';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
@@ -44,10 +44,12 @@ import config from '../../src/config.js';
 
 const RID = crypto.randomUUID().slice(0, 8);
 const SLUG = `crash-thumb-${RID}`;
+const SLUG_VAZIO = `crash-thumb-vazio-${RID}`;
 
 describe('a filesystem read error must not kill the process', () => {
   let app, db, orgId, token;
   let thumbDirPath;
+  let thumbVazioPath;
   let uncaught = [];
   const onUncaught = (err) => uncaught.push(err);
 
@@ -87,11 +89,24 @@ describe('a filesystem read error must not kill the process', () => {
     thumbDirPath = path.join(config.sv360.dbDir, `${orgId}__${SLUG}.webp`);
     rmSync(thumbDirPath, { recursive: true, force: true });
     mkdirSync(thumbDirPath, { recursive: true });
+
+    // A second project whose thumbnail is a REGULAR file of zero bytes, for the Range case
+    // below: its size is 0 on every platform, which a directory's is not (Windows reports 0,
+    // Linux reports the size of the directory entry, 4096 on ext4).
+    await db.query(
+      `INSERT INTO sv360.projects
+         (organization_id, slug, name, center_lat, center_long, db_filename, status, photo_count)
+       VALUES ($1, $2, $3, -23.5, -46.6, $4, 'enabled', 0)`,
+      [orgId, SLUG_VAZIO, `Crash Thumb Vazio ${RID}`, `${orgId}__${SLUG_VAZIO}.db`]
+    );
+    thumbVazioPath = path.join(config.sv360.dbDir, `${orgId}__${SLUG_VAZIO}.webp`);
+    writeFileSync(thumbVazioPath, Buffer.alloc(0));
   });
 
   after(async () => {
     process.removeListener('uncaughtException', onUncaught);
     if (thumbDirPath) rmSync(thumbDirPath, { recursive: true, force: true });
+    if (thumbVazioPath) rmSync(thumbVazioPath, { force: true });
     await teardownTestEnv(db);
   });
 
@@ -142,9 +157,11 @@ describe('a filesystem read error must not kill the process', () => {
   });
 
   // The Range branch is a SEPARATE call site and deserves its own proof, but it
-  // CANNOT be reached through this fixture, and saying so is the point of this test.
-  // A directory reports size 0, so `parseRange('bytes=0-10', 0)` clamps `end` to -1,
-  // sees start > end, and returns 416 before any stream is opened. Asserting "no
+  // CANNOT be reached through a zero-length target, and saying so is the point of this test.
+  // Size 0 makes `parseRange('bytes=0-10', 0)` clamp `end` to -1, see start > end,
+  // and return 416 before any stream is opened. The target is a regular empty file, not
+  // the directory above: a directory is size 0 only on Windows, and on Linux this case
+  // went down the 206 branch instead (fixed on 2026-09-26). Asserting "no
   // crash" here would have been a green that proves nothing — the code under test
   // never runs. It is asserted as a 416 instead, and the Range call site is covered
   // deterministically in tests/unit/stream-file.test.js, where the range options can
@@ -153,7 +170,7 @@ describe('a filesystem read error must not kill the process', () => {
     uncaught = [];
 
     const res = await supertest(app)
-      .get(`/api/v1/sv360/thumbnails/${SLUG}.webp`)
+      .get(`/api/v1/sv360/thumbnails/${SLUG_VAZIO}.webp`)
       .set('Authorization', `Bearer ${token}`)
       .set('Range', 'bytes=0-10');
 

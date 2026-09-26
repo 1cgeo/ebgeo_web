@@ -337,6 +337,15 @@ describe('lerPiramides: os DOIS caminhos de recusa preservam o original', () => 
   it('o construtor que não abre (ISDIR/EACCES/EBUSY) sobrevive como causa', () => {
     // O caso que motivou tudo: o caminho existe, então o guard de `existsSync` passa, e
     // o `new Database` falha por uma razão que NADA tem a ver com formato.
+    //
+    // O ALVO É UMA PASTA, e o que se afirma dela é o que vale nos dois sistemas. O driver
+    // recusa a pasta no CONSTRUTOR em Windows e em Linux, mas com códigos diferentes:
+    // SQLITE_CANTOPEN_ISDIR («unable to open database file») no Windows, SQLITE_IOERR_READ
+    // («disk I/O error») no Linux, medido em 2026-09-26. Até ali o caso exigia o código do
+    // Windows e reprovava em toda máquina Linux. Não há alvo que não seja pasta e falhe ao
+    // ABRIR igual nos dois (permissão não serve: o Windows não a aplica por chmod, e root no
+    // Linux a ignora), então a pasta fica e a asserção passa a ser sobre a causa ser O ERRO
+    // DO CONSTRUTOR, não o do primeiro statement (SQLITE_NOTADB, o caso seguinte).
     const base = pastaTemp();
     const alvo = join(base, 'na-verdade-uma-pasta');
     mkdirSync(alvo);
@@ -347,9 +356,11 @@ describe('lerPiramides: os DOIS caminhos de recusa preservam o original', () => 
     assert.ok(capturado instanceof BadRequestError, 'segue sendo 400, e não 500');
     assert.equal(capturado.message, 'tiles.db is not a valid SQLite file', 'o texto do cliente não muda');
     assert.ok(capturado.cause, 'o EACCES/ISDIR do construtor tem de sobreviver');
-    assert.equal(capturado.cause.code, 'SQLITE_CANTOPEN_ISDIR', 'e sobreviver com o código do driver');
+    assert.match(String(capturado.cause.code), /^SQLITE_/, 'e sobreviver com o código do driver');
+    assert.notEqual(capturado.cause.code, 'SQLITE_NOTADB',
+      'é o erro de ABRIR, e não o de formato que só o primeiro statement levanta');
     assert.ok(
-      errSerializer(capturado).message.includes('unable to open database file'),
+      errSerializer(capturado).message.includes(capturado.cause.message),
       'a linha de log tem de dizer que era ABERTURA, não formato'
     );
   });
