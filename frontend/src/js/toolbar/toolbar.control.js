@@ -246,8 +246,8 @@ export class ToolbarControl {
          *
          * A regra inteira (o gate de escrita, a desseleção sem salvar, o aviso do que foi
          * desfeito e a reconstrução do mapa base) mora em `map/undo-redo.runner.js`, e é de lá
-         * que o teclado também a chama, com a guarda de reentrância compartilhada entre as duas
-         * portas.
+         * que o teclado também a chama, com a fila compartilhada entre as duas portas: um toque
+         * com outro pedido em curso espera a vez.
          *
          * AS DUAS DEPENDÊNCIAS CHEGAM POR CAMINHOS DIFERENTES, e isso não é descuido: o gerente
          * de seleção já vem no `toolManager` que este controle recebe no construtor, enquanto o

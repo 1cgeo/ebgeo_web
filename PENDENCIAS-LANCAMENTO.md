@@ -130,7 +130,6 @@ O dono respondeu em 2026-09-26 todas as perguntas que estavam aqui, e o registro
 - Figura de slide de briefing por referência, como as fotos (o custo medido está no item 3).
 - Enquadramento da seleção (clique na árvore, busca, "Zoom para Seleção"): incluir as alças da seleção e descontar o painel aberto. Hoje a alça de rotação de um texto fica em x = -82 px sob o painel, e os pontos-chave 2 e 3 da rota passam da borda.
 - Desfazer um processamento reverte feições e camada de saída, e o refazer recria os dois com os mesmos ids. Conferir antes como a importação se comporta ao desfazer, para dar a mesma resposta.
-- Desfazer e refazer seguidos rápido: o pedido seguinte espera o anterior terminar em vez de ser descartado; o duplo disparo de um mesmo gesto (botão e atalho) continua filtrado.
 - Depois de um resgate involuntário, a mesma conta ganha a saída "enviar as pendências a este atlas", além de "Apagar e abrir" e de "Enviar ao servidor". A operação não carrega autor, então o desenho começa por aí.
 ## 5. Passos finais antes do deploy
 

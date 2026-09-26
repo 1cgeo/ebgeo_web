@@ -205,12 +205,13 @@ class KeyboardShortcuts {
                     // tablet não há teclado, e este atalho era a única porta. O gate de
                     // escrita (desfazer ESCREVE, e quem está em somente leitura via o aviso
                     // do que "foi desfeito" enquanto nada mudava), a desseleção sem salvar,
-                    // o aviso e a reconstrução do mapa base moram todos lá, e a guarda de
-                    // reentrância é de MÓDULO, para as duas portas não dispararem juntas.
+                    // o aviso e a reconstrução do mapa base moram todos lá, e a fila é de
+                    // MÓDULO: um segundo pedido espera a vez, e a tecla SEGURADA
+                    // (autorrepetição) é o mesmo gesto, que não entra com a fila ocupada.
                     await runUndoRedo('undo', {
                         selectionManager: this.selectionManager,
                         baseLayerControl: this.baseLayerControl,
-                    });
+                    }, { repeticao: e.repeat === true });
                     return true;
                 }
                 break;
@@ -221,7 +222,7 @@ class KeyboardShortcuts {
                     await runUndoRedo('redo', {
                         selectionManager: this.selectionManager,
                         baseLayerControl: this.baseLayerControl,
-                    });
+                    }, { repeticao: e.repeat === true });
                     return true;
                 }
                 break;
