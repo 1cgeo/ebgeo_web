@@ -8,6 +8,8 @@
 #     20260218_143022/    <- build anterior
 #     20260218_150510/    <- build atual
 #   current -> releases/20260218_150510   (symlink relativo)
+#   sourcemaps/
+#     20260218_150510/    <- release.json + assets/*.map da build (fora do que o nginx serve)
 #
 # Uso:
 #   ./deploy.sh                 # build + deploy
@@ -27,6 +29,14 @@ DEPLOY_DIR="$PROJECT_DIR/deploy"
 RELEASES_DIR="$DEPLOY_DIR/releases"
 CURRENT_LINK="$DEPLOY_DIR/current"
 KEEP_RELEASES=3
+# OS SOURCE MAPS MORAM FORA DA PASTA SERVIDA, uma pasta por release (decisão do dono de 2026-09-26).
+# O nginx serve `current/`, e um .map ali dentro é público: o `sourcemap: 'hidden'` do Vite só tira
+# o comentário que aponta para ele, o arquivo continuava baixável. O "diag pilha" os lê daqui
+# (`EBGEO_MAPAS_DIR` apontando para esta pasta, montada só leitura no backend).
+SOURCEMAPS_DIR="$DEPLOY_DIR/sourcemaps"
+# Mais longa que a das releases de propósito: um defeito é desminificado contra a release em que
+# foi visto PRIMEIRO, que pode ser bem mais velha que as três que ficam publicadas.
+KEEP_SOURCEMAPS=20
 
 # ---- Funções ----------------------------------------------------------------
 
@@ -58,6 +68,34 @@ carry_release_assets() {
     else
         cp -an "$source/assets/." "$destination/assets/"
     fi
+}
+
+# Tira os .map da release e os guarda em sourcemaps/<release>/, nos mesmos caminhos relativos, com
+# o release.json ao lado (é por ele que o "diag pilha" acha a build). Roda ANTES do inventário
+# `.release-assets`, que então lista só o que é servido.
+separate_sourcemaps() {
+    local release="$1"
+    local source="$RELEASES_DIR/$release" destination="$SOURCEMAPS_DIR/$release"
+    mkdir -p "$destination"
+    if [ -f "$source/release.json" ]; then
+        cp "$source/release.json" "$destination/release.json"
+    fi
+    local map
+    while IFS= read -r -d '' map; do
+        mkdir -p "$destination/$(dirname "$map")"
+        mv "$source/$map" "$destination/$map"
+    done < <(cd "$source" && find . -type f -name '*.map' -print0)
+    if [ -n "$(find "$source" -type f -name '*.map' -print -quit)" ]; then
+        fail "Sobrou source map na release servida: $release"
+    fi
+}
+
+cleanup_old_sourcemaps() {
+    [ -d "$SOURCEMAPS_DIR" ] || return 0
+    find "$SOURCEMAPS_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -r | tail -n +"$((KEEP_SOURCEMAPS + 1))" | while read -r old; do
+        log "  Removendo mapas de $old"
+        rm -rf "${SOURCEMAPS_DIR:?}/$old"
+    done
 }
 
 rollback() {
@@ -131,6 +169,9 @@ RELEASE_DIR="$RELEASES_DIR/$RELEASE_NAME"
 log "Copiando build para $RELEASE_DIR..."
 cp -a "$DIST_DIR" "$RELEASE_DIR"
 
+log "Guardando os source maps fora da pasta servida..."
+separate_sourcemaps "$RELEASE_NAME"
+
 # Keep the original asset inventory before carrying older chunks. Open tabs still
 # execute an older entry bundle and may request a lazy chunk after the cutover.
 if [ -d "$RELEASE_DIR/assets" ]; then
@@ -150,5 +191,6 @@ log "Ativo: $(readlink "$CURRENT_LINK")"
 
 # Limpar releases antigas
 cleanup_old_releases
+cleanup_old_sourcemaps
 
 log "Pronto! Nginx continua servindo sem restart."

@@ -25,6 +25,7 @@ yarn-error.log*
 
 # Deploy (artefatos gerados no host, o deploy.sh é versionado)
 deploy/releases/
+deploy/sourcemaps/
 deploy/current
 deploy/.deploy.lock
 deploy/.current-next-*

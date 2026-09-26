@@ -725,7 +725,9 @@ export default defineConfig(({ mode: _mode }) => ({
       external: []
     },
 
-    // Source maps: 'hidden' generates maps without exposing them publicly
+    // Source maps: 'hidden' writes them without the comment that points to them. That alone does NOT
+    // keep them private (the file sits next to its chunk in dist/): `deploy/deploy.sh` moves every
+    // .map out of the served release into `deploy/sourcemaps/<release>/`, where "diag pilha" reads it.
     sourcemap: 'hidden',
 
     // Maximum chunk size before warning.

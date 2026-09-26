@@ -92,7 +92,6 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
 - Documentação que hoje afirma o falso, e engana agente:
   - docs/wiki/namespace-por-atlas.md ("A ORIGEM É A EXCEÇÃO") e o fileoverview de frontend/src/js/store/migration/legacy-cleanup.js citam o botão "Apagar a cópia antiga da versão anterior": dropLegacySource não tem chamador de produção desde 2026-09-22;
   - .claude/rules/ferramentas-e-tipos-de-feicao.md diz "cinco entradas" de buraco no censo de tipos: a declinação entrou na legenda do PDF (f599dde1), e sobram três (agrupar por tipo, chip da ferramenta ativa, ícones do celular);
-  - frontend/vite.config.js: o comentário "'hidden' generates maps without exposing them publicly" é falso, porque deploy/deploy.sh copia o dist inteiro;
   - frontend/tests/unit/teto-de-peso-da-pagina-do-mapa.test.js, metade (b), "É o que a pessoa de fato paga": ela soma a passada legacy, que o navegador moderno não baixa (718 kB, 522 deles CSS repetido). Reescrever junto do passo 3 da seção 5;
   - parágrafos de wiki propostos pela campanha e não aplicados: holdOperationFrames e a tolerância escalonada do heartbeat do cliente (canal-collab-websocket); o teto da cauda de 500 ops ou 2 MiB (snapshot-e-pull-incremental; só está no diário); o prazo do push proporcional ao corpo (fila-operacoes-outbound); a rajada remota numa escrita por verbo (desempenho-do-mapa-2d); o briefing que converge por slide e o editor que grava só o patch, sem clipboard.convert (não há página de briefing); o ajuste de mapa do par que apaga a revisão confirmada (modelo-conflito-lww).
 - Defeitos confirmados no código, sem conserto:
@@ -135,7 +134,6 @@ O dono respondeu em 2026-09-26 todas as perguntas que estavam aqui, e o registro
 - Religar o botão "Apagar a cópia antiga" (dropLegacySource) na seção "Neste computador" do atlas.html, visível só com a migração concluída e a origem intacta (dono, 2026-09-26): a cópia legada sai por gesto explícito, nunca sozinha. Isso também devolve a verdade à wiki e ao fileoverview citados no item 3.
 - Desfazer e refazer seguidos rápido: o pedido seguinte espera o anterior terminar em vez de ser descartado; o duplo disparo de um mesmo gesto (botão e atalho) continua filtrado.
 - Depois de um resgate involuntário, a mesma conta ganha a saída "enviar as pendências a este atlas", além de "Apagar e abrir" e de "Enviar ao servidor". A operação não carrega autor, então o desenho começa por aí.
-- Deploy: tirar os sourcemaps da pasta servida e guardá-los por release no servidor, para o "diag pilha". O dono autorizou escrever em deploy/ em 2026-09-26; o agente altera e verifica sem executar contra produção, e quem roda o deploy é o dono.
 ## 5. Passos finais antes do deploy
 
 1. Medir o custo do ping de 2 bytes que agora segue cada quadro de presença: de dentro de backend/, node tests/bench/sala-limite.bench.mjs com WS_PRESENCE_FLOW=1 e com =0, contra a linha de base de 2026-08-27. A bancada mede o custo do ping, não a retenção, porque o cliente ws dela responde ao ping na hora, e o perdaCursorPct pode passar a contar coalescência como perda.
@@ -149,7 +147,8 @@ O dono respondeu em 2026-09-26 todas as perguntas que estavam aqui, e o registro
    - X-Forwarded-For.
 
    TRUST_PROXY_HOPS precisa bater com o número de proxies do caminho: 3 em produção, 4 no ambiente de teste.
-7. METEOROLOGIA_URL: o padrão é a API pública da Open-Meteo, chamada pelo navegador de cada usuário. Se a coordenada não pode sair da rede, aponte para uma Open-Meteo interna em https, ou desligue o painel na aba Sistema.
+7. Source maps (deploy.sh, 2026-09-26): o deploy passa a movê-los para deploy/sourcemaps/<release>/. No host, montar essa pasta só leitura no container do backend e apontar EBGEO_MAPAS_DIR para ela; sem isso o "diag pilha" responde que a desminificação não está disponível. Conferir depois do primeiro deploy: nenhum .map em deploy/current/, e o "diag pilha" de um defeito novo resolvido.
+8. METEOROLOGIA_URL: o padrão é a API pública da Open-Meteo, chamada pelo navegador de cada usuário. Se a coordenada não pode sair da rede, aponte para uma Open-Meteo interna em https, ou desligue o painel na aba Sistema.
 
 ## 6. Frentes aprovadas e ainda não feitas
 

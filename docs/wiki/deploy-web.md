@@ -22,6 +22,8 @@ Cada build vira `releases/<timestamp>`. A publicação prepara um symlink tempor
 
 O destino do symlink deve ser `releases/$RELEASE_NAME`, nunca `/mnt/dados/.../releases/$RELEASE_NAME`.
 
+**Os source maps saem da release servida e ficam em `deploy/sourcemaps/<release>/`** (decisão do dono de 2026-09-26). O `sourcemap: 'hidden'` do Vite só tira o comentário que aponta para o `.map`; o arquivo continuava ao lado do chunk, e tudo dentro de `current/` é público. O `deploy.sh` move cada `.map` para a pasta da release em `sourcemaps/`, com o `release.json` ao lado (é por ele que o "diag pilha" acha a build), ANTES de escrever o inventário `.release-assets`, e recusa a publicação se sobrar um `.map` na release. A retenção dos mapas é própria e mais longa que a das releases (`KEEP_SOURCEMAPS`), porque um defeito é desminificado contra a release em que foi visto primeiro. O backend lê essa pasta por `EBGEO_MAPAS_DIR`, montada só leitura; a montagem mora fora deste repositório. Guarda: o ensaio `deploy/test-release.py`, que roda num diretório temporário e nunca no caminho real.
+
 O container monta o diretório `deploy/` do host em `/var/www/deploy/`. Um symlink **absoluto** guardaria um caminho do host, que dentro do container não existe: o NGINX segue o link, não acha nada e devolve **404 em tudo**, com o deploy reportando sucesso e o diretório da release visivelmente correto no host. O sintoma não aponta para o symlink.
 
 O `deploy.sh` acerta isso em dois pontos. Qualquer edição que troque para caminho absoluto (o instinto natural ao "consertar" um symlink quebrado visto do host) reintroduz a falha.

@@ -29,6 +29,9 @@ try:
         (dist / "assets").mkdir()
         (dist / "index.html").write_text(label)
         (dist / "assets" / (label + ".js")).write_text(label)
+        # The build writes a hidden source map next to each chunk, and release.json at the root.
+        (dist / "assets" / (label + ".js.map")).write_text('{"version":3,"file":"%s.js"}' % label)
+        (dist / "release.json").write_text(json.dumps({"release": label}))
         subprocess.run(["bash", str(script), "--skip-build"], check=True, capture_output=True)
         release = (deploy / "current").resolve()
         releases.append(release)
@@ -39,6 +42,16 @@ try:
     assert not a.exists()
     assert sorted(path.name for path in (d / "assets").iterdir()) == ["b.js", "c.js", "d.js"]
     assert (d / ".release-assets").read_text().splitlines() == ["assets/d.js"]
+
+    # The source maps leave the served tree and are kept per release, beside it, for "diag pilha"
+    # (owner's decision of 2026-09-26): nginx serves current/, and a .map in there is public.
+    assert not list((deploy / "releases").rglob("*.map")), "a .map is still in the served releases"
+    maps = deploy / "sourcemaps"
+    assert sorted(path.name for path in maps.iterdir()) == sorted(r.name for r in releases)
+    for release, label in zip(releases, "abcd"):
+        # The map of "a" outlives its release, pruned above: a defect first seen there still resolves.
+        assert (maps / release.name / "assets" / (label + ".js.map")).exists()
+        assert json.loads((maps / release.name / "release.json").read_text())["release"] == label
 
     # Exercise the production swap function while a parallel reader opens index.html.
     functions = source.read_text().split("# ---- Main")[0]
@@ -78,10 +91,15 @@ try:
     refused = subprocess.run(["bash", str(script), "--rollback"], capture_output=True)
     assert refused.returncode != 0
     assert (deploy / "current").resolve() == b
-    print(json.dumps({"publications": 4, "swaps": 200, "concurrent_reads": reads,
+    # The maps have a retention of their own, longer than the releases': it prunes the oldest.
+    script.write_text(source.read_text().replace("KEEP_SOURCEMAPS=20", "KEEP_SOURCEMAPS=2"), encoding="utf-8")
+    e = publish("e")
+    assert sorted(path.name for path in maps.iterdir()) == sorted([d.name, e.name])
+    print(json.dumps({"publications": 5, "swaps": 200, "concurrent_reads": reads,
                       "read_errors": errors, "previous_chunks_retained": True,
                       "rollback_twice": True, "concurrent_publish_refused": True,
-                      "rollback_beyond_retention_refused": True}))
+                      "rollback_beyond_retention_refused": True, "maps_out_of_served_tree": True,
+                      "maps_kept_per_release": True}))
 finally:
     assert work.parent == Path(tempfile.gettempdir()).resolve() and work.name.startswith("ebgeo-deploy-check-")
     shutil.rmtree(work)
