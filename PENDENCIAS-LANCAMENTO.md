@@ -6,15 +6,9 @@ Escrito em 2026-09-24 à tarde, quando a campanha de caça de bugs e de cobertur
 
 ## 0. Onde está cada coisa (tudo no origin)
 
-### O código não integrado: um branch
+### O código da campanha: todo integrado
 
-| branch | HEAD | o que contém | item |
-|---|---|---|---|
-| hunt/rede-ws | 12b2c21b | o WebSocket bloqueado em wip (a presença em link lento, item 1.3, saiu em 2026-09-25) | 1.4 |
-
-Commit wip significa NÃO VERIFICADO: é trabalho em curso salvo quando a campanha parou, com a mensagem começando por wip e essas palavras no corpo. Nunca integre um wip sem terminá-lo e verificá-lo.
-
-Outros branches hunt/ que existam na máquina original e não estão no origin não têm nada a integrar: o conteúdo deles já entrou por outro commit, ou foi descartado de propósito.
+Os sete branches de código da campanha (hunt/cob-camadas, hunt/cob-briefing, hunt/cob-imagens, hunt/cob-taticas, hunt/cob-desenho, hunt/orfas e hunt/rede-ws) foram resolvidos e integrados em 2026-09-25 no branch claude/analise-pendencias-h5aug1, com o documento hunt/relatorios. Os oito podem ser apagados no origin; o proxy da sessão de nuvem que os integrou não deixava apagar branch.
 
 ### Fora do repositório, de propósito
 
@@ -25,28 +19,16 @@ As instruções de nginx para o engenheiro (nginx-srv-arquivos-2026-09-23.txt e 
 1. Clone o repositório e traga os branches: git fetch origin.
 2. Não trabalhe no diretório principal para retomar uma frente: crie uma worktree por frente, fora do repositório, e instale as dependências dos DOIS pacotes nela (sem junção de node_modules, que já destruiu instalação uma vez):
 
-        git worktree add ../ebgeo_rede-ws -b trabalho/rede-ws origin/hunt/rede-ws
-        cd ../ebgeo_rede-ws/frontend && npm ci
+        git worktree add ../ebgeo_<frente> -b trabalho/<frente> origin/integracao_backend
+        cd ../ebgeo_<frente>/frontend && npm ci
         cd ../backend && npm ci
 
-3. Rebase sobre o integracao_backend atual antes de verificar: o origin andou depois que os branches foram cortados, e outra sessão do dono também publica nele.
+3. Rebase sobre o integracao_backend atual antes de verificar: outra sessão do dono também publica nele.
 4. Cada teste que sobe servidor precisa de porta e banco próprios quando há mais de um agente na máquina: EBGEO_UI_E2E_APP_PORT, EBGEO_UI_E2E_BACKEND_PORT, EBGEO_E2E_PORT, EBGEO_E2E_DB_NAME e TEST_DB_NAME. As regras para agentes estão na seção 6, e as variáveis em frontend/tests/e2e-ui/constants.js e frontend/tests/e2e/global-setup.js.
-5. Verificação: desde 2026-09-24 cada commit roda npm run test:tocados, que escolhe os testes pelo que mudou. Ele só enxerga commit ainda sem push se o branch tiver upstream (git branch --set-upstream-to=origin/<branch>): sem upstream, ele vê só o que não foi commitado e responde "nada a rodar" (item 3). O vitest precisa de um Node com navigator.locks (24 ou mais novo): no Node 22 cerca de 135 casos reprovam por ambiente. A metade (b) do teto de peso mede o dist/, então rode npm run build antes de acreditar nela. A suíte inteira da raiz (npm run lint e depois npm test, em comandos separados) é obrigatória quando a mudança cruza os pacotes, antes de deploy e antes de levar trabalho ao main. O Playwright fica fora do npm test (npm run test:e2e:ui, de dentro de frontend/).
-6. Revisão de código antes de integrar qualquer item do bloco 1: as três rodadas de revisão desta campanha acharam defeitos de perda de dado que as suítes verdes não pegavam.
+5. Verificação: desde 2026-09-24 cada commit roda npm run test:tocados, que escolhe os testes pelo que mudou. Ele só enxerga commit ainda sem push se o branch tiver upstream (git branch --set-upstream-to=origin/<branch>): sem upstream, ele vê só o que não foi commitado e responde "nada a rodar" (item 3). O vitest precisa de um Node com navigator.locks (24 ou mais novo): no Node 22 cerca de 135 casos reprovam por ambiente. O backend, ao contrário, roda com o Node do sistema (22): o better-sqlite3 compilado para ele não carrega no 24, e a suíte dá cerca de 98 falhas de ABI. A metade (b) do teto de peso mede o dist/, então rode npm run build antes de acreditar nela. A suíte inteira da raiz (npm run lint e depois npm test, em comandos separados) é obrigatória quando a mudança cruza os pacotes, antes de deploy e antes de levar trabalho ao main. O Playwright fica fora do npm test (npm run test:e2e:ui, de dentro de frontend/).
+6. Revisão de código antes de integrar trabalho de agente: as três rodadas de revisão da campanha de 2026-09-24 acharam defeitos de perda de dado que as suítes verdes não pegavam.
 7. Integrar: cherry-pick ou rebase sobre o integracao_backend, verificação, e push. Faça fetch e rebase logo antes do push e nunca force.
 8. Os tetos do teste de peso da página do mapa (frontend/tests/unit/teto-de-peso-da-pagina-do-mapa.test.js) sobem com código novo. Quando subir um, registre no comentário ao lado do número o que foi medido e por quê.
-
-## 1. Trabalho pronto em branches e ainda não integrado
-
-A ordem abaixo é a de prioridade.
-
-### 1.4 Atlas de servidor com o WebSocket bloqueado
-
-- Mesmo branch hunt/rede-ws, no commit wip 12b2c21b, NÃO VERIFICADO. O trabalho começou (estado de conexão novo, sincronização por HTTP, aviso de "sem tempo real").
-- Hoje, com um proxy que não repassa o Upgrade, o atlas de servidor não abre de jeito nenhum. Medido em 2026-09-23 (74b426af): com o Upgrade recusado e o HTTP funcionando, a abertura espera o connected e a aba volta a atlas.html com o aviso de código WS_HANDSHAKE_CLOSED. E, mesmo aberto, nada subiria: hasWorkToFlush (sync-flush.js) pergunta isOnline, que é o estado do socket.
-- O wip não roda: sync-engine.js chama _abrirTempoReal, _papelPorHttp e _entrarSemTempoReal, que não estão definidos. O que ele já tem: sem-tempo-real.js, folha sem imports com as regras (10 s de espera pelo connected; poll de 3 s que cresce 1,5 vez até 10 s quando volta vazio e dobra até 30 s em falha; 2 falhas até voltar a "reconectando"; sonda 10 s depois de uma queda; papel relido a cada 10 polls; 403, 404 e 410 no poll encerram o acesso pela saída que resgata o trabalho, e 401 só encerra o visitante); o estado HTTP_ONLY em connection-state.js, com canReachServer separado de isOnline; o ws-client que não mexe no estado em HTTP_ONLY; atlasRoleForPermission em permission-levels.js; o unitário e o rascunho de sem-tempo-real.spec.js.
-- O que falta: os três métodos do engine (connect e connectPublic, papel por HTTP, poll com recuo, sonda depois de queda); os consumidores que devem perguntar canReachServer (27 sítios em 15 arquivos usam isOnline ou ConnectionStates.ONLINE: flush, fila de blob, image-sync, selo, pendências, duplicar mapa, isMountedAtlas, sync-gateway); a frase "Sem tempo real"; os mocks do sync-engine.test; o e2e com controle negativo; o diário e a wiki.
-- O papel por HTTP cruza os pacotes: GET /atlas/:atlasId devolve getAtlasById sem user_permission, e o middleware já tem req.atlasPermission. O poll não pode passar pelos gates de sync-engine.js que descartam o syncResponse quando isOnline é falso. Sem o socket não chegam atlas_settings_updated, sharing_updated, atlas_owner_changed, atlas_resources_updated, map_duplicated, atlas_updated nem o autor da edição sobrescrita; os marcadores das rotas REST estão no log e chegam pelo poll. abertura-sem-tempo-real.repro.spec.js afirma o comportamento de hoje e muda no mesmo commit. Para bloquear o socket em teste, routeWebSocket serve; para medir latência não, porque o proxy do Playwright responde o ping na hora.
 
 ## 2. Cobertura que ficou faltando
 
@@ -131,6 +113,7 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
   - servidor: nomes de mapa iguais por criação concorrente (o cliente chaveia trava e temporal por nome, e o servidor não tem UNIQUE); restaurar o banco de um backup (setLastVersion só sobe, então um cursor acima do current_version pula ops; importa para o plano de rollback); retrato HTTP de resync com uma op viva atrasada chegando depois dele; update de camada, grupo, 3D e 360 filtra por map_id da op, e depois de um merge REST volta applied sem efeito (só pela API);
   - resgate: a trava de aba não é reconferida depois do modal do resgate; um desenho com gravação pendente durante switchAtlas ao vivo não cai em atlas nenhum (janela de milissegundos, só no vigia de migração).
 - Duas lições de método ainda sem guarda, e por isso fora do livro-razão: o docs-integridade lê arquivo NÃO rastreado (FONTES_DE_CODIGO usa readdirSync), e uma sonda solta na worktree de um agente o deixou verde com um símbolo errado; o certo é listar só o rastreado, como os censos que já têm o caso tmp-nao-rastreado. E a linha #! no começo de um script que o vitest importa quebra num checkout CRLF, e já aconteceu duas vezes (scripts/inventario-de-vendors.mjs em 2026-09-13, dev/testes-tocados.mjs em 2026-09-24): falta um censo de #! nesses scripts.
+- Atlas sem tempo real (integrado em 2026-09-25): o spec sem-tempo-real.spec.js rodou só no Chromium (3 de 3, com controle negativo), e o Firefox do modo não foi medido. Entre os vizinhos, o caso "slow network" de network-chaos usa Network.emulateNetworkConditionsByRule, que o Chromium 1194 da nuvem não tem, e passou numa cópia que estrangula a página inteira.
 - O npm run test:tocados responde "nada a rodar" quando o branch não tem upstream, mesmo com commits ainda sem push: ele só soma o diff contra o upstream quando existe um. Deveria recusar em voz alta e pedir --desde ou o upstream.
 - Duas observações da revisão dos gestos em massa (2026-09-25), menores e sem perda de dado:
   - Na quarentena, "Descartar" numa linha de um grupo recusado junto pergunta pelo grupo inteiro e descarta só aquela linha; e as frases do grupo prometem um "Aceitar o servidor" que a linha de quarentena não tem. Erra para o lado seguro, mas o texto é falso.
@@ -162,20 +145,25 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
 - KMZ: "Simular linhas tracejadas" vem ligado e corta a linha, e a volta vira dezenas de feições (156 para 3). Gravar a geometria original no ebgeo_estilo? E o estilo de KML de terceiros é descartado: mapear stroke e fill para os campos nativos?
 - Sourcemaps: publicar ou tirar os .map no deploy (mexe em deploy/)?
 - Depois de um resgate involuntário, a mesma conta, ao reabrir o atlas, só tem "Apagar e abrir" ou "Enviar ao servidor", que duplica. Criar uma saída "enviar as pendências a este atlas"? A op não carrega autor.
+- Atlas sem tempo real, quatro confirmações (a implementação seguiu a recomendação em todas):
+  - os números do modo, em sem-tempo-real.js: 10 s de espera pelo socket na abertura; pull 3 s depois de uma rodada que trouxe algo, até 10 s parado e até 30 s em falha; duas falhas seguidas passam a "reconectando"; sonda 10 s depois da queda; papel relido a cada 10 rodadas. Recomendação: aceitar;
+  - configurações do atlas, recursos emprestados e o nome do atlas não chegam no modo até a próxima abertura (os quadros atlas_settings_updated, atlas_resources_updated e atlas_updated só existem no socket). (a) aceitar e declarar; (b) reler as configurações junto com o papel. Recomendação: (a) para o lançamento;
+  - o 404 do pull não distingue lixeira de revogação, e a saída diz "Seu acesso a este atlas foi removido", como o caminho do socket já faz. Recomendação: aceitar;
+  - o texto do aviso: "Sem tempo real: suas alterações são salvas no servidor, e as dos colegas chegam em alguns segundos. Se continuar, avise o administrador." (o visitante lê a frase sem a primeira metade). Confirmar.
 - Desfazer e refazer seguidos rápido: o segundo pedido chega enquanto o primeiro ainda redesenha o mapa base e é DESCARTADO em silêncio, por desenho, para o botão e o atalho não desfazerem dois passos juntos. A janela medida foi de 3 a 5 ms num mapa pequeno, e ela cresce com o redesenho num mapa pesado. O pedido deve esperar a vez, dizer que foi ignorado, ou ficar como está?
 - Foto anexada recusada pelo servidor: o registro dela nunca sai, e toda saída da conta pergunta por ele, mesmo depois de a foto ter sido apagada da feição. Como a pessoa resolve: um "Descartar" nas pendências, ou o registro some quando a foto sai da entidade? (terceira revisão das fotos, item 5)
 - Envio de imagem grande com o token vencido: o backend só usa o parser de 50 MB quando reconhece a sessão, então esse envio leva 413 e a foto vira recusa definitiva, quando antes era tentada de novo. Abrir o parser grande pela presença do cabeçalho de sessão, ou tratar o 413 como transitório no cliente quando o token pode ter vencido? (terceira revisão das fotos, item 4)
 
 ## 5. Passos finais antes do deploy
 
-1. Fechar o item 1.4, que o dono decidiu levar ao lançamento. E medir o custo do ping de 2 bytes que agora segue cada quadro de presença: de dentro de backend/, node tests/bench/sala-limite.bench.mjs com WS_PRESENCE_FLOW=1 e com =0, contra a linha de base de 2026-08-27. A bancada mede o custo do ping, não a retenção, porque o cliente ws dela responde ao ping na hora, e o perdaCursorPct pode passar a contar coalescência como perda.
+1. Medir o custo do ping de 2 bytes que agora segue cada quadro de presença: de dentro de backend/, node tests/bench/sala-limite.bench.mjs com WS_PRESENCE_FLOW=1 e com =0, contra a linha de base de 2026-08-27. A bancada mede o custo do ping, não a retenção, porque o cliente ws dela responde ao ping na hora, e o perdaCursorPct pode passar a contar coalescência como perda.
 2. Rodar as seis frentes do item 6, na ordem de risco, e integrar o que elas acharem.
-3. Remedir e APERTAR os tetos de peso da página do mapa. A fonte ficou com folga larga de propósito durante a campanha.
+3. Remedir e APERTAR os tetos de peso da página do mapa. A fonte ficou com folga larga de propósito durante a campanha. Depois do item 1.4 o construído ficou a 2 kB do teto (4258 de 4260 kB, 91 arquivos), e a fonte ansiosa em 8094 de 8100 kB.
 4. npm run lint e npm test na raiz, em comandos separados.
 5. O Playwright inteiro, em fatias paralelas com portas e bancos próprios, com retries desligado ou lendo a contagem de flaky antes de declarar verde.
 6. nginx (instruções completas nos arquivos fora do repositório citados no item 0):
    - limite de corpo de 60 MB nos blocos do EBGeo, porque o padrão do nginx é 1 MB e o sync e o import o ultrapassam;
-   - cabeçalhos de Upgrade do WebSocket no bloco de produção, na troca;
+   - cabeçalhos de Upgrade do WebSocket nos TRÊS proxies do caminho de produção: proxy_http_version 1.1, proxy_set_header Upgrade $http_upgrade, proxy_set_header Connection "upgrade", e proxy_read_timeout acima de 60 s (o heartbeat do cliente é de 25 s e a varredura do servidor, de 30 s). Sem isso o EBGeo funciona desde 2026-09-25, mas SEM TEMPO REAL: o selo diz "Sem tempo real", ninguém aparece como presente, e as edições dos colegas chegam em alguns segundos. Conferência depois da troca: abrir um atlas de servidor e ver o selo verde, nunca "Sem tempo real";
    - X-Forwarded-For.
 
    TRUST_PROXY_HOPS precisa bater com o número de proxies do caminho: 3 em produção, 4 no ambiente de teste.

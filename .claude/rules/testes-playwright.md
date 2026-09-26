@@ -29,7 +29,7 @@ A 3912 é o backend, e ela GRITA (ver adiante). A 4321 é o Vite que serve o APP
 já tiver um Vite ali, o Playwright REUSA aquele servidor e a sua rodada passa a medir o
 `src/` do OUTRO worktree, sem um aviso em lugar nenhum. É a forma mais pura de "o
 instrumento está medindo outra cópia do sujeito": os specs passam, a captura sai bonita, e
-nada do que você editou entrou na medida.
+nada do que você editou entrou na medida. **O mesmo vale para um Vite ÓRFÃO do PRÓPRIO checkout:** o de e2e roda com `watch: null` (`frontend/tests/e2e-ui/vite.e2e.config.js`), então serve para sempre o `src/` do instante em que subiu, e um `npx playwright test` morto por `timeout` deixa os filhos de pé. Medido em 2026-09-25: uma série deu 2 de 2 vermelhos com o código certo no disco, servindo o motor de um controle negativo já desfeito. Mate os filhos junto com a rodada, e antes de medir depois de editar `src/` confira que nada escuta na porta do app.
 
 MEDIDO em 2026-09-14, e o que denunciou foi uma CONTRADIÇÃO entre rodadas: duas capturas do
 mesmo commit relataram `ms.getVersion()` 3.0.4 e depois 3.0.2, e a segunda pediu
