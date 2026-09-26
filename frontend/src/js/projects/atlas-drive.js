@@ -78,6 +78,7 @@ import {
 // Módulo FOLHA, sem imports: as palavras das operações de atlas local moram todas nele, e é dele
 // que vem a recusa que este componente diz ANTES de chamar de volta a página.
 import { deleteAttempt, NoticeKind } from './local-atlas-notices.js';
+import { COPIA_ANTIGA_BOTAO, COPIA_ANTIGA_TEXTO } from './copia-antiga-phrases.js';
 import { serverMessageOr } from '@utils/request-failure.js';
 
 const ICONS = {
@@ -1873,6 +1874,12 @@ export class LocalAtlasSection {
         this._signedIn = options.signedIn === true && this._onSendToServer !== null;
         this._onOpenFile = options.onOpenFile || null;
         this._onRetry = typeof options.onRetry === 'function' ? options.onRetry : null;
+        // THE PREVIOUS VERSION'S COPY (owner's decision of 2026-09-26, `copia-antiga-phrases.js`):
+        // drawn only while the page says there is one to delete (`setLegacyCopy`), and only when
+        // the page gave a way to delete it.
+        this._onDropLegacy = typeof options.onDropLegacy === 'function' ? options.onDropLegacy : null;
+        this._copiaAntiga = null;
+        this._legacyEl = null;
         this._root = null;
         this._gridEl = null;
         this._countEl = null;
@@ -1905,6 +1912,9 @@ export class LocalAtlasSection {
         this._root = null;
         this._gridEl = null;
         this._countEl = null;
+        // The page reads the old copy's verdict asynchronously, and a late answer must not draw
+        // (and listen) inside a section that is gone.
+        this._legacyEl = null;
         this._fileInput = null;
     }
 
@@ -1963,9 +1973,48 @@ export class LocalAtlasSection {
         grid.setAttribute('aria-label', 'Atlas neste computador');
         root.appendChild(grid);
 
+        const legado = document.createElement('div');
+        legado.className = 'local-atlas__legacy';
+        legado.dataset.testid = 'local-atlas-legacy';
+        legado.hidden = true;
+        root.appendChild(legado);
+        this._legacyEl = legado;
+
         this._root = root;
         this._gridEl = grid;
         this._render();
+        this._renderCopiaAntiga();
+    }
+
+    /**
+     * The previous version's copy, as the page read it, or null when there is nothing to offer.
+     * @param {{registros: number}|null} copia - `copiaAntigaParaOferecer` of the page's verdict.
+     */
+    setLegacyCopy(copia) {
+        this._copiaAntiga = copia ?? null;
+        this._renderCopiaAntiga();
+    }
+
+    /** @private The block below the grid: a sentence and the command, or nothing. */
+    _renderCopiaAntiga() {
+        const bloco = this._legacyEl;
+        if (!bloco) return;
+        clearScopedListeners(this, 'local-legacy');
+        bloco.replaceChildren();
+        const copia = this._copiaAntiga;
+        bloco.hidden = !(copia && this._onDropLegacy);
+        if (bloco.hidden) return;
+
+        const texto = document.createElement('p');
+        texto.className = 'local-atlas__legacy-text';
+        texto.textContent = COPIA_ANTIGA_TEXTO;
+        const botao = document.createElement('button');
+        botao.type = 'button';
+        botao.className = 'local-atlas__legacy-btn';
+        botao.dataset.testid = 'local-atlas-legacy-drop';
+        botao.textContent = COPIA_ANTIGA_BOTAO;
+        addScopedDomListener(this, 'local-legacy', botao, 'click', () => this._onDropLegacy(copia));
+        bloco.append(texto, botao);
     }
 
     /**

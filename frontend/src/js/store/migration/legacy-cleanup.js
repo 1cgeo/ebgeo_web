@@ -34,7 +34,9 @@
  * The unsuffixed databases (the acervo the previous product line still knows) are the user's
  * other copy, and no automatic path deletes them: deleting the only pre-update copy is not a
  * decision code may take. `dropLegacySource` is the separate, explicit gesture, reached from the
- * button on the recovery screen; the sweep's ONLY business with the origin is finishing a drop
+ * button in the "Neste computador" section of `atlas.html` (since 2026-09-26; the recovery screen,
+ * where it lived before, is reached only by a FAILED update); the sweep's ONLY business with the
+ * origin is finishing a drop
  * that was already ordered and died halfway (`TransitionStatus.DROPPING_SOURCE`), which is
  * carrying out an order, not taking one.
  *
@@ -349,7 +351,8 @@ async function eraseLegacySource(state, timeoutMs) {
  * @typedef {Object} LegacySourceVerdict
  * @property {string} reason - `'ok'` when the origin may be deleted right now, otherwise WHY not:
  *   `no_transition`, `not_committed`, `legacy_changes`, `claimed`, `already_dropped`,
- *   `unreadable`. The recovery screen turns each into a sentence.
+ *   `unreadable`. The `atlas.html` section draws its command only for `'ok'` with records
+ *   (`copiaAntigaParaOferecer`).
  * @property {number} records - How many records the origin still holds, for the confirmation to
  *   name. Zero whenever the reason is not `'ok'`, because a number nobody may act on is noise.
  */
@@ -393,7 +396,8 @@ export async function describeLegacySource() {
 }
 
 /**
- * Deletes the pre-namespace origin. THE ONLY CALLER IS THE BUTTON ON THE RECOVERY SCREEN.
+ * Deletes the pre-namespace origin. THE ONLY CALLER IS THE BUTTON IN THE "Neste computador" SECTION
+ * OF `atlas.html` (`projects/projects-page.js`).
  *
  * @param {Object} [options_]
  * @param {number} [options_.timeoutMs] - Per-database bound, for a test that does not want to

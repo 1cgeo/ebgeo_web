@@ -57,7 +57,7 @@ export async function readLegacyTransition() {
  *
  * THE LAST TWO ARE NOT THE COPY'S, THEY ARE THE ORIGIN'S (decision D8 of 2026-09-13). The copy
  * ends at `COMMITTED` and never moves again; what comes after describes the pre-namespace
- * databases the copy was made FROM, which the user may order deleted from the recovery screen.
+ * databases the copy was made FROM, which the user may order deleted from `atlas.html`.
  * `DROPPING_SOURCE` is the intent written before the first delete, so a crash in the middle is
  * resumable instead of leaving a half-emptied acervo that the journal still claims is whole.
  */

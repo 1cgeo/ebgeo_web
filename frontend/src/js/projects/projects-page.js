@@ -130,6 +130,14 @@ import {
 // The name only, from a module with no imports: the server importer that lives next to it opens
 // with `import JSZip`, and this path never parses the archive (the map's importer does).
 import { atlasNameFromFilename } from './ebgeo-filename.js';
+import { describeLegacySource, dropLegacySource } from '@store/migration/legacy-cleanup.js';
+import {
+    COPIA_ANTIGA_FALHOU,
+    COPIA_ANTIGA_OCUPADA,
+    confirmacaoDeApagarCopiaAntiga,
+    copiaAntigaApagada,
+    copiaAntigaParaOferecer,
+} from './copia-antiga-phrases.js';
 import { LOCAL_INTENT_KEY, clearLocalMapIntent } from '../deep-link/local-intent.js';
 // The logo the boot splash of this very page already fetched — a URL, not the Base64 the name
 // still promises (see the module's own note). By FILE, like everything else here.
@@ -1102,7 +1110,51 @@ function buildLocalSection(local) {
         onDelete: (atlas) => deleteLocalAtlasFromPage(atlas),
         onOpenFile: (file) => openEbgeoFileAsLocalAtlas(file),
         onRetry: () => retryLocalAtlases(),
+        onDropLegacy: (copia) => apagarCopiaAntiga(copia),
     });
+}
+
+/**
+ * Reads whether the previous version's copy can be deleted now, and tells the local section.
+ *
+ * IndexedDB only, so it runs on both boots, with the server down too. A read that fails offers
+ * nothing: the command is a convenience, and a verdict nobody could read is not a "yes".
+ * @returns {Promise<void>}
+ */
+async function atualizarCopiaAntiga() {
+    let veredito = null;
+    try {
+        veredito = await describeLegacySource();
+    } catch (error) {
+        console.warn('[projects] could not read the previous version\'s copy:', error);
+    }
+    localSection?.setLegacyCopy(copiaAntigaParaOferecer(veredito));
+}
+
+/**
+ * "Apagar a cópia antiga da versão anterior" (owner's decision of 2026-09-26): asks, naming how many
+ * records leave, deletes the pre-namespace origin through `dropLegacySource` (the one door, with its
+ * own lock and verdict), and reads the verdict again so the command leaves with the copy.
+ * @param {{registros: number}} copia - What the section was given.
+ * @returns {Promise<void>}
+ */
+async function apagarCopiaAntiga(copia) {
+    const pergunta = confirmacaoDeApagarCopiaAntiga(copia?.registros ?? 0);
+    const confirmado = await showConfirm(pergunta.titulo, {
+        message: pergunta.mensagem,
+        confirmText: pergunta.confirmar,
+        cancelText: 'Manter',
+        destructive: true,
+    });
+    if (!confirmado) return;
+    try {
+        const { records } = await dropLegacySource();
+        showSuccess(copiaAntigaApagada(records));
+    } catch (error) {
+        console.warn('[projects] dropping the previous version\'s copy failed:', error);
+        showError(error?.code === 'drop_blocked' ? COPIA_ANTIGA_OCUPADA : COPIA_ANTIGA_FALHOU);
+    }
+    await atualizarCopiaAntiga();
 }
 
 /**
@@ -1160,6 +1212,7 @@ async function renderWithoutServer() {
 
     localSection = buildLocalSection(local);
     localSection.mount(body);
+    atualizarCopiaAntiga();
 }
 
 /**
@@ -1272,6 +1325,7 @@ async function initProjectsPage() {
 
     localSection = buildLocalSection(local);
     localSection.mount(body);
+    atualizarCopiaAntiga();
 
     if (signedIn) {
         const drive = new AtlasDrive({
