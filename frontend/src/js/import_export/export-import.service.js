@@ -15,6 +15,8 @@ import {
     setMapLayers,
     flushPendingLayerWrites,
     getMapPosition,
+    isMapLocked,
+    getMapBadgeColors,
     getMapOrder,
     processCatalogLayersOnImport,
     getCatalogLayers,
@@ -110,6 +112,21 @@ function writingIntoServerAtlas() {
 const RECUSA_DO_ADITIVO_NO_SERVIDOR = 'Não é possível adicionar um arquivo ao atlas do servidor '
     + 'que está aberto. Use "Importar .ebgeo", que abre o arquivo em um atlas local novo.';
 
+
+/**
+ * The badge colours of the maps a document carries, or null when none of them has one.
+ * @param {*} cores - Map name to colour (`getMapBadgeColors`).
+ * @param {Object} maps - The document's `maps`, keyed by name.
+ * @returns {Object|null}
+ */
+function coresDosMapas(cores, maps) {
+    if (!cores || typeof cores !== 'object') return null;
+    const saida = Object.create(null);
+    for (const [nome, cor] of Object.entries(cores)) {
+        if (Object.hasOwn(maps, nome) && typeof cor === 'string' && cor) saida[nome] = cor;
+    }
+    return Object.keys(saida).length > 0 ? saida : null;
+}
 
 export class ExportImportService {
     constructor(baseLayerControl, toolManager, mapManager, eventBus = null) {
@@ -335,6 +352,10 @@ export class ExportImportService {
                 'cesium3d', 'streetview360', 'temporal', 'gridStyle', 'comments']
                 .map(key => [key, Object.create(null)])),
             briefings: [],
+            // THE LOCK OF EACH MAP AND THE BADGE COLOURS travel too (owner's decision of
+            // 2026-09-26): a map the person locked used to arrive unlocked in every copy, and its
+            // badge colour was re-assigned. Both are keyed by map NAME, like `temporal`.
+            mapLocks: Object.create(null),
         };
 
         for (const mapName of mapsToExport) {
@@ -377,7 +398,10 @@ export class ExportImportService {
                 continue;
             }
             await this._exportOptionalMapData(data, mapName, strict, readFailures);
+            if (await isMapLocked(mapName)) data.mapLocks[mapName] = true;
         }
+        const cores = coresDosMapas(await getMapBadgeColors(), data.maps);
+        if (cores) data.mapBadgeColors = cores;
 
         try {
             const briefings = await getBriefingsForExport();

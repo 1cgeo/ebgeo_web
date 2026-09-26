@@ -13,6 +13,8 @@ vi.mock('@store', () => ({
         geometry: { type: 'Point', coordinates: [-43, -22] },
     }] })),
     getMapPosition: vi.fn(async () => ({ zoom: 8, center_lat: -22, center_long: -43, bearing: 0, pitch: 0 })),
+    isMapLocked: vi.fn(async () => false),
+    getMapBadgeColors: vi.fn(async () => ({})),
     getCatalogLayers: vi.fn(async () => []),
     getCurrentBaseLayer: vi.fn(async () => 'carta'),
     getColorUsage: vi.fn(async () => ({ '#ff0000': 1 })),

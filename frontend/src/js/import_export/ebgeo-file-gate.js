@@ -176,7 +176,7 @@ export function importVersionRefusal(data) {
             }
         }
     }
-    for (const key of ['layers', 'groups', 'cesium3d', 'streetview360', 'temporal', 'gridStyle', 'mapNotes', 'comments', 'colorUsage']) {
+    for (const key of ['layers', 'groups', 'cesium3d', 'streetview360', 'temporal', 'gridStyle', 'mapNotes', 'comments', 'colorUsage', 'mapLocks', 'mapBadgeColors']) {
         if (data[key] !== undefined && !object(data[key])) return `Arquivo .ebgeo inválido: seção ${key} corrompida.`;
     }
     for (const key of ['customIcons', 'briefings', 'mapOrder']) {

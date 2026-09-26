@@ -77,6 +77,8 @@ const KEY = Object.freeze({
     mapNotes: (mapKey) => `map_notes_${mapKey}`,
     gridStyle: (mapKey) => `gridStyle_${mapKey}`,
     temporal: (mapName) => `temporal_${mapName}`,
+    mapLocked: (mapName) => `mapLocked_${mapName}`,
+    mapBadgeColors: 'mapBadgeColors',
     customIcons: 'custom_icons',
     mapOrder: 'mapOrder',
     currentMap: 'lastActiveMap',
@@ -205,6 +207,9 @@ export async function buildLocalAtlasExportData(scope) {
         mapNotes: Object.create(null), groups: Object.create(null), layers: Object.create(null),
         cesium3d: Object.create(null), streetview360: Object.create(null),
         temporal: Object.create(null), gridStyle: Object.create(null), comments: Object.create(null),
+        // The lock and the badge colours travel too (owner's decision of 2026-09-26), keyed by
+        // NAME like `temporal`: the same shape `buildExportDataObject` produces.
+        mapLocks: Object.create(null),
         briefings: [],
     };
 
@@ -283,6 +288,7 @@ export async function buildLocalAtlasExportData(scope) {
             await ler(StoreName.SETTINGS, scope, KEY.gridStyle(mapKey)));
         porSecao(data.temporal, mapName,
             await ler(StoreName.SETTINGS, scope, KEY.temporal(mapName)));
+        if (await ler(StoreName.SETTINGS, scope, KEY.mapLocked(mapName)) === true) data.mapLocks[mapName] = true;
         // A CONTAGEM DE CORES NÃO É LIDA (2026-09-21): ela deixou de viajar ao servidor, porque é
         // derivada das feições e cada cliente a recalcula (`performInitialColorAnalysis`). Eram duas
         // leituras de disco por mapa para montar uma seção que o payload descartava.
@@ -299,6 +305,13 @@ export async function buildLocalAtlasExportData(scope) {
 
     const customIcons = await ler(StoreName.SETTINGS, scope, KEY.customIcons);
     if (Array.isArray(customIcons) && customIcons.length > 0) data.customIcons = customIcons;
+
+    const cores = await ler(StoreName.SETTINGS, scope, KEY.mapBadgeColors);
+    if (cores && typeof cores === 'object') {
+        const doDocumento = Object.fromEntries(Object.entries(cores)
+            .filter(([nome, cor]) => Object.hasOwn(data.maps, nome) && typeof cor === 'string' && cor));
+        if (Object.keys(doDocumento).length > 0) data.mapBadgeColors = doDocumento;
+    }
 
     // A ORDEM VEM DO SETTING, e o registro do atlas é o segundo lugar a perguntar; sem nenhum dos
     // dois, a ordem de leitura dos mapas é melhor do que ordem nenhuma. Toda entrada é traduzida de

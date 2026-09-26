@@ -57,6 +57,11 @@ export async function prepareEbgeoScope(scope, entry, data, zip, processCatalogL
         if (Object.hasOwn(data.temporal || {}, name) && data.temporal[name] != null) {
             await put(StoreName.SETTINGS, `temporal_${name}`, data.temporal[name]);
         }
+        // The lock travels with the file (owner's decision of 2026-09-26), under the key the map
+        // switch reads (`mapLocked_<name>`, `store-state-manager.js`).
+        if (Object.hasOwn(data.mapLocks || {}, name) && data.mapLocks[name] === true) {
+            await put(StoreName.SETTINGS, `mapLocked_${name}`, true);
+        }
     }
     const briefingIds = new Set();
     for (const briefing of data.briefings || []) {
@@ -73,6 +78,16 @@ export async function prepareEbgeoScope(scope, entry, data, zip, processCatalogL
         imageIds.add(id);
         const bytes = await zip.file(file).async('arraybuffer');
         await put(StoreName.IMAGES, id, new Blob([bytes], { type: MIME[file.split('.').pop().toLowerCase()] }));
+    }
+    // The badge colours of the imported maps, MERGED over the destination's in an append. Only a
+    // name the file itself brings: `ids` also holds the destination's maps, and a crafted entry
+    // naming one of them would repaint a map this import does not touch.
+    const coresImportadas = Object.entries(data.mapBadgeColors || {})
+        .filter(([nome, cor]) => maps.some(([nomeDoMapa]) => nomeDoMapa === nome)
+            && typeof cor === 'string' && cor);
+    if (coresImportadas.length > 0) {
+        const existentes = append ? await settings.getItem('mapBadgeColors') || {} : {};
+        await put(StoreName.SETTINGS, 'mapBadgeColors', { ...existentes, ...Object.fromEntries(coresImportadas) });
     }
     const existingIcons = append ? await settings.getItem('custom_icons') || [] : [];
     await put(StoreName.SETTINGS, 'custom_icons', [...existingIcons, ...(data.customIcons || []).filter(icon => icon?.id)]);

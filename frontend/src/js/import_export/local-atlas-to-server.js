@@ -477,7 +477,9 @@ export function buildServerImportPayload(exportData, meta = {}) {
             // sync write gate; a legacy entry still holding the old embedded copy would otherwise
             // plant a stale definition on the server.
             catalog_layers: pruneCatalogLayerDefinitions(mapData?.catalogLayers) || [],
-            locked: false,
+            // The lock the person set on the local map (owner's decision of 2026-09-26). It used to
+            // be `false` for every map, so a locked map arrived unlocked on the server.
+            locked: data.mapLocks?.[mapName] === true,
             grid_style: data.gridStyle?.[mapName] || {},
             temporal_config: data.temporal?.[mapName] || {},
             features,
@@ -540,6 +542,13 @@ export function buildServerImportPayload(exportData, meta = {}) {
         for (const icon of data.customIcons) if (icon?.id) imageSink.add(icon.id);
     }
     if (Array.isArray(data.mapOrder) && data.mapOrder.length) settings.mapOrder = data.mapOrder;
+    // The badge colour of each map, keyed by name like on the client (`mapBadgeColors` is a
+    // synced atlas setting): without it every map got a fresh colour on the server.
+    if (data.mapBadgeColors && typeof data.mapBadgeColors === 'object') {
+        const cores = Object.fromEntries(Object.entries(data.mapBadgeColors)
+            .filter(([nome, cor]) => Object.hasOwn(maps, nome) && typeof cor === 'string' && cor));
+        if (Object.keys(cores).length > 0) settings.mapBadgeColors = cores;
+    }
 
     const payload = {
         atlas: {

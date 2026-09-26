@@ -37,6 +37,8 @@ vi.mock('@store', () => ({
         points: [{ type: 'Feature', properties: { id: 'p1', source: 'point', nome: 'Alfa' }, geometry: { type: 'Point', coordinates: [-43.2, -22.9] } }],
     })),
     getMapPosition: vi.fn(async () => ({ zoom: 8, center_lat: -22.9, center_long: -43.2, bearing: 0, pitch: 0 })),
+    isMapLocked: vi.fn(async () => false),
+    getMapBadgeColors: vi.fn(async () => ({})),
     getCatalogLayers: vi.fn(async () => ([
         { id: 'data-camada-publica', type: 'data_layer', visible: true },
         { id: 'data-camada-restrita', type: 'data_layer', visible: true },

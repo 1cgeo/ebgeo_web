@@ -13,6 +13,8 @@ vi.mock('@store', () => ({
         polygons: [{ type: 'Feature', properties: { id: 'poly1', source: 'polygon' }, geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] } }],
     })),
     getMapPosition: vi.fn(async () => ({ zoom: 8, center_lat: -22.9, center_long: -43.2, bearing: 0, pitch: 0 })),
+    isMapLocked: vi.fn(async () => false),
+    getMapBadgeColors: vi.fn(async () => ({})),
     getCatalogLayers: vi.fn(async () => []),
     getCurrentBaseLayer: vi.fn(async () => 'carta-ortoimagem'),
     getColorUsage: vi.fn(async () => ({ '#ff0000': 2 })),
@@ -47,7 +49,7 @@ vi.mock('@store', () => ({
 }));
 
 import { ExportImportService } from '../../src/js/import_export/export-import.service.js';
-import { getCatalogLayers, getMapGroups } from '@store';
+import { getCatalogLayers, getMapGroups, isMapLocked, getMapBadgeColors } from '@store';
 
 function makeService() {
     return new ExportImportService(/* baseLayerControl */ {}, /* toolManager */ { deactivateCurrentTool: vi.fn() }, /* mapManager */ {}, null);
@@ -166,6 +168,22 @@ describe('ExportImportService.buildExportDataObject — .ebgeo coverage (P9/P11)
         // um `[]` que virasse `[]` no arquivo mudaria o shape do `.ebgeo` de todo mundo.
         const data = await makeService().buildExportDataObject(['Mapa A']);
         expect(data.maps['Mapa A'].catalogLayers).toBeUndefined();
+    });
+
+    it('REPRO: a trava do mapa e a cor de selo viajam no `.ebgeo` (decisão de 2026-09-26)', async () => {
+        isMapLocked.mockResolvedValueOnce(true);
+        // A cor de um mapa que não está sendo exportado fica de fora.
+        getMapBadgeColors.mockResolvedValueOnce({ 'Mapa A': '#aa0000', 'Mapa Z': '#123456' });
+        const data = await makeService().buildExportDataObject(['Mapa A']);
+        expect(isMapLocked).toHaveBeenLastCalledWith('Mapa A');
+        expect({ ...data.mapLocks }).toEqual({ 'Mapa A': true });
+        expect(data.mapBadgeColors).toEqual({ 'Mapa A': '#aa0000' });
+    });
+
+    it('mapa livre e atlas sem cor: a trava fica vazia e a chave de cor não é escrita', async () => {
+        const data = await makeService().buildExportDataObject(['Mapa A']);
+        expect({ ...data.mapLocks }).toEqual({});
+        expect(data).not.toHaveProperty('mapBadgeColors');
     });
 });
 

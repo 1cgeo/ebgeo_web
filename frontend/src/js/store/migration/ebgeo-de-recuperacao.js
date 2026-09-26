@@ -199,7 +199,10 @@ export async function montarDocumentoEbgeo(scope) {
         maps: Object.create(null), colorUsage: Object.create(null), mapNotes: Object.create(null),
         groups: Object.create(null), layers: Object.create(null), cesium3d: Object.create(null),
         streetview360: Object.create(null), temporal: Object.create(null), gridStyle: Object.create(null),
-        comments: Object.create(null), briefings: []
+        comments: Object.create(null), briefings: [],
+        // The lock of each map, keyed by NAME like `temporal` (owner's decision of 2026-09-26: the
+        // `.ebgeo` carries it, so a locked map does not come back unlocked from its own copy).
+        mapLocks: Object.create(null)
     };
 
     const nomePorEndereco = new Map();
@@ -227,6 +230,17 @@ export async function montarDocumentoEbgeo(scope) {
             const valor = await primeiroQueResponde(getStoreFor(loja, scope), prefixo, enderecos);
             if (temConteudo(valor)) data[secao][nome] = valor;
         }
+        // By NAME only, never by address: the map switch reads `mapLocked_<name>`, and a key under the
+        // map's UUID is not the lock the person sees.
+        if (await settings.getItem(`mapLocked_${nome}`) === true) data.mapLocks[nome] = true;
+    }
+
+    // The badge colours, keyed by name; an entry naming a map this scope does not hold stays out.
+    const cores = await settings.getItem('mapBadgeColors');
+    if (cores && typeof cores === 'object') {
+        const doDocumento = Object.fromEntries(Object.entries(cores)
+            .filter(([nome, cor]) => Object.hasOwn(data.maps, nome) && typeof cor === 'string' && cor));
+        if (Object.keys(doDocumento).length > 0) data.mapBadgeColors = doDocumento;
     }
 
     const traduzir = endereco => nomePorEndereco.get(endereco) ?? endereco;

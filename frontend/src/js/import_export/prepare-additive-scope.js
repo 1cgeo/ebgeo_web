@@ -5,10 +5,10 @@ import { prepareEbgeoScope } from './prepare-ebgeo-scope.js';
 import { idsDeFotosPorReferencia } from '@js/user_data/photo-refs.js';
 import { idsDeFigurasDoDocumento, reescreverFigurasNoHtml } from '@js/briefing/figura-de-slide.js';
 
-const SECTIONS = ['groups', 'layers', 'cesium3d', 'streetview360', 'comments', 'colorUsage', 'mapNotes', 'gridStyle', 'temporal'];
+const SECTIONS = ['groups', 'layers', 'cesium3d', 'streetview360', 'comments', 'colorUsage', 'mapNotes', 'gridStyle', 'temporal', 'mapLocks', 'mapBadgeColors'];
 const REFERENCES = new Set(['id', 'parentId', 'layerId', 'groupId', 'featureId', 'mapId', 'briefingId', 'slideId']);
 // These contain user data or external resource identities, never atlas entity identities.
-const OPAQUE = new Set(['attributes', 'catalogLayers', 'analysisLayers', 'geometry', 'style', 'sync', 'gridStyle', 'mapNotes', 'temporal']);
+const OPAQUE = new Set(['attributes', 'catalogLayers', 'analysisLayers', 'geometry', 'style', 'sync', 'gridStyle', 'mapNotes', 'temporal', 'mapLocks', 'mapBadgeColors']);
 const unique = (name, used) => {
     let next = name;
     for (let n = 1; used.has(next); n++) next = `${name}_${n}`;
