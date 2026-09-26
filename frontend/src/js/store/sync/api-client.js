@@ -292,8 +292,10 @@ const LOGOUT_TIMEOUT_MS = 3000;
  * retry, but never gets the chance: the backend picks the enlarged 50 MB body parser only
  * when `flexibleAuth` has already attached a verified principal (`backend/src/app.js`), so
  * an expired token makes a >10 MB batch fall to the global 10 MB cap and answer **413**.
- * Nothing in this client reacts to 413, so that upload failed and every retry failed the
- * same way, until some unrelated call happened to renew the session.
+ * Until 2026-09-26 nothing in this client reacted to 413, so that upload failed and every retry
+ * failed the same way, until some unrelated call happened to renew the session. The renewal
+ * below covers the expiry the LOCAL clock sees; a clock behind the server's, or a session cut
+ * on the server, is caught after the fact by the 413 probe in `_performRequest`.
  *
  * Fixing it on the server does not work: answering 401 before reading the body leaves
  * megabytes in flight and Node destroys the socket, so the client reads ECONNRESET instead
@@ -945,6 +947,20 @@ export class ApiClient {
                     serializedBody: payload, auth, _retry: false, signal, assertContext, onBodyChunk,
                 });
             }
+            // A 413 CAN BE THE SESSION, NOT THE SIZE (owner's decision of 2026-09-26). The server
+            // buys the enlarged body parser (image bulk, import begin, import images) only for a
+            // principal it already verified, so a token it reads as expired turns a large body into
+            // a 413 before any route can answer 401. Resending on every 413 would cost up to 50 MB
+            // each time a size refusal is real, which is routine (the bulk upload splits its chunk
+            // on it), so the client asks the cheapest authenticated question first and resends,
+            // once, only when answering it needed a renewal. `tests/integration/envio-413-sessao-vencida.repro.test.js`.
+            if (res.status === 413 && _retry && auth && this._refreshToken
+                && await this._sessionRenewedByProbe(signal)) {
+                signal?.throwIfAborted();
+                return this._performRequest(method, path, {
+                    serializedBody: payload, auth, _retry: false, signal, assertContext, onBodyChunk,
+                });
+            }
             // Two error envelopes reach this client. The atlas API sends
             // `{ error: { code, message } }`; sv360 sends a FLAT `{ error: '...' }`
             // (a deliberate divergence, see the sv360 contract). Three admin 360
@@ -968,6 +984,21 @@ export class ApiClient {
         }
 
         return this._unwrap(parsed);
+    }
+
+    /**
+     * @private Asks `GET /auth/me` after a 413 and tells whether answering it needed a renewal,
+     * which is what says the session (and not the size) refused the request. The probe goes
+     * through the ordinary path, so a 401 there renews and retries it like any request; a probe
+     * that fails (the session is gone for good, or the network) rejects with ITS error, which is
+     * the truer one: the blob queue then waits instead of recording a size refusal.
+     * @param {AbortSignal} [signal]
+     * @returns {Promise<boolean>} Whether the access token changed while the probe was answered.
+     */
+    async _sessionRenewedByProbe(signal) {
+        const before = this._accessToken;
+        await this._performRequest('GET', '/auth/me', { signal });
+        return this._accessToken !== before;
     }
 
     /**
