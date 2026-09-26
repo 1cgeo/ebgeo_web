@@ -105,6 +105,10 @@ function instalarNavegador(descritor, log = []) {
 
     vi.stubGlobal('document', { createElement: () => canvasFalso() });
     vi.stubGlobal('location', { href: 'http://teste.local/', origin: 'http://teste.local' });
+    // A MÁQUINA NÃO SE DESCREVE, que é o que estes casos afirmam: o Node 24 publica
+    // `navigator.hardwareConcurrency`, e numa máquina de 4 núcleos o teto de textura apertava e
+    // mudava o resultado (seção 3 das pendências). Quem mede o aperto passa o navegador à mão.
+    vi.stubGlobal('navigator', {});
     vi.stubGlobal('fetch', async (url) => {
         log.push(String(url));
         return String(url).endsWith('tiles.json')
@@ -252,6 +256,9 @@ describe('o teto de textura da maquina', () => {
         // Firefox e Safari nao publicam `deviceMemory`. Borrar a foto de quem
         // ninguem mediu seria pior que pagar memoria numa maquina boa.
         expect(tetoDaMaquina({})).toBe(16384);
+        // `undefined` cai no padrão, o `navigator` GLOBAL, que o Node 24 preenche com os núcleos
+        // da máquina: o global é fixado como um navegador que não se descreve.
+        vi.stubGlobal('navigator', {});
         expect(tetoDaMaquina(undefined)).toBe(16384);
         expect(tetoDaMaquina({ deviceMemory: 8, hardwareConcurrency: 16 })).toBe(16384);
     });

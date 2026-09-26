@@ -116,6 +116,10 @@ function instalarNavegador(descritor, log = []) {
 
     vi.stubGlobal('document', { createElement: () => canvasFalso() });
     vi.stubGlobal('location', { href: 'http://teste.local/', origin: 'http://teste.local' });
+    // A MÁQUINA NÃO SE DESCREVE, que é o que estes casos afirmam: o Node 24 publica
+    // `navigator.hardwareConcurrency`, e numa máquina de 4 núcleos o teto de textura apertava e
+    // mudava o resultado (seção 3 das pendências). Quem mede o aperto passa o navegador à mão.
+    vi.stubGlobal('navigator', {});
     vi.stubGlobal('fetch', async (url) => {
         log.push(String(url));
         return String(url).endsWith('tiles.json')

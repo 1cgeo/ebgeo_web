@@ -12,7 +12,7 @@
  * um aparelho de verdade, que precisaria de um aparelho de verdade.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
     cacheDeTileset,
@@ -49,8 +49,16 @@ describe('cacheDeTileset', () => {
     it('SEM PISTA NENHUMA o teto NÃO baixa, e é esta a metade conservadora da regra', () => {
         // `deviceMemory` não existe no Firefox nem no Safari. Tratar a ausência como aperto
         // estrangularia o cache em todo Firefox de estação, que é o inverso do objetivo.
-        for (const navegador of [{}, undefined, null, { deviceMemory: undefined }]) {
-            expect(cacheDeTileset(navegador)).toBe(CACHE_DE_TILESET_BYTES);
+        // `undefined` cai no parâmetro padrão, o `navigator` GLOBAL, e o do Node 24 publica os
+        // núcleos da máquina: numa de 4 núcleos o teto apertava e o caso reprovava. O global é
+        // fixado aqui como um navegador que não se descreve, que é o sujeito do caso.
+        vi.stubGlobal('navigator', {});
+        try {
+            for (const navegador of [{}, undefined, null, { deviceMemory: undefined }]) {
+                expect(cacheDeTileset(navegador)).toBe(CACHE_DE_TILESET_BYTES);
+            }
+        } finally {
+            vi.unstubAllGlobals();
         }
         // E valor não numérico é ausência, não zero: `'4'` vindo de uma extensão não decide nada.
         expect(cacheDeTileset({ deviceMemory: '2', hardwareConcurrency: '2' }))
