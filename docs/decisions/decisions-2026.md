@@ -4559,3 +4559,26 @@ instável, e cada uma foi atribuída antes de ser tocada.
 - **Alternativas rejeitadas:** manter a falha da abertura com a frase honesta de 2026-09-23 (o produto ficava inutilizável nessa rede); um transporte alternativo para o tempo real (long-polling ou SSE), que mudaria o contrato e traria a presença de volta a um custo que o lançamento não comporta; e qualquer caminho novo para o envelope de sync, que é contrato congelado: o modo usa só o envio e o pull que já existiam.
 - **Guardas:** `frontend/tests/e2e-ui/sem-tempo-real.spec.js` (um proxy de verdade no processo do teste, que repassa o HTTP e não repassa o Upgrade, como um nginx sem as diretivas: o atlas abre, a edição de B chega ao servidor e a A, a de A chega a B pelo pull, o aviso aparece, o F5 reabre, e a colaboração ao vivo volta sem nenhum pull de B; sem o recuo da abertura ele reprova no primeiro passo, com a aba no seletor), os casos "sem tempo real" de `frontend/tests/integration/sync-engine.test.js`, `frontend/tests/unit/sem-tempo-real.test.js`, `frontend/tests/unit/papel-por-http-espelha-servidor.test.js` (a tradução do cliente contra `toFrontendRole`), `backend/tests/integration/atlas-get-traz-o-nivel.test.js` e o e2e de contrato `frontend/tests/e2e/papel-por-http.e2e.test.js` (o nível do HTTP e o do socket na mesma conta, degrau a degrau).
 - **Status:** item decidido pelo dono em 2026-09-25; os números acima esperam confirmação.
+
+### 2026-09-26: as vinte perguntas das pendências do lançamento, respondidas pelo dono
+
+- **Contexto:** a seção 4 de `PENDENCIAS-LANCAMENTO.md` juntou, até 2026-09-25, as perguntas que a campanha de caça de bugs e a resolução dos seus branches deixaram para o dono. Ele respondeu todas em 2026-09-26, uma a uma, com as opções e a recomendação de cada uma à vista.
+- **Trabalho a fazer ANTES do lançamento** (a lista viva está na seção 4 das pendências):
+  - a figura de slide de briefing passa a ir por referência, como as fotos (hoje três palavras num slide com figura reenviam o HTML inteiro, 2,4 MB a 40 kbps);
+  - a rota DELETE de imagem de atlas sai: ela apagava o arquivo com permissão write, sem trava nem lixeira, e nenhum cliente a chamava; a limpeza de imagem é a coleta de órfãs;
+  - o enquadramento da seleção (clique na árvore, busca, "Zoom para Seleção") passa a incluir as alças da seleção e a descontar o painel aberto;
+  - desfazer um processamento reverte o gesto inteiro, feições e camada de saída, e o refazer recria os dois com os mesmos ids; antes, conferir a importação, para a mesma resposta;
+  - duplicar mapa no servidor segura o lock do log do atlas durante a cópia, e um envio concorrente espera ou recebe 503;
+  - os quatro testes do backend que dependem da plataforma são reescritos para falhar igual em Windows e Linux;
+  - o botão "Apagar a cópia antiga" volta a ter chamador: a cópia legada sai por gesto explícito da pessoa, nunca sozinha;
+  - o registro de uma foto anexada recusada sai sozinho quando a foto sai da feição, e "Descartar" nas pendências resolve o resto;
+  - um 413 no envio de imagem com a sessão talvez vencida renova a sessão e tenta uma vez mais, no cliente; o limite grande não abre para pedido não autenticado;
+  - desfazer e refazer seguidos esperam a vez em vez de descartar o segundo pedido, com o duplo disparo de um mesmo gesto ainda filtrado;
+  - o servidor prefere a grafia do cliente quando um slide chega com as duas, protegendo aba antiga com fila viva na virada do main;
+  - depois de um resgate involuntário, a mesma conta ganha a saída "enviar as pendências a este atlas";
+  - o KMZ leva a geometria original da linha tracejada, e a volta ao EBGeo a recompõe;
+  - o estilo de KML de terceiros (stroke e fill) é mapeado para os campos do EBGeo na importação;
+  - o deploy tira os sourcemaps da pasta servida e os guarda por release no servidor, para o "diag pilha".
+- **Confirmado como está, sem trabalho:** os números do modo sem tempo real, a frase do 404 e o texto do aviso; as configurações, os recursos emprestados e o nome do atlas chegam no modo só na próxima abertura, declarado; as edições feitas depois de uma foto continuam esperando a subida dela (a ordem garante que nada chega antes dos bytes de que depende); os três detalhes do anel da partida da rota; os três comportamentos de visibilidade (a busca acha feição oculta, a oculta conta na linha do tempo, excluir a camada ativa com as outras travadas destrava uma); e o KMZ que volta sem figura nem fotos, porque o .ebgeo é a volta sem perda.
+- **E uma cláusula nova:** apagar imagem órfã é ato só do administrador do sistema, cláusula 9.4 da `CONSTITUICAO.md`.
+- **Status:** aceitas pelo dono em 2026-09-26.

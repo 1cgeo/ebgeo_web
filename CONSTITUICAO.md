@@ -626,6 +626,13 @@ CÓDIGO, nunca como frase, o que ninguém traduziu (`frontend/tests/unit/auditor
 As famílias de ATLAS, PERMISSÕES e GRUPOS continuam com registro próprio, sem de-para. **[em obra]** para
 essas três.
 
+**9.4** Apagar imagem órfã do servidor é ato **só do administrador do sistema**. É a única rota do produto que
+apaga bytes de atlas alheio, então nem o dono do atlas, nem o produtor, nem o credenciado, nem uma chave de API
+a alcançam, e cada remoção deixa linha na trilha (`IMAGE_ORPHAN_PURGE`). **[vigente]** desde 2026-09-25, por
+decisão do dono de 2026-09-26: simulação por padrão, marcar e apagar só por comando ou pela rota de
+administrador, com carência de 30 dias contínuos. Preso por
+`backend/tests/integration/imagens-orfas-portas.test.js`.
+
 ---
 
 ## 10. O que esta constituição sabe que não entrega
