@@ -399,6 +399,29 @@ function sentinelaDoElemento(node) {
 }
 
 /**
+ * The pixels a DRAWN figure element shows, as a JPEG data URL, or null when it has none yet.
+ *
+ * Synchronous on purpose: Quill's copy handler is. A figure is drawn from this tab's `blob:` URL,
+ * which is same-origin, so the canvas is not tainted; the placeholder (1 pixel) and a figure whose
+ * bytes never came are null, and the copy keeps the reference.
+ *
+ * @param {HTMLImageElement} node
+ * @returns {string|null}
+ */
+function pixelsDaFigura(node) {
+    try {
+        if (!node?.complete || !(node.naturalWidth > 1) || !String(node.getAttribute('src')).startsWith('blob:')) return null;
+        const canvas = document.createElement('canvas');
+        canvas.width = node.naturalWidth;
+        canvas.height = node.naturalHeight;
+        canvas.getContext('2d').drawImage(node, 0, 0);
+        return canvas.toDataURL('image/jpeg', 0.92);
+    } catch {
+        return null;
+    }
+}
+
+/**
  * Teaches Quill the slide figure held by reference, and says who fills its bytes in.
  *
  * WHY THE IMAGE FORMAT IS REPLACED, and not only the HTML around it. Quill rebuilds an `<img>` from
@@ -434,6 +457,24 @@ export function registrarFiguraNoQuill(Quill, resolver) {
 
         static value(node) {
             return sentinelaDoElemento(node) ?? super.value(node);
+        }
+
+        /**
+         * What a COPY of the figure carries: its PIXELS inline and no reference (owner's decision
+         * of 2026-09-26). Quill calls this only from its copy handler (`getSemanticHTML`); the
+         * editors store `root.innerHTML`, so nothing saved goes through here. The reference named
+         * bytes of the atlas it was born in, and a paste in ANOTHER atlas kept it and drew an empty
+         * picture forever; an inline picture is what the paste already turns into a new figure of
+         * the atlas that receives it. The price, inside the same atlas: a copied figure is stored
+         * again under a new id. A figure not drawn yet keeps the reference.
+         */
+        html() {
+            const pixels = sentinelaDoElemento(this.domNode) ? pixelsDaFigura(this.domNode) : null;
+            if (!pixels) return this.domNode.outerHTML;
+            const copia = this.domNode.cloneNode(false);
+            copia.removeAttribute(ATRIBUTO_DA_FIGURA);
+            copia.setAttribute('src', pixels);
+            return copia.outerHTML;
         }
     }
     Quill.register(FiguraPorReferencia, true);
