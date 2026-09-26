@@ -38,12 +38,13 @@
  */
 
 import { getEventBus } from '@store/services.js';
-import { EventTypes } from '@events/event_types.js';
+import { EventTypes, FeatureUpdateProperty } from '@events/event_types.js';
 import { setupCleanup, subscribe, addDomListener } from '@utils/event-cleanup.js';
 import { ModalBase } from '@modals/modal.base.js';
 import { showConfirm } from '@modals/confirm.modal.js';
 import { showError, showSuccess, showToast, showWarning } from '@utils/toast_service.js';
 import { connectionState } from '@store/sync/connection-state.js';
+import { tirarFotoDasEntidades } from '@store/foto-recusada.operations.js';
 import { montarPendencias, PendenciaEstado } from './pendencias-rows.js';
 import { lerMapasTravados, lerPendencias } from './pendencias-leitura.js';
 import {
@@ -57,18 +58,22 @@ import {
 } from './pendencias-acoes.js';
 import {
     ACEITE_FALHOU,
+    FOTO_DESCARTADA,
     ESTADO_FALHA_DETALHE,
     ESTADO_FALHA_TITULO,
     EXPORTACAO_COPIADA,
     EXPORTACAO_FALHOU,
     PendenciaAcao,
+    PendenciaOrigem,
     REAPLICACAO_FALHOU,
     acaoLabel,
     confirmacaoDeAceitar,
     confirmacaoDeDescartar,
+    confirmacaoDeDescartarFoto,
     contadoresVisiveis,
     descricaoDoItem,
     estadoVazio,
+    fotoNaoSaiu,
     juntoResumo,
     levouJuntoFrase,
     mesmaAcaoFrase,
@@ -606,6 +611,10 @@ export class PendenciasPanel extends ModalBase {
      * @private
      */
     async _descartar(linha) {
+        if (linha?.origem === PendenciaOrigem.UPLOAD) {
+            await this._descartarFoto(linha);
+            return;
+        }
         const quantas = Math.max(1, idsQueSaemJunto(linha, this._modelo?.linhas ?? []).length);
         const pergunta = confirmacaoDeDescartar(quantas);
         const confirmado = await showConfirm(pergunta.titulo, {
@@ -623,6 +632,39 @@ export class PendenciasPanel extends ModalBase {
         } catch (error) {
             console.warn('[pendencias] descartar falhou:', error);
             showError(ACEITE_FALHOU, AVISO_DO_PAINEL);
+        }
+        await this._ler();
+    }
+
+    /**
+     * "Descartar" de uma foto anexa recusada: a foto sai de toda entidade que a cita, e o registro
+     * sai sozinho na releitura, pela regra da citação (dono, 2026-09-26).
+     * @param {Object} linha - Modelo de linha de envio.
+     * @private
+     */
+    async _descartarFoto(linha) {
+        const pergunta = confirmacaoDeDescartarFoto();
+        const confirmado = await showConfirm(pergunta.titulo, {
+            message: pergunta.mensagem,
+            confirmText: pergunta.confirmar,
+            cancelText: 'Manter',
+            destructive: true,
+        });
+        if (!confirmado) return;
+
+        try {
+            const fotoId = linha.entidade?.id;
+            const { tirada, restantes } = await tirarFotoDasEntidades(fotoId, {
+                // The open gallery redraws on the event its own removal emits.
+                aoTirarDaFeicao: (featureId, featureType) => getEventBus().emit(EventTypes.FEATURE_UPDATED, {
+                    featureType, featureId, property: FeatureUpdateProperty.IMAGES, imageId: fotoId, action: 'removed',
+                }),
+            });
+            if (tirada) showToast(FOTO_DESCARTADA, 'info', AVISO_DO_PAINEL);
+            else showError(fotoNaoSaiu(restantes), AVISO_DO_PAINEL);
+        } catch (error) {
+            console.warn('[pendencias] descartar a foto falhou:', error);
+            showError(fotoNaoSaiu(1), AVISO_DO_PAINEL);
         }
         await this._ler();
     }

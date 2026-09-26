@@ -133,7 +133,6 @@ O dono respondeu em 2026-09-26 todas as perguntas que estavam aqui, e o registro
 - Enquadramento da seleção (clique na árvore, busca, "Zoom para Seleção"): incluir as alças da seleção e descontar o painel aberto. Hoje a alça de rotação de um texto fica em x = -82 px sob o painel, e os pontos-chave 2 e 3 da rota passam da borda.
 - Desfazer um processamento reverte feições e camada de saída, e o refazer recria os dois com os mesmos ids. Conferir antes como a importação se comporta ao desfazer, para dar a mesma resposta.
 - Religar o botão "Apagar a cópia antiga" (dropLegacySource) na seção "Neste computador" do atlas.html, visível só com a migração concluída e a origem intacta (dono, 2026-09-26): a cópia legada sai por gesto explícito, nunca sozinha. Isso também devolve a verdade à wiki e ao fileoverview citados no item 3.
-- Foto anexada recusada: o "Descartar" nas pendências, para quando a foto continua na feição, tira a foto da feição (uma edição que sincroniza), e o registro sai sozinho em seguida (dono, 2026-09-26). A metade automática (o registro sai quando nenhuma entidade cita mais a foto) está feita.
 - Desfazer e refazer seguidos rápido: o pedido seguinte espera o anterior terminar em vez de ser descartado; o duplo disparo de um mesmo gesto (botão e atalho) continua filtrado.
 - Depois de um resgate involuntário, a mesma conta ganha a saída "enviar as pendências a este atlas", além de "Apagar e abrir" e de "Enviar ao servidor". A operação não carrega autor, então o desenho começa por aí.
 - Deploy: tirar os sourcemaps da pasta servida e guardá-los por release no servidor, para o "diag pilha". O dono autorizou escrever em deploy/ em 2026-09-26; o agente altera e verifica sem executar contra produção, e quem roda o deploy é o dono.
@@ -141,7 +140,7 @@ O dono respondeu em 2026-09-26 todas as perguntas que estavam aqui, e o registro
 
 1. Medir o custo do ping de 2 bytes que agora segue cada quadro de presença: de dentro de backend/, node tests/bench/sala-limite.bench.mjs com WS_PRESENCE_FLOW=1 e com =0, contra a linha de base de 2026-08-27. A bancada mede o custo do ping, não a retenção, porque o cliente ws dela responde ao ping na hora, e o perdaCursorPct pode passar a contar coalescência como perda.
 2. Rodar as seis frentes do item 6, na ordem de risco, e integrar o que elas acharem.
-3. Remedir e APERTAR os tetos de peso da página do mapa. A fonte ficou com folga larga de propósito durante a campanha. Depois dos itens do dono de 2026-09-26 o construído está em 4261 de 4270 kB (91 arquivos), a fonte ansiosa em 8110 de 8120 kB e a fonte total em 12294 de 12300 kB.
+3. Remedir e APERTAR os tetos de peso da página do mapa. A fonte ficou com folga larga de propósito durante a campanha. Depois dos itens do dono de 2026-09-26 o construído está em 4261 de 4270 kB (91 arquivos), a fonte ansiosa em 8110 de 8120 kB e a fonte total em 12303 de 12320 kB (814 arquivos).
 4. npm run lint e npm test na raiz, em comandos separados.
 5. O Playwright inteiro, em fatias paralelas com portas e bancos próprios, com retries desligado ou lendo a contagem de flaky antes de declarar verde.
 6. nginx (instruções completas nos arquivos fora do repositório citados no item 0):

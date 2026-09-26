@@ -926,7 +926,9 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // `store/sync/sem-tempo-real-phrases.js` (the notice and the badge).
         // 813 on 2026-09-26: `store/sync/recusa-de-foto-sem-citacao.js`, the census that lets the record
         // of a refused attached photo leave once no entity cites the photo.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(813);
+        // 814 the same day: `store/foto-recusada.operations.js`, the Descartar of the Pendências panel,
+        // which takes a refused photo out of every entity that cites it (reached by the panel's `import()`).
+        expect(completo.arquivos.size).toBeLessThanOrEqual(814);
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
@@ -990,7 +992,9 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // mode in `store/sync/sync-engine.js` and its two leaves; no new package.
         // 12280 -> 12300 on 2026-09-26, the owner's launch items: 12290 kB measured by this case's
         // failure (the census leaf above, the 413 probe, the dashed KMZ round trip); no new package.
-        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(12300);
+        // 12300 -> 12320 the same day: 12303 kB measured after the Pendências panel's Descartar of a
+        // refused photo (`store/foto-recusada.operations.js`); no new package.
+        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(12320);
     });
 
     it('seguir `import()` de fato acrescenta grafo, e é isso que prova a regex dinâmica', () => {

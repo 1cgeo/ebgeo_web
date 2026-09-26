@@ -45,6 +45,7 @@ import { discardQuarantinedOperation } from '@store/sync/quarantine-registry.js'
 import { confirmedVersionInProperties } from '@store/sync/confirmed-version.js';
 import { hasDisputeUnits } from '@store/sync/dispute-units.js';
 import { checkPermission } from '@store/sync/permission-guard.js';
+import { BLOB_UPLOAD_RECUSADO, ORIGEM_FOTO_ANEXA } from '@store/sync/blob-upload-keys.js';
 import { deepClone } from '@utils/deep-utils.js';
 import {
     PendenciaAcao,
@@ -108,6 +109,16 @@ export function podeReaplicar(linha) {
 }
 
 /**
+ * Se o registro de envio é a recusa DEFINITIVA de uma foto anexa (a única de figura com o que decidir).
+ * @param {*} registro - O registro da fila de subida (`envelope` da linha).
+ * @returns {boolean}
+ */
+function ehRecusaDeFotoAnexa(registro) {
+    return registro?.estado === BLOB_UPLOAD_RECUSADO
+        && typeof registro.origem === 'string' && registro.origem.startsWith(ORIGEM_FOTO_ANEXA);
+}
+
+/**
  * Os comandos que UMA linha desenha, cada um com o bloqueio de estado que o espera.
  *
  * @param {Object} linha - Modelo de linha.
@@ -141,8 +152,13 @@ export function acoesDaLinha(linha, {
         || linha.classe === PendenciaClasse.UPLOAD_RECUSADO) {
         // Uma figura não tem operação a descartar nem a reenviar por esta tela: a retomada é
         // automática na reconexão (`retomarBlobsPendentes`). A recusa de uma foto anexa sai
-        // sozinha quando nenhuma entidade a cita mais (`recusasDeFotoSemCitacao`, desde
-        // 2026-09-26); o "Descartar" para a foto ainda citada espera decisão do dono.
+        // sozinha quando nenhuma entidade a cita mais (`recusasDeFotoSemCitacao`), e enquanto
+        // alguma cita, "Descartar" tira a foto dela (dono, 2026-09-26, `tirarFotoDasEntidades`).
+        // É uma edição da entidade, então o POSTO sem edição não desenha o comando; a trava do
+        // mapa é estado, e quem a diz é a recusa da própria edição.
+        if (ehRecusaDeFotoAnexa(linha.envelope) && permissao('UPDATE_FEATURE')?.allowed === true) {
+            push(PendenciaAcao.DESCARTAR);
+        }
         return acoes;
     }
 

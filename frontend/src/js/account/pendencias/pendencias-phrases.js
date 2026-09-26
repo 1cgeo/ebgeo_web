@@ -629,6 +629,34 @@ export function confirmacaoDeDescartar(quantas) {
     };
 }
 
+/**
+ * A pergunta de "Descartar" para a foto anexa que o servidor recusou (dono, 2026-09-26): a foto sai da
+ * entidade onde está anexada, para todos, e não só deste computador.
+ * @returns {{titulo: string, mensagem: string, confirmar: string}}
+ */
+export function confirmacaoDeDescartarFoto() {
+    return {
+        titulo: 'Descartar a foto recusada?',
+        mensagem: 'O servidor não aceitou esta foto, e ela só existe neste computador. Descartar tira a '
+            + 'foto de onde ela está anexada, para todos.',
+        confirmar: 'Descartar a foto',
+    };
+}
+
+/** O toast da foto que saiu de todo lugar onde estava anexada. */
+export const FOTO_DESCARTADA = 'Foto descartada.';
+
+/**
+ * O aviso da foto que continua em algum lugar: uma edição foi recusada pelo caminho, sem que esta tela
+ * saiba qual portão a recusou.
+ * @param {number} restantes - Quantas entidades ainda citam a foto.
+ * @returns {string}
+ */
+export function fotoNaoSaiu(restantes) {
+    const onde = restantes === 1 ? 'num lugar' : 'em alguns lugares';
+    return `A foto continua ${onde}. Tente de novo; se continuar, tire-a pela galeria de fotos.`;
+}
+
 /** O que o toast diz quando a exportação foi para a área de transferência. */
 export const EXPORTACAO_COPIADA =
     'Conteúdo copiado para a área de transferência. Cole num arquivo para guardar.';

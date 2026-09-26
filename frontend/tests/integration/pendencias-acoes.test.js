@@ -422,6 +422,25 @@ describe('a tabela de afordância: o POSTO some, o ESTADO recusa o clique', () =
         }
     });
 
+    it('a foto ANEXA recusada ganha "Descartar", que tira a foto da entidade (dono, 2026-09-26)', () => {
+        const linha = (envelope) => ({ classe: PendenciaClasse.UPLOAD_RECUSADO, origem: PendenciaOrigem.UPLOAD, envelope });
+        const foto = { estado: 'recusado', origem: 'foto-anexa', imageId: 'f1' };
+
+        expect(nomes(acoesDaLinha(linha(foto), { online: true, permissao: permiteTudo })))
+            .toEqual([PendenciaAcao.EXPORTAR, PendenciaAcao.DESCARTAR]);
+        // O POSTO SOME: quem não edita a entidade não tem o que descartar daqui.
+        expect(nomes(acoesDaLinha(linha(foto), { online: true, permissao: () => ({ allowed: false }) })))
+            .toEqual([PendenciaAcao.EXPORTAR]);
+        // A figura de uma feição de imagem recusada virou problema da operação, e a foto ainda a subir
+        // não foi recusada: nenhuma das duas tem esse comando.
+        expect(nomes(acoesDaLinha(linha({ estado: 'recusado', origem: 'desenho', imageId: 'i1' }), { online: true, permissao: permiteTudo })))
+            .toEqual([PendenciaAcao.EXPORTAR]);
+        expect(nomes(acoesDaLinha(
+            { classe: PendenciaClasse.UPLOAD_PENDENTE, origem: PendenciaOrigem.UPLOAD, envelope: { ...foto, estado: 'pendente' } },
+            { online: true, permissao: permiteTudo },
+        ))).toEqual([PendenciaAcao.EXPORTAR]);
+    });
+
     it('quarentena de protocolo na fila exporta e descarta, e nunca reaplica', () => {
         const acoes = acoesDaLinha({
             classe: PendenciaClasse.REVISAO,
