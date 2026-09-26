@@ -62,6 +62,8 @@ node tests/bench/escrita-conflito.bench.mjs         # E7
 node tests/bench/populacao-1000.bench.mjs           # E8  (~20 min)
 node tests/bench/sala-limite.bench.mjs              # E9  (~17 min)
 node tests/bench/sala-quantidade.bench.mjs          # E10 (~17 min)
+
+node tests/bench/imagens-orfas-gatilho.bench.mjs    # E11 (~6 min)
 ```
 
 Todo cenário aceita bandeiras. Comece pequeno:
@@ -88,6 +90,11 @@ BENCH_DATABASE_URL=postgresql://ebgeo:ebgeo_secret@localhost:5432/ebgeo_bench_2 
 | `escrita-fanout` | ouvintes na sala (0, 10, 40) | Quanto a plateia custa a quem escreve? |
 | `escrita-sequencia` | rodadas no mesmo atlas | Escrever fica mais caro conforme o ledger cresce? |
 | `escrita-conflito` | alvos disjuntos contra comuns | A contenda de linha custa, e o estado converge? |
+
+E11 (`imagens-orfas-gatilho`) é de outra família: não varia concorrência, varia o estado do gatilho
+`zerar_marca_de_imagem_citada` (desligado, sem marca, uma marca, marcas citadas) sob o import de
+um atlas grande e o push de um lote cheio, e amostra o contador de subtransações dos backends. O
+resultado e a leitura dele estão em `docs/wiki/imagens-atlas.md`.
 
 ## Os três de população
 
