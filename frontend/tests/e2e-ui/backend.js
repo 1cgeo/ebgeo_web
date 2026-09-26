@@ -21,6 +21,7 @@ const backendRequire = createRequire(pathToFileURL(`${BACKEND_DIR}/package.json`
  *  read-only SQL ground-truth helper (helpers/db.js) reuses the same driver. */
 export const pgPromise = backendRequire('pg-promise');
 const MIGRATE_URL = pathToFileURL(`${BACKEND_DIR}/src/database/migrate.js`).href;
+const CATALOGO_DE_EXEMPLO_URL = pathToFileURL(`${BACKEND_DIR}/src/database/catalogo-de-exemplo.js`).href;
 
 const DB_HOST = process.env.DB_HOST || 'localhost';
 const DB_PORT = process.env.DB_PORT || '5432';
@@ -177,6 +178,10 @@ export async function startBackend({ corsOrigin, port, dbName = 'ebgeo_ui_e2e', 
         await ensureExtensions(dbName);
         const { runMigrations } = await import(MIGRATE_URL);
         await runMigrations(appDbUrl(dbName));
+        // The example catalog layers left every install (`018_catalogo_sem_exemplos.sql`); the specs
+        // still use them.
+        const { semearCatalogoDeExemplo } = await import(CATALOGO_DE_EXEMPLO_URL);
+        await semearCatalogoDeExemplo(appDbUrl(dbName));
     }
     const child = spawn('node', ['src/index.js'], {
         cwd: BACKEND_DIR,

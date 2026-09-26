@@ -36,6 +36,7 @@ const BACKEND_DIR =
     process.env.EBGEO_BACKEND_DIR ||
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../backend');
 const MIGRATE_URL = pathToFileURL(`${BACKEND_DIR}/src/database/migrate.js`).href;
+const CATALOGO_DE_EXEMPLO_URL = pathToFileURL(`${BACKEND_DIR}/src/database/catalogo-de-exemplo.js`).href;
 
 // `pg-promise` is a backend dependency (not a frontend one), so resolve it from
 // the backend's node_modules rather than the web project's.
@@ -160,6 +161,10 @@ export default async function setup() {
     try {
         const { runMigrations } = await import(MIGRATE_URL);
         await runMigrations(E2E_DB_URL);
+        // The example catalog layers left every install (`018_catalogo_sem_exemplos.sql`); the specs
+        // still use them.
+        const { semearCatalogoDeExemplo } = await import(CATALOGO_DE_EXEMPLO_URL);
+        await semearCatalogoDeExemplo(E2E_DB_URL);
     } catch (err) {
         await dropDatabase().catch(() => {});
         return skip(`migrations failed (${err.message})`);

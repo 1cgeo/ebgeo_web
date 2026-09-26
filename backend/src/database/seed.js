@@ -5,6 +5,7 @@
 import pgPromise from 'pg-promise';
 import bcrypt from 'bcrypt';
 import { fileURLToPath } from 'url';
+import { semearCatalogoDeExemplo } from './catalogo-de-exemplo.js';
 
 const SALT_ROUNDS = 12;
 
@@ -19,6 +20,11 @@ async function seed(connectionString) {
 
   try {
     console.log('Starting seed...');
+
+    // The four example catalog layers (http://localhost/tiles/...), which left every install with
+    // `018_catalogo_sem_exemplos.sql`: a development machine keeps them.
+    await semearCatalogoDeExemplo(db);
+    console.log('  ✓ Example catalog layers seeded');
 
     // Hash passwords in parallel
     const [adminPassword, testPassword] = await Promise.all([

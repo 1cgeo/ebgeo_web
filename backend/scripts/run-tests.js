@@ -6,6 +6,7 @@
 import { spawn } from 'child_process';
 import pgPromise from 'pg-promise';
 import { runMigrations } from '../src/database/migrate.js';
+import { semearCatalogoDeExemplo } from '../src/database/catalogo-de-exemplo.js';
 
 // Configuration
 const TEST_DB_NAME = process.env.TEST_DB_NAME || 'ebgeo_test';
@@ -196,6 +197,9 @@ async function ensureExtensions() {
 async function migrate() {
   console.log('📋 Running migrations...');
   await runMigrations(TEST_DB_URL);
+  // The example catalog layers left every install (`018_catalogo_sem_exemplos.sql`) and come back
+  // only for tests.
+  await semearCatalogoDeExemplo(TEST_DB_URL);
   console.log('✅ Migrations completed');
 }
 
