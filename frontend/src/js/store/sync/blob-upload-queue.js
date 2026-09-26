@@ -178,9 +178,10 @@ const _reservados = new Set();
 /**
  * Schedules one resumption of the pending blobs of `atlasId`, unless one is already scheduled.
  *
- * It does nothing when it fires OFFLINE: the transition back to ONLINE is the trigger that owns that
- * case, and it runs at once. It never throws; a resumption that fails again schedules the next one
- * from {@link assentar}.
+ * It does nothing when it fires with no way to the server: the transition back to ONLINE (or to
+ * HTTP_ONLY, the mode without real time, whose uploads are the same HTTP requests) is the trigger
+ * that owns that case, and it runs at once. It never throws; a resumption that fails again
+ * schedules the next one from {@link assentar}.
  * @param {string} atlasId
  * @returns {void}
  */
@@ -190,7 +191,7 @@ function agendarRetomada(atlasId) {
     _falhasSeguidas += 1;
     _retomadaAgendada = setTimeout(() => {
         _retomadaAgendada = null;
-        if (!escopoRemoto() || !connectionState.isOnline()) return;
+        if (!escopoRemoto() || !connectionState.canReachServer()) return;
         retomarBlobsPendentes(atlasId).catch(() => {
             // Best effort: the pendency stays on disk, and the next trigger tries again.
         });

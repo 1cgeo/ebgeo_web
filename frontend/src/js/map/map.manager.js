@@ -257,7 +257,10 @@ class MapManager {
         if (!perm.allowed) return { success: false, message: 'Você não tem permissão para criar mapas neste atlas.' };
         const offline = { success: false, message: 'Sem conexão com o servidor. Duplicar um mapa precisa dela; tente de novo quando ela voltar.' };
         const atlasId = syncEngine.atlasId;
-        if (!atlasId || !connectionState.isOnline()) return offline;
+        // The copy is a REST request, so it needs the server and not the live channel: without
+        // real time (`sem-tempo-real.js`) it still works, and the structural marker it writes
+        // reaches the colleagues by their pull.
+        if (!atlasId || !connectionState.canReachServer()) return offline;
         if (!isValidUUID(originalMapData?.id)) return { success: false, message: 'O mapa não foi encontrado.' };
 
         // What this client still has in the queue for the source is not on the server yet, and

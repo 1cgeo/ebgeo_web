@@ -64,14 +64,18 @@ let _pararDeOuvir = null;
  *
  * IT LISTENS TO `connectionState` AND NOT TO THE EVENT BUS on purpose: this seam is reachable from
  * pages that never call `initServices()`, and the singleton is the same source the bus event is
- * bridged from (`event-bridges.js`), one hop earlier. Reaching ONLINE is the only transition that
- * can carry a blob, and the resumption is fire-and-forget: it must never delay the connection.
+ * bridged from (`event-bridges.js`), one hop earlier. Reaching ONLINE or HTTP_ONLY (the mode
+ * without real time, `sem-tempo-real.js`) are the only transitions that can carry a blob, because
+ * the upload is an HTTP request and never used the socket; the resumption is fire-and-forget: it
+ * must never delay the connection. HTTP_ONLY followed by ONLINE resumes twice, and the second finds
+ * the first in flight (`blob-upload-queue.js` keeps one transfer per id).
  * @returns {void}
  */
 function ouvirReconexao() {
     if (_pararDeOuvir) return;
     _pararDeOuvir = connectionState.onStateChanged(({ currentState }) => {
-        if (currentState !== ConnectionStates.ONLINE || !_atlasId) return;
+        const alcanca = currentState === ConnectionStates.ONLINE || currentState === ConnectionStates.HTTP_ONLY;
+        if (!alcanca || !_atlasId) return;
         retomarBlobsPendentes(_atlasId).catch(() => {
             // Best effort: the pendency stays on disk and the next reconnection tries again.
         });

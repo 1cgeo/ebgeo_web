@@ -823,6 +823,9 @@ async function switchAtlasNow(destination, { mapId = null, contarAbertura = true
  * As duas perguntas sao diferentes de proposito. Um atlas de SERVIDOR so conta como montado com
  * a conexao de pe (`syncEngine.atlasId`): uma aba pode ter o namespace remoto montado e o
  * socket caido — e o boot produz exatamente esse estado — e ali a troca tem trabalho a fazer.
+ * "De pe" e o servidor ALCANCAVEL, com ou sem tempo real (`canReachServer`, desde 2026-09-25):
+ * um atlas aberto sem tempo real esta montado e sincronizando, e reabri-lo refaria a abertura
+ * inteira para chegar ao mesmo estado.
  * Um slot LOCAL nao tem socket, entao o escopo ativo e toda a verdade que existe, e a checagem
  * de conexao vem junto porque com um atlas de servidor aberto o ponteiro local pode estar
  * apontando para o slot de destino sem que ele esteja montado.
@@ -832,7 +835,7 @@ async function switchAtlasNow(destination, { mapId = null, contarAbertura = true
  */
 function isMountedAtlas(kind, atlasId) {
     if (incompleteScope && incompleteScope === getActiveScope()) return false;
-    if (kind === 'remote') return syncEngine.atlasId === atlasId && connectionState.isOnline();
+    if (kind === 'remote') return syncEngine.atlasId === atlasId && connectionState.canReachServer();
     if (kind !== 'local') return false;
     if (syncEngine.atlasId) return false;
     const scope = getActiveScope();

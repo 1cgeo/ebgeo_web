@@ -126,6 +126,9 @@ beforeEach(async () => {
     engine.atlasId = null;
     const { connectionState } = await import('@store/sync/connection-state.js');
     vi.spyOn(connectionState, 'isOnline').mockReturnValue(true);
+    // "Montado" pergunta pelo servidor ALCANCAVEL desde 2026-09-25 (`isMountedAtlas`, com ou sem
+    // tempo real), e a classe real responde pelo estado, nao pelo `isOnline` dublado acima.
+    vi.spyOn(connectionState, 'canReachServer').mockReturnValue(true);
     trava.estado = { key: null, blocked: false };
     trava.acquire.mockImplementation(
         async () => ({ granted: true, blockedBy: null, degraded: false, deniedBy: null })
@@ -480,11 +483,26 @@ describe('a guarda de no-op', () => {
         await abaEmAtlasDeServidorComSlotLocal();
         const { connectionState } = await import('@store/sync/connection-state.js');
         connectionState.isOnline.mockReturnValue(false);
+        connectionState.canReachServer.mockReturnValue(false);
         vi.spyOn(await import('@store/store.js'), 'activateAtlasInitialMap').mockResolvedValueOnce();
         const result = await servico.switchAtlas({ kind: 'remote', atlasId: X });
         expect(result.changed).toBe(true);
         expect(engine.connect).toHaveBeenCalledWith(X, { initialPull: true });
     });
+    it('SEM TEMPO REAL o atlas de servidor continua montado: nao reabre (2026-09-25)', async () => {
+        // O socket nao abriu e o servidor responde: o atlas esta aberto e sincronizando pelo HTTP,
+        // e reabri-lo refaria a abertura inteira para chegar ao mesmo estado.
+        await abaEmAtlasDeServidorComSlotLocal();
+        const { connectionState } = await import('@store/sync/connection-state.js');
+        connectionState.isOnline.mockReturnValue(false);
+        connectionState.canReachServer.mockReturnValue(true);
+
+        const resultado = await servico.switchAtlas({ kind: 'remote', atlasId: X });
+
+        expect(resultado).toEqual({ ok: true, changed: false });
+        expect(engine.connect).not.toHaveBeenCalled();
+    });
+
     it('trocar para o atlas de SERVIDOR ja conectado nao toca em nada', async () => {
         await abaEmAtlasDeServidorComSlotLocal();
 

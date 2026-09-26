@@ -43,7 +43,7 @@ import { setupCleanup, subscribe, addDomListener } from '@utils/event-cleanup.js
 import { ModalBase } from '@modals/modal.base.js';
 import { showConfirm } from '@modals/confirm.modal.js';
 import { showError, showSuccess, showToast, showWarning } from '@utils/toast_service.js';
-import { connectionState, ConnectionStates } from '@store/sync/connection-state.js';
+import { connectionState } from '@store/sync/connection-state.js';
 import { montarPendencias, PendenciaEstado } from './pendencias-rows.js';
 import { lerMapasTravados, lerPendencias } from './pendencias-leitura.js';
 import {
@@ -520,7 +520,9 @@ export class PendenciasPanel extends ModalBase {
         barra.className = 'pendencias__acoes';
 
         const contexto = {
-            online: connectionState.getState() === ConnectionStates.ONLINE,
+            // O SERVIDOR ALCANÇÁVEL, com ou sem tempo real: aceitar e reaplicar são pedidos HTTP
+            // (2026-09-25, `store/sync/sem-tempo-real.js`).
+            online: connectionState.canReachServer(),
             mapaTravado: (mapId) => this._travados.has(mapId),
         };
 
@@ -630,7 +632,7 @@ export class PendenciasPanel extends ModalBase {
      * @private
      */
     async _reaplicar(linha) {
-        const online = connectionState.getState() === ConnectionStates.ONLINE;
+        const online = connectionState.canReachServer();
         try {
             await reaplicarComNovaBase(linha, { online });
             showSuccess(reaplicacaoFeita(online), AVISO_DO_PAINEL);

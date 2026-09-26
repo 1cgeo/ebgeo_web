@@ -159,6 +159,41 @@ const ROLE_TO_PERMISSION = Object.freeze({
 });
 
 /**
+ * The server ladder translated to the CLIENT vocabulary: the exact mirror of `toFrontendRole`
+ * (`backend/src/utils/roles.js`) for the rungs, written as the inverse of
+ * {@link ROLE_TO_PERMISSION} so a rung added there shows up here without a second list.
+ * `admin` is left out on purpose: on the server it comes from the GLOBAL axis, never from a rung,
+ * and {@link atlasRoleForPermission} handles it apart.
+ * @type {Readonly<Object<string, string>>}
+ */
+const PERMISSION_TO_ROLE = Object.freeze(Object.fromEntries(
+    Object.entries(ROLE_TO_PERMISSION).filter(([role]) => role !== 'admin').map(([role, perm]) => [perm, role]),
+));
+
+/**
+ * The per-atlas role (`UserRole`) the server would announce in the socket's `connected` frame for
+ * this `permission`, or `null` for anything it does not know.
+ *
+ * WHO NEEDS IT: the opening WITHOUT REAL TIME (`store/sync/sem-tempo-real.js`), where the socket
+ * that normally carries the role never opens, and the role comes from the `user_permission` of
+ * `GET /atlas/:atlasId` instead. It must answer what `toFrontendRole` answers, or the same person
+ * would get one set of buttons with the socket and another without it: the global administrator
+ * folds to `admin` whatever the rung (the server resolves its rung to `owner` anyway), and every
+ * other account lands on the ladder. `producer` and `credenciado` do NOT short-circuit.
+ *
+ * FAILS CLOSED: an unknown permission is `null`, and the caller keeps the role it had (the
+ * closed VIEWER of a fresh connect), never a guess.
+ * @param {*} permission - The server `permission` (`read` ... `owner`).
+ * @param {{ globalAdmin?: boolean }} [contexto] - Whether the session's GLOBAL role is `admin`.
+ * @returns {string|null}
+ */
+export function atlasRoleForPermission(permission, { globalAdmin = false } = {}) {
+    if (!isKnownPermission(permission)) return null;
+    if (globalAdmin === true) return 'admin';
+    return PERMISSION_TO_ROLE[permission] ?? null;
+}
+
+/**
  * The server `permission` a per-atlas role stands for, or `null` for anything unknown.
  *
  * Accepts EITHER vocabulary: a raw `permission` (already a rung) comes back unchanged, a

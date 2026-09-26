@@ -90,6 +90,11 @@ function describeState(state) {
     switch (state) {
         case ConnectionStates.ONLINE:
             return { dataState: 'online' };
+        // SEM TEMPO REAL (2026-09-25) é um valor NOVO, e não `online`: os specs que esperam por
+        // `online` esperam o tempo real, e dizer `online` sem ele faria um deles passar por cima
+        // de um socket que nunca abriu. Nem `connecting`, que nunca termina neste modo.
+        case ConnectionStates.HTTP_ONLY:
+            return { dataState: 'sem-tempo-real' };
         case ConnectionStates.CONNECTING:
         case ConnectionStates.RECONNECTING:
             return { dataState: 'connecting' };
@@ -470,7 +475,9 @@ export class SyncStatusControl {
     _precarregarPorConexao() {
         if (!sessionContext.isAuthenticated()) return;
         if (!isRemoteStoreSync()) return;
-        if (connectionState.getState() !== ConnectionStates.ONLINE) return;
+        // O SERVIDOR ALCANÇÁVEL, e não o socket: sem tempo real o módulo do painel vem pelo mesmo
+        // HTTP que continua respondendo.
+        if (!connectionState.canReachServer()) return;
         this._buscarPainel();
     }
 
@@ -534,7 +541,7 @@ export class SyncStatusControl {
     _onSignal() {
         // A CONEXÃO DE VOLTA É A ÚNICA NOTÍCIA que muda a resposta de um pré-carregamento que
         // falhou; sem esta linha o painel ficaria irrecuperável até um F5 para quem clicou offline.
-        if (connectionState.getState() === ConnectionStates.ONLINE) this._painelIndisponivel = false;
+        if (connectionState.canReachServer()) this._painelIndisponivel = false;
         this._render();
         this._scheduleQueueRead();
     }

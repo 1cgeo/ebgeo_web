@@ -64,6 +64,8 @@ const h = vi.hoisted(() => {
             setLastVersion: vi.fn(),
             setHaveSnapshot: vi.fn(),
             isConnected: vi.fn(() => false),
+            // SEM TEMPO REAL: the engine asks the socket to retry at once when an HTTP probe answers.
+            reconectarAgora: vi.fn(),
         },
         operationQueueMock: {
             getIssues: vi.fn(async () => queueState.issues.slice()),
@@ -107,6 +109,10 @@ const h = vi.hoisted(() => {
             // Sem ele no duble aquele handler morre num TypeError, que e exatamente por
             // que ele passou tanto tempo sem caso nenhum.
             isAdmin: vi.fn(() => false),
+            // SEM TEMPO REAL (2026-09-25): o aviso escolhe a frase do visitante por aqui, e o
+            // pull nao rele o papel de quem e visitante por construcao.
+            isVisitor: vi.fn(() => false),
+            setVisitorSession: vi.fn(),
         },
         applyRemoteOperation: vi.fn(async () => {}),
         applyRemoteSnapshot: vi.fn(async () => {}),
@@ -125,7 +131,12 @@ const h = vi.hoisted(() => {
         },
         eventBusMock: { emit: vi.fn(), on: vi.fn(), off: vi.fn() },
         // syncResponse only arrives while connected; the engine now gates its apply on this.
+        // The rest of the surface is filled by the `vi.mock` factory below over a REAL
+        // `ConnectionState`: the mode without real time drives transitions and listens to them,
+        // and a hand-written state machine here would measure itself.
         connectionStateMock: { isOnline: vi.fn(() => true) },
+        /** @type {import('../../src/js/store/sync/connection-state.js').ConnectionState|null} */
+        conexaoReal: null,
         // A SOMA DOS RECURSOS PRIVADOS PRECISA DE DUBLÊ, e não é conveniência.
         // Sem ele o módulo real roda contra o `apiClient` dublado (que não tem
         // `getVisibleResources`), o TypeError cai no `catch` de best-effort do próprio
@@ -221,9 +232,19 @@ vi.mock('../../src/js/store/sync/sync-gateway.js', () => ({
     syncGateway: h.syncGatewayMock,
 }));
 
-vi.mock('../../src/js/store/sync/connection-state.js', () => ({
-    connectionState: h.connectionStateMock,
-}));
+vi.mock('../../src/js/store/sync/connection-state.js', async (importOriginal) => {
+    const actual = await importOriginal();
+    const real = new actual.ConnectionState();
+    h.conexaoReal = real;
+    Object.assign(h.connectionStateMock, {
+        getState: () => real.getState(),
+        isHttpOnly: () => real.isHttpOnly(),
+        canReachServer: () => real.canReachServer(),
+        transition: (estado) => real.transition(estado),
+        onStateChanged: (callback) => real.onStateChanged(callback),
+    });
+    return { ...actual, connectionState: h.connectionStateMock };
+});
 
 vi.mock('../../src/js/store/sync/resource-access.service.js', () => ({
     refreshVisibleResources: h.refreshVisibleResourcesMock,
@@ -256,6 +277,13 @@ vi.mock('../../src/js/utilities/toast_service.js', () => ({
 // ============================================================================
 
 import { syncEngine } from '../../src/js/store/sync/sync-engine.js';
+import { ConnectionStates } from '../../src/js/store/sync/connection-state.js';
+import { getClientId } from '../../src/js/store/sync/operation-factory.js';
+import { avisoDeSemTempoReal } from '../../src/js/store/sync/sem-tempo-real-phrases.js';
+import {
+    PRAZO_DO_TEMPO_REAL_MS, POLL_BASE_MS, POLL_OCIOSO_MAX_MS, POLL_FALHA_MAX_MS, SONDA_APOS_QUEDA_MS,
+    POLLS_POR_RELEITURA_DO_PAPEL, proximoIntervaloDoPoll,
+} from '../../src/js/store/sync/sem-tempo-real.js';
 import { applyRemoteOperations } from '../../src/js/store/sync/remote-operation-handler.js';
 import { setTracing, clearTrace, getTrace } from '../../src/js/store/sync/diag/trace-core.js';
 import { IssueClass, classifyIssue } from '../../src/js/store/sync/issue-classes.js';
@@ -277,6 +305,13 @@ import { EventTypes } from '../../src/js/events/event_types.js';
 
 beforeEach(() => {
     vi.clearAllMocks();
+    // THE CONNECTION STARTS ONLINE, which is what the constant `isOnline: () => true` of the old
+    // double meant; the listeners go with the engine's wiring, which is reset below.
+    // `mockReturnValue` set by a case survives `clearAllMocks`, so the delegation is restored here.
+    h.conexaoReal._state = 'online';
+    h.conexaoReal._listeners.clear();
+    h.connectionStateMock.isOnline.mockImplementation(() => h.conexaoReal.isOnline());
+    sessionContextMock.isVisitor.mockReturnValue(false);
     queueState.ops = [];
     queueState.dequeued = [];
     queueState.issues = [];
@@ -2056,5 +2091,259 @@ describe('logoutAndDisconnect', () => {
         // logout repete de proposito (a chamada e' idempotente e o logout nao pode depender de
         // ninguem manter aquela linha no `disconnect`).
         expect(disableOperationLogging).toHaveBeenCalledTimes(2);
+    });
+});
+
+// ============================================================================
+// SEM TEMPO REAL: the socket does not open and the server answers over HTTP (2026-09-25)
+// ============================================================================
+// The pure rules are in `tests/unit/sem-tempo-real.test.js`; these cases pin the WIRING: the opening
+// that no longer fails, the role read over HTTP, the pull and its backoff, the probe after a drop, the
+// exits, and the return of the live channel. The connection state is the REAL machine (see the mock
+// factory), so an illegal transition here fails the same way it would in the browser.
+
+describe('sem tempo real: o atlas abre e sincroniza sem o socket', () => {
+    const refused = () => Object.assign(new Error('Conexão encerrada antes do handshake (code 1006)'),
+        { code: 'WS_HANDSHAKE_CLOSED' });
+
+    /** Opens atlas-1 with the socket refused, as `ws-client.js` leaves the state (CONNECTING). */
+    async function abrirSemSocket({ permission = 'write' } = {}) {
+        h.conexaoReal._state = ConnectionStates.CONNECTING;
+        wsClientMock.connect.mockRejectedValueOnce(refused());
+        apiClientMock.getAtlas.mockResolvedValueOnce({ id: 'atlas-1', user_permission: permission });
+        return syncEngine.connect('atlas-1', { initialPull: false });
+    }
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        sessionContextMock.role = undefined;
+    });
+
+    afterEach(() => {
+        syncEngine._session?.close();
+        vi.useRealTimers();
+    });
+
+    it('o upgrade recusado NÃO falha a abertura: HTTP_ONLY, papel lido por HTTP e aviso uma vez', async () => {
+        const payload = await abrirSemSocket({ permission: 'write' });
+
+        expect(payload).toBeNull();
+        expect(h.conexaoReal.getState()).toBe(ConnectionStates.HTTP_ONLY);
+        expect(apiClientMock.getAtlas).toHaveBeenCalledWith('atlas-1');
+        expect(sessionContextMock.updateRole).toHaveBeenCalledWith('editor');
+        const avisos = h.showWarningMock.mock.calls.filter(([frase]) => frase === avisoDeSemTempoReal());
+        expect(avisos).toHaveLength(1);
+    });
+
+    it('CONTROLE: qualquer outra falha do socket continua falhando a abertura', async () => {
+        h.conexaoReal._state = ConnectionStates.CONNECTING;
+        wsClientMock.connect.mockRejectedValueOnce(new Error('bug'));
+        await expect(syncEngine.connect('atlas-1', { initialPull: false })).rejects.toThrow('bug');
+        expect(h.conexaoReal.getState()).toBe(ConnectionStates.CONNECTING);
+    });
+
+    it('o proxy que segura o upgrade sem responder: o prazo vence e o atlas abre', async () => {
+        h.conexaoReal._state = ConnectionStates.CONNECTING;
+        wsClientMock.connect.mockImplementationOnce(() => new Promise(() => {}));
+        apiClientMock.getAtlas.mockResolvedValueOnce({ id: 'atlas-1', user_permission: 'read' });
+        const abrindo = syncEngine.connect('atlas-1', { initialPull: false });
+        await vi.advanceTimersByTimeAsync(PRAZO_DO_TEMPO_REAL_MS);
+        await expect(abrindo).resolves.toBeNull();
+        expect(h.conexaoReal.getState()).toBe(ConnectionStates.HTTP_ONLY);
+    });
+
+    it('o 404 na leitura do papel falha a abertura, como antes', async () => {
+        h.conexaoReal._state = ConnectionStates.CONNECTING;
+        wsClientMock.connect.mockRejectedValueOnce(refused());
+        apiClientMock.getAtlas.mockRejectedValueOnce(Object.assign(new Error('Not found'), { status: 404 }));
+        await expect(syncEngine.connect('atlas-1', { initialPull: false })).rejects.toMatchObject({ status: 404 });
+    });
+
+    it('um nível desconhecido falha FECHADO: o papel não muda', async () => {
+        await abrirSemSocket({ permission: 'superuser' });
+        expect(sessionContextMock.updateRole).not.toHaveBeenCalled();
+        expect(h.conexaoReal.getState()).toBe(ConnectionStates.HTTP_ONLY);
+    });
+
+    it('o pull aplica a cauda, marca a própria op e avança a versão aqui e no socket', async () => {
+        await abrirSemSocket();
+        const alheia = { id: 'op-a', entityType: 'feature', operationType: 'create', entityId: 'f1', clientId: 'outro:aba' };
+        const propria = { id: 'op-b', entityType: 'feature', operationType: 'create', entityId: 'f2', clientId: getClientId() };
+        apiClientMock.pullSync.mockResolvedValueOnce({ operations: [alheia, propria], currentVersion: 7 });
+
+        await vi.advanceTimersByTimeAsync(POLL_BASE_MS);
+
+        expect(apiClientMock.pullSync).toHaveBeenCalledWith('atlas-1', 0, expect.anything());
+        const aplicadas = h.applyRemoteOperation.mock.calls.map(([op]) => op);
+        expect(aplicadas.map((op) => op.id)).toEqual(['op-a', 'op-b']);
+        expect(aplicadas[0].localRepair).toBeUndefined();
+        expect(aplicadas[1].localRepair).toBe(true);
+        expect(syncEngine.lastVersion).toBe(7);
+        expect(wsClientMock.setLastVersion).toHaveBeenCalledWith(7);
+
+        // The next round asks from where this one stopped.
+        apiClientMock.pullSync.mockResolvedValueOnce({ operations: [], currentVersion: 7 });
+        await vi.advanceTimersByTimeAsync(POLL_BASE_MS);
+        expect(apiClientMock.pullSync).toHaveBeenLastCalledWith('atlas-1', 7, expect.anything());
+    });
+
+    it('uma op não aplicada segura a versão, e a rodada seguinte pede de novo', async () => {
+        await abrirSemSocket();
+        h.applyRemoteOperation.mockResolvedValueOnce(false);
+        apiClientMock.pullSync.mockResolvedValueOnce({ operations: [{ id: 'op-x', entityType: 'feature' }], currentVersion: 9 });
+        await vi.advanceTimersByTimeAsync(POLL_BASE_MS);
+        expect(syncEngine.lastVersion).toBe(0);
+        expect(wsClientMock.setLastVersion).not.toHaveBeenCalledWith(9);
+    });
+
+    it('um marcador estrutural no pull vira retrato, como no socket', async () => {
+        await abrirSemSocket();
+        apiClientMock.pullSync
+            .mockResolvedValueOnce({ operations: [{ id: 'm', entityType: 'map_duplicate' }], currentVersion: 4 })
+            .mockResolvedValueOnce({ snapshot: { currentVersion: 4 }, currentVersion: 4 });
+        await vi.advanceTimersByTimeAsync(POLL_BASE_MS);
+        expect(apiClientMock.pullSync).toHaveBeenNthCalledWith(2, 'atlas-1', 0, expect.anything());
+        expect(applyRemoteSnapshot).toHaveBeenCalled();
+        expect(h.applyRemoteOperation).not.toHaveBeenCalled();
+    });
+
+    it('o socket que volta PARA o pull: o tempo real reassume sem recarregar', async () => {
+        await abrirSemSocket();
+        apiClientMock.pullSync.mockClear();
+        h.conexaoReal.transition(ConnectionStates.ONLINE);
+        await vi.advanceTimersByTimeAsync(POLL_OCIOSO_MAX_MS * 3);
+        expect(apiClientMock.pullSync).not.toHaveBeenCalled();
+        expect(syncEngine._session.pollTimer).toBeNull();
+    });
+
+    it('a rodada que encontra o socket de volta não aplica nada: o replay dele é o dono da cauda', async () => {
+        await abrirSemSocket();
+        let responder;
+        apiClientMock.pullSync.mockImplementationOnce(() => new Promise((resolve) => { responder = resolve; }));
+        await vi.advanceTimersByTimeAsync(POLL_BASE_MS);
+        h.conexaoReal.transition(ConnectionStates.ONLINE);
+        responder({ operations: [{ id: 'op-tarde', entityType: 'feature' }], currentVersion: 3 });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(h.applyRemoteOperation).not.toHaveBeenCalled();
+        expect(syncEngine.lastVersion).toBe(0);
+    });
+
+    it('duas falhas seguidas dizem RECONNECTING, e o pull que responde traz HTTP_ONLY de volta', async () => {
+        await abrirSemSocket();
+        const falha = () => Object.assign(new Error('Bad Gateway'), { status: 502 });
+        apiClientMock.pullSync.mockRejectedValueOnce(falha()).mockRejectedValueOnce(falha());
+
+        await vi.advanceTimersByTimeAsync(POLL_BASE_MS);
+        expect(h.conexaoReal.getState()).toBe(ConnectionStates.HTTP_ONLY);
+        const segunda = proximoIntervaloDoPoll({ anterior: POLL_BASE_MS, falhou: true });
+        await vi.advanceTimersByTimeAsync(segunda);
+        expect(h.conexaoReal.getState()).toBe(ConnectionStates.RECONNECTING);
+
+        // The first answer asks the socket to retry at once; the second, with the socket still down,
+        // brings the mode back.
+        apiClientMock.pullSync.mockResolvedValue({ operations: [], currentVersion: 0 });
+        wsClientMock.reconectarAgora.mockClear();
+        const terceira = proximoIntervaloDoPoll({ anterior: segunda, falhou: true });
+        await vi.advanceTimersByTimeAsync(terceira);
+        expect(wsClientMock.reconectarAgora).toHaveBeenCalledTimes(1);
+        expect(h.conexaoReal.getState()).toBe(ConnectionStates.RECONNECTING);
+        await vi.advanceTimersByTimeAsync(proximoIntervaloDoPoll({ anterior: terceira }));
+        expect(h.conexaoReal.getState()).toBe(ConnectionStates.HTTP_ONLY);
+        apiClientMock.pullSync.mockReset().mockResolvedValue({ currentVersion: 0, isSnapshot: false });
+    });
+
+    it('o atlas que sumiu para esta pessoa sai pela mesma porta do 4003', async () => {
+        await abrirSemSocket();
+        h.eventBusMock.emit.mockClear();
+        apiClientMock.pullSync.mockRejectedValueOnce(Object.assign(new Error('Not found'), { status: 404 }));
+        await vi.advanceTimersByTimeAsync(POLL_BASE_MS);
+        expect(wsClientMock.disconnect).toHaveBeenCalled();
+        expect(h.eventBusMock.emit).toHaveBeenCalledWith(EventTypes.ATLAS_DELETED_REMOTE,
+            { atlasId: 'atlas-1', motivo: 'sem-acesso' });
+    });
+
+    it('o papel é relido a cada tantas rodadas, e o rebaixamento chega à tela', async () => {
+        await abrirSemSocket({ permission: 'write' });
+        sessionContextMock.role = 'editor';
+        sessionContextMock.updateRole.mockClear();
+        apiClientMock.getAtlas.mockResolvedValue({ id: 'atlas-1', user_permission: 'read' });
+        for (let i = 0; i < POLLS_POR_RELEITURA_DO_PAPEL; i++) {
+            await vi.advanceTimersByTimeAsync(POLL_OCIOSO_MAX_MS);
+        }
+        expect(sessionContextMock.updateRole).toHaveBeenCalledWith('viewer');
+        apiClientMock.getAtlas.mockReset().mockImplementation(async (id) => ({ id }));
+    });
+
+    it('a sonda: o socket que caiu e não volta passa o atlas a HTTP_ONLY, depois de uma tentativa nova', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        h.showWarningMock.mockClear();
+        apiClientMock.getAtlas.mockResolvedValue({ id: 'atlas-1', user_permission: 'write' });
+        h.conexaoReal.transition(ConnectionStates.RECONNECTING);
+
+        await vi.advanceTimersByTimeAsync(SONDA_APOS_QUEDA_MS - 1);
+        expect(apiClientMock.pullSync).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        // First answer: the socket is asked to retry NOW, and the mode waits one round.
+        expect(apiClientMock.pullSync).toHaveBeenCalledTimes(1);
+        expect(wsClientMock.reconectarAgora).toHaveBeenCalledTimes(1);
+        expect(h.conexaoReal.getState()).toBe(ConnectionStates.RECONNECTING);
+        expect(h.showWarningMock).not.toHaveBeenCalledWith(avisoDeSemTempoReal(), expect.anything());
+
+        // Second answer, the socket still down: without real time, and the person is told.
+        await vi.advanceTimersByTimeAsync(POLL_OCIOSO_MAX_MS);
+        expect(apiClientMock.pullSync).toHaveBeenCalledTimes(2);
+        expect(h.conexaoReal.getState()).toBe(ConnectionStates.HTTP_ONLY);
+        expect(h.showWarningMock).toHaveBeenCalledWith(avisoDeSemTempoReal(), expect.anything());
+        apiClientMock.getAtlas.mockReset().mockImplementation(async (id) => ({ id }));
+    });
+
+    it('a sonda NÃO grita lobo: o socket que volta com a tentativa nova dispensa o modo e o aviso', async () => {
+        // The laptop that slept: both channels were down, the socket's backoff grew, and the probe
+        // won the race when the network came back. The retry it asks for is what the socket needed.
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        h.showWarningMock.mockClear();
+        h.conexaoReal.transition(ConnectionStates.RECONNECTING);
+        await vi.advanceTimersByTimeAsync(SONDA_APOS_QUEDA_MS);
+        expect(wsClientMock.reconectarAgora).toHaveBeenCalledTimes(1);
+
+        h.conexaoReal.transition(ConnectionStates.ONLINE);
+        apiClientMock.pullSync.mockClear();
+        await vi.advanceTimersByTimeAsync(POLL_FALHA_MAX_MS * 2);
+        expect(apiClientMock.pullSync).not.toHaveBeenCalled();
+        expect(h.showWarningMock).not.toHaveBeenCalledWith(avisoDeSemTempoReal(), expect.anything());
+    });
+
+    it('CONTROLE da sonda: o socket que volta antes do prazo cancela a sonda', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        h.conexaoReal.transition(ConnectionStates.RECONNECTING);
+        await vi.advanceTimersByTimeAsync(SONDA_APOS_QUEDA_MS / 2);
+        h.conexaoReal.transition(ConnectionStates.ONLINE);
+        await vi.advanceTimersByTimeAsync(SONDA_APOS_QUEDA_MS * 2);
+        expect(apiClientMock.pullSync).not.toHaveBeenCalled();
+    });
+
+    it('o visitante abre sem o socket, lê a frase dele e para no link vencido', async () => {
+        sessionContextMock.isVisitor.mockReturnValue(true);
+        h.conexaoReal._state = ConnectionStates.CONNECTING;
+        wsClientMock.connect.mockRejectedValueOnce(refused());
+        apiClientMock.pullSync.mockResolvedValueOnce({ snapshot: null, currentVersion: 2 });
+        const payload = await syncEngine.connectPublic('atlas-1');
+
+        expect(payload).toBeNull();
+        expect(apiClientMock.getAtlas).not.toHaveBeenCalled();
+        expect(h.showWarningMock).toHaveBeenCalledWith(avisoDeSemTempoReal({ visitante: true }), expect.anything());
+
+        apiClientMock.pullSync.mockRejectedValueOnce(Object.assign(new Error('Unauthorized'), { status: 401 }));
+        await vi.advanceTimersByTimeAsync(POLL_BASE_MS);
+        expect(wsClientMock.disconnect).toHaveBeenCalled();
+        expect(h.showWarningMock).toHaveBeenCalledWith(expect.stringMatching(/Recarregue a página/), expect.anything());
+    });
+
+    it('sair do atlas para o pull: a sessão leva os temporizadores junto', async () => {
+        await abrirSemSocket();
+        apiClientMock.pullSync.mockClear();
+        syncEngine.disconnect();
+        await vi.advanceTimersByTimeAsync(POLL_FALHA_MAX_MS * 2);
+        expect(apiClientMock.pullSync).not.toHaveBeenCalled();
     });
 });

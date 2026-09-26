@@ -31,7 +31,8 @@ vi.mock('@store/sync/remote-operation-handler.js', () => ({
     hasPendingLocalEdits: () => guarda.preso,
 }));
 vi.mock('@store/sync/connection-state.js', () => ({
-    connectionState: { isOnline: () => true },
+    // `canReachServer` is the flush's question since 2026-09-25 (the push is HTTP).
+    connectionState: { isOnline: () => true, canReachServer: () => true },
 }));
 vi.mock('@store/sync/operation-queue.js', () => ({
     operationQueue: { count: async () => 0 },   // FILA VAZIA: o estado que expunha o buraco.

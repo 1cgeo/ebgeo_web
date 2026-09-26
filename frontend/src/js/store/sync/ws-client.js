@@ -206,6 +206,27 @@ export class WsClient {
         return this._open();
     }
 
+    /**
+     * Retries the socket NOW, instead of waiting for the rest of the backoff, and starts the backoff
+     * over. A no-op when nothing wants the socket or one is already open or opening.
+     *
+     * WHO CALLS IT: the sync engine, when an HTTP probe answers while the socket is down
+     * (`sem-tempo-real.js`). The backoff may have grown to 30 s during an outage that took both
+     * channels (a laptop asleep, a network that came back), and the probe can simply win that race:
+     * declaring "without real time" then would be a false alarm about a socket that was never tried
+     * again. One fresh attempt first is what makes the mode mean "the socket was refused".
+     * @returns {void}
+     */
+    reconectarAgora() {
+        if (!this._wantConnected || this._socket) return;
+        if (this._reconnectTimer) {
+            clearTimeout(this._reconnectTimer);
+            this._reconnectTimer = null;
+        }
+        this._reconnectAttempts = 0;
+        this._reabrirComCredencialFresca();
+    }
+
     /** Closes the connection intentionally (no reconnect). */
     disconnect() {
         this._wantConnected = false;
@@ -356,10 +377,28 @@ export class WsClient {
 
     // ===== INTERNAL: CONNECTION LIFECYCLE =====
 
+    /**
+     * @private Whether the state says the server answers over HTTP while this socket is being
+     * retried in the background (`HTTP_ONLY`, "sem tempo real"). The engine enters it; this client
+     * only has to stay out of its way until a `connected` frame brings ONLINE back.
+     * @returns {boolean}
+     */
+    _semTempoReal() {
+        try {
+            return this._conn.getState() === ConnectionStates.HTTP_ONLY;
+        } catch {
+            return false;
+        }
+    }
+
     /** @private Opens the socket and wires lifecycle handlers. */
     _open() {
         const url = this._api.wsUrl(this._atlasId, { clientId: this._clientId });
-        this._safeTransition(ConnectionStates.CONNECTING);
+        // WITHOUT REAL TIME, a background attempt at the socket does not touch the state: the
+        // badge, the flush and every listener already read HTTP_ONLY. The table refuses
+        // HTTP_ONLY -> CONNECTING anyway, so this guard only spares the ledger an illegal transition
+        // at every backoff step; the load-bearing one is in `_onClose`.
+        if (!this._semTempoReal()) this._safeTransition(ConnectionStates.CONNECTING);
 
         return new Promise((resolve, reject) => {
             this._connectResolve = resolve;
@@ -631,10 +670,12 @@ export class WsClient {
             return;
         }
 
-        // Unexpected drop while we want to stay connected → reconnect with backoff.
-        this._safeTransition(
-            this._conn.isOnline() ? ConnectionStates.RECONNECTING : ConnectionStates.RECONNECTING
-        );
+        // Unexpected drop while we want to stay connected → reconnect with backoff. A failed
+        // background attempt WITHOUT REAL TIME keeps HTTP_ONLY: the server still answers over HTTP,
+        // and HTTP_ONLY -> RECONNECTING is a legal move that would stop the flush and tell the
+        // person it is reconnecting on every refused upgrade. Only the engine leaves HTTP_ONLY
+        // for RECONNECTING, when the HTTP stops answering too.
+        if (!this._semTempoReal()) this._safeTransition(ConnectionStates.RECONNECTING);
         this._emit('error', { kind: 'closed', code: event?.code, reason: event?.reason });
 
         // Settle a handshake that never completed. A rejected UPGRADE (403: account or org

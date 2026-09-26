@@ -28,7 +28,6 @@ import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-c
 // inicialização dele. Ver o `fileoverview` de `storage-persistence.js`.
 import { pedirPersistencia } from '@store/storage-persistence.js';
 import { syncEngine } from '@store/sync/sync-engine.js';
-import { WS_HANDSHAKE_CLOSED } from '@store/sync/ws-client.js';
 import { apiClient } from '@store/sync/api-client.js';
 import { initServices, markStoreRemote, clearAllDataStore, activateAtlasInitialMap, activateRemoteAtlas, getControl, getEventBus } from './store';
 import { reapplyAtlasAppearance } from './store/atlas-appearance.service.js';
@@ -597,11 +596,11 @@ async function openAtlasFromUrl(link = parseAtlasLink()) {
         else showToast('Não foi possível abrir o atlas do servidor.', 'error');
         // O MESMO DESFECHO, EM CÓDIGO, para o caso de a cadeia seguir até o seletor: a navegação
         // mata o toast acima, e a frase é remontada lá (`arrivalNotice`, `projects/atlas-drive.js`).
-        // The socket refused after the HTTP pull succeeded is its own sentence: the server is
-        // reachable, so "verifique sua conexão" would send the person after a connection that works.
+        // A socket refused after the HTTP pull succeeded is no longer a failed opening at all: the
+        // atlas goes on without real time (`store/sync/sem-tempo-real.js`, 2026-09-25), so the code
+        // that named that case here left with it.
         _falhaDaAbertura = status === 403 ? 'abertura-sem-acesso'
-            : status === 404 ? 'abertura-nao-encontrada'
-                : error?.code === WS_HANDSHAKE_CLOSED ? 'abertura-sem-tempo-real' : 'abertura-falhou';
+            : status === 404 ? 'abertura-nao-encontrada' : 'abertura-falhou';
         console.warn('[boot] atlas open from URL failed:', error);
         clearAtlasUrl();
         // The origin stays REMOTE (openRemoteAtlas keeps the provenance since 2026-09-19); where the

@@ -303,8 +303,52 @@ describe('invariantes sobre a grade inteira', () => {
             describeSyncWork({ remote: true, connection: SYNC_CONNECTION.ONLINE, pending: 0, uploads: 1 }).state,
             // 2026-09-24: quem foi rebaixado a Leitor recebe 403 em todo envio.
             describeSyncWork({ remote: true, connection: SYNC_CONNECTION.ONLINE, pending: 1, recusaDoEnvio: 'permission' }).state,
+            // 2026-09-25: o servidor responde e o tempo real não abriu.
+            describeSyncWork({ remote: true, connection: SYNC_CONNECTION.HTTP_ONLY, pending: 0 }).state,
         ]);
         expect([...alcancados].sort()).toEqual([...Object.values(SYNC_WORK_STATE)].sort());
+    });
+});
+
+describe('sem tempo real: o servidor responde e o socket não abriu (2026-09-25)', () => {
+    const semTempoReal = (extra = {}) => describeSyncWork({
+        remote: true, connection: SYNC_CONNECTION.HTTP_ONLY, pending: 0, ...extra,
+    });
+
+    it('com nada à espera, o crachá diz SEM TEMPO REAL, e não "Tudo enviado"', () => {
+        const saida = semTempoReal();
+        expect(saida.state).toBe(SYNC_WORK_STATE.NO_REAL_TIME);
+        expect(saida.label).toBe('Sem tempo real');
+        // Nunca verde: o trabalho da pessoa está salvo, mas o dos colegas chega atrasado.
+        expect(saida.tone).toBe(SYNC_TONE.BUSY);
+        expect(saida.detail).toContain('alguns segundos');
+        expect(saida.detail).toContain('avise o administrador');
+        expect(saida.pending).toBe(0);
+    });
+
+    it('a frase não carrega jargão de transporte', () => {
+        const saida = semTempoReal();
+        for (const texto of [saida.label, saida.resumo, saida.detail]) {
+            expect(texto).not.toMatch(/websocket|socket|\bhttp\b|\bfila\b|upgrade|proxy/i);
+        }
+    });
+
+    it('com trabalho à espera, o envio segue como no ONLINE, porque ele é HTTP', () => {
+        const saida = semTempoReal({ pending: 3 });
+        expect(saida.state).toBe(SYNC_WORK_STATE.SENDING);
+        expect(saida.label).toBe('Enviando 3…');
+    });
+
+    it('o que espera uma pessoa continua na frente, sem tempo real também', () => {
+        expect(semTempoReal({ quarentena: 1 }).state).toBe(SYNC_WORK_STATE.CONFLICT);
+        expect(semTempoReal({ problemas: 2 }).state).toBe(SYNC_WORK_STATE.REFUSED);
+        expect(semTempoReal({ recuperando: true }).state).toBe(SYNC_WORK_STATE.RECOVERING);
+        expect(semTempoReal({ pending: 1, recusaDoEnvio: 'permission' }).state).toBe(SYNC_WORK_STATE.NO_PERMISSION);
+    });
+
+    it('a fila ilegível continua sem afirmação', () => {
+        expect(semTempoReal({ pending: null }).state).toBe(SYNC_WORK_STATE.UNKNOWN);
+        expect(semTempoReal({ pending: undefined }).state).toBe(SYNC_WORK_STATE.CHECKING);
     });
 });
 

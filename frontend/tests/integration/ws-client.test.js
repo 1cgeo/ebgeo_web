@@ -548,3 +548,80 @@ describe('WsClient — server-side data events route to a re-pull (doc: peer rel
         expect(onResync).toHaveBeenCalledWith(expect.objectContaining({ type: 'map_duplicated', mapId: 'm2' }));
     });
 });
+
+// SEM TEMPO REAL (2026-09-25): the engine puts the state in HTTP_ONLY when the socket does not open
+// and the server answers over HTTP (`store/sync/sem-tempo-real.js`). The socket client keeps retrying
+// in the background, and it must stay out of the state until a `connected` frame: every attempt
+// flipping it to CONNECTING and back would make the badge, the flush and every listener flicker.
+describe('WsClient — sem tempo real', () => {
+    it('as tentativas de fundo não tocam no estado, e o `connected` traz o ONLINE de volta', async () => {
+        vi.useFakeTimers();
+        try {
+            const { ws, conn } = setup({ reconnectBaseMs: 50 });
+            const p = ws.connect('atlas-1');
+            FakeSocket.instances[0].close(1006, 'upgrade refused');
+            await expect(p).rejects.toMatchObject({ code: 'WS_HANDSHAKE_CLOSED' });
+
+            // What the engine does on that rejection.
+            conn.transition(ConnectionStates.HTTP_ONLY);
+            ws.setLastVersion(7);
+            const transicoes = [];
+            conn.onStateChanged(({ currentState }) => transicoes.push(currentState));
+
+            // Two background attempts, both refused: no transition at all.
+            await vi.advanceTimersByTimeAsync(60);
+            expect(FakeSocket.instances).toHaveLength(2);
+            FakeSocket.instances[1].close(1006, 'upgrade refused');
+            await vi.advanceTimersByTimeAsync(120);
+            expect(FakeSocket.instances).toHaveLength(3);
+            expect(conn.getState()).toBe(ConnectionStates.HTTP_ONLY);
+            expect(transicoes).toEqual([]);
+
+            // The proxy lets the next one through: ONLINE, and the replay departs from the version
+            // the pull reached.
+            const terceiro = FakeSocket.instances[2];
+            terceiro.emit({ type: 'connected', sessionId: 'me', permission: 'write', role: 'editor', usersOnline: [] });
+            expect(conn.getState()).toBe(ConnectionStates.ONLINE);
+            expect(transicoes).toEqual([ConnectionStates.ONLINE]);
+            expect(terceiro.sent).toContainEqual({ type: 'sync_request', lastVersion: 7 });
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('reconectarAgora abre o socket JÁ, sem esperar o resto do recuo, e recomeça o recuo', async () => {
+        vi.useFakeTimers();
+        try {
+            const { ws } = setup({ reconnectBaseMs: 30000 });
+            const p = ws.connect('atlas-1');
+            FakeSocket.instances[0].close(1006, 'drop');
+            await expect(p).rejects.toMatchObject({ code: 'WS_HANDSHAKE_CLOSED' });
+            expect(FakeSocket.instances).toHaveLength(1);
+
+            ws.reconectarAgora();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(FakeSocket.instances).toHaveLength(2);
+
+            // With a socket open (or opening), it does nothing; after a disconnect, neither.
+            ws.reconectarAgora();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(FakeSocket.instances).toHaveLength(2);
+            ws.disconnect();
+            ws.reconectarAgora();
+            await vi.advanceTimersByTimeAsync(60000);
+            expect(FakeSocket.instances).toHaveLength(2);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('CONTROLE: fora do modo, a queda de um socket vivo continua dizendo RECONNECTING', async () => {
+        const { ws, conn } = setup();
+        const p = ws.connect('atlas-1');
+        FakeSocket.instances[0].emit({ type: 'connected', sessionId: 'me', permission: 'write', role: 'editor', usersOnline: [] });
+        await p;
+        FakeSocket.instances[0].close(1006, 'drop');
+        expect(conn.getState()).toBe(ConnectionStates.RECONNECTING);
+        ws.disconnect();
+    });
+});

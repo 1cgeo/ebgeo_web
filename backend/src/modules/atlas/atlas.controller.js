@@ -101,9 +101,15 @@ export const createAtlas = asyncHandler(async (req, res) => {
   res.status(201).json({ data: atlas });
 });
 
+// `user_permission` IS THE LEVEL THE GATE OF THIS VERY REQUEST RESOLVED (`requireAtlasPermission`,
+// which puts it on `req.atlasPermission`), with the same name and values the atlas listings carry.
+// Added on 2026-09-25 for the atlas opened WITHOUT REAL TIME: the per-atlas level used to reach the
+// client only in the collab socket's `connected` frame, and behind a proxy that refuses the upgrade
+// every collaborator stayed on the closed viewer seed. Additive: an older client ignores the key.
+// It describes, never grants: every write still passes the same gate on its own route.
 export const getAtlas = asyncHandler(async (req, res) => {
   const atlas = await atlasService.getAtlasById(req.atlasId);
-  res.json({ data: atlas });
+  res.json({ data: { ...atlas, user_permission: req.atlasPermission } });
 });
 
 export const updateAtlas = asyncHandler(async (req, res) => {

@@ -170,3 +170,75 @@ describe('_reset', () => {
         expect(listener).toHaveBeenCalledTimes(1); // Only the first call
     });
 });
+
+// ============================================================================
+// HTTP_ONLY: sem tempo real (2026-09-25)
+// ============================================================================
+
+describe('HTTP_ONLY: o servidor responde e o socket não abriu', () => {
+    /** Walks the machine to `alvo` through legal moves only. */
+    function ate(...caminho) {
+        for (const estado of caminho) state.transition(estado);
+    }
+
+    it('entra pela abertura (CONNECTING) e pela sonda depois da queda (RECONNECTING)', () => {
+        ate(ConnectionStates.CONNECTING, ConnectionStates.HTTP_ONLY);
+        expect(state.getState()).toBe(ConnectionStates.HTTP_ONLY);
+
+        const outro = new ConnectionState();
+        outro.transition(ConnectionStates.CONNECTING);
+        outro.transition(ConnectionStates.ONLINE);
+        outro.transition(ConnectionStates.RECONNECTING);
+        outro.transition(ConnectionStates.HTTP_ONLY);
+        expect(outro.isHttpOnly()).toBe(true);
+    });
+
+    it('sai para ONLINE (o socket voltou), RECONNECTING (o HTTP parou) e OFFLINE (saída)', () => {
+        for (const destino of [ConnectionStates.ONLINE, ConnectionStates.RECONNECTING, ConnectionStates.OFFLINE]) {
+            const maquina = new ConnectionState();
+            maquina.transition(ConnectionStates.CONNECTING);
+            maquina.transition(ConnectionStates.HTTP_ONLY);
+            maquina.transition(destino);
+            expect(maquina.getState()).toBe(destino);
+        }
+    });
+
+    it('não se entra direto do ONLINE nem do OFFLINE, e não se volta a CONNECTING', () => {
+        const online = new ConnectionState();
+        online.transition(ConnectionStates.CONNECTING);
+        online.transition(ConnectionStates.ONLINE);
+        expect(() => online.transition(ConnectionStates.HTTP_ONLY)).toThrow();
+        expect(() => state.transition(ConnectionStates.HTTP_ONLY)).toThrow();
+        ate(ConnectionStates.CONNECTING, ConnectionStates.HTTP_ONLY);
+        expect(() => state.transition(ConnectionStates.CONNECTING)).toThrow();
+    });
+
+    it('as duas perguntas: o canal ao vivo não está de pé, e o servidor é alcançável', () => {
+        ate(ConnectionStates.CONNECTING, ConnectionStates.HTTP_ONLY);
+        expect(state.isOnline()).toBe(false);
+        expect(state.canReachServer()).toBe(true);
+    });
+
+    it('canReachServer só é verdade em ONLINE e HTTP_ONLY', () => {
+        const respostas = {};
+        const maquina = new ConnectionState();
+        respostas[maquina.getState()] = maquina.canReachServer();
+        maquina.transition(ConnectionStates.CONNECTING);
+        respostas[maquina.getState()] = maquina.canReachServer();
+        maquina.transition(ConnectionStates.ONLINE);
+        respostas[maquina.getState()] = maquina.canReachServer();
+        maquina.transition(ConnectionStates.RECONNECTING);
+        respostas[maquina.getState()] = maquina.canReachServer();
+        maquina.transition(ConnectionStates.HTTP_ONLY);
+        respostas[maquina.getState()] = maquina.canReachServer();
+        expect(respostas).toEqual({
+            [ConnectionStates.OFFLINE]: false,
+            [ConnectionStates.CONNECTING]: false,
+            [ConnectionStates.ONLINE]: true,
+            [ConnectionStates.RECONNECTING]: false,
+            [ConnectionStates.HTTP_ONLY]: true,
+        });
+        // Every state of the enum was visited: a sixth state would have to be classified here.
+        expect(Object.keys(respostas).sort()).toEqual(Object.values(ConnectionStates).sort());
+    });
+});

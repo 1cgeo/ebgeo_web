@@ -9,7 +9,9 @@ import { EventoDeUso, PropDeUso } from '@js/session/eventos-de-uso.js';
  * queue to the server via `engine.flush()`. It is:
  * - idempotent: calling start twice is a no-op (single shared timer);
  * - in-flight guarded: never overlaps two flushes;
- * - online-only: skips flushing unless the connection is ONLINE;
+ * - reachable-only: skips flushing unless the server can be reached, which is ONLINE or
+ *   HTTP_ONLY ("sem tempo real", `sem-tempo-real.js`): every byte of the flush goes over HTTP,
+ *   so a socket that a proxy refuses must not hold the queue;
  * - work-gated: skips flushing when the local queue is empty.
  *
  * An immediate flush is attempted on start and again on every local/remote
@@ -200,8 +202,12 @@ export function nextFlushAlertState(prev, error, threshold = FLUSH_ALERT_THRESHO
 }
 
 /**
- * Whether there is anything worth flushing right now: an ONLINE connection and at least one
- * SENDABLE operation.
+ * Whether there is anything worth flushing right now: a server this tab can reach (ONLINE, or
+ * HTTP_ONLY without real time) and at least one SENDABLE operation.
+ *
+ * `canReachServer`, NOT `isOnline`, since 2026-09-25: the push is HTTP, and gating it on the socket
+ * left the queue of a person behind a proxy that refuses the upgrade stopped for good, with the
+ * HTTP working. Found by the network campaign of 2026-09-24.
  *
  * SENDABLE, NOT "THE QUEUE IS NOT EMPTY", and the distinction is why `operationQueue.count()`
  * changed meaning. A queue holding only refused operations, work blocked behind them, or an
@@ -213,7 +219,7 @@ export function nextFlushAlertState(prev, error, threshold = FLUSH_ALERT_THRESHO
  * @returns {Promise<boolean>}
  */
 async function hasWorkToFlush() {
-    if (!connectionState.isOnline()) return false;
+    if (!connectionState.canReachServer()) return false;
     const sendable = await operationQueue.count();
     return sendable > 0;
 }

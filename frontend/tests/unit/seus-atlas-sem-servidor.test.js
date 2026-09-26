@@ -388,12 +388,13 @@ describe('B6 — a frase de chegada exige sessão', () => {
             .toBe('Este atlas foi excluído pelo proprietário.');
     });
 
-    it('o tempo real recusado tem frase própria, que não manda verificar a conexão (2026-09-23)', () => {
-        const frase = arrivalNotice('abertura-sem-tempo-real', { signedIn: true });
-        expect(frase).toContain('conexão em tempo real não abriu');
-        expect(frase).toContain('avise o administrador');
-        expect(frase).not.toContain('Verifique sua conexão');
-        expect(arrivalNotice('abertura-sem-tempo-real', { signedIn: false })).toBeNull();
+    it('o tempo real recusado deixou de ser desfecho de abertura (2026-09-25)', () => {
+        // De 2026-09-23 a 2026-09-25 este caso cobrava uma frase própria para a abertura que
+        // voltava ao seletor com o WebSocket recusado. Desde então o atlas abre sem tempo real
+        // (`store/sync/sem-tempo-real.js`) e o mapa não manda mais esse código: um endereço antigo
+        // com ele cai no ramo do código desconhecido, que não ecoa nada.
+        expect(arrivalNotice('abertura-sem-tempo-real', { signedIn: true })).toBeNull();
+        expect(arrivalNotice('abertura-falhou', { signedIn: true })).toContain('Verifique sua conexão');
     });
 
     it('código desconhecido nunca é ecoado, com sessão ou sem', () => {

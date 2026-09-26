@@ -27,9 +27,12 @@ vi.mock('@utils/toast_service.js', () => ({
 // nesse singleton o gatilho de retomada da fila de blobs: um dublê que omite o que o sujeito chama
 // reprova por TypeError, e o vermelho aponta para o dublê em vez do código.
 vi.mock('../../src/js/store/sync/connection-state.js', () => ({
-    connectionState: { isOnline: () => true, onStateChanged: vi.fn(() => () => {}) },
+    // `canReachServer` is the flush's question since 2026-09-25 (the push is HTTP, and it also
+    // runs WITHOUT REAL TIME); connected here answers both.
+    connectionState: { isOnline: () => true, canReachServer: () => true, onStateChanged: vi.fn(() => () => {}) },
     ConnectionStates: Object.freeze({
         OFFLINE: 'offline', CONNECTING: 'connecting', ONLINE: 'online', RECONNECTING: 'reconnecting',
+        HTTP_ONLY: 'http-only',
     }),
 }));
 vi.mock('../../src/js/store/sync/operation-queue.js', () => ({

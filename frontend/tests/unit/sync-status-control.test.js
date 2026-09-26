@@ -64,10 +64,16 @@ vi.mock('@store/services.js', () => ({
     getEventBus: () => ({ on() {}, off() {}, subscribe() { return () => {}; } }),
 }));
 
+// `canReachServer` É A MESMA REGRA DA CLASSE REAL (ONLINE ou sem tempo real), escrita sobre o
+// cenário: o controle pergunta por ela desde 2026-09-25 para pré-carregar o painel.
 vi.mock('@store/sync/connection-state.js', () => ({
-    connectionState: { getState: () => cenario.conexao },
+    connectionState: {
+        getState: () => cenario.conexao,
+        canReachServer: () => cenario.conexao === 'online' || cenario.conexao === 'http-only',
+    },
     ConnectionStates: Object.freeze({
         ONLINE: 'online', CONNECTING: 'connecting', RECONNECTING: 'reconnecting', OFFLINE: 'offline',
+        HTTP_ONLY: 'http-only',
     }),
 }));
 

@@ -182,6 +182,31 @@ describe('online + work gating', () => {
         engine.settle();
         expect(engine.flush).toHaveBeenCalledTimes(2);
     });
+
+    // SEM TEMPO REAL (2026-09-25): o socket não abriu e o servidor responde. O envio é HTTP e
+    // nunca passou pelo socket, então ele não pode ficar parado atrás do socket.
+    it('SEM TEMPO REAL o envio sai do mesmo jeito, porque ele é HTTP', async () => {
+        connectionState.transition(ConnectionStates.CONNECTING);
+        connectionState.transition(ConnectionStates.HTTP_ONLY);
+        queueState.pending = 2;
+        startAutoFlush(engine, { intervalMs: 1000 });
+
+        await vi.advanceTimersByTimeAsync(0);
+        engine.settle();
+        expect(engine.flush).toHaveBeenCalledTimes(1);
+    });
+
+    it('CONTROLE: reconectando (o servidor também não responde) o envio continua parado', async () => {
+        connectionState.transition(ConnectionStates.CONNECTING);
+        connectionState.transition(ConnectionStates.HTTP_ONLY);
+        connectionState.transition(ConnectionStates.RECONNECTING);
+        queueState.pending = 2;
+        startAutoFlush(engine, { intervalMs: 1000 });
+
+        await vi.advanceTimersByTimeAsync(3000);
+
+        expect(engine.flush).not.toHaveBeenCalled();
+    });
 });
 
 describe('immediate flush on start', () => {

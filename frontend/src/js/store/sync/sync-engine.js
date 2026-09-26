@@ -46,7 +46,7 @@ import {
     CONVERGENCE_GUARDED,
 } from './remote-operation-handler.js';
 import { syncGateway } from './sync-gateway.js';
-import { connectionState } from './connection-state.js';
+import { connectionState, ConnectionStates } from './connection-state.js';
 import { setImageSyncAtlas } from './image-sync.js';
 import { applyAtlasSettings, revertAtlasSettings } from './atlas-settings.service.js';
 import { refreshVisibleResources, clearVisibleResources } from './resource-access.service.js';
@@ -58,7 +58,16 @@ import { EventTypes } from '../../events/event_types.js';
 import { record } from './diag/trace-core.js';
 import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
 import { showWarning } from '../../utilities/toast_service.js';
-import { MAX_OPS_PER_LOGICAL_BATCH, describeRefusedPart } from './operation-factory.js';
+import {
+    MAX_OPS_PER_LOGICAL_BATCH, describeRefusedPart, clientIdInstallation, getClientId,
+} from './operation-factory.js';
+import {
+    PRAZO_DO_TEMPO_REAL_MS, PRAZO_DO_TEMPO_REAL_CODE, POLL_BASE_MS, FALHAS_ATE_RECONECTAR,
+    SONDA_APOS_QUEDA_MS, POLLS_POR_RELEITURA_DO_PAPEL,
+    seguirSemTempoReal, proximoIntervaloDoPoll, desfechoDaFalhaDoPoll,
+} from './sem-tempo-real.js';
+import { avisoDeSemTempoReal } from './sem-tempo-real-phrases.js';
+import { atlasRoleForPermission } from '@js/projects/permission-levels.js';
 
 /**
  * Max operations pushed per HTTP batch when flushing the queue.
@@ -394,6 +403,8 @@ class SyncEngine {
 
     _beginSession(atlasId) {
         this._session?.close();
+        // The timers of the mode without real time belong to the session (`SyncSession`): closing
+        // it (another atlas, a disconnect, the tab-lock brake) stops the pull and the probe with it.
         this._session = new SyncSession(atlasId, sessionContext.userId);
         return this._session;
     }
@@ -453,7 +464,9 @@ class SyncEngine {
      * @param {string} atlasId
      * @param {Object} [opts]
      * @param {boolean} [opts.initialPull=true] - Pull a snapshot before connecting.
-     * @returns {Promise<Object>} The WS `connected` payload.
+     * @returns {Promise<Object|null>} The WS `connected` payload, or `null` when the atlas opened
+     *   WITHOUT REAL TIME (the socket did not open and the atlas goes on over HTTP; see
+     *   `sem-tempo-real.js`).
      */
     async connect(atlasId, { initialPull = true } = {}) {
         const session = this._beginSession(atlasId);
@@ -491,11 +504,15 @@ class SyncEngine {
             });
         }
 
-        const payload = await wsClient.connect(atlasId, {
-            lastVersion: this._lastVersion,
-            haveSnapshot: this._haveSnapshot,
-        });
+        // WITHOUT REAL TIME (owner, 2026-09-25): the snapshot already came over HTTP, so a socket
+        // that does not open no longer fails the opening. `null` here means the atlas goes on over
+        // HTTP; the socket keeps being retried in the background.
+        const payload = await this._abrirTempoReal(atlasId, session);
         session.assertActive();
+        if (!payload) {
+            await this._papelPorHttp(session);
+            session.assertActive();
+        }
 
         // Reflect the PER-ATLAS role from the connect payload (owner/editor/viewer). This is the
         // ONLY place the axis is resolved for a non-owner: hydration seeds it at VIEWER and the
@@ -511,9 +528,12 @@ class SyncEngine {
         }
         // THE RECORTE ALSO DEPENDS ON THE LEVEL, and only the socket tells it: see
         // `_markRecorteLevel`. A generation staged under another level is re-pulled in full.
-        if (this._markRecorteLevel(session, payload?.permission)) {
+        // Without real time the level comes from the same HTTP read as the role.
+        if (this._markRecorteLevel(session, payload?.permission ?? session.permissaoHttp)) {
             this.resync().catch((error) => console.warn('[sync] re-pull after a change of level failed:', error));
         }
+
+        if (!payload) this._entrarSemTempoReal(session);
 
         // Apply the per-atlas config overlay from the snapshot's settings (no extra round-trip).
         await this._applyAtlasSettingsOverlay(atlasId, snapshot?.atlas?.settings, session);
@@ -740,7 +760,7 @@ class SyncEngine {
      * than an authenticated identity. The caller must have set the ephemeral public token on the
      * api client and marked the store remote first.
      * @param {string} atlasId
-     * @returns {Promise<Object>} The WS `connected` payload.
+     * @returns {Promise<Object|null>} The WS `connected` payload, or `null` without real time.
      */
     async connectPublic(atlasId) {
         const session = this._beginSession(atlasId);
@@ -761,21 +781,425 @@ class SyncEngine {
         // Anonymous read-only visitor: NEVER log ops — there is no token to push them and they would
         // orphan the op queue for a later real login (which would then flush them to the wrong atlas).
         disableOperationLogging();
-        const payload = await wsClient.connect(atlasId, {
-            lastVersion: this._lastVersion,
-            haveSnapshot: this._haveSnapshot,
-        });
+        // The visitor goes on without real time too: a read-only visit that a proxy blocks the
+        // socket of still reads the atlas, and the pull keeps it current.
+        const payload = await this._abrirTempoReal(atlasId, session);
 
         session.assertActive();
 
         // Anonymous read-only visitor: the permission guard blocks editing the remote store, and
         // isAuthenticated() stays false (no account menu).
         sessionContext.setVisitorSession();
+        if (!payload) this._entrarSemTempoReal(session);
 
         // The per-atlas config overlay still applies — a visitor respects 3D/360/basemap availability.
         await this._applyAtlasSettingsOverlay(atlasId, snapshot?.atlas?.settings, session);
         session.assertActive();
         return payload;
+    }
+
+    // ===== THE MODE WITHOUT REAL TIME ("sem tempo real", owner's decision of 2026-09-25) =====
+    //
+    // The rules are pure and live in `sem-tempo-real.js`; what follows is the wiring. The state is
+    // `ConnectionStates.HTTP_ONLY`, entered by THIS engine (the socket client only keeps out of its
+    // way while it retries in the background) and left by the socket's own `connected` frame.
+    //
+    // NOTHING HERE PASSES THROUGH THE SOCKET'S INBOUND GATES, and that is load-bearing: the
+    // `syncResponse` handler, the settings frames and `syncGateway` all drop what arrives while the
+    // state is not ONLINE, which is right for a late frame and would throw away every pull of this
+    // mode. The pull applies through `remote-operation-handler.js` directly, as the tail of the
+    // opening does.
+
+    /**
+     * @private Opens the live channel of the atlas, or decides the atlas goes on without it.
+     *
+     * The snapshot (or the tail) already came over HTTP when this runs, so a socket that does not
+     * open is no longer a failed opening: the two ways it fails while the server has just answered
+     * ({@link seguirSemTempoReal}) resolve `null`, and `ws-client.js` keeps retrying the socket in
+     * the background with its own backoff. Any other failure still rejects, as before.
+     *
+     * THE WAIT HAS A DEADLINE ({@link PRAZO_DO_TEMPO_REAL_MS}), for a proxy that holds the upgrade
+     * without answering: without it the opening would hang on a promise nothing settles. The attempt
+     * that lost the race keeps running, and if it connects later its `connected` frame brings the
+     * normal mode back like any background reconnect.
+     * @param {string} atlasId
+     * @param {import('./sync-session.js').SyncSession} session
+     * @returns {Promise<Object|null>} The `connected` payload, or `null` to go on without real time.
+     * @private
+     */
+    async _abrirTempoReal(atlasId, session) {
+        const tentativa = wsClient.connect(atlasId, {
+            lastVersion: this._lastVersion,
+            haveSnapshot: this._haveSnapshot,
+        });
+        let prazo = null;
+        const expirou = new Promise((_resolve, reject) => {
+            prazo = setTimeout(() => reject(Object.assign(
+                new Error('A conexão em tempo real não respondeu a tempo.'),
+                { code: PRAZO_DO_TEMPO_REAL_CODE },
+            )), PRAZO_DO_TEMPO_REAL_MS);
+            prazo?.unref?.();
+        });
+        try {
+            return await Promise.race([tentativa, expirou]);
+        } catch (erro) {
+            session.assertActive();
+            if (!seguirSemTempoReal(erro)) throw erro;
+            return null;
+        } finally {
+            clearTimeout(prazo);
+        }
+    }
+
+    /**
+     * @private Reads the per-atlas role over HTTP, for a session whose socket did not open.
+     *
+     * The socket's `connected` frame is the only place the role is resolved for a non-owner, so
+     * without it every collaborator would stay on the closed VIEWER seed and could not edit. The
+     * same answer comes from `GET /atlas/:atlasId`, whose `user_permission` is the permission the
+     * server's own gate resolved for this request (`requireAtlasPermission`), translated to the
+     * client vocabulary by {@link atlasRoleForPermission}, the mirror of `toFrontendRole`. The
+     * server keeps imposing the role on every push; this only decides what the screen offers.
+     *
+     * Read at the opening and every {@link POLLS_POR_RELEITURA_DO_PAPEL} pulls, which is what stands
+     * in for the live `sharing_updated` and `atlas_owner_changed` frames.
+     *
+     * FAILS CLOSED: an answer without a known permission leaves the role where it was (the closed
+     * seed at the opening), and a transient failure is retried by the next pull. The end of the
+     * access (403, 404, 410) is rethrown: the opening fails on it exactly as it did before.
+     * @param {import('./sync-session.js').SyncSession} session
+     * @returns {Promise<boolean>} Whether the answer carried a permission this client knows.
+     * @private
+     */
+    async _papelPorHttp(session) {
+        let atlas;
+        try {
+            atlas = await apiClient.getAtlas(session.atlasId);
+        } catch (erro) {
+            session.assertActive();
+            if (desfechoDaFalhaDoPoll(erro?.status) === 'fim-do-acesso') throw erro;
+            return false;
+        }
+        session.assertActive();
+        session.pollsDesdeOPapel = 0;
+        const permissao = atlas?.user_permission;
+        const papel = atlasRoleForPermission(permissao, { globalAdmin: sessionContext.isAdmin() });
+        if (!papel) return false;
+        const mudou = papel !== sessionContext.role || session.permissaoHttp !== permissao;
+        session.permissaoHttp = permissao;
+        if (mudou) sessionContext.updateRole(papel);
+        return true;
+    }
+
+    /**
+     * @private Puts the session in the mode without real time and starts the pull.
+     *
+     * NOT when the live channel is already up: the attempt that lost the opening's deadline may have
+     * connected in between, and its `connected` frame is the better news. Not when the socket client
+     * was stopped either (OFFLINE): that is a disconnect, not a network.
+     * @param {import('./sync-session.js').SyncSession} session
+     * @returns {void}
+     * @private
+     */
+    _entrarSemTempoReal(session) {
+        if (this._session !== session || session.signal.aborted) return;
+        const estado = connectionState.getState();
+        if (estado === ConnectionStates.ONLINE || estado === ConnectionStates.OFFLINE) return;
+        this._transitar(ConnectionStates.HTTP_ONLY);
+        this._agendarPoll(session, POLL_BASE_MS);
+    }
+
+    /**
+     * @private A transition of the connection state made by the engine, traced like the socket
+     * client's own (`WsClient._safeTransition`): an illegal one is swallowed and recorded.
+     * @param {string} estado - One of {@link ConnectionStates}.
+     * @returns {boolean} Whether the state changed.
+     * @private
+     */
+    _transitar(estado) {
+        const de = connectionState.getState();
+        try {
+            connectionState.transition(estado);
+            record(TraceStage.CONN_TRANSITION, { fromState: de, toState: estado, outcome: TraceOutcome.OK });
+            return true;
+        } catch {
+            record(TraceStage.CONN_TRANSITION, { fromState: de, toState: estado, outcome: TraceOutcome.FAILED });
+            return false;
+        }
+    }
+
+    /**
+     * @private Reacts to the connection state on behalf of the mode without real time.
+     *
+     *   - ONLINE: the live channel is back. The pull and the probe stop, and the socket's own
+     *     `sync_request` replays the tail from the version the pull reached (kept in step by
+     *     {@link _avancarVersao}), so nothing between the last pull and the socket is lost.
+     *   - HTTP_ONLY: the person is told, once per session.
+     *   - RECONNECTING coming from ONLINE: a socket that was working dropped. After
+     *     {@link SONDA_APOS_QUEDA_MS} still down, an HTTP pull is tried; if the server answers, the
+     *     socket is asked to retry at once, and if the server answers again the state goes to
+     *     HTTP_ONLY and the pull keeps the atlas current (the same proxy that refuses the upgrade
+     *     may also cut a live socket). See {@link _sondaRespondeu}.
+     *   - OFFLINE: a disconnect; the session is closing anyway.
+     * @param {string} anterior - The previous state.
+     * @param {string} atual - The new state.
+     * @returns {void}
+     * @private
+     */
+    _aoMudarConexao(anterior, atual) {
+        const session = this._session;
+        if (!session || session.signal.aborted) return;
+        if (atual !== ConnectionStates.RECONNECTING) session.sondaRespondeu = false;
+        if (atual === ConnectionStates.ONLINE) {
+            session.pararSemTempoReal();
+            session.falhasDoPoll = 0;
+        } else if (atual === ConnectionStates.HTTP_ONLY) {
+            this._avisarSemTempoReal(session);
+        } else if (atual === ConnectionStates.RECONNECTING && anterior === ConnectionStates.ONLINE) {
+            clearTimeout(session.sondaTimer);
+            session.sondaTimer = setTimeout(() => {
+                session.sondaTimer = null;
+                this._rodarPoll(session, POLL_BASE_MS).catch((erro) => console.warn('[sync] HTTP probe failed:', erro));
+            }, SONDA_APOS_QUEDA_MS);
+            session.sondaTimer?.unref?.();
+        } else if (atual === ConnectionStates.OFFLINE) {
+            session.pararSemTempoReal();
+        }
+    }
+
+    /**
+     * @private Tells the person, once per session, that the atlas has no real time.
+     * @param {import('./sync-session.js').SyncSession} session
+     * @returns {void}
+     * @private
+     */
+    _avisarSemTempoReal(session) {
+        if (session.avisouSemTempoReal) return;
+        session.avisouSemTempoReal = true;
+        try {
+            showWarning(avisoDeSemTempoReal({ visitante: sessionContext.isVisitor() }), { duration: 10000 });
+        } catch {
+            // Headless (tests, worker): no UI to tell.
+        }
+    }
+
+    /**
+     * @private Whether the pull of this session still has work: the session is the live one and
+     * the state is HTTP_ONLY, or RECONNECTING while the pull is the probe that may bring it back.
+     * @param {import('./sync-session.js').SyncSession} session
+     * @returns {boolean}
+     * @private
+     */
+    _emSemTempoReal(session) {
+        if (this._session !== session || session.signal.aborted) return false;
+        const estado = connectionState.getState();
+        return estado === ConnectionStates.HTTP_ONLY || estado === ConnectionStates.RECONNECTING;
+    }
+
+    /**
+     * @private Schedules the next pull of the mode, replacing any one already scheduled.
+     * @param {import('./sync-session.js').SyncSession} session
+     * @param {number} espera - Milliseconds until the pull ({@link proximoIntervaloDoPoll}).
+     * @returns {void}
+     * @private
+     */
+    _agendarPoll(session, espera) {
+        clearTimeout(session.pollTimer);
+        session.pollTimer = setTimeout(() => {
+            session.pollTimer = null;
+            this._rodarPoll(session, espera).catch((erro) => console.warn('[sync] pull without real time failed:', erro));
+        }, espera);
+        session.pollTimer?.unref?.();
+    }
+
+    /**
+     * @private One round of the pull: brings what changed since the last version, re-reads the role
+     * when it is due, and schedules the next round with the backoff of {@link proximoIntervaloDoPoll}.
+     *
+     * A failure is classified by {@link desfechoDaFalhaDoPoll}: the end of the access takes the same
+     * exit as the socket's 4003 (the one that rescues unsent work), an expired public link stops
+     * like the socket's `credentialExpired`, and anything else backs off; after
+     * {@link FALHAS_ATE_RECONECTAR} in a row the state says RECONNECTING, and the pull goes on as the
+     * probe that brings HTTP_ONLY back. A successful round in RECONNECTING is that probe answering
+     * ({@link _sondaRespondeu}).
+     * @param {import('./sync-session.js').SyncSession} session
+     * @param {number} anterior - The interval that led to this round.
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _rodarPoll(session, anterior) {
+        if (!this._emSemTempoReal(session)) return;
+        // A resync in flight brings everything this round would, as a snapshot: applying a tail
+        // concurrently with it would race two writers over the same maps for nothing.
+        if (session.resyncPromise) {
+            this._agendarPoll(session, anterior);
+            return;
+        }
+        let trouxe = false;
+        let falhou = false;
+        try {
+            trouxe = await this._puxarSemTempoReal(session);
+            session.falhasDoPoll = 0;
+            if (connectionState.getState() === ConnectionStates.RECONNECTING) this._sondaRespondeu(session);
+            if (connectionState.isHttpOnly() && !sessionContext.isVisitor()) await this._relerPapel(session);
+        } catch (erro) {
+            if (erro?.name === 'AbortError' || session.signal.aborted) return;
+            const desfecho = desfechoDaFalhaDoPoll(erro?.status ?? erro?.statusCode, {
+                visitante: sessionContext.isVisitor(),
+            });
+            if (desfecho === 'fim-do-acesso') {
+                this._fimDoAcesso(session.atlasId);
+                return;
+            }
+            if (desfecho === 'credencial-vencida') {
+                session.pararSemTempoReal();
+                wsClient.disconnect();
+                this._avisarLinkPublicoVencido();
+                return;
+            }
+            falhou = true;
+            session.falhasDoPoll += 1;
+            if (session.falhasDoPoll >= FALHAS_ATE_RECONECTAR && connectionState.isHttpOnly()) {
+                this._transitar(ConnectionStates.RECONNECTING);
+            }
+        }
+        if (!this._emSemTempoReal(session)) return;
+        this._agendarPoll(session, proximoIntervaloDoPoll({ anterior, trouxeOperacoes: trouxe, falhou }));
+    }
+
+    /**
+     * @private The HTTP answered while the state says RECONNECTING (the probe after a drop, or the
+     * pull that failed and came back). The FIRST answer asks the socket to retry now and waits one
+     * round; the second, if the socket did not come back in between, enters HTTP_ONLY.
+     *
+     * WHY NOT AT ONCE: the socket's backoff may be at 30 s after an outage that took both channels
+     * (a laptop that slept, a network that came back), and the probe can win that race. Entering the
+     * mode then would tell the person "sem tempo real, avise o administrador" about a socket that
+     * nobody tried again, and the notice that cries wolf is the one people learn to ignore.
+     * @param {import('./sync-session.js').SyncSession} session
+     * @returns {void}
+     * @private
+     */
+    _sondaRespondeu(session) {
+        if (!session.sondaRespondeu) {
+            session.sondaRespondeu = true;
+            wsClient.reconectarAgora();
+            return;
+        }
+        this._transitar(ConnectionStates.HTTP_ONLY);
+    }
+
+    /**
+     * @private The pull itself: what the server has after {@link _lastVersion}, applied exactly as
+     * the socket's `sync_response` applies a tail (snapshot, structural marker, or operations in
+     * order, stopping at the first one not applied).
+     *
+     * THIS CLIENT'S OWN OPERATIONS COME BACK TOO, as they do by the socket, and they are marked
+     * `localRepair` by the same test the socket client uses (`_applyInboundOps`): the canonical
+     * result the server accepted, never an edit of somebody else overwriting this person.
+     *
+     * A ROUND THAT FINDS THE SOCKET BACK APPLIES NOTHING: the socket's replay owns the tail from
+     * then on, and two writers of the same tail is the race this avoids.
+     * @param {import('./sync-session.js').SyncSession} session
+     * @returns {Promise<boolean>} Whether the round brought something.
+     * @private
+     */
+    async _puxarSemTempoReal(session) {
+        const result = await apiClient.pullSync(session.atlasId, this._lastVersion, { signal: session.signal });
+        session.assertActive();
+        if (connectionState.isOnline()) return false;
+        if (result?.snapshot) {
+            await applyRemoteSnapshot(result.snapshot, session);
+            session.assertActive();
+            this._haveSnapshot = true;
+            wsClient.setHaveSnapshot(true);
+            this._avancarVersao(result.snapshot.currentVersion ?? result.currentVersion);
+            return true;
+        }
+        const operations = Array.isArray(result?.operations) ? result.operations : [];
+        if (operations.some(isStructuralMarker)) {
+            await this.resync();
+            return true;
+        }
+        if (operations.length > 0) {
+            const proprio = clientIdInstallation(getClientId());
+            const marcadas = operations.map((op) => (proprio && clientIdInstallation(op?.clientId) === proprio
+                ? { ...op, localRepair: true } : op));
+            const aplicou = await applyRemoteOperations(marcadas, {
+                scope: session.scope, signal: session.signal, waitForDeferred: true,
+            });
+            session.assertActive();
+            // The version does not move past an operation that did not land: the next round asks
+            // for it again, which is what the socket does by closing the stream.
+            if (aplicou === false) throw new Error('Alteração remota não aplicada.');
+        }
+        this._avancarVersao(result?.currentVersion);
+        return operations.length > 0;
+    }
+
+    /**
+     * @private Moves the applied version forward (never back), here and in the socket client, whose
+     * `sync_request` must depart from the same place when the live channel comes back.
+     * @param {*} version
+     * @returns {void}
+     * @private
+     */
+    _avancarVersao(version) {
+        if (!Number.isSafeInteger(version) || version <= this._lastVersion) return;
+        this._lastVersion = version;
+        wsClient.setLastVersion(version);
+    }
+
+    /**
+     * @private Re-reads the per-atlas role when it is due (unknown, or every
+     * {@link POLLS_POR_RELEITURA_DO_PAPEL} rounds), and re-cuts the snapshot on a change of level
+     * exactly as the live `sharing_updated` frame does.
+     * @param {import('./sync-session.js').SyncSession} session
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _relerPapel(session) {
+        session.pollsDesdeOPapel += 1;
+        if (session.permissaoHttp && session.pollsDesdeOPapel < POLLS_POR_RELEITURA_DO_PAPEL) return;
+        const antes = session.permissaoHttp;
+        if (!await this._papelPorHttp(session) || session.permissaoHttp === antes) return;
+        if (this._markRecorteLevel(session, session.permissaoHttp)) {
+            this.resync().catch((error) => console.warn('[sync] re-pull after a change of level failed:', error));
+        }
+    }
+
+    /**
+     * @private The atlas is gone for this person (deleted, or the share that reached it revoked),
+     * learned without the socket: the same exit the socket's 4003 takes after the server confirms,
+     * which is the one that rescues unsent work (`_handleRemoteAtlasDeleted`, account.control.js).
+     * The HTTP answer cannot tell a deleted atlas from a revoked share (both are 404 on purpose,
+     * `requireAtlasPermission`), so the notice is the one of the 4003 path.
+     * @param {string} atlasId
+     * @returns {void}
+     * @private
+     */
+    _fimDoAcesso(atlasId) {
+        if (!atlasId || this._atlasId !== atlasId) return;
+        this.disconnect();
+        try {
+            getEventBus().emit(EventTypes.ATLAS_DELETED_REMOTE, { atlasId, motivo: 'sem-acesso' });
+        } catch {
+            // No UI bus (headless).
+        }
+    }
+
+    /**
+     * @private Tells the public-link visitor the link expired in this tab (see
+     * {@link LINK_PUBLICO_VENCIDO}). Not modal and not a reload: the map as it is stays readable.
+     * @returns {void}
+     * @private
+     */
+    _avisarLinkPublicoVencido() {
+        try {
+            showWarning(LINK_PUBLICO_VENCIDO, { duration: 0, closable: true });
+        } catch {
+            // No document (headless).
+        }
     }
 
     /**
@@ -1586,12 +2010,14 @@ class SyncEngine {
 
         // The socket gave up reconnecting because its token expired and nothing can renew it.
         // Not modal and not a reload: the person may still be reading the map as it is.
-        wsClient.on('credentialExpired', () => {
-            try {
-                showWarning(LINK_PUBLICO_VENCIDO, { duration: 0, closable: true });
-            } catch {
-                // No document (headless).
-            }
+        wsClient.on('credentialExpired', () => this._avisarLinkPublicoVencido());
+
+        // THE MODE WITHOUT REAL TIME LISTENS TO THE STATE, not to the socket's events: the socket
+        // client has one handler per event and the engine already holds them, and the state is
+        // what every other consumer reads too, so the pull stops at the same instant the badge
+        // says the live channel is back.
+        connectionState.onStateChanged(({ previousState, currentState }) => {
+            this._aoMudarConexao(previousState, currentState);
         });
 
         this._handlersWired = true;

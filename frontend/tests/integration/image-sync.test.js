@@ -38,6 +38,7 @@ vi.mock('../../src/js/store/sync/connection-state.js', () => ({
     connectionState: { isOnline: () => true, onStateChanged: vi.fn(() => () => {}) },
     ConnectionStates: Object.freeze({
         OFFLINE: 'offline', CONNECTING: 'connecting', ONLINE: 'online', RECONNECTING: 'reconnecting',
+        HTTP_ONLY: 'http-only',
     }),
 }));
 vi.mock('@utils/toast_service.js', () => ({

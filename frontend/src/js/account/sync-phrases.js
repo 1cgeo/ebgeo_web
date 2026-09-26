@@ -13,7 +13,8 @@
  * mais concordância de número, e nada disso pertence a dentro de um construtor de DOM.
  *
  * O TRANSPORTE CONTINUA EXISTINDO, e este módulo NÃO o substitui. O atributo `data-state`
- * do controle segue carregando o vocabulário de conexão (`online`/`connecting`/`offline`),
+ * do controle segue carregando o vocabulário de conexão (`online`/`connecting`/`offline`, e
+ * `sem-tempo-real` desde 2026-09-25),
  * porque ele é contrato com cerca de vinte specs de Playwright que esperam por
  * `data-state="online"` para saber que a sessão conectou. O vocabulário novo entra por um
  * atributo NOVO (`data-work`), somando em vez de renomear: renomear teria deixado a única
@@ -85,6 +86,8 @@ export const SYNC_CONNECTION = Object.freeze({
     CONNECTING: 'connecting',
     ONLINE: 'online',
     RECONNECTING: 'reconnecting',
+    /** O servidor responde, mas a conexão em tempo real não abriu (`sem-tempo-real.js`). */
+    HTTP_ONLY: 'http-only',
 });
 
 /**
@@ -126,6 +129,11 @@ export const SYNC_WORK_STATE = Object.freeze({
     BLOB_PENDING: 'upload-pendente',
     /** Há trabalho na fila e o nível atual da pessoa neste atlas não permite enviá-lo (403). */
     NO_PERMISSION: 'sem-permissao',
+    /**
+     * Nada espera envio e o servidor responde, mas SEM TEMPO REAL: as alterações dos colegas
+     * chegam com alguns segundos de atraso e ninguém aparece como presente (2026-09-25).
+     */
+    NO_REAL_TIME: 'sem-tempo-real',
 });
 
 /**
@@ -406,6 +414,11 @@ export function describeSyncWork({
     }
 
     const online = connection === SYNC_CONNECTION.ONLINE;
+    // SEM TEMPO REAL O ENVIO CONTINUA (ele sempre foi HTTP), então a fila se lê como no ONLINE: o
+    // que muda é só o estado calmo, que precisa dizer a outra metade, a de quem recebe. Um "Tudo
+    // enviado" verde ali seria verdade sobre o trabalho da pessoa e esconderia que o dos colegas
+    // chega atrasado e que ninguém aparece como presente.
+    const semTempoReal = connection === SYNC_CONNECTION.HTTP_ONLY;
     const ligando = connection === SYNC_CONNECTION.CONNECTING
         || connection === SYNC_CONNECTION.RECONNECTING;
 
@@ -417,6 +430,18 @@ export function describeSyncWork({
                 label: 'Tudo enviado',
                 resumo: 'Nada espera envio.',
                 detail: 'Tudo o que você fez neste atlas já foi salvo no servidor.',
+                pending: 0,
+            };
+        }
+        if (semTempoReal) {
+            return {
+                state: SYNC_WORK_STATE.NO_REAL_TIME,
+                tone: SYNC_TONE.BUSY,
+                label: 'Sem tempo real',
+                resumo: 'Tudo salvo; as alterações dos colegas chegam em alguns segundos.',
+                detail: 'A conexão em tempo real não abriu. Tudo o que você fez já foi salvo no '
+                    + 'servidor, e as alterações dos colegas chegam em alguns segundos; quem está no '
+                    + 'atlas e os cursores não aparecem. Se continuar, avise o administrador.',
                 pending: 0,
             };
         }
@@ -440,7 +465,7 @@ export function describeSyncWork({
         };
     }
 
-    if (online) {
+    if (online || semTempoReal) {
         return {
             state: SYNC_WORK_STATE.SENDING,
             tone: SYNC_TONE.BUSY,
