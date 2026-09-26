@@ -3,7 +3,7 @@
 /**
  * @fileoverview COBERTURA das quatro ferramentas de símbolo da barra Militar, num atlas de servidor
  * com dois usuários: Símbolo Militar, Medida de Coordenação, Símbolo de Engenharia e Declinação
- * Magnética. Campanha de cobertura de 2026-09-24 (matriz em `relatorios/cobertura-taticas.md`).
+ * Magnética. Campanha de cobertura de 2026-09-24.
  *
  * UM CASO POR FERRAMENTA, e o mesmo roteiro em todas, pela interface: criar pela barra; o colega
  * ver o RASTER regenerado (comparado por SHA-256 dos pixels, nunca por `hasImage`, que o

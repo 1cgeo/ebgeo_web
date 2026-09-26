@@ -2,7 +2,7 @@
 
 /**
  * @fileoverview COBERTURA da Análise de Visibilidade (viewshed 2D), dois usuários num atlas de
- * servidor, terreno sintético. Campanha de cobertura de 2026-09-24 (`relatorios/cobertura-taticas.md`).
+ * servidor, terreno sintético. Campanha de cobertura de 2026-09-24.
  *
  * Antes dela só a Altura do Observador era editada em spec de navegador (`browser-collab-analise-
  * edicao`), e sem conferir a saída derivada do colega depois da edição. Raio, Abertura, Opacidade,

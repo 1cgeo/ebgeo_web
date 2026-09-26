@@ -2,8 +2,7 @@
 
 /**
  * @fileoverview PEGAR O CORPO DO SÍMBOLO MOVE O SÍMBOLO COM A ROTA INTEIRA, e a partida continua
- * editável pelo ANEL da alça 1. Pedido do dono de 2026-09-24, a partir da campanha de cobertura
- * (`relatorios/cobertura-taticas.md`).
+ * editável pelo ANEL da alça 1. Pedido do dono de 2026-09-24, a partir da campanha de cobertura.
  *
  * ANTES: com a feição selecionada, o editor da rota (`temporal/trajectory-tool/
  * trajectory-edit-control.js`) desenha uma alça por ponto-chave, e a alça da partida (kp 0) fica

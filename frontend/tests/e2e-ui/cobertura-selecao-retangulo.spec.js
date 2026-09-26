@@ -2,7 +2,7 @@
 
 /**
  * @fileoverview COBERTURA de "Selecionar" (retângulo) com uma ação sobre a seleção, num atlas de
- * servidor com o colega. Campanha de cobertura de 2026-09-24 (`relatorios/cobertura-taticas.md`).
+ * servidor com o colega. Campanha de cobertura de 2026-09-24.
  *
  * Antes dela nenhum spec dava os dois cliques de canto; as ações sobre seleção múltipla eram
  * provadas com a seleção feita por `page.evaluate` ou pela árvore. Aqui: três tipos diferentes

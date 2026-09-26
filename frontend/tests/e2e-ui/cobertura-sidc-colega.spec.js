@@ -2,7 +2,7 @@
 
 /**
  * @fileoverview COBERTURA da troca de SIDC do Símbolo Militar pelo campo do modal "Configurar
- * Símbolo", com o colega. Campanha de cobertura de 2026-09-24 (`relatorios/cobertura-taticas.md`).
+ * Símbolo", com o colega. Campanha de cobertura de 2026-09-24.
  *
  * Antes dela o SIDC só mudava por op de store (`browser-collab-feature-mutations`), e nenhum spec
  * conferia que o colega redesenha o raster depois de uma troca feita pela interface. Aqui a

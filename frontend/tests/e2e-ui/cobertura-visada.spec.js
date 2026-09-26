@@ -2,7 +2,7 @@
 
 /**
  * @fileoverview COBERTURA da Linha de Visada, dois usuários num atlas de servidor, terreno
- * sintético. Campanha de cobertura de 2026-09-24 (`relatorios/cobertura-taticas.md`).
+ * sintético. Campanha de cobertura de 2026-09-24.
  *
  * Antes dela só a Altura do Observador e a Largura eram editadas em spec de navegador, e o
  * desfazer só cobria a edição da altura. Altura do Alvo, Pontos de Amostragem, e o desfazer e o

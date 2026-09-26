@@ -15,7 +15,7 @@
  *
  * No fim, F5 nos dois clientes, e as três cópias (A, B e o servidor) têm de ser iguais campo a
  * campo, geometria inclusive. A tabela campo -> propriedades vai para o console e para as anotações
- * do caso, que é o que alimenta a matriz em `relatorios/cobertura-desenho.md`.
+ * do caso.
  *
  * UM CAMPO QUE NÃO GRAVA NADA REPROVA. Mudar só aquele controle e clicar "Salvar" tem de mudar alguma
  * propriedade guardada; quando não muda, a escolha da pessoa se perde calada (ou pega carona na

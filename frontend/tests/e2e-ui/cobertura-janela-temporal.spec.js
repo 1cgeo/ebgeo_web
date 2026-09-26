@@ -2,7 +2,7 @@
 
 /**
  * @fileoverview COBERTURA da janela temporal de uma feição editada pelo PAINEL, com o colega e com
- * F5 nos dois. Campanha de cobertura de 2026-09-24 (`relatorios/cobertura-taticas.md`).
+ * F5 nos dois. Campanha de cobertura de 2026-09-24.
  *
  * Antes dela a janela só era posta pelo painel num atlas local (`browser-temporal-advanced` §29.20,
  * só o Início) e as demais provas de transporte eram por API; nenhum spec temporal recarregava a

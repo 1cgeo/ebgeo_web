@@ -2,7 +2,7 @@
 
 /**
  * @fileoverview COBERTURA das réguas (Medir Distância, Área e Ângulo) e do "Salvar como feição".
- * Campanha de cobertura de 2026-09-24 (matriz em `relatorios/cobertura-taticas.md`).
+ * Campanha de cobertura de 2026-09-24.
  *
  * Antes dela os specs só conferiam que o painel APARECE com algum número (`utilities-measure`) e
  * que o Salvar grava UMA feição num atlas local (`measurement-duplicate-save`,

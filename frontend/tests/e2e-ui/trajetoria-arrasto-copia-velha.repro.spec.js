@@ -2,7 +2,7 @@
 
 /**
  * @fileoverview ARRASTAR uma feição selecionada desde ANTES da edição do colega não devolve o que o
- * colega mudou. Achado da campanha de cobertura de 2026-09-24 (`relatorios/cobertura-taticas.md`).
+ * colega mudou. Achado da campanha de cobertura de 2026-09-24.
  *
  * O arrasto grava a feição INTEIRA, e grava a partir da cópia que a seleção tirou ao selecionar,
  * que a op do par não alcança. Dois caminhos, a mesma causa:

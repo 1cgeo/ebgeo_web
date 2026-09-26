@@ -2,7 +2,7 @@
 
 /**
  * @fileoverview COBERTURA da exportação KMZ dos símbolos táticos, pela porta real (aba Exportar →
- * "Exportar KMZ"). Campanha de cobertura de 2026-09-24 (`relatorios/cobertura-taticas.md`).
+ * "Exportar KMZ"). Campanha de cobertura de 2026-09-24.
  *
  * Antes dela nenhum spec de navegador exportava Símbolo Militar, Medida de Coordenação, Símbolo de
  * Engenharia ou Declinação Magnética para KMZ; só a classificação era provada em vitest

@@ -2,8 +2,7 @@
 
 /**
  * @fileoverview COBERTURA de copiar e colar (Ctrl+C / Ctrl+V pela interface) dos símbolos com raster,
- * num atlas de servidor com o colega. Campanha de cobertura de 2026-09-24
- * (`relatorios/cobertura-taticas.md`).
+ * num atlas de servidor com o colega. Campanha de cobertura de 2026-09-24.
  *
  * Antes dela colar só era provado num atlas local e pela op de store (`colar-registra-imagem-por-
  * feicao`, Medida de Coordenação e Declinação), sem colega. Aqui, para as quatro ferramentas: a

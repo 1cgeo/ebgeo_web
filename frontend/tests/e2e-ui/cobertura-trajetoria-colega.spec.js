@@ -2,7 +2,7 @@
 
 /**
  * @fileoverview COBERTURA da trajetória criada pelo EDITOR de verdade num atlas de servidor, com o
- * colega e com F5 nos dois. Campanha de cobertura de 2026-09-24 (`relatorios/cobertura-taticas.md`).
+ * colega e com F5 nos dois. Campanha de cobertura de 2026-09-24.
  *
  * Antes dela a trajetória só nascia pela interface num atlas local (`browser-temporal-advanced`
  * §29.15), as provas com colega partiam de trajetória semeada por `page.evaluate`, e nenhum spec
