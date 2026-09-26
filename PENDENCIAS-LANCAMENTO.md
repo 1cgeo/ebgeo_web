@@ -135,7 +135,6 @@ O dono respondeu em 2026-09-26 todas as perguntas que estavam aqui, e o registro
 - Foto anexada recusada: o registro sai sozinho quando a foto sai da feição; "Descartar" nas pendências resolve quando a foto continua lá.
 - Um 413 no envio de imagem com a sessão talvez vencida renova a sessão e tenta uma vez mais, no cliente. O limite de 50 MB não abre para pedido não autenticado.
 - Desfazer e refazer seguidos rápido: o pedido seguinte espera o anterior terminar em vez de ser descartado; o duplo disparo de um mesmo gesto (botão e atalho) continua filtrado.
-- O servidor prefere a grafia do cliente quando um slide chega com as duas (camelCase e snake_case), protegendo aba antiga com fila viva na virada do main.
 - Depois de um resgate involuntário, a mesma conta ganha a saída "enviar as pendências a este atlas", além de "Apagar e abrir" e de "Enviar ao servidor". A operação não carrega autor, então o desenho começa por aí.
 - KMZ: gravar a geometria original da linha tracejada no ebgeo_estilo, para a volta recompor a linha (hoje 3 feições voltam como 156).
 - Importação de KML de terceiros: mapear stroke e fill para os campos de estilo do EBGeo.

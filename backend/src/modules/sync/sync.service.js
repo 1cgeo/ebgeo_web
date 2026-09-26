@@ -428,9 +428,16 @@ function deriveFeatureColumns(rawData) {
  * over the WS; the loss only surfaced after a reload rebuilt the briefing from the empty
  * slides table.
  *
- * Server dialect wins wherever both are present, so the 20+ suites that speak snake_case
- * (and any queued op already in that shape) are untouched. Same tolerance the layer insert
- * applies with `data.sort_order ?? data.order`.
+ * THE CLIENT SPELLING WINS WHERE BOTH ARE PRESENT (owner's decision of 2026-09-26). The server
+ * hands a slide back with every column spread next to its camelCase alias, and a client that
+ * stores that echo and edits only the camelCase field sends both, the snake_case one STALE: that
+ * was every client until 2026-09-24, and it is still a tab left open across the switch to main
+ * with its queue alive. The opposite precedence wrote the stale value and acked the edit. A
+ * payload in ONE spelling is untouched either way, so the 20+ suites that speak snake_case and the
+ * current client (`frontend/src/js/store/sync/slide-shape.js`) do not see the difference. The
+ * incoming `_mapName` is dropped for the same reason: it is this function's own hint, and one that
+ * arrives on the wire is an echo that would resurrect the map a cleared `mapId` no longer names.
+ * Held by `tests/integration/slide-grafia-do-cliente-vence.repro.test.js`.
  *
  * Runs for create AND update: `normalizeOperation` falls `changes` back to `data`, so an
  * un-normalized update would silently drop every camelCase-only field. `briefing_id` is
@@ -444,7 +451,7 @@ function normalizeSlidePayload(rawData, envelopeMapId) {
 
   const patch = {};
   const fill = (snake, camel) => {
-    if (rawData[snake] === undefined && rawData[camel] !== undefined) patch[snake] = rawData[camel];
+    if (rawData[camel] !== undefined) patch[snake] = rawData[camel];
   };
 
   fill('map_id', 'mapId');
@@ -519,7 +526,10 @@ function normalizeSlidePayload(rawData, envelopeMapId) {
     if (parent !== undefined) patch.briefing_id = parent;
   }
 
-  return Object.keys(patch).length ? { ...rawData, ...patch } : rawData;
+  if (!Object.keys(patch).length && rawData._mapName === undefined) return rawData;
+  const normalized = { ...rawData, ...patch };
+  if (patch._mapName === undefined) delete normalized._mapName;
+  return normalized;
 }
 
 /**

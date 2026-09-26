@@ -11,11 +11,12 @@
  * edits them, which is exactly why they go stale: the editor changes `baseLayer` and leaves
  * `base_layer` holding the value of the last acknowledgement.
  *
- * AND THE SERVER READS THE STALE ONE. `normalizeSlidePayload` (backend `sync.service.js`) fills a
- * column from its camelCase twin only when the column is absent, so a payload that carries both
- * writes the snake_case value. Until 2026-09-24 every edit of a slide's base layer, timeline
- * switch, instant, map, 3D model or 360 photo made after the first acknowledgement (or after any
- * F5) stayed on the author's screen and never reached the server.
+ * AND THE SERVER USED TO READ THE STALE ONE. Until 2026-09-24 every edit of a slide's base layer,
+ * timeline switch, instant, map, 3D model or 360 photo made after the first acknowledgement (or
+ * after any F5) stayed on the author's screen and never reached the server. The hole is closed on
+ * both sides: this module keeps the client from sending the pair, and since 2026-09-26
+ * `normalizeSlidePayload` (backend `sync.service.js`) prefers the camelCase value when a payload
+ * still carries both, which is what a tab left open on an older build sends.
  */
 
 /** Server columns (and the server's private `_mapName`) that have a client twin in a slide. */

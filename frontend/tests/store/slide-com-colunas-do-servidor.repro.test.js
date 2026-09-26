@@ -6,8 +6,8 @@
  * `mapId`, ...), because both the canonical receipt and the snapshot spread every row column
  * before adding the camelCase aliases. The next edit of that slide logged the whole slide, so the
  * op carried the NEW value under the camelCase key and the STALE value under the snake_case key,
- * and `normalizeSlidePayload` (backend `sync.service.js`) lets the server dialect win whenever
- * both are present. Result: after the first acknowledgement, or after any F5, changing a slide's
+ * and `normalizeSlidePayload` (backend `sync.service.js`) let the server dialect win whenever
+ * both were present (it prefers the client's since 2026-09-26). Result: after the first acknowledgement, or after any F5, changing a slide's
  * base layer, timeline switch, instant, map, 3D model or 360 photo stayed on the author's screen
  * and never reached the server, the colleague or the author's own next F5
  * (`frontend/tests/e2e-ui/briefing-vista-do-slide-cobertura.spec.js`).
