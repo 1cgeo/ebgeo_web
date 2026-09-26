@@ -73,19 +73,19 @@ describe.skipIf(E2E_SKIP)('e2e: image upload + feature reference (§17.14/§17.1
         expect(res.status).toBe(400);
     });
 
-    it('deletes the image (hard-delete) so it is no longer retrievable', async () => {
-        const up = await uploadImage(PNG_1x1, 'image/png', 'tmp.png');
+    it('has no delete route: a DELETE finds nothing and the image stays retrievable (owner, 2026-09-26)', async () => {
+        const up = await uploadImage(PNG_1x1, 'image/png', 'fica.png');
         const imageId = (await up.json()).data.id;
 
         const del = await fetch(`${getBaseUrl()}/api/v1/atlas/${atlasId}/images/${imageId}`, {
             method: 'DELETE',
             headers: { Authorization: `Bearer ${token}` },
         });
-        expect(del.status).toBe(204);
+        expect(del.status).toBe(404);
 
         const get = await fetch(`${getBaseUrl()}/api/v1/atlas/${atlasId}/images/${imageId}`, {
             headers: { Authorization: `Bearer ${token}` },
         });
-        expect(get.status).toBe(404);
+        expect(get.status).toBe(200);
     });
 });

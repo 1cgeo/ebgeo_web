@@ -217,7 +217,6 @@ const CENSO = [
   // ---------------- conteúdo de atlas ----------------------------------------
   { arquivo: 'src/modules/images/images.routes.js', rota: 'POST /', classe: ISENTA, motivo: CONTEUDO_DE_ATLAS },
   { arquivo: 'src/modules/images/images.routes.js', rota: 'POST /bulk', classe: ISENTA, motivo: CONTEUDO_DE_ATLAS },
-  { arquivo: 'src/modules/images/images.routes.js', rota: 'DELETE /:imageId', classe: ISENTA, motivo: CONTEUDO_DE_ATLAS },
   { arquivo: 'src/modules/maps/maps.routes.js', rota: 'POST /:mapId/merge', classe: ISENTA, motivo: CONTEUDO_DE_ATLAS },
   { arquivo: 'src/modules/sync/sync.routes.js', rota: 'POST /', classe: ISENTA, motivo: CONTEUDO_DE_ATLAS },
   {

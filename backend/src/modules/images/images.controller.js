@@ -60,11 +60,6 @@ export const getImage = asyncHandler(async (req, res, next) => {
   });
 });
 
-export const deleteImage = asyncHandler(async (req, res) => {
-  await imagesService.deleteImage(req.atlasId, req.params.imageId);
-  res.status(204).send();
-});
-
 export const listImages = asyncHandler(async (req, res) => {
   const images = await imagesService.listImages(req.atlasId);
   res.json({ data: images });

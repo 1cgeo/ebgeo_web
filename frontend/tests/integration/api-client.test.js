@@ -270,14 +270,10 @@ describe('ApiClient — images (§17.14 photos / §17.19 custom icons)', () => {
         await expect(api.uploadImage('a', blob, 'x.svg')).rejects.toMatchObject({ name: 'ApiError', status: 400 });
     });
 
-    it('imageUrl builds the path; deleteImage hits DELETE', async () => {
-        const fetchImpl = vi.fn(async () => resp(204));
-        const api = makeClient(fetchImpl);
-        api.setTokens({ accessToken: 'tok' });
+    it('imageUrl builds the path; the client has no image delete (the route left on 2026-09-26)', () => {
+        const api = makeClient(vi.fn());
         expect(api.imageUrl('a1', 'img-9')).toBe('http://api.test/api/v1/atlas/a1/images/img-9');
-        await api.deleteImage('a1', 'img-9');
-        expect(fetchImpl.mock.calls[0][0]).toBe('http://api.test/api/v1/atlas/a1/images/img-9');
-        expect(fetchImpl.mock.calls[0][1].method).toBe('DELETE');
+        expect(api.deleteImage).toBeUndefined();
     });
 });
 

@@ -273,7 +273,6 @@ const CENSO_ROTA = [
   json('src/modules/images/images.routes.js', 'POST /'),
   json('src/modules/images/images.routes.js', 'POST /bulk'),
   bytes('src/modules/images/images.routes.js', 'GET /:imageId', 'src/modules/images/images.controller.js'),
-  json('src/modules/images/images.routes.js', 'DELETE /:imageId'),
 
   json('src/modules/maps/maps.routes.js', 'GET /'),
   json('src/modules/maps/maps.routes.js', 'GET /:mapId'),
@@ -473,8 +472,6 @@ const CENSO_EMISSOR = [
 
   { arquivo: 'src/modules/images/images.controller.js', texto: 'res.sendFile(path, {', n: 1,
     classe: E_BYTES, motivo: BYTES_DE_ARQUIVO },
-  { arquivo: 'src/modules/images/images.controller.js', texto: 'res.status(204).send();', n: 1,
-    classe: E_SEM_CORPO, motivo: SEM_CORPO },
 
   { arquivo: 'src/modules/nomes/assets3d.controller.js', texto: 'if (req.headers[\'if-none-match\'] === etag) return res.status(304).end();', n: 1,
     classe: E_SEM_CORPO, motivo: `${SEM_CORPO} Este e o 304 da camada por MODELO, e ele nao abre o arquivo: o ETag vem de (modelo, chave, token de geracao), que o indice em memoria ja tem.` },

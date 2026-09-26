@@ -2997,16 +2997,6 @@ export class ApiClient {
     }
 
     /**
-     * Deletes an uploaded image (hard-delete).
-     * @param {string} atlasId
-     * @param {string} imageId
-     * @returns {Promise<null>}
-     */
-    async deleteImage(atlasId, imageId) {
-        return this._request('DELETE', `/atlas/${atlasId}/images/${imageId}`);
-    }
-
-    /**
      * Fetches an uploaded image as a Blob (auth-gated). Used by the renderer to show
      * an image/icon a collaborator referenced but doesn't have cached locally.
      * @param {string} atlasId

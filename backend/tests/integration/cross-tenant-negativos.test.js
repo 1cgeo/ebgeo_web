@@ -434,12 +434,6 @@ describe('cross-tenant / cross-actor negatives', () => {
       assert.ok(await imageRow(localId), 'the bulk row exists');
     });
 
-    it('manage can delete an image uploaded by the owner', async () => {
-      const victim = await uploadPng(atlasA.id, tokA);
-      await as(tokManage).delete(`/api/v1/atlas/${atlasA.id}/images/${victim}`).expect(204);
-      assert.equal(await imageRow(victim), undefined, 'the row is gone');
-    });
-
     it('comment (Comentarista) cannot upload — 403 and the atlas image count is unchanged', async () => {
       const before = await imageCount(atlasA.id);
       await supertest(app)
@@ -461,24 +455,18 @@ describe('cross-tenant / cross-actor negatives', () => {
       assert.equal(await imageCount(atlasA.id), before);
     });
 
-    it('comment cannot delete — 403 and the image survives', async () => {
-      await as(tokComment).delete(`/api/v1/atlas/${atlasA.id}/images/${imgA2}`).expect(403);
-      assert.ok(await imageRow(imgA2), 'the image survives a refused delete');
-    });
-
     it('comment CAN list and download (comment >= read: the read gate is not an equality)', async () => {
       await as(tokComment).get(`/api/v1/atlas/${atlasA.id}/images`).expect(200);
       await as(tokComment).get(`/api/v1/atlas/${atlasA.id}/images/${imgA2}`).expect(200);
     });
 
-    it('read cannot upload or delete, but can list (the floor of the hierarchy)', async () => {
+    it('read cannot upload, but can list (the floor of the hierarchy)', async () => {
       const before = await imageCount(atlasA.id);
       await supertest(app)
         .post(`/api/v1/atlas/${atlasA.id}/images`)
         .set('Authorization', `Bearer ${tokRead}`)
         .attach('image', pngPath)
         .expect(403);
-      await as(tokRead).delete(`/api/v1/atlas/${atlasA.id}/images/${imgA2}`).expect(403);
       await as(tokRead).get(`/api/v1/atlas/${atlasA.id}/images`).expect(200);
       assert.equal(await imageCount(atlasA.id), before);
       assert.ok(await imageRow(imgA2));
@@ -487,7 +475,6 @@ describe('cross-tenant / cross-actor negatives', () => {
     it('write is still allowed (control: the 403s above are about the TIER, not a broken gate)', async () => {
       const id = await uploadPng(atlasA.id, tokWrite);
       assert.ok(id);
-      await as(tokWrite).delete(`/api/v1/atlas/${atlasA.id}/images/${id}`).expect(204);
     });
 
     it('a public-link visitor cannot write to the atlas it can read', async () => {

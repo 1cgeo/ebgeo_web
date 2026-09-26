@@ -127,7 +127,6 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
 O dono respondeu em 2026-09-26 todas as perguntas que estavam aqui, e o registro está no diário de decisões. Estas viraram trabalho a fazer antes do lançamento, cada uma com repro, conserto e controle negativo; as que ficaram como estão saíram desta lista.
 
 - Figura de slide de briefing por referência, como as fotos (o custo medido está no item 3).
-- Remover a rota DELETE /atlas/:id/images/:imageId, que apaga o arquivo com permissão write, sem trava nem lixeira, e não tem chamador.
 - Enquadramento da seleção (clique na árvore, busca, "Zoom para Seleção"): incluir as alças da seleção e descontar o painel aberto. Hoje a alça de rotação de um texto fica em x = -82 px sob o painel, e os pontos-chave 2 e 3 da rota passam da borda.
 - Desfazer um processamento reverte feições e camada de saída, e o refazer recria os dois com os mesmos ids. Conferir antes como a importação se comporta ao desfazer, para dar a mesma resposta.
 - Duplicar mapa no servidor segura o lock do log do atlas durante a cópia (um envio concorrente espera ou recebe 503).

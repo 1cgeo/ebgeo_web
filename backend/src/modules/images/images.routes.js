@@ -145,6 +145,9 @@ router.get('/', auth, requireAtlasPermission('read'), ctrl.listImages);
 router.post('/', auth, requireAtlasPermission('write'), readAttemptKey, uploadSingleImage, ctrl.uploadImage);
 router.post('/bulk', auth, requireAtlasPermission('write'), validate({ body: schemas.bulkUploadSchema }), ctrl.bulkUploadImages);
 router.get('/:imageId', auth, requireAtlasPermission('read'), ctrl.getImage);
-router.delete('/:imageId', auth, requireAtlasPermission('write'), ctrl.deleteImage);
+// There is NO delete route, on purpose (owner's decision of 2026-09-26): the one that lived here
+// removed the row and the file with `write`, past the map lock and the trash, and no client called
+// it. Images leave the server only through the orphan collection, which is the administrator's
+// (`imagens-orfas.service.js`). Held by `tests/integration/remover-imagem-pela-rota-saiu.repro.test.js`.
 
 export { router as imagesRoutes };

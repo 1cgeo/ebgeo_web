@@ -1,5 +1,6 @@
 // Path: tests/integration/images.test.js
-// Integration tests for the Images API (upload, download, delete)
+// Integration tests for the Images API (upload, download). There is no delete route since
+// 2026-09-26: tests/integration/remover-imagem-pela-rota-saiu.repro.test.js.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -258,8 +259,7 @@ describe('Images API', () => {
     it('cannot reach an image of another atlas via a DIFFERENT atlas URL (cross-atlas IDOR)', async () => {
       // The attacker OWNS atlasB, so requireAtlasPermission passes for B; the image
       // belongs to `atlas` (A). The only tenant binding is `AND atlas_id = $2` in the
-      // query, so addressing A's imageId through B's URL must 404 on GET and DELETE,
-      // and must NOT cross-atlas-delete the image.
+      // query, so addressing A's imageId through B's URL must 404, and must not serve the image.
       const attacker = await createUser(db, { username: 'images_cross_atlas' });
       const atlasB = await createAtlas(db, attacker.id, { name: 'Attacker Atlas' });
       const attackerToken = await loginUser(app, attacker.username, attacker.password);
@@ -269,76 +269,8 @@ describe('Images API', () => {
         .set('Authorization', `Bearer ${attackerToken}`)
         .expect(404);
 
-      await supertest(app)
-        .delete(`/api/v1/atlas/${atlasB.id}/images/${uploadedImageId}`)
-        .set('Authorization', `Bearer ${attackerToken}`)
-        .expect(404);
-
       const { rows } = await db.query('SELECT 1 FROM images WHERE id = $1', [uploadedImageId]);
-      assert.equal(rows.length, 1, 'cross-atlas image must survive the foreign-atlas delete attempt');
-    });
-  });
-
-  describe('DELETE /atlas/:atlasId/images/:imageId — Delete Image', () => {
-    it('owner can delete image', async () => {
-      // Upload an image to delete
-      const uploadRes = await supertest(app)
-        .post(`/api/v1/atlas/${atlas.id}/images`)
-        .set('Authorization', `Bearer ${ownerToken}`)
-        .attach('image', pngProprio(), { filename: 'img.png', contentType: 'image/png' });
-      const imageId = uploadRes.body.data.id;
-
-      await supertest(app)
-        .delete(`/api/v1/atlas/${atlas.id}/images/${imageId}`)
-        .set('Authorization', `Bearer ${ownerToken}`)
-        .expect(204);
-
-      // Verify image is deleted
-      const { rows } = await db.query('SELECT * FROM images WHERE id = $1', [imageId]);
-      assert.equal(rows.length, 0);
-    });
-
-    it('writer can delete image', async () => {
-      // Add writer
-      const writer = await createUser(db, { username: 'images_writer2' });
-      await db.query(
-        `INSERT INTO atlas_shares (atlas_id, user_id, permission, added_by) VALUES ($1, $2, 'write', $3)`,
-        [atlas.id, writer.id, owner.id]
-      );
-      const writerToken = await loginUser(app, writer.username, writer.password);
-
-      // Upload an image
-      const uploadRes = await supertest(app)
-        .post(`/api/v1/atlas/${atlas.id}/images`)
-        .set('Authorization', `Bearer ${writerToken}`)
-        .attach('image', pngProprio(), { filename: 'img.png', contentType: 'image/png' });
-      const imageId = uploadRes.body.data.id;
-
-      await supertest(app)
-        .delete(`/api/v1/atlas/${atlas.id}/images/${imageId}`)
-        .set('Authorization', `Bearer ${writerToken}`)
-        .expect(204);
-    });
-
-    it('reader cannot delete image', async () => {
-      // Upload an image
-      const uploadRes = await supertest(app)
-        .post(`/api/v1/atlas/${atlas.id}/images`)
-        .set('Authorization', `Bearer ${ownerToken}`)
-        .attach('image', pngProprio(), { filename: 'img.png', contentType: 'image/png' });
-      const imageId = uploadRes.body.data.id;
-
-      await supertest(app)
-        .delete(`/api/v1/atlas/${atlas.id}/images/${imageId}`)
-        .set('Authorization', `Bearer ${readerToken}`)
-        .expect(403);
-    });
-
-    it('returns 404 for non-existent image', async () => {
-      await supertest(app)
-        .delete(`/api/v1/atlas/${atlas.id}/images/00000000-0000-0000-0000-000000000000`)
-        .set('Authorization', `Bearer ${ownerToken}`)
-        .expect(404);
+      assert.equal(rows.length, 1, 'the image of atlas A is still there');
     });
   });
 
@@ -391,13 +323,6 @@ describe('Images API', () => {
         .post(`/api/v1/atlas/${publicAtlas.id}/images`)
         .set('Authorization', `Bearer ${publicToken}`)
         .attach('image', pngProprio(), { filename: 'img.png', contentType: 'image/png' })
-        .expect(403);
-    });
-
-    it('public user cannot delete images', async () => {
-      await supertest(app)
-        .delete(`/api/v1/atlas/${publicAtlas.id}/images/${publicImageId}`)
-        .set('Authorization', `Bearer ${publicToken}`)
         .expect(403);
     });
   });

@@ -209,7 +209,7 @@ describe('Images — fronteira exata de MAX_IMAGE_SIZE_MB (item 166)', () => {
       assert.equal(Number(img.size_bytes), MAX_BYTES, 'passou do guarda e persistiu');
 
       // Limpeza: este caminho aponta para o fixture compartilhado, entao a linha
-      // e removida sem apagar o arquivo (deleteImage tolera unlink falho).
+      // e removida sem apagar o arquivo.
       await db.query('DELETE FROM images WHERE id = $1', [img.id]);
     });
 

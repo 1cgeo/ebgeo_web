@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'crypto';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { mkdirSync, writeFileSync, existsSync, rmSync, unlinkSync } from 'fs';
+import { mkdirSync, writeFileSync, existsSync, rmSync } from 'fs';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAdminUser, createAtlas, loginUser, createShare } from '../helpers/fixtures.js';
@@ -146,14 +146,6 @@ describe('Images + Resources — gap coverage', () => {
         .expect(401);
     });
 
-    it('DELETE without token → 401 (image survives)', async () => {
-      const id = await uploadPng();
-      await supertest(app)
-        .delete(`/api/v1/atlas/${atlas.id}/images/${id}`)
-        .expect(401);
-      const { rows } = await db.query('SELECT 1 FROM images WHERE id = $1', [id]);
-      assert.equal(rows.length, 1, 'anonymous delete must not remove the image');
-    });
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -366,42 +358,10 @@ describe('Images + Resources — gap coverage', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // img-09 — DELETE is a hard-delete; double-delete 404; unlink failure → 204
+  // img-09 — image rows follow the atlas (the DELETE route itself left on 2026-09-26:
+  // tests/integration/remover-imagem-pela-rota-saiu.repro.test.js)
   // ─────────────────────────────────────────────────────────────────────────
-  describe('img-09: delete semantics (hard-delete, idempotency, unlink failure)', () => {
-    it('deleting twice → first 204, second 404', async () => {
-      const id = await uploadPng();
-      await supertest(app)
-        .delete(`/api/v1/atlas/${atlas.id}/images/${id}`)
-        .set('Authorization', `Bearer ${ownerToken}`)
-        .expect(204);
-
-      // hard-delete: row is physically gone
-      const { rows } = await db.query('SELECT 1 FROM images WHERE id = $1', [id]);
-      assert.equal(rows.length, 0);
-
-      await supertest(app)
-        .delete(`/api/v1/atlas/${atlas.id}/images/${id}`)
-        .set('Authorization', `Bearer ${ownerToken}`)
-        .expect(404);
-    });
-
-    it('unlink failure is swallowed: DELETE still returns 204 when file already gone', async () => {
-      const id = await uploadPng();
-      // Find the real on-disk path and remove it BEFORE the API delete.
-      const { rows } = await db.query('SELECT storage_path FROM images WHERE id = $1', [id]);
-      const p = rows[0].storage_path;
-      try { if (existsSync(p)) unlinkSync(p); } catch { /* ignore */ }
-
-      await supertest(app)
-        .delete(`/api/v1/atlas/${atlas.id}/images/${id}`)
-        .set('Authorization', `Bearer ${ownerToken}`)
-        .expect(204);
-
-      const { rows: after } = await db.query('SELECT 1 FROM images WHERE id = $1', [id]);
-      assert.equal(after.length, 0, 'row removed despite missing file');
-    });
-
+  describe('img-09: image rows follow the atlas', () => {
     it('deleting the parent atlas cascades image rows (FK ON DELETE CASCADE)', async () => {
       const a2 = await createAtlas(db, owner.id, { name: `Cascade Atlas ${randomUUID().slice(0, 6)}` });
       const up = await supertest(app)

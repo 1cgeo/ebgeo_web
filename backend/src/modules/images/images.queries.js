@@ -56,10 +56,6 @@ export const ADOPT_CONTENT_HASH = `
   RETURNING content_hash
 `;
 
-export const DELETE_IMAGE = `
-  DELETE FROM images WHERE id = $1 AND atlas_id = $2 RETURNING storage_path
-`;
-
 export const LIST_IMAGES_BY_ATLAS = `
   SELECT * FROM images WHERE atlas_id = $1 ORDER BY created_at DESC
 `;

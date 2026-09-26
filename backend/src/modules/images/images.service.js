@@ -170,8 +170,8 @@ export async function uploadImage(atlasId, file, userId, attemptKey = null) {
   // back the existing row of equal hash in the atlas. Two things follow from that which the owner
   // refused. Identical bytes sent under a NEW name came back carrying the OLD name, so the route
   // answered a question the caller did not ask; and two features ended up sharing one row, which
-  // this module's PHYSICAL delete (DELETE_IMAGE) would turn into loss for whichever feature did
-  // not ask for it. The price accepted instead is a duplicate: a keyless re-send of the same bytes
+  // a PHYSICAL delete (the orphan collection's, the only one left) would turn into loss for
+  // whichever feature did not ask for it. The price accepted instead is a duplicate: a keyless re-send of the same bytes
   // writes a second row and a second blob, which costs disk and nothing else.
   if (attemptKey) {
     const { rows: byKey } = await query(Q.FIND_IMAGE_BY_ATTEMPT_KEY, [atlasId, attemptKey]);
@@ -244,22 +244,6 @@ export async function getImageFile(atlasId, imageId) {
     mimeType: image.mime_type,
     filename: image.filename,
   };
-}
-
-export async function deleteImage(atlasId, imageId) {
-  const { rows } = await query(Q.DELETE_IMAGE, [imageId, atlasId]);
-
-  if (rows.length === 0) {
-    throw new NotFoundError('Image');
-  }
-
-  try {
-    await unlink(rows[0].storage_path);
-  } catch (err) {
-    logger.warn({ path: rows[0].storage_path, error: err.message }, 'Failed to delete image file');
-  }
-
-  return true;
 }
 
 export async function listImages(atlasId) {
