@@ -21,7 +21,7 @@
 
 import { collabTest, expect, selectFeatureUI, savePanelUI } from './helpers/collab.fixtures.js';
 import {
-    FERRAMENTAS, desenhar, feicaoNoStore, mudarCampo, chavesMudadas, semEscrituracao,
+    FERRAMENTAS, desenhar, feicaoNoStore, mudarCampo, chavesMudadas, valorEscolhido,
     controlesDesconhecidos, proximoCampo, chaveDoCampo,
 } from './helpers/cobertura-desenho.js';
 
@@ -173,9 +173,10 @@ for (const ferramenta of FERRAMENTAS) {
         for (const [quem, page] of [['A', A], ['B', B]]) {
             await expect.poll(async () => {
                 const f = await feicaoNoStore(page, balde, id);
-                return f ? { properties: semEscrituracao(f.properties), geometry: f.geometry } : null;
+                // O valor escolhido, sem o que o autor deriva do zoom (`helpers/valor-escolhido.js`).
+                return f ? { properties: valorEscolhido(f.properties), geometry: f.geometry } : null;
             }, { timeout: 30000, message: `${quem} diverge do servidor depois do F5` })
-                .toEqual({ properties: semEscrituracao(servidor.properties), geometry: servidor.geometry });
+                .toEqual({ properties: valorEscolhido(servidor.properties), geometry: servidor.geometry });
         }
     });
 }

@@ -308,21 +308,5 @@ export async function controlesDesconhecidos(page, aba = abaEstilo(page)) {
     raizes);
 }
 
-/** Chaves de escrituração que cada cliente carimba por conta própria. */
-export const ESCRITURACAO = Object.freeze(['confirmedVersion', 'version', 'createdAt', 'updatedAt', 'sync']);
-
-/** As propriedades sem a escrituração, para comparar clientes e servidor. */
-export function semEscrituracao(props) {
-    const copia = { ...(props ?? {}) };
-    for (const chave of ESCRITURACAO) delete copia[chave];
-    return copia;
-}
-
-/** As chaves de propriedade cujo valor mudou entre dois retratos. */
-export function chavesMudadas(antes, depois) {
-    const a = semEscrituracao(antes);
-    const d = semEscrituracao(depois);
-    return [...new Set([...Object.keys(a), ...Object.keys(d)])]
-        .filter((k) => JSON.stringify(a[k]) !== JSON.stringify(d[k]))
-        .sort();
-}
+// O que se compara entre autor, par e servidor mora numa folha sem imports, testada em node.
+export { ESCRITURACAO, semEscrituracao, valorEscolhido, chavesMudadas } from './valor-escolhido.js';

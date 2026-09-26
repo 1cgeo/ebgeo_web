@@ -17,6 +17,11 @@
  * campo, geometria inclusive. A tabela campo -> propriedades vai para o console e para as anotações
  * do caso.
  *
+ * O QUE SE COMPARA É O VALOR ESCOLHIDO (`valorEscolhido`, em `helpers/valor-escolhido.js`), nunca as
+ * propriedades que o autor deriva do zoom depois do envio: o servidor guarda a derivação que a op
+ * levou e o autor a recalcula, e as duas diferem na quarta casa decimal numa máquina carregada. O
+ * porquê e a medição estão no cabeçalho daquele arquivo.
+ *
  * UM CAMPO QUE NÃO GRAVA NADA REPROVA. Mudar só aquele controle e clicar "Salvar" tem de mudar alguma
  * propriedade guardada; quando não muda, a escolha da pessoa se perde calada (ou pega carona na
  * gravação seguinte de outro campo, que foi como os dois primeiros casos apareceram: a "Correção de
@@ -30,7 +35,7 @@
 
 import { collabTest, expect, selectFeatureUI, savePanelUI } from './helpers/collab.fixtures.js';
 import {
-    FERRAMENTAS, desenhar, feicaoNoStore, camposDeEstilo, mudarCampo, chavesMudadas, semEscrituracao,
+    FERRAMENTAS, desenhar, feicaoNoStore, camposDeEstilo, mudarCampo, chavesMudadas, valorEscolhido,
     proximoCampo, chaveDoCampo, abaEstilo,
 } from './helpers/cobertura-desenho.js';
 
@@ -110,9 +115,9 @@ for (const ferramenta of FERRAMENTAS) {
         for (const [quem, page] of [['A', A], ['B', B]]) {
             await expect.poll(async () => {
                 const f = await feicaoNoStore(page, ferramenta.balde, id);
-                return f ? { properties: semEscrituracao(f.properties), geometry: f.geometry } : null;
+                return f ? { properties: valorEscolhido(f.properties), geometry: f.geometry } : null;
             }, { timeout: 30000, message: `${quem} diverge do servidor depois do F5` })
-                .toEqual({ properties: semEscrituracao(servidor.properties), geometry: servidor.geometry });
+                .toEqual({ properties: valorEscolhido(servidor.properties), geometry: servidor.geometry });
         }
     });
 }
