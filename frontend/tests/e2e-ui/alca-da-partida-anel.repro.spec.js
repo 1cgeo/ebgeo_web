@@ -66,11 +66,11 @@ async function simboloComRota(page) {
     await page.reload();
     await page.waitForFunction(() => globalThis.__ebgeoMap?.getZoom, null, { timeout: 30000 });
     await selectFeatureUI(page, id);
-    // O CLIQUE NA ÁRVORE ENQUADRA A FEIÇÃO (`frameFeatures`, desde 2026-09-24): um símbolo é
-    // enquadrado pela caixa dele, perto do zoom 17, e ali os pontos-chave 2 e 3 caem fora da tela
-    // (medido: x = 1784 e 2929 num canvas de 1280). A fonte do editor tinha as três alças e só a
-    // da partida estava DESENHADA, que era o "1 em vez de 3" desta espera. A câmera volta ao zoom
-    // 14 depois do enquadramento: a cada volta da espera, câmera em movimento espera, câmera fora
+    // O CLIQUE NA ÁRVORE ENQUADRA A FEIÇÃO (`frameFeatures`, desde 2026-09-24). Até 2026-09-26 o
+    // quadro era só a caixa do símbolo, perto do zoom 17, e os pontos-chave 2 e 3 caíam fora da
+    // tela (medido: x = 1784 e 2929 num canvas de 1280); desde então ele inclui a rota
+    // (`enquadramento-da-selecao.repro.spec.js`). Este caso mede no zoom 14, então a câmera volta a
+    // ele depois do enquadramento: a cada volta da espera, câmera em movimento espera, câmera fora
     // do zoom 14 volta a ele, e só a câmera parada no 14 conta as alças desenhadas.
     await expect.poll(() => page.evaluate((c) => {
         const map = globalThis.__ebgeoMap;

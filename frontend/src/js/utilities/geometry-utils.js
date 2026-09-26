@@ -318,11 +318,12 @@ export function footprintOf(feature) {
 }
 
 /**
- * The bounds that contain every feature's footprint, across the antimeridian: what the
- * context menu's "Zoom para Seleção" frames. By geometry alone, a lone selected symbol was an
+ * The bounds that contain every feature's footprint, and the keypoints of its route when it has
+ * one, across the antimeridian: what the context menu's "Zoom para Seleção" frames. By geometry alone, a lone selected symbol was an
  * extent of zero size, which the camera answered by zooming in until the symbol overflowed
  * the screen, and the symbols at the edge of a wider selection were cut off.
- * Pinned by `tests/unit/zoom-para-selecao-pela-caixa.repro.test.js`.
+ * Pinned by `tests/unit/zoom-para-selecao-pela-caixa.repro.test.js` and, for the route,
+ * `tests/unit/enquadramento-inclui-rota-e-desconta-painel.repro.test.js`.
  * @param {Object[]} features - GeoJSON features
  * @returns {[[number, number], [number, number]]|null} [[west, south], [east, north]], or null
  *   when no feature has a finite position
@@ -331,14 +332,22 @@ export function selectionExtent(features) {
     const lngs = [];
     let minY = Infinity;
     let maxY = -Infinity;
+    const incluir = (x, y) => {
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+        lngs.push(x);
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+    };
     for (const feature of features ?? []) {
         const footprint = footprintOf(feature);
-        if (!footprint) continue;
-        for (const [x, y] of flattenPositions(footprint)) {
-            if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-            lngs.push(x);
-            if (y < minY) minY = y;
-            if (y > maxY) maxY = y;
+        if (footprint) {
+            for (const [x, y] of flattenPositions(footprint)) incluir(x, y);
+        }
+        // THE ROUTE IS DRAWN TOO (owner's decision of 2026-09-26): a selected temporal feature shows
+        // one handle per keypoint, and framing by the footprint alone left keypoints off the screen.
+        const trajetoria = feature?.properties?.trajetoria;
+        if (Array.isArray(trajetoria)) {
+            for (const ponto of trajetoria) incluir(ponto?.lng, ponto?.lat);
         }
     }
     if (lngs.length === 0) return null;

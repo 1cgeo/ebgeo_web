@@ -452,7 +452,9 @@ describe('zoomAndSelectFeature', () => {
         expect(map.fitBounds).toHaveBeenCalledTimes(1);
         const [extent, opcoes] = map.fitBounds.mock.calls[0];
         expect(extent).toEqual([[0, 0], [2, 1]]);
-        expect(opcoes.padding).toBe(80);
+        // Per side since 2026-09-26 (`utilities/selection-frame.js`); with no services on this
+        // page nothing covers the canvas, so the four sides keep the margin they always had.
+        expect(opcoes.padding).toEqual({ top: 80, right: 80, bottom: 80, left: 80 });
     });
 
     it('still deselects and selects when the geometry cannot be flown to', async () => {

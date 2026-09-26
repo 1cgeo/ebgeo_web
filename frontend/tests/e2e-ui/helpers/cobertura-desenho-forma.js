@@ -89,17 +89,14 @@ export async function esperarAlcas(page, fonte, id) {
  * (`CENTRO`, zoom 13), como a pessoa faria afastando o mapa para alcançar as alças.
  *
  * POR QUÊ: desde 2026-09-24 o clique na árvore enquadra a feição como "Zoom para Seleção"
- * (`frameFeatures`), e o quadro deixa alças FORA da vista. Medido com uma sonda no texto: zoom
- * 16,66, o centro do texto no meio do mapa e a alça de rotação em x = -82 px, porque ela fica presa
- * ao chão a meia largura mais 12 px do centro no zoom de criação, e o quadro só tem 80 px de folga
- * (5 de 5 execuções de `forma de text` sem alça achada; a seta e a frente ocupada também perdiam um
- * tipo de alça no quadro, uma execução de cada). Que a alça fique fora da vista depois do
- * enquadramento é pergunta de produto, levada ao dono em 2026-09-25; este instrumento mede se cada
- * alça EDITA.
+ * (`frameFeatures`), perto do zoom 17, e este instrumento mede cada alça na câmera do desenho. Até
+ * 2026-09-26 o quadro também deixava alças FORA da vista (a de rotação do texto em x = -82 px, presa
+ * ao chão a meia largura mais 12 px do centro no zoom de criação); o dono decidiu naquele dia que o
+ * quadro inclui as alças e desconta o painel, e é o que ele faz desde então.
  *
- * O fim do enquadramento é ESTADO: `frameFeatures` pede o quadro na mesma cadeia de microtarefas em
- * que a seleção cria as alças (ou antes, quando elas nascem num `setTimeout`), então alça na fonte
- * com a câmera parada é o quadro já terminado.
+ * O fim do enquadramento é ESTADO: `frameFeatures` pede o quadro no mesmo turno em que a seleção cria
+ * as alças (ele as lê de volta por `serialize()`, que é síncrono), ou antes, quando elas nascem num
+ * `setTimeout`, então alça na fonte com a câmera parada é o quadro já terminado.
  */
 export async function vistaDoDesenho(page, fonte, id) {
     await expect.poll(() => page.evaluate(async ({ src, fid }) => {

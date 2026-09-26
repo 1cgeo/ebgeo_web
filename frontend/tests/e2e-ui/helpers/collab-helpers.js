@@ -798,11 +798,11 @@ export async function openLayersTab(page) {
  * Selects a feature by id through the REAL layers tree → expands the sidebar feature panel.
  *
  * THE TREE CLICK ALSO FRAMES THE FEATURE (`frameFeatures`, since 2026-09-24), close to zoom 17 for
- * a small one, and the frame leaves edit handles outside the viewport or under the open panel: a
- * text's rotation handle at x = -82 px, a route's keypoints 2 and 3 past the right edge. A spec
- * that counts or grabs DRAWN handles after this call must bring the camera back first
- * (`vistaDoDesenho`, helpers/cobertura-desenho-forma.js). Two specs of the 2026-09-24 campaign
- * read the missing handles as a product defect before this note existed.
+ * a small one. Since 2026-09-26 the frame takes the handles the selection drew and a route's
+ * keypoints, and keeps them right of the open panel (`enquadramento-da-selecao.repro.spec.js`);
+ * before that it left a text's rotation handle at x = -82 px and a route's keypoints 2 and 3 past
+ * the right edge. The camera still ends ZOOMED IN, so a spec that measures handles at its own
+ * zoom brings the camera back first (`vistaDoDesenho`, helpers/cobertura-desenho-forma.js).
  */
 export async function selectFeatureUI(page, featureId) {
     await openLayersTab(page);

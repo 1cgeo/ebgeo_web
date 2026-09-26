@@ -5,11 +5,13 @@
  *
  * @module utilities/feature_navigation_utils
  */
-import { getSourceTypeFromStorage } from '@store';
+import { getSourceTypeFromStorage, getStateManager } from '@store';
 import { FEATURE_TYPE_REGISTRY } from '@store/feature-type.registry.js';
 import { maplibregl } from '@js/map/maplibre.js';
 import { fitBounds, ANIMATION_DURATION } from '@js/map/animation.service.js';
 import { selectionExtent } from './geometry-utils.js';
+import { leftCoverOf, selectionFramePadding } from '@utils/selection-frame.js';
+import { isPhoneLayout } from '@utils/tablet-mode.js';
 
 /** Screen padding around a framed selection, the one "Zoom para Seleção" has always used. */
 export const SELECTION_FRAME_PADDING = 80;
@@ -23,6 +25,15 @@ export const SELECTION_FRAME_PADDING = 80;
  *
  * The camera move is not awaited: the selection is what the caller waits for, and a stub map
  * without events turns the animation's wait into a rejection that is swallowed here.
+ *
+ * EVERYTHING THE SELECTION DRAWS lands where the person can see and reach it (owner's decision of
+ * 2026-09-26): the extent takes the route of a temporal feature (`selectionExtent`) and the edit
+ * handles the selection drew, and the left margin adds what covers the canvas
+ * (`selection-frame.js`). The handles are read from the map's `*-edit-handles` sources, which the
+ * selection fills synchronously (`setData`) and `serialize()` gives back synchronously, so the frame
+ * is still requested in the same turn as the selection: a text's rotation handle is fixed on the
+ * ground half its width plus 12 px (at its creation zoom) from its center, and a frame that zooms in
+ * carries it further out of the box than any margin (measured: 96 px left of the box at zoom 15.9).
  * @param {Object[]} features - GeoJSON features to frame
  * @param {Object} mapInstance - MapLibre map instance
  * @returns {boolean} Whether a frame was requested (false when nothing has a finite position)
@@ -30,9 +41,68 @@ export const SELECTION_FRAME_PADDING = 80;
 export function frameFeatures(features, mapInstance) {
     const extent = selectionExtent(features);
     if (!extent || !mapInstance) return false;
-    fitBounds(mapInstance, extent, { duration: ANIMATION_DURATION.FAST, padding: SELECTION_FRAME_PADDING })
+    const alcas = handlesOfSelection(mapInstance, features);
+    const bounds = alcas.length ? selectionExtent([...features, ...alcas]) ?? extent : extent;
+    fitBounds(mapInstance, bounds, { duration: ANIMATION_DURATION.FAST, padding: framePadding(mapInstance) })
         .catch(() => {});
     return true;
+}
+
+/** The suffix every edit-handle source of the tool registry carries (`alcaDeEdicao`). */
+const HANDLE_SOURCE_SUFFIX = '-edit-handles';
+
+/**
+ * The point handles the map's edit-handle sources hold for the given features (a handle without
+ * `featureId` is counted: those sources only ever hold the current selection's). A source that
+ * cannot be read is skipped: the frame then falls back to the footprint, as before.
+ * @param {Object} mapInstance - MapLibre map instance
+ * @param {Object[]} features
+ * @returns {Object[]} Handle features
+ */
+function handlesOfSelection(mapInstance, features) {
+    const fontes = new Set();
+    for (const id of mapInstance.getLayersOrder?.() ?? []) {
+        const fonte = mapInstance.getLayer?.(id)?.source;
+        if (typeof fonte === 'string' && fonte.endsWith(HANDLE_SOURCE_SUFFIX)) fontes.add(fonte);
+    }
+    const ids = new Set(features.map((f) => f?.properties?.id).filter((id) => id != null));
+    const alcas = [];
+    for (const fonte of fontes) {
+        let dados = null;
+        try {
+            dados = mapInstance.getSource?.(fonte)?.serialize?.()?.data;
+        } catch {
+            continue;
+        }
+        for (const alca of dados?.features ?? []) {
+            if (alca?.geometry?.type !== 'Point') continue;
+            const dono = alca.properties?.featureId;
+            if (dono === undefined || ids.has(dono)) alcas.push(alca);
+        }
+    }
+    return alcas;
+}
+
+/**
+ * The per-side margin of a frame on this screen, as it is now.
+ * @param {Object} mapInstance - MapLibre map instance
+ * @returns {{top: number, right: number, bottom: number, left: number}}
+ */
+function framePadding(mapInstance) {
+    const canvas = mapInstance.getContainer?.();
+    let painelAberto = false;
+    try {
+        const estado = getStateManager();
+        painelAberto = Boolean(estado?.getUnsafe?.('sidebar.expanded') || estado?.getUnsafe?.('ui.featurePanelOpen'));
+    } catch {
+        // No services on this page (or in a test): nothing is open.
+    }
+    return selectionFramePadding({
+        margem: SELECTION_FRAME_PADDING,
+        // The phone's layout is another one (`phone/phone-layout.js`), and keeps the plain margin.
+        cobertoAEsquerda: isPhoneLayout() ? 0 : leftCoverOf(canvas, painelAberto),
+        larguraDoCanvas: canvas?.clientWidth,
+    });
 }
 
 /**

@@ -547,7 +547,10 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // fechadas nos dois sentidos. O que sobra aqui é a leitura honesta: o teto de 8030 ficou
         // com 383 kB de folga, e quem remedir a deriva de fundo é que o desce.
         expect(ansioso.arquivos.size).toBeGreaterThanOrEqual(487);
-        expect(ansioso.arquivos.size).toBeLessThanOrEqual(571);
+        // 571 -> 572 on 2026-09-26: `utilities/selection-frame.js`, the per-side margin of a framed
+        // selection and the measure of what covers the canvas (zero imports), eager through
+        // `feature_navigation_utils.js`. Measured by this case's failure on a fresh build.
+        expect(ansioso.arquivos.size).toBeLessThanOrEqual(572);
         const kb = kbDe(ansioso.arquivos);
         expect(kb, `fonte ansiosa em ${kb} kB`).toBeGreaterThanOrEqual(6840);
         // 8030 -> 8060 on 2026-09-25, integrating the mass gestures with one write (hunt/b61-lote):
@@ -565,7 +568,11 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // this case's failure. The growth is `store/sync/recusa-de-foto-sem-citacao.js` and the
         // comments of the files it touches; no new package. 8110 -> 8120 the same day: 8110 kB
         // measured after the last of them (a foreign KML's stroke and fill, `estiloDoKml`).
-        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(8120);
+        // 8120 -> 8130 the same day: 8125 kB measured by this case's failure on a fresh build, after
+        // the undo queue, the output layer riding in the undo entry and the framing of a selection
+        // (`utilities/selection-frame.js` and the handles read back in `feature_navigation_utils.js`);
+        // no new package.
+        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(8130);
     });
 
     it('o grafo COMPLETO (seguindo `import()`) cabe entre o piso e o teto medidos', () => {
@@ -928,7 +935,9 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // of a refused attached photo leave once no entity cites the photo.
         // 814 the same day: `store/foto-recusada.operations.js`, the Descartar of the Pendências panel,
         // which takes a refused photo out of every entity that cites it (reached by the panel's `import()`).
-        expect(completo.arquivos.size).toBeLessThanOrEqual(814);
+        // 815 the same day: `utilities/selection-frame.js`, the framing of a selection that keeps its
+        // handles out from under the open panel.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(815);
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
