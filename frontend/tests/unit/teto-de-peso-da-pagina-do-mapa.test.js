@@ -555,7 +555,12 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // the reading of its day and no longer holds: the lots integrated since then used it up. The
         // growth here is the plural store operations and the Pendências grouping, all in eager
         // files, with no new package.
-        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(8060);
+        // 8060 -> 8100 on 2026-09-25, integrating the atlas without real time (hunt/rede-ws, item 1.4):
+        // 8094 kB measured by this case's failure. The growth is the engine's mode (open without the
+        // socket, the pull, the probe) in `store/sync/sync-engine.js` and its two leaves; no new
+        // package. Headroom kept small on purpose: the ceilings are re-measured and tightened for the
+        // launch (PENDENCIAS, final steps).
+        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(8100);
     });
 
     it('o grafo COMPLETO (seguindo `import()`) cabe entre o piso e o teto medidos', () => {
@@ -911,7 +916,10 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // pending upload written inside the entity's transaction), `store/fotos-para-copia.js` (the
         // photos a local copy or the logout rescue downloads first) and `import_export/apng-to-png.js`
         // (zero imports; an animated PNG goes up flattened).
-        expect(completo.arquivos.size).toBeLessThanOrEqual(810);
+        // 812 on 2026-09-25, integrating the atlas without real time (item 1.4): its two leaves,
+        // `store/sync/sem-tempo-real.js` (the mode's rules, zero imports) and
+        // `store/sync/sem-tempo-real-phrases.js` (the notice and the badge).
+        expect(completo.arquivos.size).toBeLessThanOrEqual(812);
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
@@ -970,7 +978,10 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // 12213 kB measured by this case's failure on a fresh build, the plural operations
         // (`removeFeatures`, `updateFeatures`), their undo and redo runs, the twenty controls' single
         // call and the Pendências grouping. No new module outside those files, no new package.
-        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(12240);
+        // 12240 -> 12280 on 2026-09-25, integrating the atlas without real time (item 1.4): 12277 kB
+        // measured by this case's failure, once the module count above let it reach this line. The
+        // mode in `store/sync/sync-engine.js` and its two leaves; no new package.
+        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(12280);
     });
 
     it('seguir `import()` de fato acrescenta grafo, e é isso que prova a regex dinâmica', () => {
