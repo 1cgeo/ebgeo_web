@@ -139,7 +139,8 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   e `copyMap` ficou para o atlas local. As duas tomam o lock do log do atlas (`lockAtlasLog`)
   antes da primeira leitura, e a duplicação o segura pela cópia inteira desde 2026-09-26: um push
   do atlas espera a cópia (ou recebe 503), e em troca ela copia um retrato estável da origem
-  (`tests/integration/duplicar-mapa-retrato-estavel.repro.test.js`).
+  (`tests/integration/duplicar-mapa-retrato-estavel.repro.test.js`). O clone segura o lock da
+  ORIGEM pelo mesmo motivo (`tests/integration/clonar-atlas-retrato-estavel.repro.test.js`).
 - **A unidade de aplicação de um push tem TRÊS tamanhos, e confundi-los é o defeito F9.** O PUSH
   inteiro é uma transação (`tx`, com o lock por atlas); dentro dele, uma op SEM `batchId` corre num
   savepoint próprio, e as ops que compartilham um `batchId` são UM LOTE LÓGICO que corre num

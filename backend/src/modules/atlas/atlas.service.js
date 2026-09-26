@@ -1075,6 +1075,15 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}, sourcePermis
   let pruner = null;
 
   await withPreparedImageCopies(atlasId, newAtlasId, null, async (t, { imageIdMap, rows: imageRows }) => {
+    // THE LOG LOCK OF THE SOURCE, FIRST, and held for the whole copy (owner's decision of
+    // 2026-09-26), for the reason `duplicateMap` takes it: the copy reads the source in several
+    // statements, and a push to the source landing between two of them tore the clone (a
+    // colleague's new layer left out, its feature re-homed into the first layer). The new atlas
+    // needs no lock: nobody can write into it before this commit. A push to the source waits for
+    // the clone, and past the 5 s `lock_timeout` gets a retryable 503.
+    // `tests/integration/clonar-atlas-retrato-estavel.repro.test.js`.
+    await lockAtlasLog(t, atlasId);
+
     const source = await t.oneOrNone(Q.FIND_ATLAS_BY_ID, [atlasId]);
     if (!source) {
       throw new NotFoundError('Atlas');

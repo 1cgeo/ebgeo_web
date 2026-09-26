@@ -4582,3 +4582,13 @@ instável, e cada uma foi atribuída antes de ser tocada.
 - **Confirmado como está, sem trabalho:** os números do modo sem tempo real, a frase do 404 e o texto do aviso; as configurações, os recursos emprestados e o nome do atlas chegam no modo só na próxima abertura, declarado; as edições feitas depois de uma foto continuam esperando a subida dela (a ordem garante que nada chega antes dos bytes de que depende); os três detalhes do anel da partida da rota; os três comportamentos de visibilidade (a busca acha feição oculta, a oculta conta na linha do tempo, excluir a camada ativa com as outras travadas destrava uma); e o KMZ que volta sem figura nem fotos, porque o .ebgeo é a volta sem perda.
 - **E uma cláusula nova:** apagar imagem órfã é ato só do administrador do sistema, cláusula 9.4 da `CONSTITUICAO.md`.
 - **Status:** aceitas pelo dono em 2026-09-26.
+
+### 2026-09-26: as quatro decisões que a resolução da seção 4 das pendências abriu
+
+- **Contexto:** resolvendo os itens decididos de manhã, três pontos pediram escolha de produto e um pedia licença para escrever em `deploy/`, que roda contra produção. O dono respondeu os quatro no mesmo dia, com as opções e a recomendação de cada um à vista.
+- **Decisões:**
+  - o "Descartar" da linha de uma foto anexa recusada, nas pendências, tira a foto da feição que ainda a cita (uma edição que sincroniza), e o registro sai sozinho em seguida pela regra da citação; a alternativa recusada apagava só a cópia local e deixava a feição citando uma foto que ninguém tem;
+  - o botão "Apagar a cópia antiga da versão anterior" volta na seção "Neste computador" do `atlas.html`, visível só com a migração concluída e a origem intacta; menu da conta e aviso único depois da migração foram as alternativas recusadas;
+  - clonar atlas segura o lock do log da ORIGEM durante a cópia, como a duplicação de mapa: os envios à origem esperam o clone e recebem 503 passados 5 s, e o clone passa a ser um retrato estável;
+  - os sourcemaps saem da pasta servida e são guardados por release no servidor, com licença para escrever em `deploy/`; o agente altera os scripts e verifica sem executar contra produção, e quem roda o deploy é o dono.
+- **Status:** aceitas pelo dono em 2026-09-26.

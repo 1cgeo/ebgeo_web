@@ -18,8 +18,11 @@
 // moving the atlas version backwards. Pinned by
 // `tests/integration/marcador-rest-ordem-de-commit.repro.test.js`.
 //
-// Clone and import are not callers: they write into an atlas that does not exist until their own
-// commit, so nothing else can be inserting into its log.
+// The lock also buys a STABLE READ, which is why the map duplicate and the atlas clone take it before
+// their first read and hold it for the whole copy (owner's decision of 2026-09-26): a push landing
+// between two of the copy's statements tore it. The clone takes it on the SOURCE; the atlas it
+// writes does not exist until its own commit, so nothing else can be inserting into that log, and
+// the import, which reads nothing of another atlas, is not a caller.
 import { ServiceUnavailableError } from '../../utils/errors.js';
 
 // Namespace for the per-atlas advisory lock. The two-argument form of pg_advisory_xact_lock keys
