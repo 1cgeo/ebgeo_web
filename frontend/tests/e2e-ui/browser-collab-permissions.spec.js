@@ -268,6 +268,13 @@ collabTest.describe('Permissions — revogação de compartilhamento', () => {
         const status = await setSharePermission(A, collab.baseUrl, collab.userA, collab.atlasId, collab.userB.id, null);
         expect(status, 'DELETE share succeeded').toBeLessThan(300);
 
+        // B'S PAGE LEAVES THE MAP, and that is the design (2026-09-24, `_handleRemoteAtlasDeleted`
+        // in `account/account.control.js`): the atlas is gone for B, the unsent work (none here) is
+        // rescued, and `atlas.html` says why. Reading the page before the navigation settles
+        // destroyed the evaluation context, which is what this case used to fail on.
+        await B.waitForURL(/atlas\.html\?aviso=sem-acesso/, { timeout: 30000 });
+        await expect(B.locator('body')).toContainText('Seu acesso a este atlas foi removido.', { timeout: 15000 });
+
         expect(await getAtlasStatus(), 'revoked peer is denied').toBeGreaterThanOrEqual(400);
     });
 });

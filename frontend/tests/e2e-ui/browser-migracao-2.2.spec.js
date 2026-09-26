@@ -11,6 +11,7 @@ import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { readState } from './state.js';
 import { buildLegacyEntries, countFixture, LEGACY_STORE_IDS, loadEbgeoFixture } from '../helpers/ebgeo-fixture.js';
+import { ESPERA_VERSAO_ANTIGA_TITULO, ESPERA_VERSAO_ANTIGA_TEXTO } from '../../src/js/ui/migration-recovery-phrases.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -27,6 +28,39 @@ async function startMainLock(page) {
         main.initTabLock();
         URL.revokeObjectURL(url);
     }, source);
+}
+
+/**
+ * Espera a TRAVA DE ABA da versão nova responder ao PING da `main`, antes de abrir a aba antiga.
+ *
+ * O MAPA NA TELA NÃO É A TRAVA NO CANAL. O boot só inicia a trava depois de o mapa ter sido
+ * desenhado (`initTabLock` em `index.js`, atrás de `bootRendered`), e depois de uma migração isso
+ * chegou a 1,2 s além do mapa carregado, medido na nuvem em 2026-09-26 (sem migração, 4 ms). A
+ * `main` só ouve respostas durante a janela de sondagem dela (1,5 s): aberta antes de a trava nova
+ * existir, as duas abas não se viam, e os casos que abrem a `main` logo depois do mapa reprovavam
+ * 3 de 3 nesta máquina. O caso espera o ESTADO (a trava respondendo), nunca um tempo.
+ * @param {import('@playwright/test').Page} page - A aba da versão nova, com o mapa carregado.
+ * @returns {Promise<void>}
+ */
+async function esperarATravaDaAbaNova(page) {
+    const respondeu = await page.evaluate(async () => {
+        const canal = new BroadcastChannel('ebgeo-tab-lock');
+        try {
+            for (let i = 0; i < 60; i++) {
+                const pong = await new Promise((resolve) => {
+                    const ouvir = (e) => { if (e.data?.type === 'PONG') resolve(true); };
+                    canal.addEventListener('message', ouvir);
+                    canal.postMessage({ type: 'PING' });
+                    setTimeout(() => { canal.removeEventListener('message', ouvir); resolve(false); }, 500);
+                });
+                if (pong) return true;
+            }
+            return false;
+        } finally {
+            canal.close();
+        }
+    });
+    expect(respondeu, 'a trava de aba da versão nova não respondeu em 30 s').toBe(true);
 }
 
 async function transitionDisk(page) {
@@ -418,20 +452,28 @@ describeOrSkip('Migração 2.2 para 2.3 em Chromium, com a fixture de produção
         } finally { await ctx.close(); }
     });
 
-    test('main aberta bloqueia a preparação; fechar a antiga permite atualizar', async ({ browser }) => {
+    /**
+     * A JANELA DA VERSÃO ANTIGA ABERTA É ESPERA, NÃO FALHA (commit 06823141, decisão de 2026-09-23
+     * no diário). Antes, a tela era a de recuperação, cujos comandos são baixar os dados ou APAGÁ-LOS,
+     * e fechar a janela velha e recarregar não tinha botão. Agora a tela nomeia a saída, não tem
+     * comando nenhum, e o portão segue SOZINHO quando a aba antiga some: o caso não recarrega a
+     * página, de propósito, porque recarregar era o gesto que a versão de antes exigia.
+     */
+    test('main aberta bloqueia a preparação; fechar a antiga deixa a atualização seguir sozinha', async ({ browser }) => {
         const { ctx, page: old } = await prepareLegacyInstall(browser, '01-completo.ebgeo');
         try {
             await startMainLock(old);
             await expect.poll(() => old.evaluate(() => window.__mainActive())).toBe(true);
             const page = await ctx.newPage();
             await page.goto('/');
-            await expect(page.getByTestId('migration-recovery')).toContainText('versão antiga');
+            const espera = page.getByTestId('migration-recovery');
+            await expect(espera).toContainText(ESPERA_VERSAO_ANTIGA_TITULO);
+            await expect(espera).toContainText(ESPERA_VERSAO_ANTIGA_TEXTO);
             expect((await transitionDisk(page)).transition).toBeNull();
-            // A ÚNICA CAUSA EM QUE A TELA NÃO PRECISA DESTRUIR NADA, e a frase diz isso: fechar a
-            // outra janela é o que resolve, e recarregar é o que retoma.
-            await expect(page.getByTestId('migration-recovery')).toContainText('nada precisa ser apagado');
+            // NENHUM COMANDO: a única saída é fechar a outra janela, e um botão aqui seria uma
+            // terceira forma de perder a espera (o "Continuar" antigo apagava os dados).
+            expect(await espera.getByRole('button').count(), 'a espera oferece um comando').toBe(0);
             await old.close();
-            await page.reload();
             await waitForMap(page);
             expect((await readAfterBoot(page)).originalUnchanged).toBe(true);
         } finally { await ctx.close(); }
@@ -458,6 +500,7 @@ describeOrSkip('Migração 2.2 para 2.3 em Chromium, com a fixture de produção
             await page.goto('/');
             await waitForMap(page);
             const before = await transitionDisk(page);
+            await esperarATravaDaAbaNova(page);
             const old = await ctx.newPage();
             await goToBlankSameOrigin(old);
             await startMainLock(old);
@@ -567,6 +610,7 @@ describeOrSkip('Migração 2.2 para 2.3 em Chromium, com a fixture de produção
                 return store.setMapNotes(mapa, { title: 'Nota da versão nova', description: 'Escrita depois da atualização' });
             }, MAPA_EM_DISPUTA), 'a versão nova gravou as notas do mapa em disputa').toBe(true);
 
+            await esperarATravaDaAbaNova(page);
             const old = await ctx.newPage();
             await goToBlankSameOrigin(old);
             await startMainLock(old);
@@ -763,10 +807,16 @@ describeOrSkip('Migração 2.2 para 2.3 em Chromium, com a fixture de produção
             const doArquivo = [...fixture.images.keys()].sort();
             expect(chaves, 'as cinco imagens do arquivo sobreviveram, uma a uma')
                 .toEqual(expect.arrayContaining(doArquivo));
+            // SUBCONJUNTO, e não igualdade: o cache nasce do DESENHO, e o desenho pode vir antes ou
+            // depois desta leitura. Exigir as chaves da declinação reprovava 2 de 4 rodadas nesta
+            // máquina em 2026-09-26, sempre com a lista das que sobraram VAZIA (o cache ainda não
+            // desenhado), que é um estado legítimo. O que a frase de cima promete é o que se afirma:
+            // nenhuma chave sobra que não seja cache de declinação.
+            const declinacoes = declinationFeatureIds(fixture);
             expect(
-                chaves.filter(k => !doArquivo.includes(k)).sort(),
+                chaves.filter(k => !doArquivo.includes(k) && !declinacoes.includes(k)),
                 'apareceu no banco de imagens uma chave que não é do arquivo nem cache de declinação',
-            ).toEqual(declinationFeatureIds(fixture).sort());
+            ).toEqual([]);
 
             // 4. O CARIMBO SUBIU. Sem isto, "nada se perdeu" seria satisfeito por uma migração
             //    que nunca rodou.

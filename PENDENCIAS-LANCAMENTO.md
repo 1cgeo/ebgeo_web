@@ -113,6 +113,8 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
   - a figura sobe no instante em que entra no editor, antes do autosave; apagada antes de ele gravar, ou num slide cuja gravação é recusada, ela vira uma imagem sem citação no servidor, que a coleta de órfãs recolhe depois da carência;
   - a recusa definitiva dos bytes de uma figura segue a regra da feição de imagem, não a da foto anexa: o registro não entra na contagem de saída da conta.
 
+- A trava de aba da versão nova nasce tarde depois de uma migração: medido na nuvem em 2026-09-26, ela só respondeu ao PING da main 1,2 s depois de o mapa aparecer (sem migração, 4 ms), porque o boot a inicia atrás de bootRendered (index.js). A main só ouve respostas durante a sondagem dela, de 1,5 s, e a aba nova, ao nascer nessa janela, manda um PING que a main ainda não responde: aberta nesse intervalo, nenhuma das duas bloqueia a outra. Os dados ficam isolados (a main grava nos bancos sem sufixo, e a gravação tardia é absorvida ou resgatada), então o efeito é duas abas ativas até um recarregamento. Não corrigido; medir o motivo do atraso de bootRendered depois da migração antes de decidir.
+
 ## 4. Trabalho decidido pelo dono, antes do lançamento
 
 O dono respondeu em 2026-09-26 todas as perguntas que estavam aqui, e o registro está no diário de decisões. Estas viraram trabalho a fazer antes do lançamento, cada uma com repro, conserto e controle negativo; as que ficaram como estão saíram desta lista.
@@ -126,8 +128,6 @@ A primeira leva foi toda feita em 2026-09-26, cada item com repro, conserto, con
 - "Enviar ao servidor" e o .ebgeo passam a levar a trava de cada mapa (hoje locked: false fixo em frontend/src/js/import_export/local-atlas-to-server.js) e as cores de selo (mapBadgeColors).
 - Figura de slide colada de OUTRO atlas: hoje chega citando um id que o atlas não tem e aparece vazia. A figura já resolvida passa a levar os bytes na cópia (o método html() do blot do Quill), e o atlas que a recebe a cria como figura nova. Com spec de colar entre atlas.
 - O conteúdo dos slides sai da op de BRIEFING e do anterior dela, porque o servidor só usa a ordem dos slides dessa op. Mexe no contrato do sync: teste dos dois lados e a suíte da raiz.
-- browser-collab-permissions.spec.js (linha 253), revogação de compartilhamento: falhou 3 de 3 porque a página do colega vai para atlas.html (é o desenho, _handleRemoteAtlasDeleted com o aviso sem-acesso, desde 2026-09-24) e o teste ainda chama clienteNaPagina nela. Esperar a navegação e conferir o aviso.
-- browser-migracao-2.2.spec.js (linha 421): a tela diz "Há uma janela antiga do EBGeo aberta" desde o commit 06823141 (a espera sem comando, decisão de 2026-09-23), e o teste procura "versão antiga". Atualizar a asserção.
 
 ## 5. Passos finais antes do deploy
 
