@@ -112,7 +112,9 @@ export async function runProcessing(options) {
             featuresMap[storageType].push(feature);
         }
 
-        await addFeatures(featuresMap);
+        // The layer rides in the same undo entry as the features (owner's decision of 2026-09-26):
+        // undo takes the output layer with them, and redo brings both back with the same ids.
+        await addFeatures(featuresMap, null, { createdLayer: newLayer });
 
         await _updateMapSources(featuresMap);
 

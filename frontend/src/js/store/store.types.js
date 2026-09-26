@@ -159,7 +159,9 @@
 
 /**
  * @typedef {Object} UndoRedoAction
- * @property {'add'|'update'|'remove'|'addMultiple'|'removeWithProcessed'|'moveBetweenMaps'} type - Action type
+ * @property {'add'|'update'|'remove'|'addMultiple'|'removeWithProcessed'|'updateWithProcessed'|'moveBetweenMaps'|'createLayer'|'batch'} type - Action type
+ * @property {Object} [layer] - The layer record of a `createLayer` entry (the output layer of a
+ *   processing run or an import, which rides in a `batch` before the features it holds)
  * @property {string} [featureType] - Feature type for single-feature operations
  * @property {Feature} [feature] - Feature snapshot for add/remove operations
  * @property {Feature} [oldFeature] - Previous state for update operations

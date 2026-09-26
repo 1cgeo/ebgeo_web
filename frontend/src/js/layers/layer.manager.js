@@ -212,6 +212,31 @@ class LayerManager {
     }
 
     /**
+     * Brings back a layer an undo removed, with its OWN id (redo of a processing run or an import,
+     * owner's decision of 2026-09-26). The server revives a soft-deleted layer on a `create` with
+     * the same id (the upsert sets `deleted_at = NULL`), so the features that come back after it
+     * land in the layer their ids already name. A layer that is still there is left as it is.
+     *
+     * @param {Object} layer - The record the undo entry kept.
+     * @param {string} [mapName]
+     * @returns {Promise<Object|undefined>} The restored layer, or undefined when it already existed.
+     */
+    async restoreLayer(layer, mapName = null) {
+        const targetMap = this._targetMapName(mapName);
+        return this._writeLayers(targetMap, 'createLayer', (layersMap) => {
+            if (!layer?.id || layersMap.has(layer.id)) return null;
+            const now = Date.now();
+            const restored = { ...layer, updatedAt: now, version: (layer.version || 0) + 1 };
+            return {
+                layers: { [restored.id]: restored },
+                operations: [{ type: OperationType.CREATE, id: restored.id, data: restored }],
+                result: restored,
+                effect: () => this._notifyLayersChanged()
+            };
+        });
+    }
+
+    /**
      * Delete a layer.
      * If deleting the last layer, creates a new default layer automatically.
      *

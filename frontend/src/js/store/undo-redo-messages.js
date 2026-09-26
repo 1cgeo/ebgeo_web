@@ -56,12 +56,34 @@ export function describeUndoRedoAction(action, direction) {
             if (action.operations.length === 1) {
                 return describeUndoRedoAction(action.operations[0], direction);
             }
+            // A processing run or an import: the layer it created and the features it put there.
+            const camada = action.operations.find((op) => op?.type === 'createLayer');
+            if (camada) return _describeCreatedLayer(camada.layer, action.operations, suffix);
             return `${action.operations.length} operações ${suffix}s`;
         }
+
+        case 'createLayer':
+            return _describeCreatedLayer(action.layer, [], suffix);
 
         default:
             return direction === 'undo' ? 'Ação desfeita' : 'Ação refeita';
     }
+}
+
+/**
+ * The layer a gesture created, with how many features it held.
+ * @param {Object} layer - The layer record the entry kept
+ * @param {Object[]} operations - The entry's other operations
+ * @param {string} suffix - 'desfeita' or 'refeita'
+ * @returns {string} e.g. 'Criação da camada "Resultado" com 12 feições desfeita'
+ */
+function _describeCreatedLayer(layer, operations, suffix) {
+    const total = operations
+        .filter((op) => op?.type === 'addMultiple')
+        .reduce((sum, op) => sum + Object.values(op.features || {}).reduce((n, arr) => n + arr.length, 0), 0);
+    const nome = layer?.name ? ` "${layer.name}"` : '';
+    const quantas = total === 0 ? '' : ` com ${total} ${total === 1 ? 'feição' : 'feições'}`;
+    return `Criação da camada${nome}${quantas} ${suffix}`;
 }
 
 /**

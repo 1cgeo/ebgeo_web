@@ -87,7 +87,8 @@ import {
     rederiveAnalysisOutput,
     moveFeaturesToLayer as moveFeaturesToLayerBase,
     getFeatureById,
-    featureLockState
+    featureLockState,
+    getLayerFeatures
 } from './feature.operations.js';
 import { featureLockNotice, LOCKED_LAYER_DELETE_NOTICE } from './denial-phrases.js';
 import {
@@ -97,7 +98,8 @@ import {
 } from './map.operations.js';
 import {
     setLayerDependencies,
-    deleteLayerOnly
+    deleteLayerOnly,
+    restoreLayer
 } from './layer.operations.js';
 import { setLayerTransferDependencies } from './layer-transfer.operations.js';
 import { setGroupDependencies } from './group.operations.js';
@@ -918,6 +920,23 @@ export async function deleteLayer(layerId, mapName = null) {
     return await deleteLayerOnly(layerId, mapName);
 }
 
+/**
+ * Undo of the layer a processing run or an import created (owner's decision of 2026-09-26): the
+ * layer leaves only when it is EMPTY once the gesture's own features are gone. Undo is a new
+ * command against the confirmed state, and a feature somebody else put in that layer since is not
+ * the gesture's to take; with one there, the layer stays, holding it.
+ *
+ * Current map only, like every undo entry (the stacks are per map).
+ * @param {string} layerId
+ * @returns {Promise<boolean>} Whether the layer left.
+ */
+async function removeLayerIfEmpty(layerId) {
+    if (!deps.layerManager?.getLayerById?.(layerId)) return false;
+    if ((await getLayerFeatures(layerId)).length > 0) return false;
+    const deletion = await deleteLayer(layerId);
+    return deletion?.success !== false;
+}
+
 // ===== UNDO/REDO SYSTEM =====
 
 /**
@@ -935,7 +954,9 @@ const undoRedoExecutors = {
     removeFeatures,
     addFeatureToMap,
     removeFeatureFromMap,
-    rederiveAnalysisOutput
+    rederiveAnalysisOutput,
+    removeLayerIfEmpty,
+    restoreLayer
 };
 
 /**

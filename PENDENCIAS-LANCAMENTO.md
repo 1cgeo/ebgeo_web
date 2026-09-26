@@ -121,6 +121,7 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
 
 ### 3.1 Achados de 2026-09-26, durante a resolução da seção 4
 
+- O desfazer de um processamento ou de uma importação (desde 2026-09-26 leva a camada de saída junto) tem dois limites declarados: a camada só sai se ficou VAZIA depois de as feições do gesto saírem, então uma feição que um colega pôs nela a segura (e ela fica, com a feição dele); e o refazer recria a camada com o registro guardado no gesto, de modo que um nome trocado depois do processamento volta ao nome original num desfazer seguido de refazer.
 - A metade automática da foto recusada tem um limite declarado: o registro sai quando nenhuma entidade cita a foto, e um desfazer que devolva a foto à feição depois disso deixa a feição citando bytes que o servidor recusou, sem registro e sem pergunta na saída. Os bytes locais ficam (a coleta local de imagem é para depois do lançamento), então a foto continua visível para quem a pôs.
 
 ## 4. Trabalho decidido pelo dono, antes do lançamento
@@ -129,7 +130,6 @@ O dono respondeu em 2026-09-26 todas as perguntas que estavam aqui, e o registro
 
 - Figura de slide de briefing por referência, como as fotos (o custo medido está no item 3).
 - Enquadramento da seleção (clique na árvore, busca, "Zoom para Seleção"): incluir as alças da seleção e descontar o painel aberto. Hoje a alça de rotação de um texto fica em x = -82 px sob o painel, e os pontos-chave 2 e 3 da rota passam da borda.
-- Desfazer um processamento reverte feições e camada de saída, e o refazer recria os dois com os mesmos ids. Conferir antes como a importação se comporta ao desfazer, para dar a mesma resposta.
 - Depois de um resgate involuntário, a mesma conta ganha a saída "enviar as pendências a este atlas", além de "Apagar e abrir" e de "Enviar ao servidor". A operação não carrega autor, então o desenho começa por aí.
 ## 5. Passos finais antes do deploy
 

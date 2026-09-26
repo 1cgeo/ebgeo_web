@@ -1070,10 +1070,16 @@ export async function removeFeatureSilent(type, id, mapName = null) {
  * Adds multiple features at once.
  * @param {Object<string, Array>} featuresMap - Map of type to features array
  * @param {string} [mapName=null] - Target map name
- * @param {Object} [options] - `featureIntent` and the sync options of each operation
+ * @param {Object} [options] - `featureIntent` and the sync options of each operation, plus
+ *   `createdLayer`: the layer the SAME gesture created to hold these features (processing output,
+ *   import). The undo entry then carries the layer too, so undo removes it with the features and
+ *   redo brings both back with the same ids (owner's decision of 2026-09-26). It is recorded here,
+ *   in the entry this write already records, and not through `startBatchUndo`: that collector is
+ *   global, and a processing run is long enough for another gesture to fall into it.
  * @returns {Promise<true|undefined>} True when the batch was stored, undefined when refused
  */
-export async function addFeatures(featuresMap, mapName = null, options = {}) {
+export async function addFeatures(featuresMap, mapName = null, allOptions = {}) {
+    const { createdLayer = null, ...options } = allOptions;
     const targetMap = resolveMap(mapName);
     if (guardWrite(GuardAction.CREATE_FEATURE, 'addFeatures', targetMap).blocked) return;
     if (refuseCreationInLockedLayer(Object.values(featuresMap || {}).flat(), targetMap, 'addFeatures', options)) return;
@@ -1117,7 +1123,12 @@ export async function addFeatures(featuresMap, mapName = null, options = {}) {
             }
 
             if (Object.keys(action.features).length > 0 && shouldRecordUndo(mapName)) {
-                tx.deferSync(() => mapManager.recordAction(action));
+                // The layer goes FIRST: redo runs a batch in order (layer, then the features that
+                // live in it) and undo in reverse (the features, then the layer they leave empty).
+                const entry = createdLayer
+                    ? { type: 'batch', operations: [{ type: 'createLayer', layer: deepClone(createdLayer) }, action] }
+                    : action;
+                tx.deferSync(() => mapManager.recordAction(entry));
             }
 
             // Enqueue a sync op per created feature so a BATCH add (import, processing output, paste)

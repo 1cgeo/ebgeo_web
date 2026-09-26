@@ -104,6 +104,13 @@ async function desfazerUI(page) {
     await page.locator('.toolbar-standalone-btn[data-tool-id="undo"]').click();
 }
 
+async function refazerUI(page) {
+    await page.locator('.toolbar-standalone-btn[data-tool-id="redo"]').click();
+}
+
+const camadaNoServidor = (db, layerId) =>
+    db.raw.oneOrNone('SELECT name FROM layers WHERE id = $1 AND deleted_at IS NULL', [layerId]);
+
 async function recarregar(page) {
     await page.reload();
     await expect(page.locator('[data-testid="sync-status-badge"]')).toHaveAttribute('data-state', 'online', { timeout: 30000 });
@@ -159,7 +166,9 @@ collabTest.describe('Processamentos executados de ponta a ponta', () => {
         expect((await camadas(A)).find((l) => l.id === saida.id)?.name).toBe('Zona teste 750');
     });
 
-    collabTest('Buffer: desfazer tira o resultado do autor, do colega e do servidor', async ({ collab }) => {
+    // DESDE 2026-09-26 (decisão do dono) o desfazer leva a CAMADA de saída junto, e o refazer devolve
+    // as duas com os mesmos ids. Até então este caso só imprimia a camada que sobrava, vazia.
+    collabTest('Buffer: desfazer tira o resultado e a camada do autor, do colega e do servidor; refazer os devolve', async ({ collab }) => {
         collabTest.setTimeout(180000);
         const A = collab.author;
         const B = collab.peers[0];
@@ -177,8 +186,18 @@ collabTest.describe('Processamentos executados de ponta a ponta', () => {
         await expect.poll(async () => (await feicoesDaCamada(A, saida.id)).length, { timeout: 15000 }).toBe(0);
         await expect.poll(async () => (await feicoesNoServidor(collab.db, saida.id)).length, { timeout: 30000 }).toBe(0);
         await expect.poll(async () => (await feicoesDaCamada(B, saida.id)).length, { timeout: 30000 }).toBe(0);
-        const camadaDepois = (await camadas(A)).find((l) => l.id === saida.id);
-        console.log(`CAMADA DE SAIDA DEPOIS DO DESFAZER: ${JSON.stringify(camadaDepois ?? null)}`);
+        await expect.poll(async () => (await camadas(A)).some((l) => l.id === saida.id), {
+            timeout: 15000, message: 'a camada de saida ficou vazia no autor',
+        }).toBe(false);
+        await expect.poll(async () => await camadaNoServidor(collab.db, saida.id), { timeout: 30000 }).toBeNull();
+        await expect.poll(async () => (await camadas(B)).some((l) => l.id === saida.id), { timeout: 30000 }).toBe(false);
+
+        await refazerUI(A);
+        await expect.poll(async () => (await feicoesDaCamada(A, saida.id)).length, { timeout: 15000 }).toBe(2);
+        expect((await camadas(A)).find((l) => l.id === saida.id)?.name, 'a camada volta com o mesmo id e nome').toBe(saida.name);
+        await expect.poll(async () => (await camadaNoServidor(collab.db, saida.id))?.name, { timeout: 30000 }).toBe(saida.name);
+        await expect.poll(async () => (await feicoesNoServidor(collab.db, saida.id)).length, { timeout: 30000 }).toBe(2);
+        await expect.poll(async () => (await feicoesDaCamada(B, saida.id)).length, { timeout: 30000 }).toBe(2);
     });
 
     collabTest('Buffer: "Apenas feicoes selecionadas" processa so a selecionada', async ({ collab }) => {

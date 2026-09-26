@@ -1029,7 +1029,7 @@ class AddImportControl {
             // the single batched write takes the thread.
             await new Promise((resolve) => setTimeout(resolve, 0));
 
-            totalCount = await this.saveAndUpdateMap(featuresByType);
+            totalCount = await this.saveAndUpdateMap(featuresByType, importLayer);
         } finally {
             this._hideProgressIndicator();
         }
@@ -1080,11 +1080,17 @@ class AddImportControl {
     }
 
 
-    async saveAndUpdateMap(featuresByType) {
+    /**
+     * @param {Object<string, Array>} featuresByType
+     * @param {Object} [createdLayer] - The layer this import created for them. It rides in the
+     *   same undo entry, as for a processing run: undo takes it along, redo brings both back.
+     * @returns {Promise<number>}
+     */
+    async saveAndUpdateMap(featuresByType, createdLayer = null) {
         let totalCount = 0;
 
         try {
-            await addFeatures(featuresByType);
+            await addFeatures(featuresByType, null, { createdLayer });
 
             await this.updateMapSources(featuresByType);
 

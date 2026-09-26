@@ -866,6 +866,12 @@ class MapManager {
             case 'batch':
                 await this._executeActionsInOrder([...action.operations].reverse(), 'undo', executeFunction);
                 break;
+            // THE OUTPUT LAYER OF A PROCESSING RUN OR AN IMPORT (owner's decision of 2026-09-26). It
+            // travels in a `batch` BEFORE the features it holds, so undo reaches it last, once they
+            // are gone, and it leaves only if nothing else lives in it (`removeLayerIfEmpty`).
+            case 'createLayer':
+                await executeFunction.removeLayerIfEmpty?.(action.layer.id);
+                break;
         }
     }
 
@@ -910,6 +916,10 @@ class MapManager {
                 break;
             case 'batch':
                 await this._executeActionsInOrder(action.operations, 'redo', executeFunction);
+                break;
+            // Same id, so the features redone after it land in the layer their ids name.
+            case 'createLayer':
+                await executeFunction.restoreLayer?.(action.layer);
                 break;
         }
     }

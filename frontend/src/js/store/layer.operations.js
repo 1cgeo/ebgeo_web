@@ -138,6 +138,29 @@ export async function createLayerForImport(name = 'Importação', mapName = null
     return deps.layerManager.createLayerForImport(name, mapName);
 }
 
+/**
+ * Brings back, with its own id, a layer an undo removed (redo of a processing run or an import).
+ * Same gates as creating one; see `LayerManager.restoreLayer`.
+ *
+ * @param {import('./store.types.js').Layer} layer - The record the undo entry kept
+ * @param {string} [mapName=null] - Map name
+ * @returns {Promise<import('./store.types.js').Layer|null|undefined>} The layer, null when refused,
+ *   undefined when it was still there
+ */
+export async function restoreLayer(layer, mapName = null) {
+    const perm = checkPermission(GuardAction.CREATE_LAYER);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'restoreLayer', reason: perm.reason, required: perm.required });
+        return null;
+    }
+
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot restore layer.');
+        return null;
+    }
+    return deps.layerManager.restoreLayer(layer, mapName);
+}
+
 // ===== UPDATE OPERATIONS =====
 
 /**
