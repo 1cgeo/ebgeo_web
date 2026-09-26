@@ -162,4 +162,22 @@ collabTest.describe('Link e figura no texto rico do slide', () => {
         expect(limpo).toContain('width="300"');
         expect(limpo).toContain('height="200"');
     });
+
+    collabTest('a figura POR REFERÊNCIA sai do sanitize como pixel mais id, nunca com o sentinela vivo', async ({ collab }) => {
+        // Desde 2026-09-26 o slide guarda `https://figura.ebgeo/<id>` (`briefing/figura-de-slide.js`),
+        // e todo ponto de desenho põe a saída do sanitize em `innerHTML`: um sentinela que saísse
+        // dali seria um pedido de rede por figura e por desenho. O DOMPurify roda no navegador, por
+        // isso o caso é daqui e não do vitest em node.
+        const A = collab.author;
+        const id = '11111111-1111-4111-8111-111111111111';
+        const limpo = await A.evaluate(async (figura) => {
+            const { sanitizeQuillHtml } = await import('/src/js/utilities/quill-helpers.js');
+            return sanitizeQuillHtml(`<p><img src="https://figura.ebgeo/${figura}" width="300" onerror="alert(1)"></p>`);
+        }, id);
+        expect(limpo).toContain(`data-figura-id="${id}"`);
+        expect(limpo).toContain('src="data:image/gif;base64,');
+        expect(limpo).toContain('width="300"');
+        expect(limpo).not.toContain('figura.ebgeo');
+        expect(limpo).not.toContain('onerror');
+    });
 });

@@ -13,16 +13,20 @@ import { isTargetMapLocked } from '@store/map.operations.js';
 import {
     sanitizeQuillHtml,
     cleanQuillContent,
-    handleQuillImageUpload
+    handleQuillImageUpload,
+    registrarFiguraNoQuill
 } from '@utils/quill-helpers.js';
+import { resolverFigura, resolverFiguras, embutirFiguras } from '@js/briefing/figura-de-slide.service.js';
+import { htmlParaGuardar } from '@js/briefing/figura-de-slide.js';
 import { showSuccess, showError } from '@utils/index.js';
 import { escapeHtml } from '@utils/html-escape.js';
 
 // Re-export for backward compatibility
 export { sanitizeQuillHtml, cleanQuillContent } from '@utils/quill-helpers.js';
 
-// Alias export for backward compatibility with code that imports sanitizeHtml
-export const sanitizeHtml = sanitizeQuillHtml;
+// Alias for the import paths that STORE what they sanitize (`user_data/user_data_manager.js`):
+// `sanitizeQuillHtml` returns HTML ready to be drawn, and a figure is stored as its sentinel.
+export const sanitizeHtml = (html) => htmlParaGuardar(sanitizeQuillHtml(html));
 
 // ============================================================================
 // WHO MAY EDIT THE NOTES
@@ -121,6 +125,8 @@ export async function createNotesPanelContent({ mapName, readOnly = false }) {
         if (description) {
             // Sanitize HTML before rendering to prevent XSS
             descDisplay.innerHTML = sanitizeQuillHtml(description);
+            // A slide figure pasted into the notes is held by reference, like on the slide.
+            resolverFiguras(descDisplay).catch(() => {});
             return;
         }
         const hint = document.createElement('p');
@@ -144,7 +150,10 @@ export async function createNotesPanelContent({ mapName, readOnly = false }) {
         Baixar
     `;
     downloadBtn.onclick = () => {
-        _downloadNotes(notesData, mapName);
+        _downloadNotes(notesData, mapName).catch((error) => {
+            console.error('Error downloading notes:', error);
+            showError('Não foi possível baixar as notas. Tente de novo.');
+        });
     };
 
     // Button row
@@ -242,6 +251,8 @@ export async function createNotesPanelContent({ mapName, readOnly = false }) {
             import('quill'),
             import('quill/dist/quill.snow.css')
         ]);
+        // A slide figure pasted here keeps its reference (`utilities/quill-helpers.js`).
+        registrarFiguraNoQuill(Quill, resolverFigura);
 
         quillInstance = new Quill(quillEditor, {
             theme: 'snow',
@@ -263,6 +274,7 @@ export async function createNotesPanelContent({ mapName, readOnly = false }) {
         // Set initial content (sanitized for safety)
         if (notesData.description) {
             quillInstance.root.innerHTML = sanitizeQuillHtml(notesData.description);
+            resolverFiguras(quillInstance.root).catch(() => {});
         }
 
         // Setup image handler for compression
@@ -281,6 +293,7 @@ export async function createNotesPanelContent({ mapName, readOnly = false }) {
         // Reset content to current stored data (sanitized for safety)
         if (quillInstance) {
             quillInstance.root.innerHTML = sanitizeQuillHtml(notesData.description || '');
+            resolverFiguras(quillInstance.root).catch(() => {});
         }
 
         titleInput.focus();
@@ -307,6 +320,7 @@ export async function createNotesPanelContent({ mapName, readOnly = false }) {
         titleInput.value = notesData.title;
         if (quillInstance) {
             quillInstance.root.innerHTML = sanitizeQuillHtml(notesData.description || '');
+            resolverFiguras(quillInstance.root).catch(() => {});
         }
         switchToViewMode();
     };
@@ -371,13 +385,15 @@ export async function createNotesPanelContent({ mapName, readOnly = false }) {
  * Downloads notes as an HTML file.
  * @param {Object} notesData - Notes data with title and description
  * @param {string} mapName - Map name for filename
+ * @returns {Promise<void>}
  */
-function _downloadNotes(notesData, mapName) {
+async function _downloadNotes(notesData, mapName) {
     // The file is a render point like the panel: notes come from colleagues and from `.ebgeo`
     // files, and the person opens this one in the browser
     // (tests/e2e-ui/cobertura-exportar-notas.spec.js).
     const title = escapeHtml(notesData.title || 'Sem título');
-    const description = sanitizeQuillHtml(notesData.description || '');
+    // The file has no store to resolve a figure from: its bytes go inline.
+    const description = await embutirFiguras(sanitizeQuillHtml(notesData.description || ''));
 
     const html = `<!DOCTYPE html>
 <html lang="pt-BR">

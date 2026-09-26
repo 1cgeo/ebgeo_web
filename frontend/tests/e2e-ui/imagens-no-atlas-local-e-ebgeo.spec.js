@@ -5,8 +5,9 @@
  * volta completa do `.ebgeo` com os MESMOS bytes.
  *
  * A feição de imagem (blob no banco de imagens), a foto anexa (dentro da feição) e a figura colada
- * num slide de briefing (dentro do HTML do slide) moram em três lugares diferentes, e o `.ebgeo`
- * as leva por três caminhos diferentes. O ciclo do `.ebgeo` pelo disco
+ * num slide de briefing moram em lugares diferentes, e o `.ebgeo` as leva por caminhos diferentes.
+ * A figura do slide, desde 2026-09-26, é um blob no banco de imagens CITADO pelo HTML do slide
+ * (`https://figura.ebgeo/<id>`, `briefing/figura-de-slide.js`), e o arquivo a leva em `images/`. O ciclo do `.ebgeo` pelo disco
  * (`ebgeo-round-trip-arquivo.spec.js`) conta imagens com `hasImage` e conta slides; nenhum teste
  * comparava os BYTES das três depois de exportar e reimportar pela tela.
  *
@@ -65,11 +66,12 @@ function impressoes(page, { nomeFigura, nomePonto }) {
         const briefings = await store.getAllBriefings();
         const lista = briefings instanceof Map ? [...briefings.values()] : (briefings ?? []);
         const html = lista[0]?.slides?.[0]?.content ?? '';
-        const src = (html.match(/<img\b[^>]*\bsrc="([^"]+)"/) || [])[1] ?? null;
+        const idDoSlide = (html.match(/https:\/\/figura\.ebgeo\/([A-Za-z0-9-]{8,64})/) || [])[1] ?? null;
+        const blobDoSlide = idDoSlide ? await store.getImage(idDoSlide) : null;
         return {
             figura: blobFigura ? await hex(blobFigura) : null,
             foto: blobFoto ? await hex(blobFoto) : null,
-            slide: src ? await hex(await (await fetch(src)).blob()) : null,
+            slide: blobDoSlide ? await hex(blobDoSlide) : null,
         };
     }, { nf: nomeFigura, np: nomePonto });
 }
@@ -154,12 +156,14 @@ describeOrSkip('As três formas de imagem num atlas local: F5 e .ebgeo', () => {
             noArquivo[entrada.name] = sha(await entrada.async('nodebuffer'));
         }
         const htmlNoArquivo = JSON.stringify(data.briefings ?? []);
-        const srcNoArquivo = (htmlNoArquivo.match(/src=\\"(data:image\/[^\\"]+)\\"/) || [])[1] ?? null;
+        const idNoArquivo = (htmlNoArquivo.match(/https:\/\/figura\.ebgeo\/([A-Za-z0-9-]{8,64})/) || [])[1] ?? null;
         console.log(`[ebgeo] imagens: ${JSON.stringify(noArquivo)}`);
         expect(Object.values(noArquivo), 'o arquivo não leva os bytes da figura').toContain(antes.figura);
-        expect(srcNoArquivo, 'o arquivo não leva a figura do slide').not.toBeNull();
-        const b64 = srcNoArquivo.split(',')[1];
-        expect(sha(globalThis.Buffer.from(b64, 'base64')), 'a figura do slide mudou dentro do arquivo').toBe(antes.slide);
+        expect(idNoArquivo, 'o slide do arquivo não cita a figura').not.toBeNull();
+        expect(htmlNoArquivo, 'o slide do arquivo leva bytes de figura no HTML').not.toMatch(/data:image|blob:/);
+        const entradaDoSlide = Object.keys(noArquivo).find((nome) => nome.startsWith(`images/${idNoArquivo}.`));
+        expect(entradaDoSlide, 'o arquivo não leva os bytes da figura do slide').toBeTruthy();
+        expect(noArquivo[entradaDoSlide], 'a figura do slide mudou dentro do arquivo').toBe(antes.slide);
 
         // REABRIR pela tela de atlas: um atlas local NOVO.
         await page.goto('/atlas.html');

@@ -125,6 +125,36 @@ describe('additive preparation', () => {
         expect(foto.id).not.toBe('fphoto');
         expect([...new Uint8Array(await (await get(destination, 'IMAGES', foto.id)).arrayBuffer())]).toEqual([9, 9]);
     });
+    it('a FIGURA DE SLIDE por referência ganha id novo, e o HTML do slide e das notas o segue', async () => {
+        const figura = '11111111-1111-4111-8111-111111111111';
+        const html = `<p>x</p><img src="https://figura.ebgeo/${figura}" width="9">`;
+        const data = input();
+        data.briefings[0].slides[0].content = html;
+        data.mapNotes.A.description = html;
+        const zip = new JSZip();
+        zip.file('images/photo.png', new Uint8Array([1, 2, 3]));
+        zip.file('images/icon.png', new Uint8Array([4, 5]));
+        zip.file(`images/${figura}.jpg`, new Uint8Array([9, 9]));
+        const result = await prepare(source, destination, { id: 'atlas', name: 'Original' }, data, zip,
+            layers => ({ processed: layers, unavailableCount: 0 }));
+        expect(result.missingOriginalImages).toBe(0);
+        const briefing = (await values(destination, 'BRIEFINGS')).find(b => b.slides?.length);
+        const novo = briefing.slides[0].content.match(/figura\.ebgeo\/([0-9a-f-]{36})/)[1];
+        expect(novo).not.toBe(figura);
+        expect(briefing.slides[0].content).toContain('width="9"');
+        expect([...new Uint8Array(await (await get(destination, 'IMAGES', novo)).arrayBuffer())]).toEqual([9, 9]);
+        const importado = (await values(destination, 'MAPS')).find(map => map.name === 'A_1');
+        const notas = await get(destination, 'SETTINGS', `map_notes_${importado.id}`);
+        expect(notas?.description ?? '').toContain(`figura.ebgeo/${novo}`);
+    });
+
+    it('a FIGURA DE SLIDE que o arquivo não traz é contada como ausente', async () => {
+        const data = input();
+        data.briefings[0].slides[0].content = '<img src="https://figura.ebgeo/11111111-1111-4111-8111-111111111111">';
+        const result = await run(data);
+        expect(result.missingOriginalImages).toBe(1);
+    });
+
     it('a foto de FEIÇÃO por referência que o arquivo não traz é contada como ausente', async () => {
         const data = input();
         data.maps.A.features.points[0].properties.images = [{ id: 'fphoto', name: 'nova.jpg' }];

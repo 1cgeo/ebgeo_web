@@ -1,5 +1,7 @@
 // Path: src/modules/atlas/import-image-refs.js
 
+import { idsDeFigurasNoHtml } from '../../utils/figura-de-slide.js';
+
 /**
  * The image id an attached photo makes the import require, or null.
  *
@@ -59,5 +61,11 @@ export function importImageIds(payload) {
   }
   const icons = payload.atlas?.settings?.customIcons;
   if (Array.isArray(icons)) for (const icon of icons) if (icon?.id) ids.add(icon.id);
+  // THE SLIDE FIGURES HELD BY REFERENCE (owner's decision of 2026-09-26, `utils/figura-de-slide.js`):
+  // a slide's HTML, and the notes of a map where one was pasted, cite a blob like a photo does.
+  for (const map of payload.maps || []) for (const id of idsDeFigurasNoHtml(map.notes_description)) ids.add(id);
+  for (const briefing of payload.briefings || []) {
+    for (const slide of briefing?.slides || []) for (const id of idsDeFigurasNoHtml(slide?.content)) ids.add(id);
+  }
   return ids;
 }

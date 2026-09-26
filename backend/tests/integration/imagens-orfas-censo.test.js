@@ -33,6 +33,7 @@ import {
 import { coletarImagensCitadas } from '../../src/modules/images/imagens-orfas.service.js';
 import { importImageIds } from '../../src/modules/atlas/import-image-refs.js';
 import { idsDeFotosPorReferencia } from '../../../frontend/src/js/user_data/photo-refs.js';
+import { idsDeFigurasDoDocumento } from '../../../frontend/src/js/briefing/figura-de-slide.js';
 
 const GATILHO = 'trg_zerar_marca_de_imagem_citada';
 
@@ -181,6 +182,31 @@ describe('censo das fontes de referência de imagem', () => {
 
       const vistas = await citadas();
       assert.deepEqual(esperadas.filter((id) => !vistas.has(id)), []);
+    });
+
+    it('a figura de slide por referência (o import do servidor e o export do cliente)', async () => {
+      const [doSlide, dasNotas] = await Promise.all(Array.from({ length: 2 }, () => imagem()));
+      const html = (id) => `<p>x</p><img src="https://figura.ebgeo/${id}">`;
+      const doCliente = idsDeFigurasDoDocumento({
+        briefings: [{ slides: [{ content: html(doSlide) }] }],
+        mapNotes: { M: { title: 'Notas', description: html(dasNotas) } },
+      });
+      const doServidor = importImageIds({
+        maps: [{ features: [], notes_description: html(dasNotas) }],
+        briefings: [{ slides: [{ content: html(doSlide) }] }],
+      });
+      // ABSOLUTE: both forms, on both sides, so a collector that learned less cannot make this vacuous.
+      assert.deepEqual([...doCliente].sort(), [doSlide, dasNotas].sort());
+      assert.deepEqual([...doServidor].sort(), [doSlide, dasNotas].sort());
+
+      const { rows: [briefing] } = await db.query(
+        `INSERT INTO briefings (atlas_id, name) VALUES ($1, 'Censo') RETURNING id`, [atlas.id]);
+      await db.query(`INSERT INTO slides (briefing_id, title, content, mode) VALUES ($1, 'S', $2, '2d')`,
+        [briefing.id, html(doSlide)]);
+      await db.query('UPDATE maps SET notes_description = $2 WHERE id = $1', [mapa.id, html(dasNotas)]);
+
+      const vistas = await citadas();
+      assert.deepEqual(doCliente.filter((id) => !vistas.has(id)), []);
     });
   });
 });

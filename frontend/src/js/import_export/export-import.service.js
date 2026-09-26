@@ -65,6 +65,7 @@ import { registrarUso } from '@js/session/uso-lote.js';
 import { EventoDeUso } from '@js/session/eventos-de-uso.js';
 import { serverMessageOr } from '@utils/request-failure.js';
 import { idsDeFotosPorReferencia } from '@js/user_data/photo-refs.js';
+import { idsDeFigurasDoDocumento } from '@js/briefing/figura-de-slide.js';
 
 /**
  * Extensao do arquivo no zip -> MIME, a TABELA INVERSA de `getBlobExtension`.
@@ -442,6 +443,8 @@ export class ExportImportService {
         // their bytes are not in the document, so they travel in `images/` like an image feature's.
         // An inline photo travels inside the document and needs nothing here.
         for (const id of idsDeFotosPorReferencia(data)) usedImages.add(id);
+        // THE SLIDE FIGURES HELD BY REFERENCE (`briefing/figura-de-slide.js`), the same way.
+        for (const id of idsDeFigurasDoDocumento(data)) usedImages.add(id);
         return usedImages;
     }
 

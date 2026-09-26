@@ -23,21 +23,26 @@ import { apiClient } from './sync/api-client.js';
 import { captureRemoteWriteFence } from './remote-write-fence.js';
 import { fenceStore } from './fenced-store.js';
 import { fotosPorReferencia } from '@js/user_data/photo-refs.js';
+import { idsDeFigurasDoDocumento } from '@js/briefing/figura-de-slide.js';
+
+/** Prefix of the key under which a map's notes live in the SETTINGS store (`local.repository.js`). */
+const PREFIXO_DAS_NOTAS = 'map_notes_';
 
 /** How long the whole download may take before the rest is declared missing, in ms. */
 export const PRAZO_PADRAO_MS = 20000;
 
 /**
- * The atlas document of a scope, in the shape `fotosPorReferencia` walks: maps by key, and the 3D and
- * 360 documents by key.
+ * The atlas document of a scope, in the shape `fotosPorReferencia` and `idsDeFigurasDoDocumento`
+ * walk: maps by key, the 3D and 360 documents by key, the briefings, and the notes of each map (a
+ * slide figure can be pasted there).
  * @param {Object} scope
- * @returns {Promise<{maps: Object, cesium3d: Object, streetview360: Object}>}
+ * @returns {Promise<{maps: Object, cesium3d: Object, streetview360: Object, briefings: Object, mapNotes: Object}>}
  */
 async function documentoDoEscopo(scope) {
-    const ler = async (storeName) => {
+    const ler = async (storeName, filtro = () => true) => {
         const saida = {};
         await getStoreFor(storeName, scope).iterate((valor, chave) => {
-            if (valor && typeof valor === 'object') saida[chave] = valor;
+            if (valor && typeof valor === 'object' && filtro(chave)) saida[chave] = valor;
         });
         return saida;
     };
@@ -45,6 +50,8 @@ async function documentoDoEscopo(scope) {
         maps: await ler(StoreName.MAPS),
         cesium3d: await ler(StoreName.CESIUM3D),
         streetview360: await ler(StoreName.STREETVIEW360),
+        briefings: await ler(StoreName.BRIEFINGS),
+        mapNotes: await ler(StoreName.SETTINGS, (chave) => String(chave).startsWith(PREFIXO_DAS_NOTAS)),
     };
 }
 
@@ -68,7 +75,13 @@ export async function baixarFotosQueFaltam(scope, atlasId, { prazoMs = PRAZO_PAD
     let fotos = [];
     let imagens;
     try {
-        fotos = fotosPorReferencia(await documentoDoEscopo(scope));
+        const documento = await documentoDoEscopo(scope);
+        // The slide figures held by reference are fetched the same way, and named as nothing more
+        // than a figure when one does not come.
+        fotos = fotosPorReferencia(documento);
+        for (const id of idsDeFigurasDoDocumento(documento)) {
+            if (!fotos.some((foto) => foto.id === id)) fotos.push({ id, nome: null });
+        }
         // Fenced like every write into a server atlas's databases: a discard of this namespace
         // (a confirmed logout) refuses the write instead of resurrecting server data after it.
         imagens = fenceStore(getStoreFor(StoreName.IMAGES, scope), captureRemoteWriteFence(scope));

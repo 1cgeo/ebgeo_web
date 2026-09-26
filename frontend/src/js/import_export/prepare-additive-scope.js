@@ -3,6 +3,7 @@ import { copyAtlasDatabases, getStoreFor, StoreName } from '@store/atlas-namespa
 import { generateUUID, isValidId } from '@utils/uuid.js';
 import { prepareEbgeoScope } from './prepare-ebgeo-scope.js';
 import { idsDeFotosPorReferencia } from '@js/user_data/photo-refs.js';
+import { idsDeFigurasDoDocumento, reescreverFigurasNoHtml } from '@js/briefing/figura-de-slide.js';
 
 const SECTIONS = ['groups', 'layers', 'cesium3d', 'streetview360', 'comments', 'colorUsage', 'mapNotes', 'gridStyle', 'temporal'];
 const REFERENCES = new Set(['id', 'parentId', 'layerId', 'groupId', 'featureId', 'mapId', 'briefingId', 'slideId']);
@@ -45,7 +46,9 @@ export async function prepareAdditiveScope(source, destination, entry, input, zi
         if (OPAQUE.has(key)) return structuredClone(value);
         if (typeof value === 'string') {
             if (key === 'markerSymbol' && value.startsWith('custom:')) return `custom:${ids.get(value.slice(7)) || value.slice(7)}`;
-            return REFERENCES.has(key) || key === 'images' ? ids.get(value) || value : value;
+            // A slide figure is cited INSIDE rich text (`briefing/figura-de-slide.js`): its id
+            // follows the image's new one like any other reference.
+            return REFERENCES.has(key) || key === 'images' ? ids.get(value) || value : reescreverFigurasNoHtml(value, ids);
         }
         if (Array.isArray(value)) return value.map(child => rewrite(child, key));
         if (!value || typeof value !== 'object') return value;
@@ -59,6 +62,7 @@ export async function prepareAdditiveScope(source, destination, entry, input, zi
     // this replaced counted every 3D/360 photo, so an old inline one warned about a picture that
     // came inside the file, and it never looked at a FEATURE's photos, so a missing one went unsaid.
     for (const id of idsDeFotosPorReferencia(input)) required.add(id);
+    for (const id of idsDeFigurasDoDocumento(input)) required.add(id);
     for (const map of Object.values(input.maps)) {
         for (const feature of map.features?.images || []) {
             required.add(feature.properties?.id);
@@ -73,6 +77,11 @@ export async function prepareAdditiveScope(source, destination, entry, input, zi
     // they cannot silently display unrelated bytes from the original atlas.
     for (const id of required) if (id && !ids.has(id)) ids.set(id, generateUUID());
     const data = rewrite(input);
+    // `mapNotes` is opaque to the walk (user text), but a slide figure pasted into the notes is a
+    // reference to a re-minted image all the same.
+    for (const notas of Object.values(data.mapNotes || {})) {
+        if (notas && typeof notas === 'object') notas.description = reescreverFigurasNoHtml(notas.description, ids);
+    }
     const mapNames = new Map(Object.keys(input.maps).map(name => [name, unique(name, names)]));
     for (const section of ['maps', ...SECTIONS]) {
         if (!data[section]) continue;

@@ -333,7 +333,11 @@ const ORCAMENTO = Object.freeze({
     // um slide mostra ao ser apresentado, lida pelo editor, pelo apresentador e pelo envio ao servidor.
     // 12 em 2026-09-21: `briefing/slide-temporal.js`, folha de zero imports com a regra de captura do
     // instante do slide nos três modos, lida por `screen-view.js` e pelo serviço de transição.
-    briefing: 12,
+    // 14 em 2026-09-26, a figura de slide por referência (decisão do dono daquela data):
+    // `briefing/figura-de-slide.js` (folha de zero imports com o sentinela, ansiosa por
+    // `user_data/photo-refs.js`, que diz o que uma op cita) e `briefing/figura-de-slide.service.js`
+    // (guardar e resolver os bytes, ansioso pelo painel de notas, onde uma figura pode ser colada).
+    briefing: 14,
     measurement_tool: 3,
     analysis_tools: 0,
     '3d_models_viewer_tool': 5,
@@ -554,7 +558,9 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // `feature_navigation_utils.js`. Measured by this case's failure on a fresh build.
         // 572 -> 574 the same day: the "enviar as pendências" exit of a rescue, `account/resgate-saida.js`
         // and `store/sync/autor-da-fila.js`, both zero imports.
-        expect(ansioso.arquivos.size).toBeLessThanOrEqual(574);
+        // 574 -> 576 the same day: the slide figure held by reference, `briefing/figura-de-slide.js`
+        // (zero imports) and `briefing/figura-de-slide.service.js`, eager through the notes panel.
+        expect(ansioso.arquivos.size).toBeLessThanOrEqual(576);
         const kb = kbDe(ansioso.arquivos);
         expect(kb, `fonte ansiosa em ${kb} kB`).toBeGreaterThanOrEqual(6840);
         // 8030 -> 8060 on 2026-09-25, integrating the mass gestures with one write (hunt/b61-lote):
@@ -578,7 +584,10 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // no new package. 8130 -> 8145 the same day: 8138 kB measured by this case's failure, after
         // the "enviar as pendências" exit of a rescue (`account/resgate-saida.js`,
         // `store/sync/autor-da-fila.js` and the mark of the first edit in `store/local-atlas.api.js`).
-        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(8145);
+        // 8145 -> 8170 the same day: 8162 kB measured by this case's failure on a fresh build, after
+        // the slide figure held by reference (`briefing/figura-de-slide.js`, its service, and the
+        // Quill format in `utilities/quill-helpers.js`); no new package.
+        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(8170);
     });
 
     it('o grafo COMPLETO (seguindo `import()`) cabe entre o piso e o teto medidos', () => {
@@ -944,7 +953,8 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // 815 the same day: `utilities/selection-frame.js`, the framing of a selection that keeps its
         // handles out from under the open panel.
         // 817 the same day: `account/resgate-saida.js` and `store/sync/autor-da-fila.js`.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(817);
+        // 819 the same day: `briefing/figura-de-slide.js` and `briefing/figura-de-slide.service.js`.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(819);
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
@@ -1013,7 +1023,9 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // 12320 -> 12340 the same day: 12331 kB measured by this case's failure on a fresh build,
         // after the undo queue, the output layer in the undo entry, the framing of a selection and
         // the "enviar as pendências" exit of a rescue; no new package.
-        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(12340);
+        // 12340 -> 12370 the same day: 12356 kB measured by this case's failure on a fresh build,
+        // after the slide figure held by reference; no new package.
+        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(12370);
     });
 
     it('seguir `import()` de fato acrescenta grafo, e é isso que prova a regex dinâmica', () => {
@@ -1521,7 +1533,9 @@ const PAGINAS_DIST = Object.freeze([
     // leaving with the photo, the dashed KMZ back whole, a foreign KML's stroke and fill): 4261 kB
     // measured on a fresh build after the last of them, 4258 before the first. No new package; the
     // ceilings are still to be re-measured and tightened for the launch (PENDENCIAS, final steps).
-    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 91, minKb: 3600, maxKb: 4270 },
+    // maxKb 4270 -> 4280 the same day: 4272 kB measured on a fresh build after the slide figure held
+    // by reference (the sentinel leaf, its service and the Quill format). No new package.
+    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 91, minKb: 3600, maxKb: 4280 },
     // atlas.html: MEDIDA dos dois lados do mesmo lote, 36 arquivos / 663 kB antes e 40 / 664
     // depois. Os quatro arquivos a mais são repartição de chunk e não conteúdo (os modais que o
     // mapa deixou de alcançar estaticamente deixaram de dividir chunk com ele e viraram chunks
@@ -1578,7 +1592,10 @@ const PAGINAS_DIST = Object.freeze([
     // contagem do atlas passou a ler a lista de baldes derivados do registro de tipos
     // (`store/feature-type.registry.js`, zero imports) para não contar a saída das análises, e a página
     // alcança `store/atlas-contents.js`: o registro virou um chunk compartilhado de 3,9 kB.
-    { html: 'calibracao.html', entrada: 'calibracao', minArq: 12, maxArq: 42, minKb: 1700, maxKb: 2040 },
+    // 2040 -> 2050 em 2026-09-26: 2042 kB medidos num build fresco depois da figura de slide por
+    // referência. A página alcança `user_data/photo-refs.js` por chunk compartilhado, e a regra de
+    // quem uma op cita passou a ler a folha do sentinela (`briefing/figura-de-slide.js`, zero imports).
+    { html: 'calibracao.html', entrada: 'calibracao', minArq: 12, maxArq: 42, minKb: 1700, maxKb: 2050 },
     // tutorial.html: a QUINTA página, medida na estreia, 2026-09-15, build fresco: 7 arquivos e
     // 499 kB. Ela é a mais LEVE das cinco por uma margem grande, e vale entender de que os 499 são
     // feitos, porque a leitura ingênua é que uma página de documentação deveria custar dezenas de

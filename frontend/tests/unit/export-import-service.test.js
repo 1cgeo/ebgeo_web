@@ -320,6 +320,19 @@ describe('ExportImportService.buildPrunedExportData — a poda de saída', () =>
         expect(ids).toEqual(['icon1', 'p1', 'poly1']);
     });
 
+    it('a FIGURA DE SLIDE por referência viaja em `images/`, a do slide e a colada nas notas', () => {
+        // O documento é montado à mão aqui: o assunto é a coleta, e a montagem tem o caso acima.
+        const figura = '11111111-1111-4111-8111-111111111111';
+        const colada = '22222222-2222-4222-8222-222222222222';
+        const html = (id) => `<p>x</p><img src="https://figura.ebgeo/${id}">`;
+        const ids = [...makeService().collectUsedImageIds({
+            maps: {},
+            briefings: [{ id: 'b', slides: [{ id: 's', content: html(figura) }] }],
+            mapNotes: { M: { description: html(colada) } },
+        })].sort();
+        expect(ids).toEqual([figura, colada].sort());
+    });
+
     it('ESTRUTURAL: o documento de exportação é montado num lugar SÓ', async () => {
         // As duas cópias do bloco eram declaradas ("This MIRRORS handleExport's data-building
         // block") e já divergiram uma vez, no bug dos grupos. A poda é justamente a regra que

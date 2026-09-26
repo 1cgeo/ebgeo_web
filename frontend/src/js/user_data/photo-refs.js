@@ -13,8 +13,13 @@
  *
  * The legacy shape of a 3D/360 item's photo can also be a bare id string: that is a reference too.
  *
- * ZERO IMPORTS, so the rules are testable in node and reachable from any module.
+ * ONE IMPORT, a leaf of zero imports itself (`briefing/figura-de-slide.js`), so the rules are still
+ * testable in node and reachable from any module. It is RELATIVE, not by alias, on purpose: the
+ * backend's census of image references imports this file with plain Node
+ * (`backend/tests/integration/imagens-orfas-censo.test.js`), where no alias resolves.
  */
+
+import { idsDeFigurasDoBriefing, idsDeFigurasNoHtml } from '../briefing/figura-de-slide.js';
 
 /**
  * Whether a photo item carries its own bytes (the inline shape).
@@ -137,8 +142,10 @@ export function fotosPorReferencia(documento) {
 }
 
 /**
- * The ids of the photos an ENTITY payload cites by reference: the `properties.images` of a feature
- * and the `images` of a 3D or 360 item. Inline photos carry their bytes and are not cited.
+ * The ids of the photos an ENTITY payload cites by reference: the `properties.images` of a feature,
+ * the `images` of a 3D or 360 item, and the slide figures held by reference in rich text (a slide's
+ * `content`, every slide of a briefing, the `description` of map notes, where a slide figure can be
+ * pasted). Inline photos and inline figures carry their bytes and are not cited.
  *
  * It is what the outbound hold asks (`operacaoEsperaBlob`, `store/sync/blob-upload-queue.js`): an
  * operation that cites a photo whose bytes the server has not confirmed stays prepared, the rule of
@@ -155,6 +162,12 @@ export function idsDeFotosDaEntidade(dados) {
             const id = idDeFotoPorReferencia(foto);
             if (id) ids.push(id);
         }
+    }
+    // A slide figure's operation waits for its bytes exactly like a photo's (2026-09-26): the slide
+    // op leaves in a second, the figure takes minutes on the product's link, and a peer must never
+    // get a reference to bytes the server does not have.
+    for (const id of [...idsDeFigurasDoBriefing(dados), ...idsDeFigurasNoHtml(dados?.description)]) {
+        if (!ids.includes(id)) ids.push(id);
     }
     return ids;
 }

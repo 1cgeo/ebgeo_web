@@ -23,12 +23,13 @@
  */
 
 import { idsDeFotosPorReferencia } from '@js/user_data/photo-refs.js';
+import { idsDeFigurasDoDocumento } from '@js/briefing/figura-de-slide.js';
 
 /**
  * @typedef {Object} RequiredImage
  * @property {string} id - Image id (the feature id, or the custom icon id)
- * @property {'imagem'|'icone'|'anexo'} kind - An image FEATURE, a custom point ICON, or (only on the
- *   way UP to a server, see `classifyMissingImages`) a picture attached to a marker or a 3D/360 item
+ * @property {'imagem'|'icone'|'anexo'|'slide'} kind - An image FEATURE, a custom point ICON, a photo
+ *   attached to a feature or a 3D/360 item, or a SLIDE FIGURE held by reference
  * @property {string|null} mapName - Map that holds the feature; null for an icon
  */
 
@@ -57,6 +58,8 @@ export function requiredImagesOf(data) {
     // A PHOTO HELD BY REFERENCE has its bytes only in `images/`, so a missing one is a loss like an
     // image feature's. An inline photo travels in the document and is never listed.
     for (const id of idsDeFotosPorReferencia(data)) push(id, 'anexo', null);
+    // A SLIDE FIGURE held by reference (`briefing/figura-de-slide.js`) is the same loss.
+    for (const id of idsDeFigurasDoDocumento(data)) push(id, 'slide', null);
     return out;
 }
 
@@ -82,6 +85,7 @@ function describeMissing(list) {
     const images = list.filter((m) => m.kind === 'imagem');
     const icons = list.filter((m) => m.kind === 'icone');
     const attached = list.filter((m) => m.kind === 'anexo');
+    const slides = list.filter((m) => m.kind === 'slide');
     const parts = [];
     if (images.length > 0) {
         const maps = [...new Set(images.map((m) => m.mapName).filter(Boolean))];
@@ -90,6 +94,7 @@ function describeMissing(list) {
     }
     if (icons.length > 0) parts.push(count(icons.length, 'ícone personalizado', 'ícones personalizados'));
     if (attached.length > 0) parts.push(count(attached.length, 'figura anexada', 'figuras anexadas'));
+    if (slides.length > 0) parts.push(count(slides.length, 'figura de slide', 'figuras de slide'));
     if (parts.length <= 1) return parts.join('');
     return `${parts.slice(0, -1).join(', ')} e ${parts[parts.length - 1]}`;
 }

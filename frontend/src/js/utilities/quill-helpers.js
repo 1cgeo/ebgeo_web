@@ -18,6 +18,14 @@ import {
     withoutRefusedImages,
     dataUrlToBytes,
 } from './quill-image-paste.model.js';
+import {
+    idDaFigura,
+    srcDaFigura,
+    marcarFigurasParaDesenho,
+    htmlParaGuardar,
+    PLACEHOLDER_DA_FIGURA,
+    ATRIBUTO_DA_FIGURA,
+} from '@js/briefing/figura-de-slide.js';
 
 /** DOMPurify configuration allowing only Quill-safe HTML tags and attributes. */
 export const QUILL_DOMPURIFY_CONFIG = {
@@ -85,7 +93,13 @@ function extractTextContent(html) {
 }
 
 /**
- * Sanitizes HTML content using DOMPurify with Quill-safe configuration.
+ * Sanitizes HTML content using DOMPurify with Quill-safe configuration, READY TO BE DRAWN.
+ *
+ * A slide figure held by reference (`briefing/figura-de-slide.js`) leaves here as a transparent
+ * placeholder plus its id, never as its sentinel `https` src: every caller sets the result as
+ * `innerHTML`, and a live sentinel is a request to a host that does not exist, per figure per render.
+ * The caller that shows the figure then fills its bytes in (`resolverFiguras`). The output is
+ * therefore for DRAWING; what is stored goes through `htmlParaGuardar` (see `cleanQuillContent`).
  *
  * @param {string} html - HTML string to sanitize
  * @param {Object} [config] - Optional custom DOMPurify configuration
@@ -97,7 +111,9 @@ export function sanitizeQuillHtml(html, config = QUILL_DOMPURIFY_CONFIG) {
     // synchronous, and the `finally` takes it out even when sanitize throws.
     DOMPurify.addHook('afterSanitizeAttributes', forceLinkTarget);
     try {
-        return DOMPurify.sanitize(html, config);
+        // The id attribute is added AFTER the sanitizer, which does not list it: DOMPurify parses in
+        // an inert document, so the sentinel inside it never reaches the network either.
+        return marcarFigurasParaDesenho(DOMPurify.sanitize(html, config));
     } finally {
         DOMPurify.removeHook('afterSanitizeAttributes', forceLinkTarget);
     }
@@ -127,7 +143,9 @@ function forceLinkTarget(node) {
 export function cleanQuillContent(html) {
     if (!html || html.trim() === '') return '';
 
-    const cleaned = sanitizeQuillHtml(html)
+    // STORED, not drawn: an editor's figures go back to their sentinel before the sanitizer (which
+    // drops the id attribute) and again after it (which marks them for drawing).
+    const cleaned = htmlParaGuardar(sanitizeQuillHtml(htmlParaGuardar(html)))
         .replace(/<p><br><\/p>/g, '')
         .replace(/<p>\s*<\/p>/g, '');
 
@@ -316,6 +334,12 @@ export async function insertQuillImages(quillInstance, range, files, options = {
             // embed, and a parallel decode would resolve in whatever order the pictures happen
             // to finish, which is not the order the person pasted them in.
             const compressedBase64 = await compressQuillImage(file, options);
+            // A SLIDE FIGURE IS EMBEDDED BY REFERENCE when the host stores figures
+            // (`guardarFiguraDeSlide`): the bytes go to the atlas image store and travel once,
+            // and the HTML carries only the sentinel. Without the option (map notes) it is inline.
+            const src = typeof options.guardarFigura === 'function'
+                ? await options.guardarFigura(compressedBase64, file?.name || '')
+                : compressedBase64;
             // RE-CHECKED AFTER THE AWAIT, which is the whole point: compression takes a decode and
             // a canvas, long enough for the person to move to another slide. The host empties
             // the container, the editor leaves the page but stays alive, and an insert here
@@ -324,7 +348,7 @@ export async function insertQuillImages(quillInstance, range, files, options = {
                 showError(EDITOR_GONE_NOTICE);
                 return inseridas;
             }
-            quillInstance.insertEmbed(index, 'image', compressedBase64, 'user');
+            quillInstance.insertEmbed(index, 'image', src, 'user');
             index += 1;
             inseridas += 1;
         } catch (error) {
@@ -357,6 +381,64 @@ export function handleQuillImageUpload(quillInstance, options = {}) {
     };
 }
 
+/** Fills in the bytes of one figure element; set by the first page that shows slide figures. */
+let resolverDaFigura = null;
+
+/**
+ * @param {*} node - An `<img>` (or anything).
+ * @returns {string|null} The sentinel src of the figure it draws, from its id attribute, or null.
+ */
+function sentinelaDoElemento(node) {
+    const id = typeof node?.getAttribute === 'function' ? node.getAttribute(ATRIBUTO_DA_FIGURA) : null;
+    if (!id) return null;
+    try {
+        return srcDaFigura(id);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Teaches Quill the slide figure held by reference, and says who fills its bytes in.
+ *
+ * WHY THE IMAGE FORMAT IS REPLACED, and not only the HTML around it. Quill rebuilds an `<img>` from
+ * its VALUE whenever it recreates the node (undo, redo, a paste, an embed), and the stock value is
+ * the `src`: a figure whose element shows the placeholder or this tab's `blob:` URL would come back
+ * as THAT, and the reference would be gone from the slide. Here the value of a figure element is its
+ * sentinel, read from the id attribute, and creating from a sentinel draws the placeholder with the
+ * id and asks for the bytes. As a side effect, filling the bytes in (a `src` change) is no longer a
+ * change of the document, so it neither autosaves nor enters the undo history.
+ *
+ * Registration is GLOBAL to the Quill module and idempotent; a picture that is not a figure keeps
+ * the stock behaviour.
+ *
+ * @param {Function} Quill - The Quill class (`import('quill')`).
+ * @param {function(HTMLImageElement): *} [resolver] - Fills in one figure's bytes.
+ */
+export function registrarFiguraNoQuill(Quill, resolver) {
+    if (typeof resolver === 'function') resolverDaFigura = resolver;
+    const Imagem = Quill.import('formats/image');
+    if (Imagem?.figuraPorReferencia) return;
+    class FiguraPorReferencia extends Imagem {
+        static figuraPorReferencia = true;
+
+        static create(value) {
+            const id = idDaFigura(value);
+            if (!id) return super.create(value);
+            const node = super.create(PLACEHOLDER_DA_FIGURA);
+            node.setAttribute(ATRIBUTO_DA_FIGURA, id);
+            // Asked after the node exists and outside Quill's own work: the resolver is async.
+            Promise.resolve().then(() => resolverDaFigura?.(node)).catch(() => {});
+            return node;
+        }
+
+        static value(node) {
+            return sentinelaDoElemento(node) ?? super.value(node);
+        }
+    }
+    Quill.register(FiguraPorReferencia, true);
+}
+
 /**
  * Creates a Quill editor instance with default configuration.
  * Dynamically imports Quill and its CSS.
@@ -367,7 +449,9 @@ export function handleQuillImageUpload(quillInstance, options = {}) {
  * @param {string} [options.placeholder='Digite aqui...'] - Editor placeholder
  * @param {Array} [options.toolbar] - Custom toolbar configuration
  * @param {boolean} [options.enableImageCompression=true] - Enable image compression handler
- * @param {Object} [options.imageCompressionOptions] - Image compression options
+ * @param {Object} [options.imageCompressionOptions] - Image compression options; `guardarFigura`
+ *   (dataUrl, name) → sentinel src makes the editor embed figures by reference
+ * @param {function(HTMLImageElement): *} [options.resolverFigura] - Fills in a figure's bytes
  * @returns {Promise<Object>} Quill editor instance
  */
 export async function createQuillEditor(container, options = {}) {
@@ -376,13 +460,15 @@ export async function createQuillEditor(container, options = {}) {
         placeholder = 'Digite aqui...',
         toolbar = QUILL_TOOLBAR_CONFIG,
         enableImageCompression = true,
-        imageCompressionOptions = {}
+        imageCompressionOptions = {},
+        resolverFigura = null,
     } = options;
 
     const [{ default: Quill }] = await Promise.all([
         import('quill'),
         import('quill/dist/quill.snow.css')
     ]);
+    registrarFiguraNoQuill(Quill, resolverFigura);
 
     // The handler runs long after construction, but the uploader's options are read DURING it, so
     // the instance cannot be named in them. A box filled in on the next line is the whole trick.
@@ -477,7 +563,11 @@ function createPastedImageMatcher(editor, options) {
     };
 
     return function matchPastedImage(node, delta) {
-        const src = typeof node?.getAttribute === 'function' ? node.getAttribute('src') : null;
+        // A FIGURE HELD BY REFERENCE (copied from a slide) is read by its id, not by what its element
+        // showed: the placeholder is a `data:` GIF this path would refuse by type, and a `blob:` URL
+        // is this tab's. Its sentinel embeds nothing, so it stays like any `https` picture.
+        const src = sentinelaDoElemento(node)
+            ?? (typeof node?.getAttribute === 'function' ? node.getAttribute('src') : null);
         const verdict = pastedHtmlImageVerdict(src, QUILL_IMAGE_CONFIG.maxSizeMB * 1024 * 1024);
 
         // No inline bytes (`https://`, `blob:`): nothing is being embedded, so it stays.

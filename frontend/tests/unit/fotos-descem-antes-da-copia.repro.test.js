@@ -169,6 +169,36 @@ describe('baixarFotosQueFaltam: as fotos por referência que este computador nã
         expect(bancoDeImagens(ATLAS).get(FOTO_DO_COLEGA)).toBeInstanceOf(Blob);
     });
 
+    it('a FIGURA DE SLIDE por referência também desce: a do slide e a colada nas notas do mapa', async () => {
+        const escopo = await atlasComFotoDoColega();
+        const FIGURA = 'aaaaaaaa-0000-4000-8000-000000000005';
+        const COLADA = 'aaaaaaaa-0000-4000-8000-000000000006';
+        await ns.getStoreFor(ns.StoreName.BRIEFINGS, escopo).setItem('b1', {
+            id: 'b1', slides: [{ id: 's1', content: `<p>x</p><img src="https://figura.ebgeo/${FIGURA}">` }],
+        });
+        await ns.getStoreFor(ns.StoreName.SETTINGS, escopo).setItem('map_notes_mapa-1', {
+            title: 'Notas', description: `<img src="https://figura.ebgeo/${COLADA}">`,
+        });
+        // Uma chave de SETTINGS que não é de notas não é lida como notas.
+        await ns.getStoreFor(ns.StoreName.SETTINGS, escopo).setItem('outra_coisa', {
+            description: '<img src="https://figura.ebgeo/aaaaaaaa-0000-4000-8000-000000000009">',
+        });
+        const pedidos = [];
+        const cliente = {
+            fetchImageBlob: async (atlasId, id) => {
+                pedidos.push(id);
+                return new Blob([PNG], { type: 'image/png' });
+            },
+        };
+
+        const r = await copia.baixarFotosQueFaltam(escopo, ATLAS, { cliente });
+
+        expect(pedidos.sort()).toEqual([FOTO_DO_COLEGA, FIGURA, COLADA].sort());
+        expect(r.baixadas).toBe(3);
+        expect(bancoDeImagens(ATLAS).get(FIGURA)).toBeInstanceOf(Blob);
+        expect(bancoDeImagens(ATLAS).get(COLADA)).toBeInstanceOf(Blob);
+    });
+
     it('percorre também os documentos de 3D e de 360 (id solto conta como referência)', async () => {
         const escopo = await atlasComFotoDoColega({ com3dE360: true });
         const pedidos = [];

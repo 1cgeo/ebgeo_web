@@ -69,6 +69,8 @@ import { SLIDE_CONTROLS, normalizeSlideControls } from '../slide-controls.js';
 import { deepClone } from '@utils/deep-utils.js';
 import { generateUUID } from '@utils/uuid.js';
 import { createQuillEditor, sanitizeQuillHtml } from '@utils/quill-helpers.js';
+import { htmlParaGuardar } from '../figura-de-slide.js';
+import { guardarFiguraDeSlide, resolverFigura, resolverFiguras } from '../figura-de-slide.service.js';
 import { EventTypes } from '@events/event_types.js';
 import { showSuccess, showError, showWarning } from '@utils/index.js';
 import { showConfirm, showImportSlidesModal } from '@modals/index.js';
@@ -125,6 +127,7 @@ function replaceQuillContentSilently(quill, html) {
     quill.root.innerHTML = sanitizeQuillHtml(html);
     quill.update('silent');
     quill.history?.clear();
+    resolverFiguras(quill.root).catch(() => {});
     if (!range) return;
     const index = before.diff(quill.getContents()).transformPosition(range.index);
     quill.setSelection(Math.min(index, Math.max(0, quill.getLength() - 1)), 0, 'silent');
@@ -1180,7 +1183,11 @@ export class BriefingEditorControl {
                     ['link', 'image'],
                     ['clean']
                 ],
-                enableImageCompression: true
+                enableImageCompression: true,
+                // A figure is stored BY REFERENCE (`briefing/figura-de-slide.js`): the bytes travel
+                // once, through the blob queue, and the slide's HTML carries only the sentinel.
+                imageCompressionOptions: { guardarFigura: guardarFiguraDeSlide },
+                resolverFigura,
             });
             // Superseded while Quill loaded: a newer render owns the form and its editor.
             if (render !== this._slideFormRender) return;
@@ -1192,12 +1199,16 @@ export class BriefingEditorControl {
                 // user. The presenter already sanitizes it on display; the editor
                 // has to do the same before writing it into Quill's root.
                 editor.root.innerHTML = sanitizeQuillHtml(slide.content);
+                resolverFiguras(editor.root).catch(() => {});
             }
 
             // THE SLIDE AND ITS EDITOR ARE CAPTURED AS A PAIR. Reading `this._quillEditor` inside
             // the handler paired THIS slide with WHICHEVER editor was current when it fired.
+            // What the slide STORES is the editor's HTML with every figure back at its sentinel: the
+            // element shows the placeholder or this tab's `blob:` URL, neither of which means
+            // anything to a peer.
             const onChange = () => {
-                slide.content = editor.root.innerHTML;
+                slide.content = htmlParaGuardar(editor.root.innerHTML);
                 this._scheduleAutosave();
             };
             editor.on('text-change', onChange);
@@ -1511,7 +1522,8 @@ export class BriefingEditorControl {
             if (this._quillEditor) {
                 // Map notes are synced content too — same reasoning as above.
                 this._quillEditor.root.innerHTML = sanitizeQuillHtml(html);
-                slide.content = this._quillEditor.root.innerHTML;
+                resolverFiguras(this._quillEditor.root).catch(() => {});
+                slide.content = htmlParaGuardar(this._quillEditor.root.innerHTML);
                 this._scheduleAutosave();
                 showSuccess('Nota importada');
             }

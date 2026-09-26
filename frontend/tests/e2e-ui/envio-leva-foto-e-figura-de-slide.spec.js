@@ -7,15 +7,15 @@
  * mede fotos pesadas por COMPRIMENTO do data URL, num acervo semeado. Nenhum teste punha uma foto
  * pela galeria e uma figura colada num slide num atlas local, enviava pela tela e perguntava a OUTRA
  * sessão pelos bytes. O veredito é o SHA-256 das duas: no autor antes do envio, no Postgres (a foto
- * dentro das propriedades da feição, a figura dentro do HTML do slide) e na outra sessão, lidas em
- * qualquer formato (a foto pode virar referência na fase 2 das fotos).
+ * dentro das propriedades da feição; a figura, desde 2026-09-26 guardada POR REFERÊNCIA, pelo
+ * `content_hash` da imagem que o slide cita) e na outra sessão, lidas em qualquer formato. A figura
+ * sobe sob um id NOVO (o envio reemite todo id de imagem) e o HTML do slide precisa segui-lo.
  *
  * Rodar isolado:
  *   cd frontend && npx playwright test envio-leva-foto-e-figura-de-slide --retries=0 --workers=1
  */
 
 import { test, expect } from '@playwright/test';
-import { createHash } from 'node:crypto';
 import { readState } from './state.js';
 import { loginUI, goToLocalMapUI, drawPointUI, selectFeatureUI } from './helpers/collab-helpers.js';
 import { createVerifiedUser } from './helpers/accounts.js';
@@ -24,7 +24,6 @@ import { figuraSolida } from './helpers/imagem-bytes.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
-const sha = (b) => createHash('sha256').update(b).digest('hex');
 const NOME_DO_PONTO = 'Ponto com foto do envio';
 
 /** SHA-256 da foto do ponto (data URL ou referência) e da figura do primeiro slide, no atlas aberto. */
@@ -43,10 +42,11 @@ function impressoes(page) {
         const briefings = await store.getAllBriefings();
         const lista = briefings instanceof Map ? [...briefings.values()] : (briefings ?? []);
         const html = lista[0]?.slides?.[0]?.content ?? '';
-        const src = (html.match(/<img\b[^>]*\bsrc="([^"]+)"/) || [])[1] ?? null;
+        const figura = (html.match(/https:\/\/figura\.ebgeo\/([A-Za-z0-9-]{8,64})/) || [])[1] ?? null;
+        const blobFigura = figura ? await store.getImage(figura) : null;
         return {
             foto: blobFoto ? await hex(blobFoto) : null,
-            slide: src ? await hex(await (await fetch(src)).blob()) : null,
+            slide: blobFigura ? await hex(blobFigura) : null,
         };
     }, NOME_DO_PONTO);
 }
@@ -117,9 +117,11 @@ describeOrSkip('Enviar ao servidor leva a foto anexa e a figura do slide', () =>
         const slide = await db.raw.oneOrNone(
             `SELECT s.content FROM slides s JOIN briefings b ON b.id = s.briefing_id
              WHERE b.atlas_id = $1 AND s.deleted_at IS NULL LIMIT 1`, [atlasId]);
-        const src = (String(slide?.content ?? '').match(/<img\b[^>]*\bsrc="([^"]+)"/) || [])[1] ?? null;
-        expect(src, 'o slide chegou ao servidor sem a figura').not.toBeNull();
-        expect(sha(globalThis.Buffer.from(src.split(',')[1], 'base64')), 'a figura do slide mudou no servidor').toBe(antes.slide);
+        const figura = (String(slide?.content ?? '').match(/https:\/\/figura\.ebgeo\/([A-Za-z0-9-]{8,64})/) || [])[1] ?? null;
+        expect(figura, 'o slide chegou ao servidor sem a referência da figura').not.toBeNull();
+        expect(String(slide.content), 'o slide chegou ao servidor com bytes de figura').not.toMatch(/data:image|blob:/);
+        const imagem = await db.raw.oneOrNone('SELECT content_hash FROM images WHERE id = $1 AND atlas_id = $2', [figura, atlasId]);
+        expect(imagem?.content_hash, 'a figura do slide mudou no servidor, ou o slide cita uma imagem que o atlas não tem').toBe(antes.slide);
         const ponto = await db.raw.oneOrNone(
             `SELECT f.properties FROM features f JOIN maps m ON m.id = f.map_id
              WHERE m.atlas_id = $1 AND f.properties->>'nome' = $2 AND f.deleted_at IS NULL`, [atlasId, NOME_DO_PONTO]);

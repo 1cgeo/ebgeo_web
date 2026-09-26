@@ -27,6 +27,14 @@
  * `frontend/tests/unit/testes-tocados.test.js`; o resto deste arquivo só lê o git e roda o que
  * ela manda. O lint continua sendo o outro comando, separado, como sempre.
  *
+ * UM ARQUIVO DO FRONTEND QUE UM TESTE DO BACKEND IMPORTA também mira esse teste (desde
+ * 2026-09-26). Os espelhos entre os pacotes e o censo de imagens órfãs importam folhas do frontend
+ * com Node puro (`backend/tests/integration/imagens-orfas-censo.test.js` lê
+ * `frontend/src/js/user_data/photo-refs.js`), e a suíte do frontend nunca roda esses testes: uma
+ * mudança só de frontend que quebrasse a importação deles saía verde daqui. O grafo passou a ler
+ * `frontend/src` também, e o teste do backend que alcança um arquivo tocado do frontend entra no
+ * plano ao lado da suíte do frontend.
+ *
  * O QUE ELE NÃO SABE, declarado: o grafo só segue import relativo escrito com literal; a
  * afinidade é por nome, então um teste de integração de outro módulo que exercite este por
  * tabela não é mirado; e o contrato é uma lista escrita aqui, não uma propriedade medida. Os
@@ -155,7 +163,14 @@ export function planejar(tocados, alcance, testesDoBackend = []) {
         plano.frontend = true;
         motivos.push(`frontend, documentação ou instrução: ${doResto.length} arquivo(s)`);
     }
-    if (!doBackend.length) return plano;
+    // The backend tests that import a touched FRONTEND file with plain Node: the frontend suite
+    // never runs them (see the fileoverview).
+    const cruzados = new Set(doResto.filter(eCodigoDoFrontend).flatMap((p) => [...(alcance.get(p) ?? [])]));
+    if (cruzados.size) motivos.push(`${cruzados.size} teste(s) do backend importam arquivo tocado do frontend`);
+    if (!doBackend.length) {
+        if (cruzados.size) plano.backend = [...cruzados].sort();
+        return plano;
+    }
 
     const infra = doBackend.filter((p) => !eCodigoDoBackend(p) || !p.endsWith('.js') || HUBS.includes(p));
     if (infra.length) {
@@ -163,7 +178,7 @@ export function planejar(tocados, alcance, testesDoBackend = []) {
         motivos.push(`infraestrutura ou composição do backend: ${infra.join(', ')}`);
         return plano;
     }
-    const alvos = new Set();
+    const alvos = new Set(cruzados);
     const orfaos = [];
     for (const p of doBackend) {
         if (p.endsWith('.test.js')) { alvos.add(p); continue; }
@@ -214,9 +229,10 @@ function arquivosTocados(desde) {
     return [...tocados].sort();
 }
 
-function fontesDoBackend() {
+function fontesDoGrafo() {
     const fontes = new Map();
-    for (const p of git('ls-files', 'backend/src', 'backend/tests')) {
+    // `frontend/src` too: a backend test can import a frontend leaf (see the fileoverview).
+    for (const p of git('ls-files', 'backend/src', 'backend/tests', 'frontend/src')) {
         if (p.endsWith('.js')) fontes.set(p, readFileSync(join(RAIZ, p), 'utf8'));
     }
     return fontes;
@@ -234,8 +250,8 @@ function principal(argv) {
     const i = argv.indexOf('--desde');
     const desde = i >= 0 ? argv[i + 1] : null;
     const tocados = arquivosTocados(desde);
-    const fontes = fontesDoBackend();
-    const testes = [...fontes.keys()].filter((p) => p.endsWith('.test.js'));
+    const fontes = fontesDoGrafo();
+    const testes = [...fontes.keys()].filter((p) => p.startsWith('backend/') && p.endsWith('.test.js'));
     const plano = planejar(tocados, testesPorArquivo(fontes), testes);
 
     console.log(`Arquivos tocados: ${tocados.length}`);

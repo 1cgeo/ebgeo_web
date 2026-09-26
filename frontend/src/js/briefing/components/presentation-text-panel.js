@@ -28,6 +28,7 @@ import {
     removeElement
 } from '@utils/event-cleanup.js';
 import { sanitizeQuillHtml } from '@utils/quill-helpers.js';
+import { resolverFiguras } from '../figura-de-slide.service.js';
 import { EBGEO_LOGO_BASE64 } from '@utils/logo-base64.js';
 
 // ============================================================================
@@ -420,6 +421,7 @@ export class PresentationTextPanel {
         if (this._contentEl) {
             const content = this._currentSlide?.content || '';
             this._contentEl.innerHTML = content ? sanitizeQuillHtml(content) : '';
+            resolverFiguras(this._contentEl).catch(() => {});
         }
 
         // Counter

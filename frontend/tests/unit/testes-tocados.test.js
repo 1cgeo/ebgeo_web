@@ -161,6 +161,35 @@ describe('como um teste do backend mira um arquivo', () => {
         expect(plano.backend.length).toBeLessThanOrEqual(TETO_DE_ALVOS_DO_BACKEND);
     }, 60_000);
 
+    it('arquivo do FRONTEND que um teste do backend importa leva esse teste ao plano, ao lado da suíte do frontend', () => {
+        // Os espelhos e o censo de órfãs importam folhas do frontend com Node puro, e a suíte do
+        // frontend nunca os roda: sem isto, uma mudança só de frontend que quebrasse a importação
+        // deles saía verde.
+        const folha = 'frontend/src/js/user_data/photo-refs.js';
+        const censo = 'backend/tests/integration/imagens-orfas-censo.test.js';
+        const p = planejar([folha, 'docs/livro-razao.md'], new Map([[folha, new Set([censo])]]));
+        expect(p).toMatchObject({ raiz: false, frontend: true, backend: [censo] });
+        // CONTROLE: o arquivo que nenhum teste do backend importa continua só no frontend.
+        expect(planejar(['frontend/src/js/ui/app-bar.js'], new Map([[folha, new Set([censo])]])))
+            .toMatchObject({ raiz: false, frontend: true, backend: null });
+    });
+
+    it('no grafo REAL, as folhas do frontend que o backend importa miram o espelho e o censo', () => {
+        const arquivos = execSync('git ls-files backend/src backend/tests frontend/src', { cwd: RAIZ, encoding: 'utf8' })
+            .split(/\r?\n/).filter((p) => p.endsWith('.js'));
+        const fontes = new Map(arquivos.map((p) => [p, readFileSync(join(RAIZ, p), 'utf8')]));
+        const testes = arquivos.filter((p) => p.startsWith('backend/') && p.endsWith('.test.js'));
+        const plano = planejar(
+            ['frontend/src/js/street_view_tool/pyramid-math.js', 'frontend/src/js/user_data/photo-refs.js'],
+            testesPorArquivo(fontes), testes
+        );
+        expect(plano.frontend).toBe(true);
+        expect(plano.backend).toEqual(expect.arrayContaining([
+            'backend/tests/unit/escada-espelha-o-cliente.test.js',
+            'backend/tests/integration/imagens-orfas-censo.test.js',
+        ]));
+    }, 60_000);
+
     it('a lista de contrato não esvaziou', () => {
         expect(CONTRATO.length).toBeGreaterThanOrEqual(9);
     });

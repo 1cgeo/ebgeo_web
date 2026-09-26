@@ -28,6 +28,7 @@ import { generateUUID, isValidUUID } from '@utils/uuid.js';
 import { pruneCatalogLayerDefinitions } from '@catalog/catalog-layer.ref.js';
 import { normalizeLegacyDeclinationProperties, ensureMapDataShape } from '@store/repository.utils.js';
 import { normalizeSlideControls } from '@js/briefing/slide-controls.js';
+import { idsDeFigurasDoDocumento, reescreverFigurasNoHtml } from '@js/briefing/figura-de-slide.js';
 import { isDerivedOutputBucket } from '@store/analysis-output.js';
 import { mimeDeFotoInlineQueSobe, blobDeDataUrl } from '@utils/image_utils.js';
 import { fotoTemBytesInline, idDeFotoPorReferencia, fotoSemBytes } from '@js/user_data/photo-refs.js';
@@ -470,7 +471,7 @@ export function buildServerImportPayload(exportData, meta = {}) {
             bearing: mapData?.bearing ?? 0,
             pitch: mapData?.pitch ?? 0,
             notes_title: notes.title || '',
-            notes_description: notes.description || '',
+            notes_description: reescreverFigurasNoHtml(notes.description || '', imageIdMap),
             analysis_layers: mapData?.analysisLayers || {},
             // Reference + per-atlas state only. This is a whole-entity upload, so it bypasses the
             // sync write gate; a legacy entry still holding the old embedded copy would otherwise
@@ -498,7 +499,9 @@ export function buildServerImportPayload(exportData, meta = {}) {
         slides: (b.slides || []).map((s) => ({
             id: isValidUUID(s.id) ? s.id : generateUUID(),
             title: s.title || '',
-            content: s.content || '',
+            // A FIGURE HELD BY REFERENCE is a blob like any other: it is cited (below), uploaded
+            // under the fresh id, and the slide's HTML is rewritten to that id here.
+            content: reescreverFigurasNoHtml(s.content || '', imageIdMap),
             mode: s.mode === '3d' || s.mode === '360' ? s.mode : '2d',
             map_id: mapNameToId[s.mapId] || sourceMapIds.get(s.mapId) || (isValidUUID(s.mapId) ? s.mapId : null),
             model_id: slideResourceRef(s.modelId),
@@ -519,6 +522,8 @@ export function buildServerImportPayload(exportData, meta = {}) {
             orientation: s.orientation || {},
         })),
     }));
+    // The slide figures, of the briefings and of the notes pasted with one, are cited like photos.
+    for (const id of idsDeFigurasDoDocumento(data)) imageSink.add(id);
 
     // Atlas-level app settings (local-only preference state that syncs through atlas.settings).
     //

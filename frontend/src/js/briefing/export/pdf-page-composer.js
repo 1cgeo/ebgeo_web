@@ -14,6 +14,7 @@
 
 import { loadLogoImage } from '@utils/logo-base64.js';
 import { sanitizeQuillHtml } from '@utils/quill-helpers.js';
+import { resolverFiguras } from '../figura-de-slide.service.js';
 
 // Lazy-loaded to keep html2canvas out of the core chunk.
 // Only loaded when PDF export is actually invoked.
@@ -269,6 +270,11 @@ async function renderTextPanel(slide) {
             // sanitize with the same config the presentation panel uses.
             contentSection.innerHTML = sanitizeQuillHtml(slide.content);
             container.appendChild(contentSection);
+            // A figure held by reference is drawn as a placeholder until its bytes are in, and the
+            // capture below reads what is on screen: its bytes are filled in and decoded first.
+            await resolverFiguras(contentSection);
+            await Promise.all([...contentSection.querySelectorAll('img')]
+                .map((img) => img.decode?.().catch(() => {})));
         }
 
         // Capture with html2canvas at high resolution

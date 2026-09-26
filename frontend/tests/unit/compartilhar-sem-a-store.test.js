@@ -264,7 +264,12 @@ describe('o núcleo do modal de compartilhamento cabe em `atlas.html`', () => {
         // 32 -> 33 em 2026-09-24, por decisão do coordenador da segunda revisão das fotos anexas:
         // user_data/photo-refs.js, folha de zero imports; não alcança a store. Entra por
         // `store/sync/feature-patch.js`, que compara as fotos de uma feição sem os bytes delas.
-        expect(grafo.arquivos.size).toBeLessThanOrEqual(33);
+        //
+        // 33 -> 34 em 2026-09-26, pela figura de slide por referência (decisão do dono daquela
+        // data): `briefing/figura-de-slide.js`, folha de ZERO imports que entra por
+        // `user_data/photo-refs.js`, porque a op do slide espera os bytes da figura como a da foto
+        // espera os da foto, e a regra de quem é citado mora num lugar só. Não alcança a store.
+        expect(grafo.arquivos.size).toBeLessThanOrEqual(34);
     });
 
     for (const [rotulo, padrao] of Object.entries(PROIBIDOS)) {

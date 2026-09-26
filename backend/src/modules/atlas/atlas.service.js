@@ -34,6 +34,7 @@ import { ATLAS_SEARCH_MIN_TERM, ATLAS_SEARCH_MAX_LIMIT } from './atlas.schemas.j
 // numeros diferentes sobre o mesmo teto.
 import { assertAtlasQuota, assertImportMapCeiling } from './atlas-quota.js';
 import { importImageIds } from './import-image-refs.js';
+import { reescreverFigurasNoHtml } from '../../utils/figura-de-slide.js';
 // The base the first map of a new atlas is born with (the admin's `map2d.defaultBasemap`).
 import { getDefaultBasemap } from '../config/config.service.js';
 
@@ -1031,7 +1032,7 @@ async function cloneMapSubEntities(t, mapPairs, imageIdMap = {}, pruner = null, 
  * snapshot, but the clone/duplicate column lists were never updated, so a cloned atlas silently
  * lost its grid and its timeline. The import path already carries them.
  */
-function mapRow(id, atlasId, name, map, pruner = null) {
+function mapRow(id, atlasId, name, map, pruner = null, imageIdMap = null) {
   return {
     id,
     atlas_id: atlasId,
@@ -1043,7 +1044,9 @@ function mapRow(id, atlasId, name, map, pruner = null) {
     bearing: map.bearing,
     pitch: map.pitch,
     notes_title: map.notes_title,
-    notes_description: map.notes_description,
+    // A slide figure pasted into the notes cites its blob by id: a copy that re-mints image ids
+    // (the atlas clone) rewrites it with them.
+    notes_description: reescreverFigurasNoHtml(map.notes_description, imageIdMap),
     analysis_layers: JSON.stringify(map.analysis_layers || {}),
     locked: map.locked || false,
     grid_style: JSON.stringify(map.grid_style || {}),
@@ -1133,7 +1136,7 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}, sourcePermis
     const mapIdMapping = Object.fromEntries(mapPairs.map((p) => [p.sourceId, p.newId]));
 
     await insertMany(t, CS.maps,
-      mapPairs.map((p) => mapRow(p.newId, newAtlasId, p.source.name, p.source, pruner)));
+      mapPairs.map((p) => mapRow(p.newId, newAtlasId, p.source.name, p.source, pruner, imageIdMap)));
     await cloneMapSubEntities(t, mapPairs, imageIdMap, pruner, {
       targetAtlasId: newAtlasId,
       // Resolved by the route's middleware, never taken from the request body.
@@ -1165,7 +1168,10 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}, sourcePermis
       id: crypto.randomUUID(),
       briefing_id: briefingIdMapping[slide.briefing_id],
       title: slide.title,
-      content: slide.content,
+      // THE SLIDE FIGURE HELD BY REFERENCE (2026-09-26): every image of the atlas was copied under a
+      // new id above, and the slide's HTML cites its figure by id, so it follows the new one.
+      // Left as it was, the copy would cite the ORIGIN atlas's blob, which it cannot read.
+      content: reescreverFigurasNoHtml(slide.content, imageIdMap),
       map_id: slide.map_id ? (mapIdMapping[slide.map_id] || null) : null,
       ...pruner.slide(slide),
       temporal_enabled: typeof slide.temporal_enabled === 'boolean' ? slide.temporal_enabled : null,

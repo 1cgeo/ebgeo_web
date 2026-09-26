@@ -4,42 +4,36 @@
  * @fileoverview A FIGURA DE UM SLIDE DE BRIEFING CHEGA INTEIRA: ao servidor, ao colega, ao F5 e ao
  * CLONE do atlas.
  *
- * A figura colada no texto rico do slide (Quill) não é blob: é um data URL DENTRO do HTML do slide,
- * re-encodado na colagem (`utilities/quill-helpers.js`), e viaja como texto na op do slide. Os
- * testes que existiam contavam `<img>` (`briefing-editor-figura-do-colega.repro.spec.js`) ou o
- * número de slides (`ebgeo-round-trip-arquivo.spec.js`); nenhum comparava os BYTES da figura. Uma
- * figura truncada, re-comprimida de novo por um segundo editor, ou com o `src` limpo por um
- * sanitizador conta como um `<img>` do mesmo jeito.
+ * A figura colada no texto rico do slide (Quill) é re-encodada na colagem
+ * (`utilities/quill-helpers.js`) e, desde 2026-09-26, guardada POR REFERÊNCIA: os bytes vão para o
+ * banco de imagens do atlas e sobem pela fila de blob, e o HTML do slide guarda o sentinela
+ * `https://figura.ebgeo/<id>` (`briefing/figura-de-slide.js`). Os testes que existiam contavam
+ * `<img>` (`briefing-editor-figura-do-colega.repro.spec.js`) ou o número de slides
+ * (`ebgeo-round-trip-arquivo.spec.js`); nenhum comparava os BYTES da figura. Uma figura truncada,
+ * re-comprimida de novo por um segundo editor, ou com a referência perdida conta como um `<img>` do
+ * mesmo jeito.
  *
- * O veredito aqui é o SHA-256 do data URL da figura, lido no disco do autor, no Postgres, no disco
- * do colega (antes e depois de F5) e no clone do atlas, mais a decodificação dela no colega (a
- * largura e a cor), que é o que prova que o `src` que chegou é uma imagem e não só um texto igual.
+ * O veredito aqui é o SHA-256 dos BYTES da figura, lidos no banco de imagens do autor, no Postgres
+ * (`images.content_hash`), no do colega (antes e depois de F5) e no clone do atlas, que reemite o id
+ * da imagem e precisa reescrever o do slide, mais a decodificação no colega (a largura e a cor).
  *
  * Rodar isolado:
  *   cd frontend && npx playwright test briefing-figura-leva-bytes --retries=0 --workers=1
  */
 
-import { createHash } from 'node:crypto';
 import { collabTest, expect } from './helpers/collab.fixtures.js';
 import { figuraSolida } from './helpers/imagem-bytes.js';
+import { figurasDoSlide, idsDasFiguras, conteudoDoSlide } from './helpers/figura-de-slide.js';
 
 collabTest.describe.configure({ retries: 0 });
 
 const COR = [180, 90, 20];
 
-/** Os `src` de toda figura de um HTML, na ordem. */
-const figurasDe = (html) => [...String(html ?? '').matchAll(/<img\b[^>]*\bsrc="([^"]+)"/g)].map((m) => m[1]);
-const sha = (texto) => createHash('sha256').update(texto).digest('hex');
 
 const lerTodosBriefings = (page) => page.evaluate(async () => {
     const store = await import('/src/js/store/index.js');
     return (await store.getAllBriefings()).map((b) => b.id);
 });
-
-const conteudoNoDisco = (page, bid) => page.evaluate(async (id) => {
-    const store = await import('/src/js/store/index.js');
-    return ((await store.getBriefingById(id))?.slides ?? [])[0]?.content ?? '';
-}, bid);
 
 /** A primeira figura do slide decodificada NA PÁGINA: largura, altura e o pixel central. */
 const decodificar = (page, src) => page.evaluate(async (s) => {
@@ -52,15 +46,16 @@ const decodificar = (page, src) => page.evaluate(async (s) => {
     return { w: bmp.width, h: bmp.height, pixel: [...ctx.getImageData(bmp.width >> 1, bmp.height >> 1, 1, 1).data].slice(0, 3) };
 }, src);
 
-/** Espera a primeira figura do slide em `page` ter o SHA `esperado`. */
+/** Espera a primeira figura do slide em `page` ter bytes com o SHA `esperado`. */
 async function esperarFigura(page, bid, esperado, rotulo) {
     let ultima = null;
     await expect.poll(async () => {
-        const f = figurasDe(await conteudoNoDisco(page, bid));
-        ultima = { quantas: f.length, sha: f[0] ? sha(f[0]) : null, tamanho: f[0]?.length ?? 0 };
+        const f = await figurasDoSlide(page, bid);
+        ultima = { quantas: f.length, id: f[0]?.id ?? null, sha: f[0]?.sha ?? null, bytes: f[0]?.bytes ?? 0 };
         return ultima.sha;
     }, { timeout: 30000, message: `${rotulo}: a figura do slide não é a do autor` }).toBe(esperado)
         .catch((e) => { throw new Error(`${e.message}\n${JSON.stringify(ultima)}`); });
+    return ultima;
 }
 
 collabTest.describe('A figura do slide de briefing chega com os mesmos bytes', () => {
@@ -95,30 +90,34 @@ collabTest.describe('A figura do slide de briefing chega com os mesmos bytes', (
             editor.dispatchEvent(paste);
         }, `<p>Figura do reconhecimento</p><img src="data:image/png;base64,${png.toString('base64')}">`);
 
-        // O AUTOR: a figura re-encodada está no disco dele, uma só.
+        // O AUTOR: a figura re-encodada está no banco de imagens dele, uma só, e o slide a cita.
         let figuraDoAutor = null;
         await expect.poll(async () => {
-            const f = figurasDe(await conteudoNoDisco(A, bid));
+            const f = await figurasDoSlide(A, bid);
             figuraDoAutor = f[0] ?? null;
-            return f.length;
-        }, { timeout: 20000 }).toBe(1);
-        const esperado = sha(figuraDoAutor);
-        const noAutor = await decodificar(A, figuraDoAutor);
-        console.log(`[slide] figura do autor: ${figuraDoAutor.length} caracteres, ${JSON.stringify(noAutor)}`);
+            return f.length === 1 && Boolean(figuraDoAutor?.sha);
+        }, { timeout: 20000 }).toBe(true);
+        expect(await conteudoDoSlide(A, bid), 'o slide ainda carrega bytes de figura').not.toMatch(/data:image|blob:/);
+        const esperado = figuraDoAutor.sha;
+        const noAutor = await decodificar(A, figuraDoAutor.dataUrl);
+        console.log(`[slide] figura do autor: ${figuraDoAutor.bytes} bytes, ${JSON.stringify(noAutor)}`);
         expect(noAutor.w, 'a figura colada tem a largura de origem (abaixo do teto de 800)').toBe(120);
 
-        // O SERVIDOR.
+        // O SERVIDOR: o slide cita a figura, e a imagem com esse id tem os mesmos bytes.
         await expect.poll(async () => {
             const linha = await collab.db.raw.oneOrNone(
                 'SELECT content FROM slides WHERE briefing_id = $1 AND deleted_at IS NULL ORDER BY created_at LIMIT 1', [bid]);
-            const f = figurasDe(linha?.content);
-            return f[0] ? sha(f[0]) : null;
+            const id = idsDasFiguras(linha?.content)[0];
+            if (!id) return null;
+            const imagem = await collab.db.raw.oneOrNone('SELECT content_hash FROM images WHERE id = $1', [id]);
+            return imagem?.content_hash ?? null;
         }, { timeout: 30000, message: 'a figura no Postgres não é a do autor' }).toBe(esperado);
 
-        // O COLEGA, no disco e decodificada.
-        await esperarFigura(B, bid, esperado, 'colega');
-        const noColega = await decodificar(B, figurasDe(await conteudoNoDisco(B, bid))[0]);
+        // O COLEGA, no banco de imagens e decodificada.
+        const doColega = await esperarFigura(B, bid, esperado, 'colega');
+        const noColega = await decodificar(B, (await figurasDoSlide(B, bid))[0].dataUrl);
         expect(noColega).toEqual(noAutor);
+        expect(doColega.id, 'o colega cita a mesma imagem').toBe(figuraDoAutor.id);
 
         // F5 no colega.
         await B.reload();
@@ -140,6 +139,8 @@ collabTest.describe('A figura do slide de briefing chega com os mesmos bytes', (
             return bidClone;
         }, { timeout: 30000, message: 'o clone abriu sem briefing' }).toBeTruthy();
         expect(bidClone, 'o briefing do clone tem id próprio').not.toBe(bid);
-        await esperarFigura(A, bidClone, esperado, 'clone');
+        const noClone = await esperarFigura(A, bidClone, esperado, 'clone');
+        // O clone reemite o id de toda imagem (a chave é global), e o slide segue o id novo.
+        expect(noClone.id, 'o slide do clone cita a imagem da ORIGEM').not.toBe(figuraDoAutor.id);
     });
 });

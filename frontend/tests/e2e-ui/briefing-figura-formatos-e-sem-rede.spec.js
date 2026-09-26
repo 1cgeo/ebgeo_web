@@ -16,20 +16,24 @@
  *      acima de 5 MB é recusado com a frase, sem entrar no slide;
  *   3. uma figura colada com a conexão caída chega ao colega quando a conexão volta.
  *
+ * Desde 2026-09-26 a figura é guardada POR REFERÊNCIA (`briefing/figura-de-slide.js`): o slide cita
+ * `https://figura.ebgeo/<id>` e os bytes sobem pela fila de blob. O veredito passou a ser o SHA dos
+ * BYTES de cada figura, lidos no banco de imagens de cada página (`helpers/figura-de-slide.js`), e a
+ * figura colada sem rede exercita a retomada da subida na reconexão.
+ *
  * Rodar isolado:
  *   cd frontend && npx playwright test briefing-figura-formatos-e-sem-rede --retries=0 --workers=1
  */
 
-import { createHash } from 'node:crypto';
 import { collabTest, expect } from './helpers/collab.fixtures.js';
 import { figuraSolida } from './helpers/imagem-bytes.js';
+import { figurasDoSlide, idsDasFiguras, conteudoDoSlide } from './helpers/figura-de-slide.js';
 
 collabTest.describe.configure({ retries: 0 });
 
 const B = globalThis.Buffer;
 const EDITOR = '.briefing-editor-slide-editor .ql-editor';
 const GIF_1PX = 'R0lGODlhAQABAIAAAP8AAP///yH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==';
-const sha = (t) => createHash('sha256').update(t).digest('hex');
 
 /** BMP de 24 bits, sólido, largura múltipla de 4. */
 function bmpSolido(largura, altura, [r, g, b]) {
@@ -76,17 +80,12 @@ async function fotoComRuido(page, largura, altura) {
     return B.from(b64, 'base64');
 }
 
-const figurasDe = (html) => [...String(html ?? '').matchAll(/<img\b[^>]*\bsrc="([^"]+)"/g)].map((m) => m[1]);
 
 const lerTodosBriefings = (page) => page.evaluate(async () => {
     const store = await import('/src/js/store/index.js');
     return (await store.getAllBriefings()).map((b) => b.id);
 });
 
-const conteudoNoDisco = (page, bid) => page.evaluate(async (id) => {
-    const store = await import('/src/js/store/index.js');
-    return ((await store.getBriefingById(id))?.slides ?? [])[0]?.content ?? '';
-}, bid);
 
 /** Cola `html` no editor do slide aberto. */
 function colar(page, html) {
@@ -105,21 +104,24 @@ function colar(page, html) {
     }, { seletor: EDITOR, conteudo: html });
 }
 
-/** Cola uma figura e espera o slide no disco do autor ter `n` figuras. Devolve as figuras. */
+/**
+ * Cola uma figura e espera o slide no disco do autor citar `n` figuras, todas com os bytes no banco
+ * de imagens dele. Devolve as figuras (`{ id, sha, bytes, dataUrl }`).
+ */
 async function colarFigura(page, bid, mime, bytes, n) {
     await colar(page, `<p>f${n}</p><img src="data:${mime};base64,${bytes.toString('base64')}">`);
     let figuras = [];
     await expect.poll(async () => {
-        figuras = figurasDe(await conteudoNoDisco(page, bid));
-        return figuras.length;
+        figuras = await figurasDoSlide(page, bid);
+        return figuras.filter((f) => f.sha).length;
     }, { timeout: 20000, message: `a figura ${mime} não entrou no slide` }).toBe(n);
     return figuras;
 }
 
-/** O que o colega tem no slide: a lista de SHA das figuras. */
+/** O que o colega tem no slide: a lista de SHA dos bytes das figuras. */
 async function esperarNoColega(page, bid, esperadas, rotulo) {
-    await expect.poll(async () => figurasDe(await conteudoNoDisco(page, bid)).map(sha), { timeout: 30000,
-        message: `${rotulo}: as figuras do colega não são as do autor` }).toEqual(esperadas.map(sha));
+    await expect.poll(async () => (await figurasDoSlide(page, bid)).map((f) => f.sha), { timeout: 30000,
+        message: `${rotulo}: as figuras do colega não são as do autor` }).toEqual(esperadas.map((f) => f.sha));
 }
 
 /** Largura decodificada de uma figura data URL, na página. */
@@ -147,7 +149,7 @@ collabTest.describe('Figura colada no slide: formatos, teto, foto grande e sem r
         await colarFigura(A, bid, 'image/webp', await figuraSolida(A, [40, 40, 200], { tipo: 'image/webp', lado: 40 }), 3);
         await colarFigura(A, bid, 'image/gif', B.from(GIF_1PX, 'base64'), 4);
         const cinco = await colarFigura(A, bid, 'image/bmp', bmpSolido(40, 40, [230, 180, 30]), 5);
-        expect(cinco.map((s) => s.slice(0, 23)), 'toda figura colada é re-encodada como JPEG')
+        expect(cinco.map((f) => f.dataUrl.slice(0, 23)), 'toda figura colada é re-encodada como JPEG')
             .toEqual(Array(5).fill('data:image/jpeg;base64,'));
         await esperarNoColega(Bp, bid, cinco, 'cinco formatos');
 
@@ -157,14 +159,14 @@ collabTest.describe('Figura colada no slide: formatos, teto, foto grande e sem r
         expect(grande.length, 'a foto de teste tem o peso de uma foto de celular, abaixo do teto').toBeGreaterThan(1.5 * 1024 * 1024);
         expect(grande.length).toBeLessThan(5 * 1024 * 1024);
         const seis = await colarFigura(A, bid, 'image/jpeg', grande, 6);
-        expect(await largura(A, seis[5]), 'a foto grande não foi reduzida').toBeLessThanOrEqual(800);
+        expect(await largura(A, seis[5].dataUrl), 'a foto grande não foi reduzida').toBeLessThanOrEqual(800);
         const pesada = B.concat([grande, B.alloc(5 * 1024 * 1024 + 1 - grande.length)]);
         await colar(A, `<p>pesada</p><img src="data:image/jpeg;base64,${pesada.toString('base64')}">`);
         const recusa = A.locator('.toast', { hasText: 'o máximo é 5 MB' }).first();
         await expect(recusa, 'a figura acima de 5 MB não foi recusada com a frase').toBeVisible({ timeout: 15000 });
         console.log(`[slide] recusa: ${await recusa.innerText()}`);
         await A.waitForTimeout(1500);
-        expect(figurasDe(await conteudoNoDisco(A, bid)).length, 'a figura recusada entrou no slide').toBe(6);
+        expect(idsDasFiguras(await conteudoDoSlide(A, bid)).length, 'a figura recusada entrou no slide').toBe(6);
         await esperarNoColega(Bp, bid, seis, 'foto grande');
 
         // 3. SEM REDE.
