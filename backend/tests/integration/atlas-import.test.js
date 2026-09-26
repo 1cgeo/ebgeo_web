@@ -424,6 +424,33 @@ describe('Atlas Import API', () => {
       assert.equal(featureCheck.rows[0].id, featureId);
     });
 
+    // THE CLIENT'S "ENVIAR AO SERVIDOR" SENDS THE LOCK AND THE BADGE COLOURS since 2026-09-26
+    // (`buildServerImportPayload`): before, every map went up with `locked: false`. The server
+    // half of that contract is this case; the map left out of `locked` must keep the default.
+    it('keeps the lock of each map and the badge colours in the atlas settings', async () => {
+      const travado = randomUUID();
+      const livre = randomUUID();
+      const mapa = (id, name, extra = {}) => ({
+        id, name, base_layer: 'osm', center_lat: 0, center_long: 0, zoom: 1, ...extra,
+      });
+
+      const res = await supertest(app)
+        .post('/api/v1/atlas/import')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          atlas: { name: 'Trava e cor', settings: { mapBadgeColors: { Travado: '#aa0000', Livre: '#00bb00' } } },
+          maps: [mapa(travado, 'Travado', { locked: true }), mapa(livre, 'Livre')],
+          briefings: [],
+        })
+        .expect(201);
+
+      const { rows: mapas } = await db.query(
+        'SELECT name, locked FROM maps WHERE id = ANY($1) ORDER BY name', [[travado, livre]]);
+      assert.deepEqual(mapas.map((m) => [m.name, m.locked]), [['Livre', false], ['Travado', true]]);
+      const { rows: atlas } = await db.query('SELECT settings FROM atlas WHERE id = $1', [res.body.data.id]);
+      assert.deepEqual(atlas[0].settings.mapBadgeColors, { Travado: '#aa0000', Livre: '#00bb00' });
+    });
+
     it('rejects import without atlas name', async () => {
       await supertest(app)
         .post('/api/v1/atlas/import')
