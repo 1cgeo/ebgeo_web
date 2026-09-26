@@ -47,7 +47,7 @@ Os branches de cobertura foram todos integrados em 2026-09-25, e os relatórios 
 - Imagens (cobertura-imagens.md; o branch saiu em 2026-09-25): a foto grande pela galeria e a foto no link lento ficaram cobertas pela integração das fotos por referência (foto-anexa-por-referencia.spec.js). Falta, pela tela, a recusa de foto acima de 10 MB com a frase (hoje só o unitário image-utils.test.js prende o limite), a recusa de SVG pela galeria (só unitária) e a foto por referência aberta por visitante de link público (nenhum spec).
 - Bloqueio (tudo já integrado): falta um spec da seleção por clique e por caixa com as três travas, e do F5 nos dois lados. Falta também a coluna do mapa travado: seleção no mapa, arrasto, vértice, painel, aba Atributos e célula da tabela; excluir por menu e por caixa, colar, mover, converter, cortar e estilo em massa. Hoje só browser-collab-lock, browser-lock-authz e drawing-delayed-map-lock tocam nela, sem conferência caso a caso. O modal de pontos em lote com a camada ativa travada só tem a guarda da store.
 - Importação e exportação: faltam desc e ele do waypoint GPX, CSV em GMS, UTM e MGRS num atlas de servidor, as capturas 3D e 360, o PNG de perfil e "Baixar meus dados".
-- Navegadores: no Firefox, o modo privado ficou inconclusivo (o Playwright não entrou nele). A volta pelo bfcache não foi medida: o Firefox real tem bfcache ligado, o do Playwright não, e nenhum código ouve pageshow com persisted (atlas.html é a candidata).
+- Navegadores: o que falta medir no Firefox (modo privado, bfcache) está na seção 5.1, porque só roda fora desta nuvem.
 
 ## 3. Defeitos e riscos conhecidos, sem conserto
 
@@ -67,23 +67,15 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
   - verificações de release: 5/5.
 - As falhas dessas camadas, rodadas sozinhas 3 vezes cada:
   - visibilidade-compartilhada-no-colega: 3 de 3; a falha anterior foi carga.
-  - desempenho-do-boot-do-mapa.spec.js (linha 304), transições entre atlas: 0 de 3, TETO DESATUALIZADO. São 638 pedidos de script por transição contra o teto de 631; o código novo do dia acrescentou módulos. Remedir junto com os tetos de peso, no passo 3 do item 5.
   - Atlas grande com 10000 pontos num grupo: 2 de 3. A falha foi "Target crashed", a queda conhecida do renderizador do Chromium no harness, descrita nas regras de teste do Playwright, que piora com mapa pesado. Nada aponta para o produto.
-- Não rodaram:
-  - o cenário de produção em HTTPS, que exige EBGEO_MIGRATION_DATA_DIR apontando para uma pasta com o arquivo 03-completo-2.4.ebgeo;
-  - a camada de migração, que exige o mesmo acervo;
-  - a "mega", que abre navegador na tela;
-  - a suíte no Firefox (npm run test:e2e:firefox), cancelada pelo dono aos 19 de 912 casos, todos passando até ali.
+- O que não rodou (cenário de produção, migração, mega, Firefox) está na seção 5.1.
 
-- briefing-figura-em-link-lento.spec.js usa Network.emulateNetworkConditionsByRule, que o Chromium 1194 da nuvem não tem. Desde 2026-09-26 ele afirma as duas metades da figura por referência (os bytes chegam ao colega, o texto digitado ao lado dela também, e a soma dos envios do /sync tem teto); na nuvem ele foi verificado numa cópia que estrangula a página inteira (resultado na seção 3.1), e o arquivo commitado ainda precisa de uma rodada com o Chromium do Playwright instalado (build 1228). Se a regra por origem não pegar, o piso do instrumento o reprova em voz alta.
 - Teste do backend que falha perto da meia-noite: diag-cli-json.test.js, nos casos da janela e do comando saude (2 de 5710 numa rodada que cruzou 2026-09-25 00:00). A fixture espalha os registros por 15 minutos e os grava por arquivo de dia, então nos primeiros 15 minutos do dia eles caem em dois arquivos. Passa 17 de 17 sozinho. Tornar a fixture independente do relógio.
 - Testes do frontend que falham só sob carga e passam sozinhos: tab-lock-refutacao 3.5 (três vezes em 24/09), idb-decisao4-medicao (duas vezes), e a verificação de símbolos por tempo do docs-integridade (duas vezes).
-- Dois specs do Firefox ficaram sem classificação: browser-collab-analise-desfazer (linha 119) e envio-do-acervo-herdado (linha 341).
 - briefing-vista-do-slide-cobertura.spec.js, caso "base por slide e instante por slide", reprova já em 318d864f (Chromium 1194, 1 de 1): um modal de confirmação intercepta o "Salvar" do editor em fecharEditorUI (linha 165). Não investigado.
 - Seis casos do vitest dependem do número de núcleos da máquina: orcamento-de-memoria-do-3d, streetview-tile-canvas-area-zero (2), streetview-tile-custo-maquina (2) e tile-loader-consertos-de-desempenho. Eles afirmam o caso "a máquina não se descreve", mas o Node 24 expõe navigator.hardwareConcurrency, e numa máquina de 4 núcleos o código aperta o orçamento. Reprovam na nuvem de 4 núcleos, em 318d864f também. O teste deve fixar o navigator em vez de ler o da máquina.
 - A porta de cópia pode dizer "pendente" onde é "recusado" (lido no código em 2026-09-25, sem medição): lerDivida (espera-do-envio-do-mapa.js) conta os recusados por getProblems, que segue só dependsOn, enquanto countByState e o carregador seguem também o lote envenenado (poisonedBatches). Depois do B6.1 a diferença só sobra para irmã SEM recibo no mesmo batchId. Um repro de integração decide se o caso ainda é alcançável.
-- Presença em link lento, o que ficou fora do item 1.3 (integrado em 2026-09-25): o cursor do PRÓPRIO par lento continua subindo durante um envio, estimado em cerca de 17% do uplink nominal e nunca medido. Só vale fazer se um spec de subida lenta mostrar a edição esperando atrás do cursor. O spec presenca-nao-disputa-com-sync usa Network.emulateNetworkConditionsByRule, que o Chromium 1194 da nuvem não tem: ali ele foi verificado numa cópia que estrangula a página inteira (3 de 3; o controle com WS_PRESENCE_FLOW=0 reprovou como devia), e o arquivo commitado ainda precisa de uma rodada com o Chromium do Playwright instalado (build 1228).
-- O catalogo-basemap-sem-video (backend), vermelho na máquina Windows original, passa na nuvem Linux antes e depois do item 1.3: falta rodá-lo de novo no Windows e ver se o vermelho continua.
+- Presença em link lento, o que ficou fora do item 1.3 (integrado em 2026-09-25): o cursor do PRÓPRIO par lento continua subindo durante um envio, estimado em cerca de 17% do uplink nominal e nunca medido. Só vale fazer se um spec de subida lenta mostrar a edição esperando atrás do cursor. A rodada do spec presenca-nao-disputa-com-sync com o Chromium do Playwright instalado está na seção 5.1.
 - Coleta de imagem órfã (integrada em 2026-09-25, sem agendamento, por decisão do dono). A medição do gatilho antes da primeira marcação virou item da seção 4. Ficam para depois do lançamento: o agendamento (proposta: marcar semanal e apagar mensal pelo cron do host), um relatório só de leitura dos arquivos em disco sem linha em images, e a coleta local (IndexedDB), só em atlas local montado, sem subida pendente e com a pilha de desfazer vazia.
 - O contentLeftOffset do gerente de estado (getContentLeftOffset, state_manager.js) espelha SIDEBAR_DIMENSIONS, com painel de 320 px, e diz 376; o CSS desenha --sidebar-panel-width de 400 px na mesa e --sidebar-panel-width-tablet de 340 px no tablet (lido no código em 2026-09-26, sem medição). O enquadramento da seleção deixou de usá-lo (mede a caixa do painel), mas o empurrão do tablet (map/tablet-panel-push.js) recua o mapa por ele, e aí sobram cerca de 20 px de mapa sob o painel. Medir no config de tablet antes de corrigir a constante.
 - O runner do processamento (processing-runner.js) confere só a trava: se o papel ou a trava mudarem durante uma execução já iniciada, a pessoa ainda lê "Falha ao criar camada de saída". Pelo clique isso não se alcança mais, porque o Executar some.
@@ -105,7 +97,6 @@ A suíte inteira da raiz passou: lint, frontend 16262/16262, backend 5704/5704 (
   - servidor: nomes de mapa iguais por criação concorrente (o cliente chaveia trava e temporal por nome, e o servidor não tem UNIQUE); restaurar o banco de um backup (setLastVersion só sobe, então um cursor acima do current_version pula ops; importa para o plano de rollback); retrato HTTP de resync com uma op viva atrasada chegando depois dele; update de camada, grupo, 3D e 360 filtra por map_id da op, e depois de um merge REST volta applied sem efeito (só pela API);
   - resgate: a trava de aba não é reconferida depois do modal do resgate; um desenho com gravação pendente durante switchAtlas ao vivo não cai em atlas nenhum (janela de milissegundos, só no vigia de migração).
 - Duas lições de método ainda sem guarda, e por isso fora do livro-razão: o docs-integridade lê arquivo NÃO rastreado (FONTES_DE_CODIGO usa readdirSync), e uma sonda solta na worktree de um agente o deixou verde com um símbolo errado; o certo é listar só o rastreado, como os censos que já têm o caso tmp-nao-rastreado. E a linha #! no começo de um script que o vitest importa quebra num checkout CRLF, e já aconteceu duas vezes (scripts/inventario-de-vendors.mjs em 2026-09-13, dev/testes-tocados.mjs em 2026-09-24): falta um censo de #! nesses scripts.
-- Atlas sem tempo real (integrado em 2026-09-25): o spec sem-tempo-real.spec.js rodou só no Chromium (3 de 3, com controle negativo), e o Firefox do modo não foi medido. Entre os vizinhos, o caso "slow network" de network-chaos usa Network.emulateNetworkConditionsByRule, que o Chromium 1194 da nuvem não tem, e passou numa cópia que estrangula a página inteira.
 - O npm run test:tocados responde "nada a rodar" quando o branch não tem upstream, mesmo com commits ainda sem push: ele só soma o diff contra o upstream quando existe um. Deveria recusar em voz alta e pedir --desde ou o upstream.
 - Duas observações da revisão dos gestos em massa (2026-09-25), menores e sem perda de dado:
   - Na quarentena, "Descartar" numa linha de um grupo recusado junto pergunta pelo grupo inteiro e descarta só aquela linha; e as frases do grupo prometem um "Aceitar o servidor" que a linha de quarentena não tem. Erra para o lado seguro, mas o texto é falso.
@@ -142,8 +133,10 @@ A primeira leva foi toda feita em 2026-09-26, cada item com repro, conserto, con
 
 1. Medir o custo do ping de 2 bytes que agora segue cada quadro de presença: de dentro de backend/, node tests/bench/sala-limite.bench.mjs com WS_PRESENCE_FLOW=1 e com =0, contra a linha de base de 2026-08-27. A bancada mede o custo do ping, não a retenção, porque o cliente ws dela responde ao ping na hora, e o perdaCursorPct pode passar a contar coalescência como perda.
 2. Rodar as seis frentes do item 6, na ordem de risco, e integrar o que elas acharem.
-3. Remedir e APERTAR os tetos de peso da página do mapa. A fonte ficou com folga larga de propósito durante a campanha. Depois dos itens do dono de 2026-09-26 o construído está em 4261 de 4270 kB (91 arquivos), a fonte ansiosa em 8110 de 8120 kB e a fonte total em 12303 de 12320 kB (814 arquivos).
-4. npm run lint e npm test na raiz, em comandos separados.
+3. Remedir e APERTAR os tetos de peso da página do mapa (frontend/tests/unit/teto-de-peso-da-pagina-do-mapa.test.js), com build fresco. A fonte ficou com folga larga de propósito durante a campanha. Medido em 2026-09-26, depois da figura de slide por referência: o index.html construído em 4272 de 4280 kB (91 arquivos), a calibracao.html em 2042 de 2050 kB, a fonte ansiosa em 8162 de 8170 kB (576 arquivos, teto 576) e a fonte total em 12356 de 12370 kB (819 arquivos, teto 819). No mesmo passo:
+   - o teto de pedidos de script por transição entre atlas em desempenho-do-boot-do-mapa.spec.js (linha 304), que reprovou 0 de 3 em 2026-09-24 com 638 pedidos contra 631 e subiu desde então;
+   - reescrever o comentário da metade (b) daquele teste, que diz "É o que a pessoa de fato paga" e soma a passada legacy que o navegador moderno não baixa (seção 3, documentação que afirma o falso).
+4. npm run lint e npm test na raiz, em comandos separados. Nesta nuvem, cada perna pede um Node (seção 0.1, passo 5): o vitest do frontend com o Node 24, o backend e o e2e de contrato com o Node 22 do sistema. Como a raiz para na primeira perna vermelha, e as seis falhas de número de núcleos do vitest (seção 3) reprovam aqui, rode as outras duas pernas separadas (npm run test:backend e npm run test:e2e) até essas seis serem consertadas.
 5. O Playwright inteiro, em fatias paralelas com portas e bancos próprios, com retries desligado ou lendo a contagem de flaky antes de declarar verde.
 6. nginx (instruções completas nos arquivos fora do repositório citados no item 0):
    - limite de corpo de 60 MB nos blocos do EBGeo, porque o padrão do nginx é 1 MB e o sync e o import o ultrapassam;
@@ -153,6 +146,29 @@ A primeira leva foi toda feita em 2026-09-26, cada item com repro, conserto, con
    TRUST_PROXY_HOPS precisa bater com o número de proxies do caminho: 3 em produção, 4 no ambiente de teste.
 7. Source maps (deploy.sh, 2026-09-26): o deploy passa a movê-los para deploy/sourcemaps/<release>/. No host, montar essa pasta só leitura no container do backend e apontar EBGEO_MAPAS_DIR para ela; sem isso o "diag pilha" responde que a desminificação não está disponível. Conferir depois do primeiro deploy: nenhum .map em deploy/current/, e o "diag pilha" de um defeito novo resolvido.
 8. METEOROLOGIA_URL: o padrão é a API pública da Open-Meteo, chamada pelo navegador de cada usuário. Se a coordenada não pode sair da rede, aponte para uma Open-Meteo interna em https, ou desligue o painel na aba Sistema.
+
+## 5.1 O que só roda fora desta nuvem
+
+A nuvem onde a campanha terminou (Linux, 4 núcleos, Chromium 1194 do sistema, sem o acervo externo e sem os navegadores antigos) não alcança os itens abaixo. Cada um precisa de outra máquina, do host de produção ou de uma ação do dono. Os passos 6 a 8 da seção 5 também são do host de produção.
+
+- Chromium do Playwright instalado (build 1228), porque o 1194 desta nuvem não tem Network.emulateNetworkConditionsByRule. Três specs estrangulam só a origem do backend com essa regra e aqui foram verificados apenas em cópias que estrangulam a página inteira:
+  - briefing-figura-em-link-lento.spec.js, que desde 2026-09-26 afirma as duas metades da figura por referência (os bytes chegam ao colega, o texto ao lado dela também, e a soma dos envios do /sync tem teto de 60 kB). Na cópia, 3 de 3: figura de 156 kB e texto no colega em 45 a 46 s, um envio do /sync de 10 kB. Se a regra por origem não pegar, o piso do instrumento o reprova em voz alta;
+  - presenca-nao-disputa-com-sync.spec.js (3 de 3 na cópia; o controle com WS_PRESENCE_FLOW=0 reprovou como devia);
+  - o caso "slow network" de browser-sync-network-chaos.spec.js (passou na cópia).
+
+  Rodar cada um pelo nome, de dentro de frontend/: npx playwright test <nome> --retries=0 --workers=1.
+- Acervo externo (EBGEO_MIGRATION_DATA_DIR apontando para uma pasta com o arquivo 03-completo-2.4.ebgeo, que só existe na máquina original): o cenário de produção em HTTPS (playwright.release-production.config.js) e a camada de migração (npm run test:e2e:migracao). Nenhum dos dois rodou na rodada de 2026-09-24.
+- Tela real: a "mega" (browser-collab-mega.spec.js), que abre navegador na tela.
+- Firefox:
+  - a suíte inteira (npm run test:e2e:firefox), cancelada pelo dono aos 19 de 912 casos, todos passando até ali;
+  - dois specs sem classificação: browser-collab-analise-desfazer (linha 119) e envio-do-acervo-herdado (linha 341);
+  - o atlas sem tempo real (sem-tempo-real.spec.js rodou só no Chromium, 3 de 3 com controle negativo);
+  - o modo privado, inconclusivo porque o Playwright não entrou nele;
+  - a volta pelo bfcache, não medida: o Firefox real tem bfcache ligado, o do Playwright não, e nenhum código ouve pageshow com persisted (atlas.html é a candidata).
+- Navegadores do piso de verdade (Chrome ou Edge 109 e Firefox ESR 115): depois do ajuste de CSS da seção 4, abrir o mapa, a Administração e a tabela de atributos neles e conferir os painéis e as cores. O Playwright não traz essas versões.
+- Windows: o catalogo-basemap-sem-video (backend), vermelho na máquina Windows original, passa na nuvem Linux antes e depois do item 1.3. Rodar de novo no Windows e ver se o vermelho continua.
+- Fora do repositório: as instruções de nginx para o engenheiro (nginx-srv-arquivos-2026-09-23.txt e nginx-srv-arquivos-ebgeo-envio-2026-09-24.txt) estão na pasta Downloads da máquina original e precisam ser levadas à mão; o essencial delas está no passo 6 da seção 5.
+- GitHub, ação do dono: apagar no origin os oito branches hunt/* já integrados (hunt/cob-camadas, hunt/cob-briefing, hunt/cob-imagens, hunt/cob-taticas, hunt/cob-desenho, hunt/orfas, hunt/rede-ws e hunt/relatorios). O proxy desta nuvem recusa apagar branch.
 
 ## 6. Frentes aprovadas e ainda não feitas
 
