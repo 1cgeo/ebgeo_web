@@ -560,7 +560,11 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // socket, the pull, the probe) in `store/sync/sync-engine.js` and its two leaves; no new
         // package. Headroom kept small on purpose: the ceilings are re-measured and tightened for the
         // launch (PENDENCIAS, final steps).
-        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(8100);
+        // 8100 -> 8110 on 2026-09-26, the owner's launch items (the 413 probe of the API client, the
+        // refused photo leaving with the photo, the dashed KMZ coming back whole): 8106 kB measured by
+        // this case's failure. The growth is `store/sync/recusa-de-foto-sem-citacao.js` and the
+        // comments of the files it touches; no new package.
+        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(8110);
     });
 
     it('o grafo COMPLETO (seguindo `import()`) cabe entre o piso e o teto medidos', () => {
@@ -919,7 +923,9 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // 812 on 2026-09-25, integrating the atlas without real time (item 1.4): its two leaves,
         // `store/sync/sem-tempo-real.js` (the mode's rules, zero imports) and
         // `store/sync/sem-tempo-real-phrases.js` (the notice and the badge).
-        expect(completo.arquivos.size).toBeLessThanOrEqual(812);
+        // 813 on 2026-09-26: `store/sync/recusa-de-foto-sem-citacao.js`, the census that lets the record
+        // of a refused attached photo leave once no entity cites the photo.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(813);
         const creationContext = 'src/js/tool_manager/helpers/feature-creation-context.js';
         expect([...completo.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
         expect([...ansioso.arquivos].some(f => f.endsWith(creationContext))).toBe(true);
@@ -981,7 +987,9 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // 12240 -> 12280 on 2026-09-25, integrating the atlas without real time (item 1.4): 12277 kB
         // measured by this case's failure, once the module count above let it reach this line. The
         // mode in `store/sync/sync-engine.js` and its two leaves; no new package.
-        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(12280);
+        // 12280 -> 12300 on 2026-09-26, the owner's launch items: 12290 kB measured by this case's
+        // failure (the census leaf above, the 413 probe, the dashed KMZ round trip); no new package.
+        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(12300);
     });
 
     it('seguir `import()` de fato acrescenta grafo, e é isso que prova a regex dinâmica', () => {

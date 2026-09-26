@@ -46,7 +46,8 @@ import {
 } from '@store/remote-atlas.api.js';
 import { operationQueue, operationBelongsToScope } from '@store/sync/operation-queue.js';
 // Leaf with zero imports: the pendency key and states, without the upload queue's graph.
-import { BLOB_UPLOAD_KEY_PREFIX, BLOB_UPLOAD_PENDENTE, BLOB_UPLOAD_RECUSADO, ORIGEM_FOTO_ANEXA } from '@store/sync/blob-upload-keys.js';
+import { BLOB_UPLOAD_KEY_PREFIX, BLOB_UPLOAD_PENDENTE } from '@store/sync/blob-upload-keys.js';
+import { ehRecusaDeFotoAnexa, recusasDeFotoSemCitacao } from '@store/sync/recusa-de-foto-sem-citacao.js';
 import {
     ExitOutcome,
     exitPreservedSummary,
@@ -385,14 +386,20 @@ async function countPendingBlobUploadsIn(scope) {
     const store = getStoreFor(StoreName.IMAGES, scope);
     const keys = (await store.keys())
         .filter(key => typeof key === 'string' && key.startsWith(BLOB_UPLOAD_KEY_PREFIX));
-    let total = 0;
+    const registros = [];
     for (let i = 0; i < keys.length; i += COUNT_BATCH_SIZE) {
-        const registros = await Promise.all(keys.slice(i, i + COUNT_BATCH_SIZE).map(key => store.getItem(key)));
-        for (const registro of registros) {
-            if (registro?.estado === BLOB_UPLOAD_PENDENTE) total += 1;
-            else if (registro?.estado === BLOB_UPLOAD_RECUSADO
-                && typeof registro.origem === 'string' && registro.origem.startsWith(ORIGEM_FOTO_ANEXA)) total += 1;
-        }
+        registros.push(...await Promise.all(keys.slice(i, i + COUNT_BATCH_SIZE).map(key => store.getItem(key))));
+    }
+    // ONLY WHILE AN ENTITY STILL CITES IT (owner's decision of 2026-09-26): a refused photo the
+    // person already removed protects nothing, and asking about it at every exit was the defect.
+    // This path only READS (it also runs on `atlas.html`, for an atlas that is not mounted); the
+    // record itself leaves in `listarPendenciasDeBlob`. A census that cannot be read throws, and
+    // the caller's unknown preserves.
+    const semCitacao = new Set(await recusasDeFotoSemCitacao(registros, scope));
+    let total = 0;
+    for (const registro of registros) {
+        if (registro?.estado === BLOB_UPLOAD_PENDENTE) total += 1;
+        else if (ehRecusaDeFotoAnexa(registro) && !semCitacao.has(registro)) total += 1;
     }
     return total;
 }

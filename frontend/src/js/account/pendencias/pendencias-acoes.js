@@ -140,7 +140,9 @@ export function acoesDaLinha(linha, {
     if (linha.classe === PendenciaClasse.UPLOAD_PENDENTE
         || linha.classe === PendenciaClasse.UPLOAD_RECUSADO) {
         // Uma figura não tem operação a descartar nem a reenviar por esta tela: a retomada é
-        // automática na reconexão (`retomarBlobsPendentes`) e o registro não tem porta de remoção.
+        // automática na reconexão (`retomarBlobsPendentes`). A recusa de uma foto anexa sai
+        // sozinha quando nenhuma entidade a cita mais (`recusasDeFotoSemCitacao`, desde
+        // 2026-09-26); o "Descartar" para a foto ainda citada espera decisão do dono.
         return acoes;
     }
 

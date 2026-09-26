@@ -20,7 +20,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import 'fake-indexeddb/auto';
-import { activateScope, getActiveScope, remoteScope } from '@store/atlas-namespace.js';
+import { activateScope, getActiveScope, getStoreFor, remoteScope, StoreName } from '@store/atlas-namespace.js';
 import { operationQueue } from '@store/sync/operation-queue.js';
 import { enableOperationLogging, persistOperationIntents } from '@store/sync/operation-dispatcher.js';
 import { EntityType, OperationType } from '@store/sync/operation-types.js';
@@ -180,7 +180,14 @@ describe('a recusa e a falha do servidor numa foto CONVERTIDA', () => {
     it('a foto ANEXADA aqui e recusada (a única cópia) conta como trabalho não enviado', async () => {
         const scope = getActiveScope();
         h.resposta = recusa();
-        const registrado = await registrarBlob({ imageId: crypto.randomUUID(), blob: blob(), atlasId: scope.atlasId, origem: 'foto-anexa' });
+        const p = crypto.randomUUID();
+        // ENQUANTO UMA FEIÇÃO A CITA (decisão do dono de 2026-09-26): sem citação ela deixa de contar
+        // (`tests/integration/foto-recusada-sai-com-a-foto.repro.test.js`).
+        const mapa = crypto.randomUUID();
+        await getStoreFor(StoreName.MAPS, scope).setItem(mapa, {
+            id: mapa, features: { points: [{ type: 'Feature', properties: { id: 'f1', source: 'point', images: [foto(p)] } }] },
+        });
+        const registrado = await registrarBlob({ imageId: p, blob: blob(), atlasId: scope.atlasId, origem: 'foto-anexa' });
         await enviarBlobRegistrado(registrado, blob());
         expect(await countPendingOperationsFor(scope.atlasId)).toBe(1);
     });

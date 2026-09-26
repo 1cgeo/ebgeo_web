@@ -87,6 +87,7 @@ import { EntityType } from './operation-types.js';
 import { idsDeFotosDaEntidade } from '@js/user_data/photo-refs.js';
 import { connectionState } from './connection-state.js';
 import { BLOB_UPLOAD_KEY_PREFIX, BLOB_UPLOAD_PENDENTE, BLOB_UPLOAD_RECUSADO, ORIGEM_FOTO_CONVERTIDA } from './blob-upload-keys.js';
+import { recusasDeFotoSemCitacao } from './recusa-de-foto-sem-citacao.js';
 import {
     CausaDeFalha,
     FALHA_SEM_BYTES,
@@ -355,6 +356,13 @@ export async function idsComBlobPendente() {
 
 /**
  * Every pendency record of the mounted atlas, newest last.
+ *
+ * A REFUSED ATTACHED PHOTO THAT NO ENTITY CITES ANY MORE LEAVES HERE, from disk and from the memory
+ * mirror (owner's decision of 2026-09-26): the person removed the photo, or the entity that had it,
+ * and the record of its refusal has nothing left to protect. The census is read only when such a
+ * refusal exists (`recusa-de-foto-sem-citacao.js`); when it cannot be read, every record stays,
+ * because a record kept too long costs a question and one removed too soon costs a photo.
+ * `tests/integration/foto-recusada-sai-com-a-foto.repro.test.js`.
  * @returns {Promise<Array<Object>>} Records; empty in a local atlas and on any read failure.
  */
 export async function listarPendenciasDeBlob() {
@@ -363,10 +371,24 @@ export async function listarPendenciasDeBlob() {
     try {
         const store = loja(scope);
         const chaves = (await store.keys()).filter(k => k.startsWith(KEY_PREFIX));
-        const registros = [];
+        let registros = [];
         for (const chave of chaves) {
             const registro = await store.getItem(chave);
             if (registro) registros.push(registro);
+        }
+        let semCitacao = [];
+        try {
+            semCitacao = await recusasDeFotoSemCitacao(registros, scope);
+        } catch (error) {
+            console.warn('[blob-upload-queue] could not read which photos are still cited:', error);
+        }
+        if (semCitacao.length > 0) {
+            for (const registro of semCitacao) {
+                await store.removeItem(chaveDe(registro.tentativaId));
+                _recusados.delete(registro.imageId);
+            }
+            const saem = new Set(semCitacao);
+            registros = registros.filter(registro => !saem.has(registro));
         }
         return registros.sort((a, b) => (a.criadoEm ?? 0) - (b.criadoEm ?? 0));
     } catch (error) {
